@@ -1,0 +1,14 @@
+# Runtime data
+/data/*.json
+
+# Node artifacts
+**/node_modules/
+*.log
+npm-debug.log*
+
+# Environment files
+.env
+.env.*
+
+# macOS
+.DS_Store

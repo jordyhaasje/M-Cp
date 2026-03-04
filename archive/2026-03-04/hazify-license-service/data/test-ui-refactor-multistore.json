@@ -1,0 +1,235 @@
+{
+  "licenses": {
+    "HZY-C01FCA6E-6DB5298E-D8257546": {
+      "licenseKey": "HZY-C01FCA6E-6DB5298E-D8257546",
+      "status": "active",
+      "entitlements": {
+        "mutations": true,
+        "tools": {}
+      },
+      "maxActivations": 3,
+      "boundFingerprints": [],
+      "stripeCustomerId": null,
+      "stripeSubscriptionId": null,
+      "createdAt": "2026-03-04T21:08:22.176Z",
+      "updatedAt": "2026-03-04T21:08:22.188Z",
+      "pastDueSince": null,
+      "canceledAt": null,
+      "subscription": {
+        "provider": "stripe",
+        "status": "active",
+        "planCode": null,
+        "priceId": null,
+        "interval": null,
+        "seats": 1,
+        "customerId": null,
+        "subscriptionId": null,
+        "currentPeriodStart": null,
+        "currentPeriodEnd": null,
+        "cancelAt": null,
+        "canceledAt": null,
+        "trialEndsAt": null,
+        "metadata": {}
+      }
+    },
+    "HZY-1212DF70-E5CD5A3E-A6D56883": {
+      "licenseKey": "HZY-1212DF70-E5CD5A3E-A6D56883",
+      "status": "active",
+      "entitlements": {
+        "mutations": true,
+        "tools": {}
+      },
+      "maxActivations": 3,
+      "boundFingerprints": [],
+      "stripeCustomerId": null,
+      "stripeSubscriptionId": null,
+      "createdAt": "2026-03-04T21:08:38.128Z",
+      "updatedAt": "2026-03-04T21:08:38.160Z",
+      "pastDueSince": null,
+      "canceledAt": null,
+      "subscription": {
+        "provider": "stripe",
+        "status": "active",
+        "planCode": null,
+        "priceId": null,
+        "interval": null,
+        "seats": 1,
+        "customerId": null,
+        "subscriptionId": null,
+        "currentPeriodStart": null,
+        "currentPeriodEnd": null,
+        "cancelAt": null,
+        "canceledAt": null,
+        "trialEndsAt": null,
+        "metadata": {}
+      }
+    }
+  },
+  "tenants": {
+    "tenant_4741f666d99a84f4f99ba792fdb74d25": {
+      "tenantId": "tenant_4741f666d99a84f4f99ba792fdb74d25",
+      "licenseKey": "HZY-C01FCA6E-6DB5298E-D8257546",
+      "label": null,
+      "shopify": {
+        "domain": "store-one.myshopify.com",
+        "accessToken": null,
+        "clientId": "cid_1",
+        "clientSecret": "secret_1"
+      },
+      "createdAt": "2026-03-04T21:08:22.188Z",
+      "updatedAt": "2026-03-04T21:08:22.188Z",
+      "subscription": {
+        "provider": "stripe",
+        "status": "inactive",
+        "planCode": null,
+        "priceId": null,
+        "interval": null,
+        "seats": 1,
+        "nextRenewalAt": null,
+        "cancelAt": null,
+        "metadata": {}
+      }
+    },
+    "tenant_4935315cbf6bc0c01ee8e039c2f541ff": {
+      "tenantId": "tenant_4935315cbf6bc0c01ee8e039c2f541ff",
+      "licenseKey": "HZY-1212DF70-E5CD5A3E-A6D56883",
+      "label": null,
+      "shopify": {
+        "domain": "store-one.myshopify.com",
+        "accessToken": null,
+        "clientId": "cid_1",
+        "clientSecret": "secret_1"
+      },
+      "createdAt": "2026-03-04T21:08:38.141Z",
+      "updatedAt": "2026-03-04T21:08:38.141Z",
+      "subscription": {
+        "provider": "stripe",
+        "status": "inactive",
+        "planCode": null,
+        "priceId": null,
+        "interval": null,
+        "seats": 1,
+        "nextRenewalAt": null,
+        "cancelAt": null,
+        "metadata": {}
+      }
+    },
+    "tenant_595ff72e34086cd952c831fd99364387": {
+      "tenantId": "tenant_595ff72e34086cd952c831fd99364387",
+      "licenseKey": "HZY-1212DF70-E5CD5A3E-A6D56883",
+      "label": null,
+      "shopify": {
+        "domain": "store-two.myshopify.com",
+        "accessToken": null,
+        "clientId": "cid_2",
+        "clientSecret": "secret_2"
+      },
+      "createdAt": "2026-03-04T21:08:38.150Z",
+      "updatedAt": "2026-03-04T21:08:38.150Z",
+      "subscription": {
+        "provider": "stripe",
+        "status": "inactive",
+        "planCode": null,
+        "priceId": null,
+        "interval": null,
+        "seats": 1,
+        "nextRenewalAt": null,
+        "cancelAt": null,
+        "metadata": {}
+      }
+    }
+  },
+  "mcpTokens": {
+    "mcp_d987e2815582f0b288d3a4d2d8e72312": {
+      "tokenId": "mcp_d987e2815582f0b288d3a4d2d8e72312",
+      "tokenHash": "d8d31d6471438c6e7c908cd98991c5b88217644e276399a31c973e6c65c089a5",
+      "tenantId": "tenant_4741f666d99a84f4f99ba792fdb74d25",
+      "licenseKey": "HZY-C01FCA6E-6DB5298E-D8257546",
+      "name": "onboarding",
+      "status": "active",
+      "createdAt": "2026-03-04T21:08:22.188Z",
+      "updatedAt": "2026-03-04T21:08:22.188Z",
+      "lastUsedAt": null,
+      "expiresAt": null
+    },
+    "mcp_98b292706e4fc7f39ee6c93f901419ae": {
+      "tokenId": "mcp_98b292706e4fc7f39ee6c93f901419ae",
+      "tokenHash": "e34775d544d3d3ffbfe013df6c9db0281643627f0f2eca99e07ef0d439bd637c",
+      "tenantId": "tenant_4935315cbf6bc0c01ee8e039c2f541ff",
+      "licenseKey": "HZY-1212DF70-E5CD5A3E-A6D56883",
+      "name": "onboarding",
+      "status": "active",
+      "createdAt": "2026-03-04T21:08:38.141Z",
+      "updatedAt": "2026-03-04T21:08:38.141Z",
+      "lastUsedAt": null,
+      "expiresAt": null
+    },
+    "mcp_bc1ec7cfef26f0d7cdceb9aa9264845a": {
+      "tokenId": "mcp_bc1ec7cfef26f0d7cdceb9aa9264845a",
+      "tokenHash": "dca8315254a3fde267e0cdc1e43603eb12fe88aaebe9d34fd0bb95f39033e8f7",
+      "tenantId": "tenant_595ff72e34086cd952c831fd99364387",
+      "licenseKey": "HZY-1212DF70-E5CD5A3E-A6D56883",
+      "name": "onboarding",
+      "status": "active",
+      "createdAt": "2026-03-04T21:08:38.150Z",
+      "updatedAt": "2026-03-04T21:08:38.150Z",
+      "lastUsedAt": null,
+      "expiresAt": null
+    }
+  },
+  "oauthClients": {},
+  "oauthAuthCodes": {},
+  "oauthRefreshTokens": {},
+  "accounts": {
+    "acct_490de0539a70fc9d1affb57905bbb901": {
+      "accountId": "acct_490de0539a70fc9d1affb57905bbb901",
+      "email": "multi.store@example.com",
+      "name": "Multi Store",
+      "passwordSalt": "e13c1f07dd3c8707f8c819a8bc9c5aef",
+      "passwordHash": "c4001e54f68b08d074ab9ba340e98e3cc8267c5fda284ec8aab26575e726c1bbe2ea9b624d023648d2aabd74142a8c302f28f903228065be2c186bdd56ffdc02",
+      "licenseKey": "HZY-C01FCA6E-6DB5298E-D8257546",
+      "status": "active",
+      "createdAt": "2026-03-04T21:08:22.175Z",
+      "updatedAt": "2026-03-04T21:08:22.176Z",
+      "lastLoginAt": "2026-03-04T21:08:22.176Z"
+    },
+    "acct_c86ce184462f80bfb6c07c127dd32f83": {
+      "accountId": "acct_c86ce184462f80bfb6c07c127dd32f83",
+      "email": "multi.store2@example.com",
+      "name": "Multi Store",
+      "passwordSalt": "79b92c5da6550fa3e0deb85feb321867",
+      "passwordHash": "c1f461e0238c05fcf0a6b786c36d488efa556dd5a5444298c762a7c7b980aaa3cb6fc749eae488ce16dfc234acd84d04682cb5ddc1155163afe8f78525e7165a",
+      "licenseKey": "HZY-1212DF70-E5CD5A3E-A6D56883",
+      "status": "active",
+      "createdAt": "2026-03-04T21:08:38.127Z",
+      "updatedAt": "2026-03-04T21:08:38.128Z",
+      "lastLoginAt": "2026-03-04T21:08:38.128Z"
+    }
+  },
+  "accountSessions": {
+    "acctsess_6cd69d751e75c5b20fe52c0bd75edc15": {
+      "sessionId": "acctsess_6cd69d751e75c5b20fe52c0bd75edc15",
+      "accountId": "acct_490de0539a70fc9d1affb57905bbb901",
+      "tokenHash": "d198dbd5e6691106852cd87f50e29dcba2aaeec5c0b37d123610d01e453ce7d2",
+      "status": "active",
+      "createdAt": "2026-03-04T21:08:22.176Z",
+      "updatedAt": "2026-03-04T21:08:22.187Z",
+      "lastUsedAt": "2026-03-04T21:08:22.187Z",
+      "expiresAt": "2026-03-18T21:08:22.176Z",
+      "userAgent": "curl/8.7.1",
+      "ipHash": "eff8e7ca506627fe15dda5e0e512fcaad70b6d520f37cc76597fdb4f2d83a1a3"
+    },
+    "acctsess_0329f5fb03230a583eeb68bca3e57b35": {
+      "sessionId": "acctsess_0329f5fb03230a583eeb68bca3e57b35",
+      "accountId": "acct_c86ce184462f80bfb6c07c127dd32f83",
+      "tokenHash": "2c25b677ddafee7ca8ccb38ab613d72710ee4d24e8255296c1739121a71ee3c9",
+      "status": "active",
+      "createdAt": "2026-03-04T21:08:38.129Z",
+      "updatedAt": "2026-03-04T21:08:38.167Z",
+      "lastUsedAt": "2026-03-04T21:08:38.167Z",
+      "expiresAt": "2026-03-18T21:08:38.129Z",
+      "userAgent": "curl/8.7.1",
+      "ipHash": "eff8e7ca506627fe15dda5e0e512fcaad70b6d520f37cc76597fdb4f2d83a1a3"
+    }
+  }
+}
