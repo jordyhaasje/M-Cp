@@ -1,0 +1,15 @@
+{
+  "name": "hazify-license-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Hazify license API for paid local MCP distribution",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "migrate:postgres": "node scripts/migrate-json-to-postgres.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.19.0"
+  }
+}
