@@ -2788,16 +2788,34 @@ async function handleDashboardDeleteTenant(req, res) {
       return json(res, 404, { error: "tenant_not_found" });
     }
 
-    const now = nowIso();
-    const revoked = revokeTenantAuthArtifacts(tenantId);
-    let revokedAuthCodeCount = 0;
-    for (const authCode of Object.values(db.oauthAuthCodes)) {
-      if (!authCode || authCode.tenantId !== tenantId || authCode.status !== "active") {
+    let deletedMcpTokenCount = 0;
+    for (const tokenId of Object.keys(db.mcpTokens)) {
+      const tokenRecord = db.mcpTokens[tokenId];
+      if (!tokenRecord || tokenRecord.tenantId !== tenantId) {
         continue;
       }
-      authCode.status = "revoked";
-      authCode.usedAt = authCode.usedAt || now;
-      revokedAuthCodeCount += 1;
+      delete db.mcpTokens[tokenId];
+      deletedMcpTokenCount += 1;
+    }
+
+    let deletedOAuthRefreshTokenCount = 0;
+    for (const refreshTokenId of Object.keys(db.oauthRefreshTokens)) {
+      const refreshRecord = db.oauthRefreshTokens[refreshTokenId];
+      if (!refreshRecord || refreshRecord.tenantId !== tenantId) {
+        continue;
+      }
+      delete db.oauthRefreshTokens[refreshTokenId];
+      deletedOAuthRefreshTokenCount += 1;
+    }
+
+    let deletedOAuthAuthCodeCount = 0;
+    for (const code of Object.keys(db.oauthAuthCodes)) {
+      const authCode = db.oauthAuthCodes[code];
+      if (!authCode || authCode.tenantId !== tenantId) {
+        continue;
+      }
+      delete db.oauthAuthCodes[code];
+      deletedOAuthAuthCodeCount += 1;
     }
 
     delete db.tenants[tenantId];
@@ -2807,9 +2825,9 @@ async function handleDashboardDeleteTenant(req, res) {
     return json(res, 200, {
       ok: true,
       deletedTenantId: tenantId,
-      revokedMcpTokenCount: revoked.revokedMcpTokens,
-      revokedOAuthRefreshTokenCount: revoked.revokedRefreshTokens,
-      revokedOAuthAuthCodeCount: revokedAuthCodeCount,
+      deletedMcpTokenCount,
+      deletedOAuthRefreshTokenCount,
+      deletedOAuthAuthCodeCount,
       dashboard: buildDashboardPayload(req, resolved.account, resolved.session, nextTenantId),
     });
   } catch (error) {
