@@ -3,13 +3,14 @@ import { z } from "zod";
 // Input schema for getOrders
 const GetOrdersInputSchema = z.object({
     status: z.enum(["any", "open", "closed", "cancelled"]).default("any"),
-    limit: z.number().default(10)
+    limit: z.number().int().min(1).max(250).default(50).describe("Max 250 per Shopify request"),
+    cursor: z.string().optional().describe("Pagination cursor from previous get-orders response")
 });
 // Will be initialized in index.ts
 let shopifyClient;
 const getOrders = {
     name: "get-orders",
-    description: "READ-ONLY: get orders with optional filtering by status",
+    description: "READ-ONLY: get orders with optional filtering by status. Supports cursor pagination.",
     schema: GetOrdersInputSchema,
     // Add initialize method to set up the GraphQL client
     initialize(client) {
@@ -17,16 +18,22 @@ const getOrders = {
     },
     execute: async (input) => {
         try {
-            const { status, limit } = input;
+            const { status, limit, cursor } = input;
             // Build query filters
             let queryFilter = "";
             if (status !== "any") {
                 queryFilter = `status:${status}`;
             }
+            const first = Math.min(limit, 250);
             const query = gql `
-        query GetOrders($first: Int!, $query: String) {
-          orders(first: $first, query: $query) {
+        query GetOrders($first: Int!, $query: String, $after: String) {
+          orders(first: $first, query: $query, after: $after) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
             edges {
+              cursor
               node {
                 id
                 name
@@ -100,10 +107,12 @@ const getOrders = {
         }
       `;
             const variables = {
-                first: limit,
-                query: queryFilter || undefined
+                first,
+                query: queryFilter || undefined,
+                after: cursor || undefined
             };
             const data = (await shopifyClient.request(query, variables));
+            const pageInfo = data.orders.pageInfo || { hasNextPage: false, endCursor: null };
             // Extract and format order data
             const orders = data.orders.edges.map((edge) => {
                 const order = edge.node;
@@ -145,10 +154,19 @@ const getOrders = {
                     shippingAddress: order.shippingAddress,
                     lineItems,
                     tags: order.tags,
-                    note: order.note
+                    note: order.note,
+                    cursor: edge.cursor
                 };
             });
-            return { orders };
+            return {
+                orders,
+                pagination: {
+                    requestedLimit: limit,
+                    appliedLimit: first,
+                    hasNextPage: !!pageInfo.hasNextPage,
+                    nextCursor: pageInfo.endCursor || null
+                }
+            };
         }
         catch (error) {
             console.error("Error fetching orders:", error);

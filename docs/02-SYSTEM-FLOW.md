@@ -25,8 +25,8 @@
 5. response bevat MCP content + structuredContent
 
 ## 4) Compatibiliteit
-- OAuth clients: ChatGPT, moderne MCP clients
-- direct config clients: Cursor/VS Code/Claude/Other via dashboard connect-acties/snippets
+- OAuth clients: VS Code, Cursor, ChatGPT, Claude en moderne MCP clients
+- direct config clients: Perplexity/legacy clients via dashboard setup-snippets
 - legacy OAuth route probing (`/register`): ondersteund via redirect
 
 ## 5) Foutpatronen

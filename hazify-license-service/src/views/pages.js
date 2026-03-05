@@ -49,8 +49,8 @@ function shell({ title, body, extraHead = "" }) {
       font-family: var(--font-main);
       color: var(--text);
       background:
-        radial-gradient(980px 400px at 110% -10%, rgba(15, 23, 42, 0.08), transparent 68%),
-        radial-gradient(760px 400px at -18% 105%, rgba(70, 84, 110, 0.11), transparent 70%),
+        radial-gradient(980px 400px at 110% -10%, rgba(20, 20, 24, 0.06), transparent 68%),
+        radial-gradient(760px 400px at -18% 105%, rgba(56, 58, 64, 0.08), transparent 70%),
         linear-gradient(180deg, #fbfbfc 0%, var(--bg) 100%);
       letter-spacing: -0.01em;
       line-height: 1.45;
@@ -221,31 +221,61 @@ function shell({ title, body, extraHead = "" }) {
     .cards-2 {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
+      gap: 16px;
+      align-items: stretch;
     }
 
     .start-card {
-      min-height: 176px;
-      border: 1px solid #dee5ef;
+      position: relative;
+      overflow: hidden;
+      min-height: 198px;
       border-radius: var(--radius-xl);
-      background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
-      padding: 20px;
+      border: 0;
+      background:
+        radial-gradient(220px 130px at 96% 6%, rgba(255,255,255,0.9), transparent 70%),
+        linear-gradient(180deg, #f3f6fb 0%, #edf2f9 100%);
+      padding: 22px;
       display: grid;
       align-content: start;
-      gap: 13px;
-      box-shadow: 0 8px 20px rgba(17, 24, 39, 0.06);
-      transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+      gap: 12px;
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.92),
+        0 14px 26px rgba(17, 24, 39, 0.08);
+      transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+    }
+
+    .start-card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      border: 1px solid rgba(184, 198, 218, 0.48);
+      pointer-events: none;
+    }
+
+    .start-card.login-card {
+      background:
+        radial-gradient(260px 150px at 92% 8%, rgba(255,255,255,0.95), transparent 72%),
+        linear-gradient(180deg, #f1f5fb 0%, #eaf0f8 100%);
+    }
+
+    .start-card.signup-card {
+      background:
+        radial-gradient(260px 150px at 92% 8%, rgba(255,255,255,0.95), transparent 72%),
+        linear-gradient(180deg, #f4f7fc 0%, #edf3fb 100%);
     }
 
     .start-card:hover {
       transform: translateY(-2px);
-      border-color: #cbd4e2;
-      box-shadow: var(--shadow-hover);
+      filter: saturate(1.03);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.95),
+        0 20px 32px rgba(15, 23, 42, 0.12);
     }
 
     .start-card h3 {
       margin: 0;
-      font-size: clamp(1.08rem, 1.5vw, 1.24rem);
+      font-size: clamp(1.2rem, 1.56vw, 1.42rem);
       letter-spacing: -.02em;
     }
 
@@ -253,8 +283,117 @@ function shell({ title, body, extraHead = "" }) {
       margin: 0;
       color: var(--muted);
       max-width: 35ch;
-      font-size: .92rem;
-      line-height: 1.54;
+      font-size: .98rem;
+      line-height: 1.48;
+    }
+
+    .start-card .btn-row {
+      margin-top: auto;
+      padding-top: 6px;
+    }
+
+    .start-card .btn.primary {
+      min-height: 46px;
+      border-radius: 14px;
+      padding: 10px 20px;
+      font-size: .97rem;
+      letter-spacing: -.012em;
+      box-shadow: 0 14px 24px rgba(17, 24, 39, 0.18);
+      border-color: #090909;
+    }
+
+    .start-card .btn.primary:hover {
+      transform: translateY(-1px) scale(1.012);
+      box-shadow: 0 18px 28px rgba(17, 24, 39, 0.24);
+    }
+
+    .onboarding-section .hero {
+      padding: clamp(15px, 2.25vw, 21px);
+      gap: 8px;
+      border-bottom: 1px solid #e7e8eb;
+      background:
+        radial-gradient(520px 180px at 100% 0%, rgba(24, 24, 28, 0.04), transparent 70%),
+        linear-gradient(180deg, #f8f8f9 0%, #f5f6f8 100%);
+    }
+
+    .onboarding-section .lead {
+      max-width: 58ch;
+    }
+
+    .onboarding-section .brand-ribbon {
+      margin-top: 2px;
+      min-height: 34px;
+      gap: 8px;
+    }
+
+    .onboarding-content {
+      padding: 0;
+      gap: 0;
+    }
+
+    .onboarding-cards {
+      gap: 0;
+      border-top: 1px solid #e7e8eb;
+      background: linear-gradient(180deg, #f2f3f5 0%, #eeeff2 100%);
+    }
+
+    .onboarding-cards .start-card {
+      min-height: 192px;
+      padding: 22px 24px;
+      gap: 10px;
+      border-radius: 0;
+      box-shadow: none;
+      filter: none;
+      transform: none;
+      transition: background-color .14s ease;
+      background: linear-gradient(180deg, #f3f4f6 0%, #eff1f4 100%);
+    }
+
+    .onboarding-cards .start-card::after {
+      display: none;
+    }
+
+    .onboarding-cards .start-card + .start-card {
+      border-left: 1px solid #dfe2e8;
+    }
+
+    .onboarding-cards .start-card.login-card {
+      background: linear-gradient(180deg, #f3f4f6 0%, #eef0f3 100%);
+    }
+
+    .onboarding-cards .start-card.signup-card {
+      background: linear-gradient(180deg, #f2f3f5 0%, #edeff2 100%);
+    }
+
+    .onboarding-cards .start-card:hover {
+      transform: none;
+      box-shadow: none;
+      filter: none;
+      background: linear-gradient(180deg, #f5f6f8 0%, #f0f2f5 100%);
+    }
+
+    .onboarding-cards .start-card h3 {
+      font-size: clamp(1.12rem, 1.24vw, 1.25rem);
+    }
+
+    .onboarding-cards .start-card p {
+      max-width: 32ch;
+      font-size: .94rem;
+      line-height: 1.4;
+      color: #4d5666;
+    }
+
+    .onboarding-cards .start-card .btn-row {
+      margin-top: auto;
+      padding-top: 4px;
+    }
+
+    .onboarding-cards .start-card .btn.primary {
+      min-height: 42px;
+      border-radius: 10px;
+      padding: 8px 18px;
+      font-size: .88rem;
+      box-shadow: 0 8px 16px rgba(17, 24, 39, 0.16);
     }
 
     .btn-row {
@@ -294,6 +433,17 @@ function shell({ title, body, extraHead = "" }) {
     }
 
     .btn.soft { background: #f4f7fb; }
+
+    .btn.danger {
+      background: #fff2f2;
+      border-color: #f0c5c1;
+      color: #922018;
+    }
+
+    .btn.danger:hover {
+      border-color: #e8aba6;
+      box-shadow: 0 10px 18px rgba(146, 32, 24, 0.12);
+    }
 
     .btn:disabled {
       opacity: .58;
@@ -381,6 +531,16 @@ function shell({ title, body, extraHead = "" }) {
       color: var(--text);
     }
 
+    select {
+      appearance: none;
+      -webkit-appearance: none;
+      padding-right: 38px;
+      background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1.25L6 6.25L11 1.25' stroke='%231A273D' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 13px center;
+      background-size: 12px 8px;
+    }
+
     input:focus, select:focus {
       outline: 2px solid rgba(17,24,39,.14);
       outline-offset: 1px;
@@ -393,6 +553,41 @@ function shell({ title, body, extraHead = "" }) {
       color: #6d7d94;
     }
 
+    .connect-tabs {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid #d7e0ed;
+      border-radius: 999px;
+      background: #f5f8fc;
+    }
+
+    .connect-tab {
+      min-height: 34px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: #4f6078;
+      font: inherit;
+      font-size: .79rem;
+      font-weight: 700;
+      letter-spacing: -.01em;
+      padding: 7px 12px;
+      cursor: pointer;
+      transition: background-color .14s ease, color .14s ease, box-shadow .14s ease;
+    }
+
+    .connect-tab.active {
+      background: #fff;
+      color: #111a2c;
+      box-shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
+    }
+
+    .connect-pane {
+      margin-top: 10px;
+    }
+
     .connect-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0,1fr));
@@ -402,25 +597,32 @@ function shell({ title, body, extraHead = "" }) {
     .connect-card {
       border: 1px solid #dce4ef;
       border-radius: 16px;
-      background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
-      min-height: 132px;
-      padding: 12px;
+      background: linear-gradient(180deg, #ffffff 0%, #f9fbff 100%);
+      min-height: 142px;
+      padding: 13px;
       display: grid;
       align-content: space-between;
-      justify-items: center;
-      gap: 14px;
+      justify-items: start;
+      gap: 12px;
       transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
     }
 
     .connect-card:hover {
       transform: translateY(-2px);
-      border-color: #c8d3e3;
+      border-color: #c7d1e1;
       box-shadow: 0 14px 24px rgba(15, 23, 42, 0.09);
     }
 
     .connect-card.active {
       border-color: #0f172a;
       box-shadow: 0 14px 24px rgba(15, 23, 42, 0.14);
+    }
+
+    .connect-card-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
     }
 
     .connect-icon-wrap {
@@ -432,6 +634,7 @@ function shell({ title, body, extraHead = "" }) {
       background: linear-gradient(180deg, #ffffff 0%, #f7f9fc 100%);
       border: 1px solid #dce4ef;
       box-shadow: inset 0 1px 0 #fff;
+      flex-shrink: 0;
     }
 
     .connect-icon-wrap img {
@@ -442,10 +645,264 @@ function shell({ title, body, extraHead = "" }) {
 
     .connect-card h4 {
       margin: 0;
-      font-size: .78rem;
-      text-align: center;
-      line-height: 1.25;
+      font-size: .88rem;
+      line-height: 1.2;
       letter-spacing: -.01em;
+    }
+
+    .connect-card p {
+      margin: 0;
+      font-size: .76rem;
+      color: #637690;
+      line-height: 1.45;
+    }
+
+    .connect-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      flex-wrap: wrap;
+    }
+
+    .connect-actions .btn {
+      min-height: 34px;
+      font-size: .76rem;
+      padding: 7px 10px;
+    }
+
+    .setup-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .setup-item {
+      border: 1px solid #dce4ef;
+      border-radius: 14px;
+      background: linear-gradient(180deg, #ffffff 0%, #fafcff 100%);
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      transition: border-color .14s ease, box-shadow .14s ease, background-color .14s ease;
+    }
+
+    .setup-item:hover {
+      border-color: #c7d2e2;
+      box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08);
+    }
+
+    .setup-item-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .setup-item h4 {
+      margin: 0;
+      font-size: .86rem;
+      line-height: 1.2;
+    }
+
+    .setup-item p {
+      margin: 2px 0 0;
+      font-size: .74rem;
+      color: #66788f;
+      line-height: 1.4;
+    }
+
+    .setup-btn {
+      min-height: 34px;
+      padding: 7px 10px;
+      font-size: .74rem;
+      white-space: nowrap;
+    }
+
+    .quick-connect-item.active {
+      border-color: #c7d2e2;
+      background: linear-gradient(180deg, #ffffff 0%, #fafcff 100%);
+      box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08);
+    }
+
+    .setup-modal {
+      width: min(760px, 100%);
+    }
+
+    .setup-modal-body {
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .setup-intro {
+      margin: 0;
+      font-size: .8rem;
+      color: #536780;
+      line-height: 1.45;
+    }
+
+    .setup-guide-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .setup-guide-panel {
+      border: 1px solid #dbe4ef;
+      border-radius: 14px;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .setup-guide-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .setup-guide-panel-head h4 {
+      margin: 0;
+      font-size: .84rem;
+      color: #1f3048;
+      letter-spacing: -.01em;
+    }
+
+    .setup-guide-count {
+      border: 1px solid #d7e0ed;
+      border-radius: 999px;
+      background: #f2f6fc;
+      color: #4c607a;
+      font-size: .69rem;
+      font-weight: 700;
+      padding: 4px 9px;
+      white-space: nowrap;
+    }
+
+    .setup-steps {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: setup-step;
+      display: grid;
+      gap: 8px;
+    }
+
+    .setup-steps li {
+      counter-increment: setup-step;
+      border: 1px solid #d9e2ee;
+      border-radius: 12px;
+      background: #fff;
+      padding: 9px 10px;
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr);
+      gap: 9px;
+      font-size: .77rem;
+      line-height: 1.45;
+      color: #2f425b;
+      letter-spacing: -.003em;
+    }
+
+    .setup-steps li::before {
+      content: counter(setup-step);
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 1px solid #c6d3e5;
+      background: #edf4fd;
+      color: #1f3553;
+      font-size: .72rem;
+      font-weight: 800;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .setup-format {
+      display: grid;
+      gap: 8px;
+    }
+
+    .setup-snippet-tabs {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 999px;
+      border: 1px solid #d7e0ec;
+      background: #f5f8fc;
+      width: fit-content;
+      max-width: 100%;
+    }
+
+    .setup-snippet-tab {
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: #4a5e77;
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: -.01em;
+      min-height: 30px;
+      padding: 4px 10px;
+      cursor: pointer;
+      transition: background .14s ease, color .14s ease, box-shadow .14s ease;
+    }
+
+    .setup-snippet-tab:hover {
+      color: #1d2f48;
+      background: #eef4fb;
+    }
+
+    .setup-snippet-tab.active {
+      color: #111f34;
+      background: #fff;
+      box-shadow: 0 8px 14px rgba(15, 23, 42, 0.08);
+    }
+
+    .setup-format-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .setup-format-head strong {
+      font-size: .82rem;
+      color: #233248;
+      letter-spacing: -.01em;
+    }
+
+    .setup-format-caption {
+      margin: 0;
+      color: #5a6d86;
+      font-size: .74rem;
+      line-height: 1.35;
+    }
+
+    .setup-snippet {
+      margin: 0;
+      min-height: 132px;
+      max-height: 250px;
+      overflow: auto;
+      border-radius: 12px;
+      border: 1px solid #d6e0ee;
+      background: #f4f8fd;
+      padding: 10px 11px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: var(--font-mono);
+      font-size: .74rem;
+      color: #203047;
+      line-height: 1.52;
+    }
+
+    .help-pane {
+      display: grid;
+      gap: 12px;
     }
 
     .hero-head {
@@ -520,6 +977,31 @@ function shell({ title, body, extraHead = "" }) {
       line-height: 1.45;
     }
 
+    .store-details-modal {
+      width: min(640px, 100%);
+    }
+
+    .store-details-body {
+      display: grid;
+      gap: 10px;
+    }
+
+    .store-credentials-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .store-credentials-grid .field {
+      margin: 0;
+    }
+
+    .store-credentials-grid input {
+      min-height: 40px;
+      font-size: .76rem;
+      color: #2a3b53;
+    }
+
     .connection-list {
       display: grid;
       gap: 8px;
@@ -536,6 +1018,12 @@ function shell({ title, body, extraHead = "" }) {
       gap: 8px;
     }
 
+    .connection-meta {
+      display: grid;
+      gap: 1px;
+      min-width: 0;
+    }
+
     .connection-item strong {
       font-size: .8rem;
       color: #1c2b41;
@@ -544,7 +1032,33 @@ function shell({ title, body, extraHead = "" }) {
     .connection-item span {
       font-size: .72rem;
       color: #64748c;
-      white-space: nowrap;
+    }
+
+    .connection-revoke-x {
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: #8d2634;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0;
+      cursor: pointer;
+      display: inline-grid;
+      place-items: center;
+      flex-shrink: 0;
+      transition: background-color .14s ease, color .14s ease;
+    }
+
+    .connection-revoke-x:hover {
+      background: #fff0f1;
+      color: #6f1a25;
+    }
+
+    .connection-revoke-x:disabled {
+      opacity: .45;
+      cursor: not-allowed;
     }
 
     .social-footer {
@@ -686,6 +1200,14 @@ function shell({ title, body, extraHead = "" }) {
 
       .connect-grid { grid-template-columns: 1fr; }
 
+      .setup-item {
+        padding: 10px;
+      }
+
+      .setup-item-left {
+        gap: 8px;
+      }
+
       .hero {
         padding: 22px 18px;
       }
@@ -698,11 +1220,56 @@ function shell({ title, body, extraHead = "" }) {
         width: 26px;
         height: 26px;
       }
+
+      .start-card {
+        min-height: 184px;
+        padding: 18px;
+      }
+
+      .start-card p {
+        font-size: .93rem;
+      }
+
+      .onboarding-section .hero {
+        padding: 14px 13px;
+        gap: 7px;
+      }
+
+      .onboarding-content {
+        padding: 0;
+      }
+
+      .onboarding-cards {
+        gap: 0;
+      }
+
+      .onboarding-cards .start-card {
+        min-height: 0;
+        padding: 16px;
+      }
+
+      .onboarding-cards .start-card p {
+        font-size: .9rem;
+      }
+
+      .onboarding-cards .start-card + .start-card {
+        border-left: 0;
+        border-top: 1px solid #dfe2e8;
+      }
     }
 
     @media (max-width: 480px) {
       .btn {
         width: 100%;
+      }
+
+      .setup-item .setup-btn {
+        width: auto;
+        min-width: 110px;
+      }
+
+      .store-credentials-grid {
+        grid-template-columns: 1fr;
       }
 
       .btn-row {
@@ -866,17 +1433,17 @@ export function renderOnboardingLandingPage() {
     title: "Hazify onboarding",
     body: `
       <div class="page">
-        <section class="section animate-in">
-          <div class="hero">
+        <section class="section animate-in onboarding-section">
+          <div class="hero onboarding-hero">
             <img class="hero-mark" src="/logo.png" alt="Hazify" />
             <h2>Alles wat je nodig hebt op één plek.</h2>
             <p class="lead">Meld je aan of log in, verbind je winkel en ga direct live in je favoriete apps.</p>
             ${logoStrip()}
           </div>
 
-          <div class="content">
-            <div class="cards-2">
-              <article class="start-card">
+          <div class="content onboarding-content">
+            <div class="cards-2 onboarding-cards">
+              <article class="start-card login-card">
                 <h3>Inloggen</h3>
                 <p>Gebruik je bestaande account en ga verder waar je bent gebleven.</p>
                 <div class="btn-row">
@@ -884,7 +1451,7 @@ export function renderOnboardingLandingPage() {
                 </div>
               </article>
 
-              <article class="start-card">
+              <article class="start-card signup-card">
                 <h3>Account maken</h3>
                 <p>Maak binnen een minuut je account aan en start met verbinden.</p>
                 <div class="btn-row">
@@ -1099,44 +1666,101 @@ export function renderDashboardPage() {
 
                 <div style="height:10px;"></div>
                 <h3>Apps verbinden</h3>
-                <p>Kies je app en druk op Connect. Als een deeplink niet opent, staat de verbindingscode al op je klembord.</p>
+                <p>Gebruik snelle setup voor one-click apps. Voor andere apps open je een heldere setupgids met het juiste formaat.</p>
 
-                <div class="connect-grid" id="connectGrid">
-                  <article class="connect-card" data-client="chatgpt">
-                    <div class="connect-icon-wrap"><img src="/assets/brands/chatgpt.ico" alt="ChatGPT" /></div>
-                    <h4>ChatGPT</h4>
-                    <button class="btn primary" type="button" data-connect="chatgpt">Connect</button>
-                  </article>
+                <div class="connect-tabs" id="connectTabs" role="tablist" aria-label="App setup type">
+                  <button class="connect-tab active" type="button" role="tab" data-connect-tab="quick" aria-selected="true">Snelle setup</button>
+                  <button class="connect-tab" type="button" role="tab" data-connect-tab="other" aria-selected="false">Andere apps</button>
+                  <button class="connect-tab" type="button" role="tab" data-connect-tab="help" aria-selected="false">Help</button>
+                </div>
 
-                  <article class="connect-card" data-client="codex">
-                    <div class="connect-icon-wrap"><img src="/assets/brands/codex.ico" alt="Codex" /></div>
-                    <h4>Codex</h4>
-                    <button class="btn primary" type="button" data-connect="codex">Connect</button>
-                  </article>
+                <div class="connect-pane" data-connect-pane="quick">
+                  <div class="setup-list quick-setup-list" id="connectGrid">
+                    <article class="setup-item quick-connect-item" data-quick-client="vscode">
+                      <div class="setup-item-left">
+                        <div class="connect-icon-wrap"><img src="/assets/brands/vscode.ico" alt="Visual Studio Code" /></div>
+                        <div>
+                          <h4>Visual Studio Code</h4>
+                          <p>One-click installatie via deeplink.</p>
+                        </div>
+                      </div>
+                      <button class="btn setup-btn" type="button" data-connect="vscode">Connect</button>
+                    </article>
 
-                  <article class="connect-card" data-client="perplexity">
-                    <div class="connect-icon-wrap"><img src="/assets/brands/perplexity.ico" alt="Perplexity" /></div>
-                    <h4>Perplexity</h4>
-                    <button class="btn primary" type="button" data-connect="perplexity">Connect</button>
-                  </article>
+                    <article class="setup-item quick-connect-item" data-quick-client="cursor">
+                      <div class="setup-item-left">
+                        <div class="connect-icon-wrap"><img src="/assets/brands/cursor.ico" alt="Cursor" /></div>
+                        <div>
+                          <h4>Cursor</h4>
+                          <p>One-click installatie via deeplink.</p>
+                        </div>
+                      </div>
+                      <button class="btn setup-btn" type="button" data-connect="cursor">Connect</button>
+                    </article>
 
-                  <article class="connect-card" data-client="claude">
-                    <div class="connect-icon-wrap"><img src="/assets/brands/claude.ico" alt="Claude" /></div>
-                    <h4>Claude</h4>
-                    <button class="btn primary" type="button" data-connect="claude">Connect</button>
-                  </article>
+                    <article class="setup-item quick-connect-item" data-quick-client="codex">
+                      <div class="setup-item-left">
+                        <div class="connect-icon-wrap"><img src="/assets/brands/codex.ico" alt="Codex" /></div>
+                        <div>
+                          <h4>Codex</h4>
+                          <p>Open setup en kopieer direct je serverlink.</p>
+                        </div>
+                      </div>
+                      <button class="btn setup-btn" type="button" data-connect="codex">Connect</button>
+                    </article>
+                  </div>
+                </div>
 
-                  <article class="connect-card" data-client="vscode">
-                    <div class="connect-icon-wrap"><img src="/assets/brands/vscode.ico" alt="Visual Studio Code" /></div>
-                    <h4>Visual Studio Code</h4>
-                    <button class="btn primary" type="button" data-connect="vscode">Connect</button>
-                  </article>
+                <div class="connect-pane hidden" data-connect-pane="other">
+                  <div class="setup-list">
+                    <article class="setup-item">
+                      <div class="setup-item-left">
+                        <div class="connect-icon-wrap"><img src="/assets/brands/chatgpt.ico" alt="ChatGPT" /></div>
+                        <div>
+                          <h4>ChatGPT</h4>
+                          <p>Verbind via browserbevestiging (URL-formaat).</p>
+                        </div>
+                      </div>
+                      <button class="btn setup-btn" type="button" data-open-setup="chatgpt">Bekijk setup</button>
+                    </article>
 
-                  <article class="connect-card" data-client="cursor">
-                    <div class="connect-icon-wrap"><img src="/assets/brands/cursor.ico" alt="Cursor" /></div>
-                    <h4>Cursor</h4>
-                    <button class="btn primary" type="button" data-connect="cursor">Connect</button>
-                  </article>
+                    <article class="setup-item">
+                      <div class="setup-item-left">
+                        <div class="connect-icon-wrap"><img src="/assets/brands/perplexity.ico" alt="Perplexity" /></div>
+                        <div>
+                          <h4>Perplexity</h4>
+                          <p>Gebruik de remote connectorflow met OAuth en kies Streamable HTTP.</p>
+                        </div>
+                      </div>
+                      <button class="btn setup-btn" type="button" data-open-setup="perplexity">Connect</button>
+                    </article>
+
+                    <article class="setup-item">
+                      <div class="setup-item-left">
+                        <div class="connect-icon-wrap"><img src="/assets/brands/claude.ico" alt="Claude" /></div>
+                        <div>
+                          <h4>Claude</h4>
+                          <p>Open de officiële connectorpagina en rond browserautorisatie af.</p>
+                        </div>
+                      </div>
+                      <button class="btn setup-btn" type="button" data-open-setup="claude">Connect</button>
+                    </article>
+                  </div>
+                </div>
+
+                <div class="connect-pane hidden help-pane" data-connect-pane="help">
+                  <div class="setup-list">
+                    <article class="setup-item">
+                      <div class="setup-item-left">
+                        <div class="connect-icon-wrap"><img src="/assets/brands/shopify.ico" alt="Shopify" /></div>
+                        <div>
+                          <h4>Shopify Custom App</h4>
+                          <p>Één complete setupgids met scopes en redirect URL's.</p>
+                        </div>
+                      </div>
+                      <button class="btn setup-btn" type="button" data-open-setup="custom-app">Open setup</button>
+                    </article>
+                  </div>
                 </div>
 
                 <div style="height:10px;"></div>
@@ -1148,15 +1772,96 @@ export function renderDashboardPage() {
           </div>
         </section>
 
+        <div class="modal-backdrop" id="setupModalBackdrop" aria-hidden="true">
+          <div class="modal setup-modal" role="dialog" aria-modal="true" aria-labelledby="setupModalTitle">
+            <div class="modal-head">
+              <h3 id="setupModalTitle">App setup</h3>
+              <button class="close-btn" type="button" id="setupCloseBtn" aria-label="Sluiten">×</button>
+            </div>
+            <div class="setup-modal-body">
+              <p class="setup-intro" id="setupModalIntro"></p>
+              <div class="setup-guide-grid">
+                <section class="setup-guide-panel" id="setupStepsPanel">
+                  <div class="setup-guide-panel-head">
+                    <h4>Stap-voor-stap</h4>
+                    <span class="setup-guide-count" id="setupStepCount">0 stappen</span>
+                  </div>
+                  <ol class="setup-steps" id="setupSteps"></ol>
+                </section>
+                <section class="setup-guide-panel">
+                  <div class="setup-format">
+                    <div class="setup-format-head">
+                      <strong>Copy-paste</strong>
+                      <button class="btn" type="button" id="setupCopyBtn">Kopieer</button>
+                    </div>
+                    <p class="setup-format-caption" id="setupFormatLabel">Setup formaat</p>
+                    <div class="setup-snippet-tabs hidden" id="setupSnippetTabs" role="tablist" aria-label="Setup formaten"></div>
+                    <pre class="setup-snippet" id="setupSnippet"></pre>
+                  </div>
+                </section>
+              </div>
+              <div class="btn-row">
+                <a class="btn soft hidden" id="setupOpenBtn" href="#" target="_blank" rel="noopener noreferrer">Open app</a>
+                <button class="btn primary" type="button" id="setupDoneBtn">Klaar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-backdrop" id="storeModalBackdrop" aria-hidden="true">
+          <div class="modal store-details-modal" role="dialog" aria-modal="true" aria-labelledby="storeModalTitle">
+            <div class="modal-head">
+              <h3 id="storeModalTitle">Winkel details</h3>
+              <button class="close-btn" type="button" id="storeModalCloseBtn" aria-label="Sluiten">×</button>
+            </div>
+            <div class="modal-body store-details-body">
+              <p class="setup-intro" id="storeModalIntro">Hier zie je de gekoppelde credentials van deze winkel (gemaskeerd).</p>
+              <div class="store-credentials-grid">
+                <div class="field">
+                  <label>Shop domain</label>
+                  <input id="storeCredentialDomain" disabled value="-" />
+                </div>
+                <div class="field">
+                  <label>Auth modus</label>
+                  <input id="storeCredentialAuthMode" disabled value="-" />
+                </div>
+                <div class="field">
+                  <label>Client ID (masked)</label>
+                  <input id="storeCredentialClientId" disabled value="-" />
+                </div>
+                <div class="field">
+                  <label>Client secret (masked)</label>
+                  <input id="storeCredentialClientSecret" disabled value="-" />
+                </div>
+                <div class="field">
+                  <label>Access token (masked)</label>
+                  <input id="storeCredentialAccessToken" disabled value="-" />
+                </div>
+                <div class="field">
+                  <label>Laatst gevalideerd</label>
+                  <input id="storeCredentialLastValidatedAt" disabled value="-" />
+                </div>
+              </div>
+              <div class="btn-row">
+                <button class="btn danger" id="storeDeleteBtn" type="button" disabled>Winkel verwijderen</button>
+                <button class="btn primary" id="storeModalDoneBtn" type="button">Sluiten</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         ${discordFooter()}
       </div>
 
       <script>
         const state = {
-          selectedClient: 'chatgpt',
+          selectedClient: 'vscode',
           selectedTenantId: '',
           dashboard: null,
           latestToken: '',
+          activeSetupClient: '',
+          activeSetupFormats: [],
+          activeSetupFormatIndex: 0,
         };
 
         const notice = document.getElementById('notice');
@@ -1174,8 +1879,38 @@ export function renderDashboardPage() {
         const accessTokenField = document.getElementById('accessTokenField');
 
         const connectGrid = document.getElementById('connectGrid');
+        const connectTabs = document.getElementById('connectTabs');
+        const connectPanes = Array.from(document.querySelectorAll('[data-connect-pane]'));
+
+        const setupModalBackdrop = document.getElementById('setupModalBackdrop');
+        const setupModalTitle = document.getElementById('setupModalTitle');
+        const setupModalIntro = document.getElementById('setupModalIntro');
+        const setupStepsPanel = document.getElementById('setupStepsPanel');
+        const setupSteps = document.getElementById('setupSteps');
+        const setupStepCount = document.getElementById('setupStepCount');
+        const setupFormatLabel = document.getElementById('setupFormatLabel');
+        const setupSnippetTabs = document.getElementById('setupSnippetTabs');
+        const setupSnippet = document.getElementById('setupSnippet');
+        const setupCopyBtn = document.getElementById('setupCopyBtn');
+        const setupOpenBtn = document.getElementById('setupOpenBtn');
+        const setupCloseBtn = document.getElementById('setupCloseBtn');
+        const setupDoneBtn = document.getElementById('setupDoneBtn');
+
+        const storeModalBackdrop = document.getElementById('storeModalBackdrop');
+        const storeModalTitle = document.getElementById('storeModalTitle');
+        const storeModalCloseBtn = document.getElementById('storeModalCloseBtn');
+        const storeModalDoneBtn = document.getElementById('storeModalDoneBtn');
+        const storeDeleteBtn = document.getElementById('storeDeleteBtn');
+        const storeCredentialDomain = document.getElementById('storeCredentialDomain');
+        const storeCredentialAuthMode = document.getElementById('storeCredentialAuthMode');
+        const storeCredentialClientId = document.getElementById('storeCredentialClientId');
+        const storeCredentialClientSecret = document.getElementById('storeCredentialClientSecret');
+        const storeCredentialAccessToken = document.getElementById('storeCredentialAccessToken');
+        const storeCredentialLastValidatedAt = document.getElementById('storeCredentialLastValidatedAt');
 
         const logoutTopBtn = document.getElementById('logoutTopBtn');
+        const CUSTOM_APP_SCOPES = 'read_products,write_products,read_customers,write_customers,read_orders,write_orders,read_fulfillments,read_inventory,write_merchant_managed_fulfillment_orders';
+        const CUSTOM_APP_REDIRECTS = 'http://127.0.0.1:8787/oauth/shopify/callback\\nhttp://localhost:8787/oauth/shopify/callback';
 
         function setNotice(type, message) {
           notice.className = 'notice ' + type;
@@ -1196,6 +1931,19 @@ export function renderDashboardPage() {
           const date = new Date(value);
           if (Number.isNaN(date.getTime())) return '';
           return date.toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric' });
+        }
+
+        function formatDateTime(value) {
+          if (!value) return '';
+          const date = new Date(value);
+          if (Number.isNaN(date.getTime())) return '';
+          return date.toLocaleString('nl-NL', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          });
         }
 
         async function api(path, options = {}) {
@@ -1222,19 +1970,47 @@ export function renderDashboardPage() {
 
         function markSelectedClient(client) {
           state.selectedClient = client;
-          connectGrid.querySelectorAll('.connect-card').forEach((card) => {
-            card.classList.toggle('active', card.dataset.client === client);
+          connectGrid.querySelectorAll('.quick-connect-item').forEach((row) => {
+            row.classList.toggle('active', row.dataset.quickClient === client);
           });
         }
 
+        function getMcpEndpoint() {
+          return state.dashboard?.mcp?.url || 'https://hazify-mcp-remote-production.up.railway.app/mcp';
+        }
+
+        async function ensureAccessCode(label) {
+          if (state.latestToken) {
+            return state.latestToken;
+          }
+          if (!state.selectedTenantId) {
+            throw new Error('Koppel eerst een winkel voordat je een verbindingscode maakt.');
+          }
+          const created = await api('/v1/dashboard/mcp-token/create', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              tenantId: state.selectedTenantId,
+              name: label || 'Dashboard Connector',
+              expiresInDays: 30,
+            }),
+          });
+          const token = created?.created?.accessToken || '';
+          if (!token) {
+            throw new Error('Kon geen verbindingscode maken.');
+          }
+          state.latestToken = token;
+          return token;
+        }
+
         function buildSnippet(client, token = '') {
-          const endpoint = state.dashboard?.mcp?.url || 'https://hazify-mcp-remote-production.up.railway.app/mcp';
+          const endpoint = getMcpEndpoint();
           const accessCode = token || state.latestToken || 'hzmcp_REPLACE_ME';
 
           if (client === 'vscode') {
             return JSON.stringify({
               servers: {
-                hazify: {
+                'Hazify MCP': {
                   type: 'http',
                   url: endpoint,
                 },
@@ -1245,15 +2021,36 @@ export function renderDashboardPage() {
           if (client === 'cursor') {
             return JSON.stringify({
               mcpServers: {
-                hazify: {
+                'Hazify MCP': {
                   url: endpoint,
                 },
               },
             }, null, 2);
           }
 
-          if (client === 'chatgpt' || client === 'codex') {
-            return 'Serverlink:\\n' + endpoint + '\\n\\nKies in de app voor verbinden via browser en rond daarna de bevestiging af.';
+          if (client === 'chatgpt') {
+            return endpoint;
+          }
+
+          if (client === 'codex') {
+            return 'MCP server URL\\n' + endpoint + '\\n\\nKies in Codex voor verbinden via browser.';
+          }
+
+          if (client === 'claude') {
+            return 'Connector URL\\n' + endpoint + '\\n\\nClaude Code CLI\\nclaude mcp add --transport http \"Hazify MCP\" \"' + endpoint + '\"';
+          }
+
+          if (client === 'perplexity') {
+            return JSON.stringify({
+              mcpServers: {
+                'Hazify MCP': {
+                  url: endpoint,
+                  headers: {
+                    'x-api-key': accessCode,
+                  },
+                },
+              },
+            }, null, 2);
           }
 
           return JSON.stringify({
@@ -1267,24 +2064,40 @@ export function renderDashboardPage() {
         function buildOpenUrl(client) {
           if (client === 'chatgpt') return 'https://chatgpt.com/#settings/connectors';
           if (client === 'codex') return 'https://developers.openai.com';
-          if (client === 'perplexity') return 'https://www.perplexity.ai/';
-          if (client === 'claude') return 'https://claude.ai/';
+          if (client === 'perplexity') return 'https://www.perplexity.ai/settings/connectors';
+          if (client === 'claude') return 'https://claude.ai/settings/connectors';
           if (client === 'vscode') {
             if (!state.dashboard?.mcp?.url) return '';
-            const payload = { name: 'hazify', type: 'http', url: state.dashboard.mcp.url };
-            return 'vscode:mcp/install?' + encodeURIComponent(JSON.stringify(payload));
+            const payload = JSON.stringify({
+              type: 'http',
+              url: state.dashboard.mcp.url,
+            });
+            return 'https://vscode.dev/redirect/mcp/install?name=' + encodeURIComponent('Hazify MCP') + '&config=' + encodeURIComponent(payload);
           }
           if (client === 'cursor') {
             if (!state.dashboard?.mcp?.url) return '';
-            const payload = JSON.stringify({ url: state.dashboard.mcp.url });
-            return 'https://cursor.com/en-US/install-mcp?name=' + encodeURIComponent('hazify') + '&config=' + encodeURIComponent(btoa(payload));
+            const payload = btoa(JSON.stringify({ url: state.dashboard.mcp.url }));
+            return 'cursor://anysphere.cursor-deeplink/mcp/install?name=' + encodeURIComponent('Hazify MCP') + '&config=' + encodeURIComponent(payload);
           }
           return '';
         }
 
+        function setConnectTab(nextTab) {
+          const safeTab = nextTab === 'other' || nextTab === 'help' ? nextTab : 'quick';
+          connectTabs.querySelectorAll('[data-connect-tab]').forEach((button) => {
+            const active = button.getAttribute('data-connect-tab') === safeTab;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-selected', active ? 'true' : 'false');
+          });
+          connectPanes.forEach((pane) => {
+            pane.classList.toggle('hidden', pane.getAttribute('data-connect-pane') !== safeTab);
+          });
+        }
+
         function openLink(url) {
           if (!url) return;
-          if (url.startsWith('vscode:')) {
+          const isCustomScheme = /^[a-z][a-z0-9+.-]*:/i.test(url) && !/^https?:/i.test(url);
+          if (isCustomScheme) {
             window.location.href = url;
             return;
           }
@@ -1294,26 +2107,223 @@ export function renderDashboardPage() {
           }
         }
 
-        async function ensureAccessCode() {
-          if (state.latestToken) return state.latestToken;
-          const payload = {
-            name: 'dashboard-connect',
-            revokeExisting: false,
-            expiresInDays: 30,
-          };
-          if (state.selectedTenantId) {
-            payload.tenantId = state.selectedTenantId;
+        function closeSetupModal() {
+          setupModalBackdrop.classList.remove('open');
+          setupModalBackdrop.setAttribute('aria-hidden', 'true');
+        }
+
+        function normalizeSetupFormats(guide) {
+          if (Array.isArray(guide.formats) && guide.formats.length) {
+            const normalized = guide.formats
+              .map((entry, index) => ({
+                key: String(entry?.key || 'format-' + index),
+                label: String(entry?.label || 'Formaat ' + (index + 1)),
+                snippet: String(entry?.snippet || ''),
+              }))
+              .filter((entry) => entry.snippet.trim().length > 0);
+            if (normalized.length) {
+              return normalized;
+            }
           }
-          const result = await api('/v1/dashboard/mcp-token/create', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
+          return [
+            {
+              key: 'default',
+              label: String(guide.formatLabel || 'Setup formaat'),
+              snippet: String(guide.snippet || ''),
+            },
+          ];
+        }
+
+        function selectSetupFormat(index) {
+          const formats = Array.isArray(state.activeSetupFormats) ? state.activeSetupFormats : [];
+          if (!formats.length) {
+            setupFormatLabel.textContent = 'Setup formaat';
+            setupSnippet.textContent = '';
+            setupCopyBtn.dataset.payload = '';
+            return;
+          }
+          const safeIndex = Math.max(0, Math.min(Number(index) || 0, formats.length - 1));
+          state.activeSetupFormatIndex = safeIndex;
+          const active = formats[safeIndex];
+          setupFormatLabel.textContent = active.label;
+          setupSnippet.textContent = active.snippet;
+          setupCopyBtn.dataset.payload = active.snippet;
+          setupSnippetTabs.querySelectorAll('[data-setup-format]').forEach((button) => {
+            const buttonIndex = Number(button.getAttribute('data-setup-format'));
+            const isActive = buttonIndex === safeIndex;
+            button.classList.toggle('active', isActive);
+            button.setAttribute('aria-selected', isActive ? 'true' : 'false');
           });
-          state.latestToken = result?.created?.accessToken || '';
-          if (result.dashboard) {
-            renderDashboard(result.dashboard);
+        }
+
+        function renderSetupModal(guide) {
+          state.activeSetupClient = guide.client;
+          setupModalTitle.textContent = guide.title;
+          setupModalIntro.textContent = guide.intro;
+          const safeSteps = Array.isArray(guide.steps) ? guide.steps.filter((step) => String(step || '').trim()) : [];
+          if (safeSteps.length > 0) {
+            setupStepsPanel.classList.remove('hidden');
+            setupSteps.innerHTML = safeSteps.map((step) => '<li>' + escapeText(step) + '</li>').join('');
+            setupStepCount.textContent = safeSteps.length === 1 ? '1 stap' : safeSteps.length + ' stappen';
+          } else {
+            setupStepsPanel.classList.add('hidden');
+            setupSteps.innerHTML = '';
+            setupStepCount.textContent = '0 stappen';
           }
-          return state.latestToken;
+          const formats = normalizeSetupFormats(guide);
+          state.activeSetupFormats = formats;
+          if (formats.length > 1) {
+            setupSnippetTabs.innerHTML = formats
+              .map((entry, index) => '<button class="setup-snippet-tab' + (index === 0 ? ' active' : '') + '" type="button" role="tab" aria-selected="' + (index === 0 ? 'true' : 'false') + '" data-setup-format="' + index + '">' + escapeText(entry.label) + '</button>')
+              .join('');
+            setupSnippetTabs.classList.remove('hidden');
+          } else {
+            setupSnippetTabs.innerHTML = '';
+            setupSnippetTabs.classList.add('hidden');
+          }
+          selectSetupFormat(0);
+          if (guide.openUrl) {
+            setupOpenBtn.href = guide.openUrl;
+            setupOpenBtn.classList.remove('hidden');
+          } else {
+            setupOpenBtn.href = '#';
+            setupOpenBtn.classList.add('hidden');
+          }
+          setupModalBackdrop.classList.add('open');
+          setupModalBackdrop.setAttribute('aria-hidden', 'false');
+        }
+
+        async function buildSetupGuide(client) {
+          if (client === 'custom-app') {
+            return {
+              client,
+              title: 'Shopify Custom App setup',
+              intro: 'Gebruik deze copy-paste waarden in Shopify en sla daarna je winkel op via "Via app-sleutels".',
+              steps: [],
+              formats: [
+                { key: 'scopes', label: 'Scopes (comma separated)', snippet: CUSTOM_APP_SCOPES },
+                { key: 'redirects', label: "Redirect URL's", snippet: CUSTOM_APP_REDIRECTS },
+              ],
+              openUrl: '',
+            };
+          }
+
+          if (client === 'chatgpt') {
+            return {
+              client,
+              title: 'ChatGPT setup',
+              intro: 'Plak de URL en rond de browserbevestiging af.',
+              steps: [
+                'Open Connectors in ChatGPT.',
+                'Voeg een nieuwe connector toe met de URL hieronder.',
+                'Bevestig in je browser.',
+              ],
+              formatLabel: 'URL formaat',
+              snippet: buildSnippet('chatgpt'),
+              openUrl: buildOpenUrl('chatgpt'),
+            };
+          }
+
+          if (client === 'perplexity') {
+            const token = await ensureAccessCode('Perplexity Connector');
+            const endpoint = getMcpEndpoint();
+            const commandFallback = 'npx -y mcp-remote "' + endpoint + '" --transport http-only --header "x-api-key: ' + token + '"';
+            return {
+              client,
+              title: 'Perplexity setup',
+              intro: 'Kies bij voorkeur OAuth. Gebruik JSON of command als fallback.',
+              steps: [
+                'Open Connectors in Perplexity en voeg Custom Remote Connector toe.',
+                'Gebruik de URL hieronder en zet transport op Streamable HTTP.',
+                'Rond OAuth af, of gebruik JSON/Command fallback.',
+              ],
+              formats: [
+                { key: 'streamable', label: 'Streamable URL', snippet: endpoint },
+                { key: 'json', label: 'JSON config', snippet: buildSnippet('perplexity', token) },
+                { key: 'command', label: 'Command', snippet: commandFallback },
+              ],
+              openUrl: buildOpenUrl('perplexity'),
+            };
+          }
+
+          if (client === 'claude') {
+            const endpoint = getMcpEndpoint();
+            const claudeCommand = 'claude mcp add --transport http "Hazify MCP" "' + endpoint + '"';
+            return {
+              client,
+              title: 'Claude setup',
+              intro: 'Koppel snel via Connectors of gebruik Claude Code command.',
+              steps: [
+                'Open Connectors in Claude.',
+                'Voeg de URL hieronder toe als nieuwe connector.',
+                'Bevestig in je browser, of gebruik de command-tab.',
+              ],
+              formats: [
+                { key: 'streamable', label: 'Streamable URL', snippet: endpoint },
+                { key: 'command', label: 'Claude Code command', snippet: claudeCommand },
+              ],
+              openUrl: buildOpenUrl('claude'),
+            };
+          }
+
+          return {
+            client: 'codex',
+            title: 'Codex setup',
+            intro: 'Plak de URL en bevestig in je browser.',
+            steps: [
+              'Open MCP instellingen in Codex.',
+              'Voeg de URL hieronder toe.',
+              'Bevestig in je browser.',
+            ],
+            formatLabel: 'URL formaat',
+            snippet: buildSnippet('codex'),
+            openUrl: buildOpenUrl('codex'),
+          };
+        }
+
+        async function openSetupGuide(client) {
+          if (client !== 'custom-app' && !state.selectedTenantId) {
+            setNotice('warn', 'Koppel eerst een winkel voordat je een app verbindt.');
+            return;
+          }
+          try {
+            const guide = await buildSetupGuide(client);
+            renderSetupModal(guide);
+          } catch (error) {
+            setNotice('err', error instanceof Error ? error.message : 'Setup laden is mislukt.');
+          }
+        }
+
+        function fillStoreDetailsModal(tenantData = null) {
+          const shopify = tenantData?.shopify || {};
+          const credentials = shopify.credentials || {};
+          const authMode =
+            shopify.authMode === 'access_token'
+              ? 'Access token'
+              : shopify.authMode === 'client_credentials'
+              ? 'Client credentials'
+              : '-';
+          const domain = credentials.domain || shopify.domain || '-';
+          storeModalTitle.textContent = domain && domain !== '-' ? 'Winkel details · ' + domain : 'Winkel details';
+          storeCredentialDomain.value = domain;
+          storeCredentialAuthMode.value = authMode;
+          storeCredentialClientId.value = credentials.clientIdMasked || '-';
+          storeCredentialClientSecret.value = credentials.clientSecretMasked || '-';
+          storeCredentialAccessToken.value = credentials.accessTokenMasked || '-';
+          storeCredentialLastValidatedAt.value =
+            formatDateTime(credentials.lastValidationAt || credentials.validatedAt) || '-';
+          storeDeleteBtn.disabled = !tenantData?.tenantId;
+        }
+
+        function closeStoreDetailsModal() {
+          storeModalBackdrop.classList.remove('open');
+          storeModalBackdrop.setAttribute('aria-hidden', 'true');
+        }
+
+        function openStoreDetailsModal(tenantData = null) {
+          fillStoreDetailsModal(tenantData);
+          storeModalBackdrop.classList.add('open');
+          storeModalBackdrop.setAttribute('aria-hidden', 'false');
         }
 
         function renderStoreList(tenants = [], activeTenantId = '') {
@@ -1342,15 +2352,25 @@ export function renderDashboardPage() {
           activeConnections.innerHTML = normalizedRows.map((row) => {
             const label = row.clientName || 'App';
             const updated = formatDate(row.updatedAt || row.createdAt);
-            return '<div class="connection-item"><strong>' + escapeText(label) + '</strong><span>' +
-              escapeText(updated || 'Zojuist verbonden') + '</span></div>';
+            const subtitle = updated ? ('Laatst actief: ' + updated) : 'Actief';
+            const connectionKey = row.connectionKey ? String(row.connectionKey) : '';
+            const revokeButton = row.revocable && connectionKey
+              ? '<button class="connection-revoke-x" type="button" data-revoke-connection="' +
+                escapeText(connectionKey) + '" aria-label="Koppeling intrekken" title="Intrekken">×</button>'
+              : '';
+            return '<div class="connection-item">' +
+              '<div class="connection-meta"><strong>' + escapeText(label) + '</strong><span>' +
+              escapeText(subtitle) + '</span></div>' +
+              revokeButton +
+              '</div>';
           }).join('');
         }
 
         function updateConnectAvailability() {
           const disabled = !state.selectedTenantId;
-          connectGrid.querySelectorAll('button[data-connect]').forEach((button) => {
-            button.disabled = disabled;
+          document.querySelectorAll('button[data-connect], button[data-open-setup]').forEach((button) => {
+            const setupClient = button.getAttribute('data-open-setup') || '';
+            button.disabled = setupClient === 'custom-app' ? false : disabled;
           });
         }
 
@@ -1361,14 +2381,19 @@ export function renderDashboardPage() {
             return;
           }
           try {
-            let token = '';
-            if (client === 'claude' || client === 'perplexity') {
-              token = await ensureAccessCode();
-            }
-            const snippet = buildSnippet(client, token);
+            const snippet = buildSnippet(client);
             await navigator.clipboard.writeText(snippet);
-            openLink(buildOpenUrl(client));
-            setNotice('ok', 'Connect gestart. De verbindingscode staat op je klembord.');
+            const openUrl = buildOpenUrl(client);
+            if (openUrl) {
+              openLink(openUrl);
+            }
+            if (client === 'vscode') {
+              setNotice('ok', 'VS Code setup gestart. Je rondt de beveiligde browserautorisatie af in de volgende stap.');
+            } else if (client === 'cursor') {
+              setNotice('ok', 'Cursor setup gestart. Je rondt de beveiligde browserautorisatie af in de volgende stap.');
+            } else {
+              setNotice('ok', 'Setup gestart. De serverlink staat op je klembord.');
+            }
           } catch (error) {
             setNotice('err', error instanceof Error ? error.message : 'Connect is mislukt.');
           }
@@ -1387,7 +2412,7 @@ export function renderDashboardPage() {
           renderStoreList(data.tenants || [], state.selectedTenantId);
           renderActiveConnections(data.connections?.clients || []);
           updateConnectAvailability();
-          markSelectedClient(state.selectedClient || 'chatgpt');
+          markSelectedClient(state.selectedClient || 'vscode');
         }
 
         async function loadDashboard(tenantId = '') {
@@ -1399,6 +2424,7 @@ export function renderDashboardPage() {
 
         connectMode.addEventListener('change', updateMode);
         updateMode();
+        setConnectTab('quick');
 
         connectForm.addEventListener('submit', async (event) => {
           event.preventDefault();
@@ -1445,8 +2471,69 @@ export function renderDashboardPage() {
         connectGrid.addEventListener('click', async (event) => {
           const button = event.target.closest('button[data-connect]');
           if (!button) return;
-          const client = button.getAttribute('data-connect') || 'chatgpt';
+          const client = button.getAttribute('data-connect') || 'vscode';
+          if (client === 'codex') {
+            await openSetupGuide('codex');
+            return;
+          }
           await connectClient(client);
+        });
+
+        document.querySelectorAll('button[data-open-setup]').forEach((button) => {
+          button.addEventListener('click', async () => {
+            const client = button.getAttribute('data-open-setup') || '';
+            if (!client) return;
+            await openSetupGuide(client);
+          });
+        });
+
+        connectTabs.addEventListener('click', (event) => {
+          const button = event.target.closest('button[data-connect-tab]');
+          if (!button) return;
+          setConnectTab(button.getAttribute('data-connect-tab') || 'quick');
+        });
+
+        setupSnippetTabs.addEventListener('click', (event) => {
+          const button = event.target.closest('button[data-setup-format]');
+          if (!button) return;
+          selectSetupFormat(button.getAttribute('data-setup-format'));
+        });
+
+        setupCopyBtn.addEventListener('click', async () => {
+          const payload = setupCopyBtn.dataset.payload || '';
+          if (!payload) return;
+          try {
+            await navigator.clipboard.writeText(payload);
+            setNotice('ok', 'Setup gekopieerd naar je klembord.');
+          } catch (error) {
+            setNotice('err', error instanceof Error ? error.message : 'Kopiëren is mislukt.');
+          }
+        });
+
+        setupCloseBtn.addEventListener('click', closeSetupModal);
+        setupDoneBtn.addEventListener('click', closeSetupModal);
+        setupModalBackdrop.addEventListener('click', (event) => {
+          if (event.target === setupModalBackdrop) {
+            closeSetupModal();
+          }
+        });
+
+        storeModalCloseBtn.addEventListener('click', closeStoreDetailsModal);
+        storeModalDoneBtn.addEventListener('click', closeStoreDetailsModal);
+        storeModalBackdrop.addEventListener('click', (event) => {
+          if (event.target === storeModalBackdrop) {
+            closeStoreDetailsModal();
+          }
+        });
+
+        window.addEventListener('keydown', (event) => {
+          if (event.key !== 'Escape') return;
+          if (setupModalBackdrop.classList.contains('open')) {
+            closeSetupModal();
+          }
+          if (storeModalBackdrop.classList.contains('open')) {
+            closeStoreDetailsModal();
+          }
         });
 
         storeList.addEventListener('click', async (event) => {
@@ -1457,9 +2544,71 @@ export function renderDashboardPage() {
           try {
             await loadDashboard(tenantId);
             state.latestToken = '';
+            openStoreDetailsModal(state.dashboard?.tenant || null);
             setNotice('ok', 'Actieve winkel is bijgewerkt.');
           } catch (error) {
             setNotice('err', error instanceof Error ? error.message : 'Wisselen van winkel mislukt.');
+          }
+        });
+
+        activeConnections.addEventListener('click', async (event) => {
+          const button = event.target.closest('button[data-revoke-connection]');
+          if (!button) return;
+          const connectionKey = button.getAttribute('data-revoke-connection') || '';
+          if (!connectionKey || !state.selectedTenantId) return;
+          const confirmed = window.confirm('Weet je zeker dat je deze AI-koppeling wilt intrekken?');
+          if (!confirmed) return;
+          button.disabled = true;
+          try {
+            const result = await api('/v1/dashboard/oauth/revoke', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                tenantId: state.selectedTenantId,
+                connectionKey,
+              }),
+            });
+            if (result.dashboard) {
+              renderDashboard(result.dashboard);
+            } else {
+              await loadDashboard(state.selectedTenantId);
+            }
+            state.latestToken = '';
+            setNotice('ok', 'Koppeling is ingetrokken.');
+          } catch (error) {
+            setNotice('err', error instanceof Error ? error.message : 'Intrekken is mislukt.');
+          } finally {
+            button.disabled = false;
+          }
+        });
+
+        storeDeleteBtn.addEventListener('click', async () => {
+          if (!state.selectedTenantId) return;
+          const confirmed = window.confirm(
+            'Weet je zeker dat je deze winkel wilt verwijderen? Actieve koppelingen voor deze winkel worden ingetrokken.'
+          );
+          if (!confirmed) return;
+          storeDeleteBtn.disabled = true;
+          try {
+            const result = await api('/v1/dashboard/tenant/delete', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                tenantId: state.selectedTenantId,
+              }),
+            });
+            state.latestToken = '';
+            if (result.dashboard) {
+              renderDashboard(result.dashboard);
+            } else {
+              await loadDashboard();
+            }
+            closeStoreDetailsModal();
+            setNotice('ok', 'Winkel is verwijderd.');
+          } catch (error) {
+            setNotice('err', error instanceof Error ? error.message : 'Winkel verwijderen is mislukt.');
+          } finally {
+            storeDeleteBtn.disabled = !state.selectedTenantId;
           }
         });
 
@@ -1477,7 +2626,7 @@ export function renderDashboardPage() {
             return;
           }
           await loadDashboard();
-          setNotice('ok', 'Dashboard klaar. Kies een app en druk op Connect.');
+          setNotice('ok', 'Dashboard klaar. Kies Snelle setup, Andere apps of Help.');
         }
 
         bootstrap().catch((error) => {

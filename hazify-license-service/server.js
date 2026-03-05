@@ -15,6 +15,15 @@ import {
 
 const SERVICE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ONBOARDING_LOGO_PATH = path.resolve(SERVICE_ROOT, "logo.png");
+const DEFAULT_OAUTH_CUSTOM_REDIRECT_SCHEMES = ["vscode", "cursor", "claude", "perplexity"];
+
+function parseCommaSeparatedList(value, fallback = []) {
+  const source = typeof value === "string" && value.trim() ? value : fallback.join(",");
+  return source
+    .split(",")
+    .map((entry) => String(entry || "").trim().toLowerCase())
+    .filter(Boolean);
+}
 
 const config = {
   port: Number(process.env.PORT || 8787),
@@ -44,6 +53,10 @@ const config = {
   oauthAccessTokenTtlSeconds: Number(process.env.OAUTH_ACCESS_TOKEN_TTL_SECONDS || 3600),
   oauthRefreshTokenTtlDays: Number(process.env.OAUTH_REFRESH_TOKEN_TTL_DAYS || 30),
   oauthCodeTtlMinutes: Number(process.env.OAUTH_CODE_TTL_MINUTES || 10),
+  oauthAllowedCustomRedirectSchemes: parseCommaSeparatedList(
+    process.env.OAUTH_ALLOWED_CUSTOM_REDIRECT_SCHEMES,
+    DEFAULT_OAUTH_CUSTOM_REDIRECT_SCHEMES
+  ),
   onboardingLogoPath: path.resolve(process.env.ONBOARDING_LOGO_PATH || DEFAULT_ONBOARDING_LOGO_PATH),
   accountSessionTtlDays: Number(process.env.ACCOUNT_SESSION_TTL_DAYS || 14),
   databaseUrl: process.env.DATABASE_URL || "",
@@ -57,6 +70,18 @@ const config = {
 const RATE_BUCKETS = new Map();
 const VALID_STATUSES = new Set(["active", "past_due", "canceled", "invalid", "unpaid"]);
 const ACCOUNT_SESSION_COOKIE = "hz_user_session";
+const SHOPIFY_CREDENTIAL_VALIDATION_TIMEOUT_MS = 10000;
+const REQUIRED_SHOPIFY_ADMIN_SCOPES = [
+  "read_products",
+  "write_products",
+  "read_customers",
+  "write_customers",
+  "read_orders",
+  "write_orders",
+  "read_fulfillments",
+  "read_inventory",
+  "write_merchant_managed_fulfillment_orders",
+];
 const storage = createStorageAdapter(config);
 await storage.init();
 let db = await loadDb();
@@ -666,6 +691,187 @@ function validateTenantShopifyPayload(payload) {
   };
 }
 
+function buildTenantShopifyRecord(shopify, options = {}) {
+  const source = shopify && typeof shopify === "object" ? shopify : {};
+  const validatedAt =
+    typeof options.validatedAt === "string" && options.validatedAt.trim()
+      ? options.validatedAt.trim()
+      : null;
+  const lastValidationAt =
+    typeof options.lastValidationAt === "string" && options.lastValidationAt.trim()
+      ? options.lastValidationAt.trim()
+      : validatedAt;
+  const lastValidationError =
+    typeof options.lastValidationError === "string" && options.lastValidationError.trim()
+      ? options.lastValidationError.trim()
+      : null;
+  return {
+    domain: normalizeShopDomain(source.domain || source.shopDomain || ""),
+    accessToken:
+      typeof source.accessToken === "string" && source.accessToken.trim()
+        ? source.accessToken.trim()
+        : null,
+    clientId:
+      typeof source.clientId === "string" && source.clientId.trim() ? source.clientId.trim() : null,
+    clientSecret:
+      typeof source.clientSecret === "string" && source.clientSecret.trim()
+        ? source.clientSecret.trim()
+        : null,
+    credentialsValidatedAt: validatedAt,
+    lastValidationAt: lastValidationAt || null,
+    lastValidationError,
+  };
+}
+
+function revokeTenantAuthArtifacts(tenantId) {
+  let revokedMcpTokens = 0;
+  let revokedRefreshTokens = 0;
+  for (const tokenRecord of Object.values(db.mcpTokens)) {
+    if (!tokenRecord || tokenRecord.tenantId !== tenantId || tokenRecord.status !== "active") {
+      continue;
+    }
+    tokenRecord.status = "revoked";
+    tokenRecord.updatedAt = nowIso();
+    revokedMcpTokens += 1;
+  }
+  for (const refreshRecord of Object.values(db.oauthRefreshTokens)) {
+    if (!refreshRecord || refreshRecord.tenantId !== tenantId || refreshRecord.status !== "active") {
+      continue;
+    }
+    refreshRecord.status = "revoked";
+    refreshRecord.updatedAt = nowIso();
+    revokedRefreshTokens += 1;
+  }
+  return { revokedMcpTokens, revokedRefreshTokens };
+}
+
+function extractShopifyScopeHandles(payload) {
+  const rawScopes = Array.isArray(payload?.access_scopes) ? payload.access_scopes : [];
+  return rawScopes
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return entry.trim();
+      }
+      if (entry && typeof entry.handle === "string") {
+        return entry.handle.trim();
+      }
+      return "";
+    })
+    .filter(Boolean);
+}
+
+function hasRequiredScope(grantedScopes, requiredScope) {
+  if (grantedScopes.has(requiredScope)) {
+    return true;
+  }
+  // `read_all_orders` grants read access to all orders and should satisfy `read_orders`.
+  if (requiredScope === "read_orders" && grantedScopes.has("read_all_orders")) {
+    return true;
+  }
+  return false;
+}
+
+async function exchangeShopifyClientCredentials(shopify, signal) {
+  const response = await fetch(`https://${shopify.domain}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: shopify.clientId,
+      client_secret: shopify.clientSecret,
+    }),
+    signal,
+  });
+  const bodyText = await response.text();
+  if (!response.ok) {
+    if (response.status === 400 && /app_not_installed/i.test(bodyText)) {
+      throw new Error(
+        `Shopify app is niet geauthoriseerd op ${shopify.domain}. Installeer/autoriseren en probeer opnieuw.`
+      );
+    }
+    throw new Error(
+      `Shopify token exchange mislukt (${response.status}). Controleer shopClientId/shopClientSecret.`
+    );
+  }
+  let parsed;
+  try {
+    parsed = bodyText ? JSON.parse(bodyText) : {};
+  } catch (_error) {
+    throw new Error("Shopify token exchange gaf geen geldige JSON terug.");
+  }
+  const token =
+    typeof parsed?.access_token === "string" && parsed.access_token.trim()
+      ? parsed.access_token.trim()
+      : "";
+  if (!token) {
+    throw new Error("Shopify token exchange gaf geen access_token terug.");
+  }
+  return token;
+}
+
+async function fetchShopifyGrantedScopes(domain, accessToken, signal) {
+  const response = await fetch(`https://${domain}/admin/oauth/access_scopes.json`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      "X-Shopify-Access-Token": accessToken,
+    },
+    signal,
+  });
+  const bodyText = await response.text();
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        `Shopify token heeft geen toegang tot ${domain}. Controleer app-installatie en credentials.`
+      );
+    }
+    throw new Error(`Shopify access scopes ophalen mislukt (${response.status}).`);
+  }
+  let parsed;
+  try {
+    parsed = bodyText ? JSON.parse(bodyText) : {};
+  } catch (_error) {
+    throw new Error("Shopify access scopes endpoint gaf geen geldige JSON terug.");
+  }
+  return new Set(extractShopifyScopeHandles(parsed));
+}
+
+async function validateShopifyCredentialsLive(shopify) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SHOPIFY_CREDENTIAL_VALIDATION_TIMEOUT_MS);
+  try {
+    const accessToken = shopify.accessToken
+      ? shopify.accessToken
+      : await exchangeShopifyClientCredentials(shopify, controller.signal);
+
+    // Lightweight permissions check so users fail during onboarding, not during first tool call.
+    const grantedScopes = await fetchShopifyGrantedScopes(
+      shopify.domain,
+      accessToken,
+      controller.signal
+    );
+    const missingScopes = REQUIRED_SHOPIFY_ADMIN_SCOPES.filter(
+      (requiredScope) => !hasRequiredScope(grantedScopes, requiredScope)
+    );
+    if (missingScopes.length > 0) {
+      throw new Error(
+        `Shopify app mist vereiste Admin API scopes: ${missingScopes.join(
+          ", "
+        )}. Voeg deze scopes toe en installeer de app opnieuw.`
+      );
+    }
+  } catch (error) {
+    if (error && error.name === "AbortError") {
+      throw new Error(
+        "Shopify validatie time-out. Controleer netwerkverbinding en probeer opnieuw."
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function hashToken(token) {
   return crypto.createHash("sha256").update(token, "utf8").digest("hex");
 }
@@ -855,6 +1061,23 @@ function listTenantMcpTokens(tenantId) {
     }));
 }
 
+function oauthConnectionKeyFromRefreshRecord(record) {
+  if (!record || typeof record !== "object") {
+    return "";
+  }
+  const clientId = typeof record.clientId === "string" ? record.clientId.trim() : "";
+  if (clientId) {
+    return `client:${clientId}`;
+  }
+  const fallback =
+    typeof record.refreshTokenId === "string" && record.refreshTokenId.trim()
+      ? record.refreshTokenId.trim()
+      : typeof record.tokenHash === "string" && record.tokenHash.trim()
+      ? record.tokenHash.trim()
+      : "unknown";
+  return `token:${fallback}`;
+}
+
 function listTenantOAuthConnections(tenantId) {
   const map = new Map();
   for (const record of Object.values(db.oauthRefreshTokens)) {
@@ -864,16 +1087,18 @@ function listTenantOAuthConnections(tenantId) {
     if (record.expiresAt && Date.parse(record.expiresAt) < Date.now()) {
       continue;
     }
-    const key = record.clientId || `oauth:${record.refreshTokenId || record.tokenHash || "unknown"}`;
+    const key = oauthConnectionKeyFromRefreshRecord(record);
     const current = map.get(key);
     const client = record.clientId ? db.oauthClients[record.clientId] : null;
     const row = {
+      connectionKey: key,
       clientId: record.clientId || null,
       clientName: client?.clientName || "Client app",
       scope: record.scope || "mcp:tools",
       createdAt: record.createdAt || null,
       updatedAt: record.updatedAt || null,
       expiresAt: record.expiresAt || null,
+      revocable: true,
     };
     if (!current || Date.parse(row.updatedAt || 0) > Date.parse(current.updatedAt || 0)) {
       map.set(key, row);
@@ -928,10 +1153,32 @@ function buildDashboardPayload(req, account, session, preferredTenantId = "") {
         ? {
             domain: tenant.shopify?.domain || null,
             authMode: tenant.shopify?.accessToken ? "access_token" : "client_credentials",
+            credentials: {
+              domain: tenant.shopify?.domain || null,
+              accessTokenMasked: maskSecret(tenant.shopify?.accessToken || null),
+              clientIdMasked: maskSecret(tenant.shopify?.clientId || null),
+              clientSecretMasked: maskSecret(tenant.shopify?.clientSecret || null),
+              hasAccessToken: !!tenant.shopify?.accessToken,
+              hasClientCredentials: !!tenant.shopify?.clientId && !!tenant.shopify?.clientSecret,
+              validatedAt: tenant.shopify?.credentialsValidatedAt || null,
+              lastValidationAt: tenant.shopify?.lastValidationAt || null,
+              lastValidationError: tenant.shopify?.lastValidationError || null,
+            },
           }
         : {
             domain: null,
             authMode: null,
+            credentials: {
+              domain: null,
+              accessTokenMasked: null,
+              clientIdMasked: null,
+              clientSecretMasked: null,
+              hasAccessToken: false,
+              hasClientCredentials: false,
+              validatedAt: null,
+              lastValidationAt: null,
+              lastValidationError: null,
+            },
           },
       subscription: tenant ? tenant.subscription || defaultTenantSubscriptionProfile() : null,
     },
@@ -1001,10 +1248,15 @@ function isAllowedRedirectUri(uriValue) {
   }
   try {
     const url = new URL(uriValue);
-    if (url.protocol === "https:") {
+    const protocol = String(url.protocol || "").toLowerCase();
+    if (protocol === "https:") {
       return true;
     }
-    if (url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1")) {
+    if (protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1")) {
+      return true;
+    }
+    const customScheme = protocol.endsWith(":") ? protocol.slice(0, -1) : "";
+    if (customScheme && config.oauthAllowedCustomRedirectSchemes.includes(customScheme)) {
       return true;
     }
     return false;
@@ -1813,6 +2065,7 @@ async function handleAdminUpsertTenant(req, res) {
     }
 
     const shopify = validateTenantShopifyPayload(payload);
+    await validateShopifyCredentialsLive(shopify);
     const tenantId =
       typeof payload.tenantId === "string" && payload.tenantId.trim()
         ? payload.tenantId.trim()
@@ -1827,12 +2080,11 @@ async function handleAdminUpsertTenant(req, res) {
         typeof payload.label === "string" && payload.label.trim()
           ? payload.label.trim()
           : existing?.label || null,
-      shopify: {
-        domain: shopify.domain,
-        accessToken: shopify.accessToken,
-        clientId: shopify.clientId,
-        clientSecret: shopify.clientSecret,
-      },
+      shopify: buildTenantShopifyRecord(shopify, {
+        validatedAt: now,
+        lastValidationAt: now,
+        lastValidationError: null,
+      }),
       createdAt: existing?.createdAt || now,
       updatedAt: now,
     });
@@ -1880,18 +2132,18 @@ async function handleAdminCreateMcpToken(req, res) {
         return json(res, 404, { error: "license_not_found" });
       }
       const shopify = validateTenantShopifyPayload(payload);
+      await validateShopifyCredentialsLive(shopify);
       tenantId = randomId("tenant");
       db.tenants[tenantId] = ensureTenantRecordShape({
         tenantId,
         licenseKey,
         label:
           typeof payload.label === "string" && payload.label.trim() ? payload.label.trim() : null,
-        shopify: {
-          domain: shopify.domain,
-          accessToken: shopify.accessToken,
-          clientId: shopify.clientId,
-          clientSecret: shopify.clientSecret,
-        },
+        shopify: buildTenantShopifyRecord(shopify, {
+          validatedAt: nowIso(),
+          lastValidationAt: nowIso(),
+          lastValidationError: null,
+        }),
         createdAt: nowIso(),
         updatedAt: nowIso(),
       });
@@ -1949,6 +2201,82 @@ async function handleAdminRevokeMcpToken(req, res) {
     token.updatedAt = nowIso();
     await persistDb();
     return json(res, 200, { ok: true, tokenId });
+  } catch (error) {
+    return json(res, 400, {
+      error: "bad_request",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function handleAdminRevalidateTenants(req, res) {
+  if (!requireAdmin(req, res)) {
+    return;
+  }
+  try {
+    const { json: payload } = await readBody(req);
+    const revokeInvalidTokens = payload?.revokeInvalidTokens === true;
+    const tenantRecords = Object.values(db.tenants).filter(Boolean);
+    const summary = {
+      total: tenantRecords.length,
+      valid: 0,
+      invalid: 0,
+      tokensRevoked: {
+        mcp: 0,
+        oauthRefresh: 0,
+      },
+      invalidTenants: [],
+    };
+
+    for (const tenant of tenantRecords) {
+      ensureTenantRecordShape(tenant);
+      const sourceShopify = tenant.shopify && typeof tenant.shopify === "object" ? tenant.shopify : {};
+      const now = nowIso();
+      try {
+        const credentials = validateTenantShopifyPayload({
+          shopDomain: sourceShopify.domain,
+          shopAccessToken: sourceShopify.accessToken,
+          shopClientId: sourceShopify.clientId,
+          shopClientSecret: sourceShopify.clientSecret,
+        });
+        await validateShopifyCredentialsLive(credentials);
+        tenant.shopify = buildTenantShopifyRecord(credentials, {
+          validatedAt: now,
+          lastValidationAt: now,
+          lastValidationError: null,
+        });
+        tenant.updatedAt = now;
+        summary.valid += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        tenant.shopify = buildTenantShopifyRecord(sourceShopify, {
+          validatedAt: null,
+          lastValidationAt: now,
+          lastValidationError: message,
+        });
+        tenant.updatedAt = now;
+        summary.invalid += 1;
+        summary.invalidTenants.push({
+          tenantId: tenant.tenantId,
+          label: tenant.label || null,
+          domain: tenant.shopify?.domain || null,
+          error: message,
+        });
+        if (revokeInvalidTokens) {
+          const revoked = revokeTenantAuthArtifacts(tenant.tenantId);
+          summary.tokensRevoked.mcp += revoked.revokedMcpTokens;
+          summary.tokensRevoked.oauthRefresh += revoked.revokedRefreshTokens;
+        }
+      }
+    }
+
+    await persistDb();
+    return json(res, 200, {
+      ok: true,
+      revalidatedAt: nowIso(),
+      revokeInvalidTokens,
+      summary,
+    });
   } catch (error) {
     return json(res, 400, {
       error: "bad_request",
@@ -2351,6 +2679,147 @@ async function handleDashboardRevokeMcpToken(req, res) {
   }
 }
 
+async function handleDashboardRevokeOAuthConnection(req, res) {
+  if (!applyRateLimit(req, res)) {
+    return;
+  }
+  const resolved = await requireAccountSession(req, res);
+  if (!resolved) {
+    return;
+  }
+  try {
+    const { json: payload } = await readBody(req);
+    const connectionKey =
+      typeof payload?.connectionKey === "string" && payload.connectionKey.trim()
+        ? payload.connectionKey.trim()
+        : "";
+    if (!connectionKey) {
+      throw new Error("connectionKey is required");
+    }
+    const tenant = resolveTenantForAccount(resolved.account, payload?.tenantId || "");
+    if (!tenant) {
+      return json(res, 404, { error: "tenant_not_found" });
+    }
+
+    const now = nowIso();
+    const affectedClientIds = new Set();
+    if (connectionKey.startsWith("client:")) {
+      const keyClientId = connectionKey.slice("client:".length).trim();
+      if (keyClientId) {
+        affectedClientIds.add(keyClientId);
+      }
+    }
+    let revokedRefreshTokenCount = 0;
+    for (const refreshRecord of Object.values(db.oauthRefreshTokens)) {
+      if (!refreshRecord || refreshRecord.tenantId !== tenant.tenantId || refreshRecord.status !== "active") {
+        continue;
+      }
+      if (oauthConnectionKeyFromRefreshRecord(refreshRecord) !== connectionKey) {
+        continue;
+      }
+      refreshRecord.status = "revoked";
+      refreshRecord.updatedAt = now;
+      revokedRefreshTokenCount += 1;
+      if (typeof refreshRecord.clientId === "string" && refreshRecord.clientId.trim()) {
+        affectedClientIds.add(refreshRecord.clientId.trim());
+      }
+    }
+    if (!revokedRefreshTokenCount) {
+      return json(res, 404, { error: "connection_not_found" });
+    }
+
+    const candidateTokenNames = new Set();
+    for (const clientId of affectedClientIds) {
+      candidateTokenNames.add(`oauth:${clientId}`);
+      const oauthClient = db.oauthClients[clientId];
+      if (oauthClient?.clientName) {
+        candidateTokenNames.add(`oauth:${oauthClient.clientName}`);
+      }
+    }
+    let revokedAccessTokenCount = 0;
+    if (candidateTokenNames.size > 0) {
+      for (const tokenRecord of Object.values(db.mcpTokens)) {
+        if (!tokenRecord || tokenRecord.tenantId !== tenant.tenantId || tokenRecord.status !== "active") {
+          continue;
+        }
+        if (!candidateTokenNames.has(tokenRecord.name || "")) {
+          continue;
+        }
+        tokenRecord.status = "revoked";
+        tokenRecord.updatedAt = now;
+        revokedAccessTokenCount += 1;
+      }
+    }
+
+    await persistDb();
+    return json(res, 200, {
+      ok: true,
+      tenantId: tenant.tenantId,
+      connectionKey,
+      revokedRefreshTokenCount,
+      revokedAccessTokenCount,
+      dashboard: buildDashboardPayload(req, resolved.account, resolved.session, tenant.tenantId),
+    });
+  } catch (error) {
+    return json(res, 400, {
+      error: "bad_request",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function handleDashboardDeleteTenant(req, res) {
+  if (!applyRateLimit(req, res)) {
+    return;
+  }
+  const resolved = await requireAccountSession(req, res);
+  if (!resolved) {
+    return;
+  }
+  try {
+    const { json: payload } = await readBody(req);
+    const tenantId =
+      typeof payload?.tenantId === "string" && payload.tenantId.trim() ? payload.tenantId.trim() : "";
+    if (!tenantId) {
+      throw new Error("tenantId is required");
+    }
+    const tenant = db.tenants[tenantId];
+    if (!tenant || tenant.licenseKey !== resolved.account.licenseKey) {
+      return json(res, 404, { error: "tenant_not_found" });
+    }
+
+    const now = nowIso();
+    const revoked = revokeTenantAuthArtifacts(tenantId);
+    let revokedAuthCodeCount = 0;
+    for (const authCode of Object.values(db.oauthAuthCodes)) {
+      if (!authCode || authCode.tenantId !== tenantId || authCode.status !== "active") {
+        continue;
+      }
+      authCode.status = "revoked";
+      authCode.usedAt = authCode.usedAt || now;
+      revokedAuthCodeCount += 1;
+    }
+
+    delete db.tenants[tenantId];
+    const nextTenantId = listTenantsForAccount(resolved.account)[0]?.tenantId || "";
+    await persistDb();
+
+    return json(res, 200, {
+      ok: true,
+      deletedTenantId: tenantId,
+      revokedMcpTokenCount: revoked.revokedMcpTokens,
+      revokedOAuthRefreshTokenCount: revoked.revokedRefreshTokens,
+      revokedOAuthAuthCodeCount: revokedAuthCodeCount,
+      dashboard: buildDashboardPayload(req, resolved.account, resolved.session, nextTenantId),
+    });
+  } catch (error) {
+    return json(res, 400, {
+      error: "bad_request",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 function handleLandingPage(req, res) {
   return redirectTo(res, "/onboarding", 302);
 }
@@ -2668,6 +3137,7 @@ async function handleOnboardingConnectShopify(req, res) {
     license.updatedAt = nowIso();
 
     const shopify = validateTenantShopifyPayload(payload);
+    await validateShopifyCredentialsLive(shopify);
     const requestedTenantId =
       typeof payload.tenantId === "string" && payload.tenantId.trim()
         ? payload.tenantId.trim()
@@ -2699,12 +3169,11 @@ async function handleOnboardingConnectShopify(req, res) {
         licenseKey,
         label:
           typeof payload.label === "string" && payload.label.trim() ? payload.label.trim() : null,
-        shopify: {
-          domain: shopify.domain,
-          accessToken: shopify.accessToken,
-          clientId: shopify.clientId,
-          clientSecret: shopify.clientSecret,
-        },
+        shopify: buildTenantShopifyRecord(shopify, {
+          validatedAt: now,
+          lastValidationAt: now,
+          lastValidationError: null,
+        }),
         createdAt: now,
         updatedAt: now,
       });
@@ -2715,12 +3184,11 @@ async function handleOnboardingConnectShopify(req, res) {
         typeof payload.label === "string" && payload.label.trim()
           ? payload.label.trim()
           : tenant.label || null;
-      tenant.shopify = {
-        domain: shopify.domain,
-        accessToken: shopify.accessToken,
-        clientId: shopify.clientId,
-        clientSecret: shopify.clientSecret,
-      };
+      tenant.shopify = buildTenantShopifyRecord(shopify, {
+        validatedAt: now,
+        lastValidationAt: now,
+        lastValidationError: null,
+      });
       tenant.updatedAt = now;
       ensureTenantRecordShape(tenant);
     }
@@ -2745,12 +3213,12 @@ async function handleOnboardingConnectShopify(req, res) {
         authMode: tenant.shopify.accessToken ? "access_token" : "client_credentials",
       },
       mcp: {
-        name: "hazify-mcp",
+        name: "Hazify MCP",
         url: resolvedMcpPublicUrl(req),
         bearerToken: token.accessToken,
       },
       config: {
-        codexToml: `[mcp_servers.hazify-mcp]\nurl = "${resolvedMcpPublicUrl(req)}"\nbearer_token = "${token.accessToken}"`,
+        codexToml: `[mcp_servers."Hazify MCP"]\nurl = "${resolvedMcpPublicUrl(req)}"\nbearer_token = "${token.accessToken}"`,
       },
       dashboard: buildDashboardPayload(req, account, resolved.session, tenant.tenantId),
       account: accountPublicPayload(account),
@@ -2772,6 +3240,57 @@ function getOAuthClient(clientId) {
     return null;
   }
   return client;
+}
+
+function buildRecoverableOAuthClient(clientId, redirectUri) {
+  const normalizedClientId = typeof clientId === "string" ? clientId.trim() : "";
+  const normalizedRedirectUri = typeof redirectUri === "string" ? redirectUri.trim() : "";
+  if (!normalizedClientId || !normalizedRedirectUri) {
+    return null;
+  }
+  if (!isAllowedRedirectUri(normalizedRedirectUri)) {
+    return null;
+  }
+  // Keep this constrained to sane identifiers to prevent junk records.
+  if (!/^[a-zA-Z0-9._:-]{3,200}$/.test(normalizedClientId)) {
+    return null;
+  }
+  return {
+    clientId: normalizedClientId,
+    clientName: "MCP Client",
+    redirectUris: [normalizedRedirectUri],
+    grantTypes: ["authorization_code", "refresh_token"],
+    responseTypes: ["code"],
+    tokenEndpointAuthMethod: "none",
+    scope: "mcp:tools",
+    clientSecretHash: null,
+    status: "active",
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+    autoRecovered: true,
+  };
+}
+
+async function recoverOAuthClientIfPossible(clientId, redirectUri) {
+  const normalizedClientId = typeof clientId === "string" ? clientId.trim() : "";
+  if (!normalizedClientId) {
+    return null;
+  }
+  const existing = getOAuthClient(normalizedClientId);
+  if (existing) {
+    return existing;
+  }
+  const recovered = buildRecoverableOAuthClient(normalizedClientId, redirectUri);
+  if (!recovered) {
+    return null;
+  }
+  db.oauthClients[normalizedClientId] = recovered;
+  await persistDb();
+  logEvent("oauth_client_auto_recovered", {
+    clientId: normalizedClientId,
+    redirectUri: redirectUri || "",
+  });
+  return db.oauthClients[normalizedClientId];
 }
 
 function assertOAuthClientRedirectUri(client, redirectUri) {
@@ -2918,20 +3437,23 @@ async function handleOAuthAuthorizeGet(req, res, url) {
   const codeChallengeMethod = url.searchParams.get("code_challenge_method") || "S256";
   const scope = url.searchParams.get("scope") || "mcp:tools";
 
-  const client = getOAuthClient(clientId);
+  let client = getOAuthClient(clientId);
   if (!client) {
-    logEvent("oauth_client_missing", { clientId, redirectUri });
-    logEvent("oauth_reconnect_started", { clientId, redirectUri });
-    res.writeHead(410, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-    res.end(
-      renderOAuthReconnectPage({
-        clientId,
-        redirectUri,
-        error: "invalid_client",
-        errorCode: "oauth_client_expired",
-      })
-    );
-    return;
+    client = await recoverOAuthClientIfPossible(clientId, redirectUri);
+    if (!client) {
+      logEvent("oauth_client_missing", { clientId, redirectUri });
+      logEvent("oauth_reconnect_started", { clientId, redirectUri });
+      res.writeHead(410, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(
+        renderOAuthReconnectPage({
+          clientId,
+          redirectUri,
+          error: "invalid_client",
+          errorCode: "oauth_client_expired",
+        })
+      );
+      return;
+    }
   }
   try {
     assertOAuthClientRedirectUri(client, redirectUri);
@@ -3022,20 +3544,23 @@ async function handleOAuthAuthorizePost(req, res) {
     const decision =
       typeof payload.decision === "string" && payload.decision.trim() ? payload.decision.trim() : "deny";
 
-    const client = getOAuthClient(clientId);
+    let client = getOAuthClient(clientId);
     if (!client) {
-      logEvent("oauth_client_missing", { clientId, redirectUri });
-      logEvent("oauth_reconnect_started", { clientId, redirectUri });
-      res.writeHead(410, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-      res.end(
-        renderOAuthReconnectPage({
-          clientId,
-          redirectUri,
-          error: "invalid_client",
-          errorCode: "oauth_client_expired",
-        })
-      );
-      return;
+      client = await recoverOAuthClientIfPossible(clientId, redirectUri);
+      if (!client) {
+        logEvent("oauth_client_missing", { clientId, redirectUri });
+        logEvent("oauth_reconnect_started", { clientId, redirectUri });
+        res.writeHead(410, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+        res.end(
+          renderOAuthReconnectPage({
+            clientId,
+            redirectUri,
+            error: "invalid_client",
+            errorCode: "oauth_client_expired",
+          })
+        );
+        return;
+      }
     }
     assertOAuthClientRedirectUri(client, redirectUri);
     if (responseType !== "code") {
@@ -3441,6 +3966,9 @@ const server = http.createServer(async (req, res) => {
     if (method === "POST" && url.pathname === "/v1/admin/mcp/token/revoke") {
       return handleAdminRevokeMcpToken(req, res);
     }
+    if (method === "POST" && url.pathname === "/v1/admin/tenant/revalidate") {
+      return handleAdminRevalidateTenants(req, res);
+    }
     if (method === "POST" && url.pathname === "/v1/admin/storage/export") {
       return handleAdminStorageExport(req, res);
     }
@@ -3458,6 +3986,12 @@ const server = http.createServer(async (req, res) => {
     }
     if (method === "POST" && url.pathname === "/v1/dashboard/mcp-token/revoke") {
       return handleDashboardRevokeMcpToken(req, res);
+    }
+    if (method === "POST" && url.pathname === "/v1/dashboard/oauth/revoke") {
+      return handleDashboardRevokeOAuthConnection(req, res);
+    }
+    if (method === "POST" && url.pathname === "/v1/dashboard/tenant/delete") {
+      return handleDashboardDeleteTenant(req, res);
     }
 
     if (method === "GET" && url.pathname.startsWith("/v1/admin/license/")) {

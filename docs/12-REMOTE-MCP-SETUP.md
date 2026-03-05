@@ -18,8 +18,10 @@ Shopify credentials blijven altijd server-side in de license service.
 6. Dashboard toont daarna:
    - overzicht van alle gekoppelde winkels binnen hetzelfde account
    - switchen van actieve winkel zonder opnieuw in te loggen
+   - masked overzicht van actieve winkel-credentials (client id/secret/access token)
+   - winkel verwijderen vanuit dashboard (incl. intrekken actieve auth artifacts)
    - app-cards met één primaire actie `Connect`
-   - actieve app-koppelingen met directe connect-acties en klembord fallback
+   - actieve app-koppelingen met directe connect-acties, intrekken per client en klembord fallback
 
 Dashboard API endpoints (account-sessie via `hz_user_session` cookie):
 - `GET /v1/account/me`
@@ -30,22 +32,49 @@ Dashboard API endpoints (account-sessie via `hz_user_session` cookie):
 - `GET /v1/dashboard/state`
 - `POST /v1/dashboard/mcp-token/create`
 - `POST /v1/dashboard/mcp-token/revoke`
+- `POST /v1/dashboard/oauth/revoke`
+- `POST /v1/dashboard/tenant/delete`
 
-## One-click connect (ondersteunde clients)
-- Cursor:
-  - gebruikt `https://cursor.com/en-US/install-mcp?...` install-link
-  - server wordt direct toegevoegd met HTTP MCP URL
+## Shopify app vereisten (copy-paste)
+Deze scopes dekken alle huidige MCP-tools in `shopify-mcp-local/dist/tools`.
+
+Scopes:
+```text
+read_products,write_products,read_customers,write_customers,read_orders,write_orders,read_fulfillments,read_inventory,write_merchant_managed_fulfillment_orders
+```
+
+Redirect URL's:
+```text
+http://127.0.0.1:8787/oauth/shopify/callback
+http://localhost:8787/oauth/shopify/callback
+```
+
+Belangrijk:
+- Onboarding valideert credentials nu live (token exchange + scope-check) voordat tenant-data wordt opgeslagen.
+- `read_returns` en `write_order_edits` zijn optioneel voor de huidige codebase.
+- `read_all_orders` telt ook als order-read scope.
+
+## Connectflows per client
+- Dashboard UX gebruikt nu tabs per setup-formaat (zoals Stripe): `Streamable URL`, `JSON config`, `Command` waar relevant.
 - VS Code:
-  - gebruikt `vscode:mcp/install?...` deeplink
-  - server wordt direct toegevoegd in MCP configuratie
+  - gebruikt deeplink: `https://vscode.dev/redirect/mcp/install?name=...&config=<url-encoded-json>`
+  - servernaam in clients: `Hazify MCP`
+  - browserautorisatie via OAuth volgt daarna (geen vooraf ingevulde API-key)
+- Cursor:
+  - gebruikt deeplink: `cursor://anysphere.cursor-deeplink/mcp/install?name=...&config=<base64-json>`
+  - browserautorisatie via OAuth volgt daarna (geen vooraf ingevulde API-key)
 - ChatGPT:
-  - opent direct de connector setup
-  - daarna alleen MCP URL invullen + OAuth selecteren
-  - OAuth Client ID/Secret kunnen leeg blijven (dynamic registration)
-- Claude/Other:
-  - gebruiken connect-actie met automatische klembord fallback waar nodig
-- Deeplink fallback:
-  - als deeplink niet opent, staat de juiste configuratie direct op het klembord
+  - open connector setup en plak alleen de MCP URL
+  - OAuth Client ID/Secret leeg laten (dynamic registration)
+- Claude:
+  - open officiële connectorpagina: `https://claude.ai/settings/connectors`
+  - plak MCP URL en rond browserautorisatie af
+  - geen publieke one-click deeplink voor auto-installatie in Claude web
+- Perplexity:
+  - gebruik `Custom Remote Connector`
+  - zet transport op `Streamable HTTP` (SSE geeft 400 op `/mcp`)
+  - kies bij voorkeur `OAuth 2.0`; gebruik API-key fallback als OAuth in de client niet start
+  - geen publieke one-click deeplink voor auto-installatie in Perplexity
 
 ## Authenticatieopties
 
@@ -69,7 +98,7 @@ Compat aliases bestaan ook voor oudere clients:
 - `/register`, `/authorize`, `/token`
 
 ### 2) API token (header/bearer)
-Voor clients zonder OAuth of voor snelle tests.
+Alleen voor clients zonder bruikbare OAuth-flow of voor diagnostiek.
 
 Voorbeeld (`mcp-remote`):
 ```json
@@ -88,6 +117,20 @@ Voorbeeld (`mcp-remote`):
     "HAZIFY_MCP_TOKEN": "hzmcp_REPLACE_ME"
   },
   "useBuiltInNode": true
+}
+```
+
+Perplexity fallback (als OAuth in de app niet start):
+```json
+{
+  "mcpServers": {
+    "Hazify MCP": {
+      "url": "https://hazify-mcp-remote-production.up.railway.app/mcp",
+      "headers": {
+        "x-api-key": "hzmcp_REPLACE_ME"
+      }
+    }
+  }
 }
 ```
 
@@ -119,6 +162,32 @@ Oorzaak:
 
 Fix:
 - controleer dat de URL exact is: `https://hazify-mcp-remote-production.up.railway.app/mcp`
+
+### `Deze koppeling is verlopen` (meestal VS Code/Cursor met oude client-id)
+Oorzaak:
+- client probeert een oude lokaal gecachete OAuth-client-id te gebruiken
+
+Fix:
+1. Klik opnieuw op `Connect` vanuit dashboard (server probeert nu automatisch recovery op geldige redirect URI)
+2. Blijft het terugkomen: verwijder de oude connector in de client en voeg opnieuw toe
+3. Voor native app-callbacks (zoals `vscode://...`) ondersteunt de server nu ook custom redirect schemes via allowlist
+
+### `400 Bad Request: missing mcp-session-id` (vaak Perplexity)
+Oorzaak:
+- connector gebruikt verkeerde transportmodus (meestal SSE i.p.v. Streamable HTTP)
+
+Fix:
+1. Open connector instellingen
+2. Zet transport op `Streamable HTTP`
+3. Gebruik endpoint `https://hazify-mcp-remote-production.up.railway.app/mcp`
+
+### Claude: geen plek om connector toe te voegen
+Oorzaak:
+- je zit niet in `claude.ai` web settings, of workspace-admin heeft custom integrations geblokkeerd
+
+Fix:
+1. Open `https://claude.ai/settings/connectors`
+2. Controleer admin policy voor custom integrations (Team/Enterprise)
 
 ### `Error creating connector ... client_secret Input should be a valid string`
 Oorzaak:
@@ -161,6 +230,7 @@ Fix:
 - `DATA_ENCRYPTION_KEY` (optioneel, versleutelt shop credentials in PostgreSQL)
 - `BACKUP_EXPORT_KEY` (optioneel, versleutelt admin exports)
 - `OAUTH_ISSUER` (optioneel, voor vaste issuer URL)
+- `OAUTH_ALLOWED_CUSTOM_REDIRECT_SCHEMES` (optioneel, default: `vscode,cursor,claude,perplexity`)
 - `OAUTH_ACCESS_TOKEN_TTL_SECONDS` (optioneel)
 - `OAUTH_REFRESH_TOKEN_TTL_DAYS` (optioneel)
 - `OAUTH_CODE_TTL_MINUTES` (optioneel)

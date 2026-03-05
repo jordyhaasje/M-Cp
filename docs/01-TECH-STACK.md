@@ -41,6 +41,7 @@ Data-opslag:
 Belangrijk:
 - Shopify credentials blijven server-side (niet in clientconfig)
 - Dynamic Client Registration retourneert altijd string `client_secret` (ChatGPT compat)
+- Native app redirect URI schemes (zoals `vscode://...`) zijn toegestaan via `OAUTH_ALLOWED_CUSTOM_REDIRECT_SCHEMES`
 - In productie is `DATABASE_URL` feitelijk verplicht voor persistente accounts/sessies/OAuth-clients
 
 ## Service 2: MCP Remote Service
@@ -64,8 +65,9 @@ Belangrijk:
 ## Externe integraties
 - Shopify Admin GraphQL API
 - OpenAI/ChatGPT connector clients
-- Cursor MCP install deeplink
-- VS Code MCP install deeplink
+- Cursor MCP install deeplink (OAuth-first)
+- VS Code MCP install deeplink (OAuth-first)
+- Claude connectorflow via `claude.ai/settings/connectors` (OAuth-first)
 
 ## Productie endpoints
 - License service: `https://hazify-license-service-production.up.railway.app`

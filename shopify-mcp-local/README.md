@@ -43,8 +43,18 @@ As of January 1, 2026, new Shopify apps are created in the **Dev Dashboard** and
    - `read_products`, `write_products`
    - `read_customers`, `write_customers`
    - `read_orders`, `write_orders`
-4. Install the app on your store
-5. Copy your **Client ID** and **Client Secret** from the app's API credentials
+   - `read_fulfillments`
+   - `read_inventory`
+   - `write_merchant_managed_fulfillment_orders`
+4. Configure **Allowed redirection URL(s)** in Shopify app settings:
+   - `http://127.0.0.1:8787/oauth/shopify/callback`
+   - `http://localhost:8787/oauth/shopify/callback`
+5. Install the app on your store
+6. Copy your **Client ID** and **Client Secret** from the app's API credentials
+
+Notes:
+- `read_returns` and `write_order_edits` are optional for this codebase and are not required to run all current tools.
+- If your app has `read_all_orders`, that also satisfies order read access.
 
 The server will automatically exchange these for an access token and refresh it before it expires (tokens are valid for ~24 hours).
 
@@ -293,7 +303,11 @@ shopify-mcp --clientId=<ID> --clientSecret=<SECRET> --domain=<YOUR_SHOP>.myshopi
    - Get orders with optional filtering
    - Inputs:
      - `status` (optional string): Filter by order status
-     - `limit` (optional number, default: 10): Maximum number of orders to return
+     - `limit` (optional number, default: 50, max: 250): Maximum number of orders per request
+     - `cursor` (optional string): Cursor from previous `get-orders` response for pagination
+   - Returns:
+     - `pagination.hasNextPage`
+     - `pagination.nextCursor`
 
 2. `get-order-by-id`
 

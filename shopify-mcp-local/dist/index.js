@@ -169,7 +169,7 @@ if (!IS_HTTP_TRANSPORT) {
 }
 // Set up MCP server
 const createServerInstance = () => new McpServer({
-    name: "hazify-mcp",
+    name: "Hazify MCP",
     version: SERVER_VERSION,
     description: "Hazify Shopify MCP with paid licensing, BYO Shopify credentials, and fulfillment-safe operations"
 });
@@ -809,7 +809,7 @@ server.tool("get-license-status", {}, async () => {
         return toMcpResponse({
             license: licenseManager.getStatus(),
             server: {
-                name: "hazify-mcp",
+                name: "Hazify MCP",
                 version: SERVER_VERSION,
                 transport: "stdio",
             },
@@ -848,7 +848,7 @@ server.tool("get-license-status", {}, async () => {
             shopDomain: context.shopifyDomain,
         },
         server: {
-            name: "hazify-mcp",
+            name: "Hazify MCP",
             version: SERVER_VERSION,
             transport: "http",
         },
@@ -944,7 +944,7 @@ const buildProtectedResourceMetadata = (req) => {
 const buildWwwAuthenticateHeader = (req, errorCode, description) => {
     const metadataUrl = `${resolveRequestBaseUrl(req)}/.well-known/oauth-protected-resource`;
     const safeDescription = String(description || "").replace(/"/g, "'");
-    return `Bearer realm="hazify-mcp", resource_metadata="${metadataUrl}", scope="mcp:tools", error="${errorCode}", error_description="${safeDescription}"`;
+    return `Bearer realm="Hazify MCP", resource_metadata="${metadataUrl}", scope="mcp:tools", error="${errorCode}", error_description="${safeDescription}"`;
 };
 const parseBearerToken = (authorizationHeader) => {
     if (typeof authorizationHeader !== "string") {
@@ -1103,7 +1103,7 @@ else {
             return;
         }
         if (!isInitializeRequest(req.body)) {
-            respondJsonRpcError(res, 400, "Bad Request: initialize request required when no mcp-session-id is provided");
+            respondJsonRpcError(res, 400, "Bad Request: initialize request required when no mcp-session-id is provided (use Streamable HTTP transport)");
             return;
         }
         const sessionServer = createHazifyServer();
@@ -1124,7 +1124,6 @@ else {
             if (sid) {
                 sessions.delete(sid);
             }
-            sessionServer.close().catch(() => { });
         };
         try {
             await sessionServer.connect(transport);
@@ -1146,7 +1145,7 @@ else {
         const sessionIdHeader = req.headers["mcp-session-id"];
         const sessionId = typeof sessionIdHeader === "string" ? sessionIdHeader : null;
         if (!sessionId) {
-            respondJsonRpcError(res, 400, "Bad Request: missing mcp-session-id");
+            respondJsonRpcError(res, 400, "Bad Request: missing mcp-session-id (client likely using wrong transport; choose Streamable HTTP)");
             return;
         }
         const existing = sessions.get(sessionId);
@@ -1178,7 +1177,7 @@ else {
         const sessionIdHeader = req.headers["mcp-session-id"];
         const sessionId = typeof sessionIdHeader === "string" ? sessionIdHeader : null;
         if (!sessionId) {
-            respondJsonRpcError(res, 400, "Bad Request: missing mcp-session-id");
+            respondJsonRpcError(res, 400, "Bad Request: missing mcp-session-id (client likely using wrong transport; choose Streamable HTTP)");
             return;
         }
         const existing = sessions.get(sessionId);
