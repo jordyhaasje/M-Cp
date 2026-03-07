@@ -85,6 +85,7 @@ OAuth security defaults:
 - PKCE is verplicht.
 - Alleen `S256` is toegestaan als `code_challenge_method`.
 - Scope is vast op `mcp:tools`.
+- OAuth authorize-submit gebruikt same-origin form submit (`action=""`) voor compatibiliteit met geproxyde browserflows in LLM clients (zoals ChatGPT/Claude/Perplexity webviews).
 
 MCP endpoint:
 - `https://hazify-mcp-remote-production.up.railway.app/mcp`
