@@ -12,7 +12,7 @@ Doel: geef externe AI-clients (ChatGPT, Claude, Perplexity, Cursor, VS Code) een
 - Producten: `get-products`, `get-product-by-id`, `create-product`, `update-product`, `manage-product-variants`, `manage-product-options`, `delete-product`, `delete-product-variants`, `clone-product-from-url`
 - Orders/klanten: `get-orders`, `get-order-by-id`, `get-customer-orders`, `get-customers`, `update-order`, `update-customer`
 - Tracking/refund: `get-supported-tracking-companies`, `set-order-tracking`, `update-fulfillment-tracking`, `update-order-tracking`, `add-tracking-to-order`, `refund-order`
-- Theme/sections: `read-theme-files`, `validate-theme-section`, `upsert-theme-section`, `upsert-theme-section-pack`, `inject-section-into-template`
+- Theme/sections: `read-theme-files`, `validate-theme-section`, `upsert-theme-section`, `inject-section-into-template`
 - Status: `get-license-status`
 
 ## Intent routing (kritiek)
@@ -26,19 +26,9 @@ Doel: geef externe AI-clients (ChatGPT, Claude, Perplexity, Cursor, VS Code) een
 1. Inspecteer referentiepagina met Chrome MCP.
 2. Genereer Shopify section liquid met `{% schema %}`.
 3. Call `validate-theme-section`.
-4. Call `upsert-theme-section-pack` (section.liquid + styles.css + optionele snippets/assets).
-5. Call `inject-section-into-template` alleen als `targetTemplate` niet al in pack-call is meegegeven.
+4. Call `upsert-theme-section`.
+5. Call `inject-section-into-template`.
 6. Call `read-theme-files` om te verifiëren.
-
-Section pack conventie:
-- Vereist output:
-  - `sections/<id>.liquid`
-  - `assets/sections-library/<id>/styles.css`
-- Optioneel:
-  - `snippets/<id>--*.liquid`
-  - `assets/sections-library/<id>/*.(css|js|json|txt|svg)`
-- ID format: `[a-z0-9-]`
-- Bij conflict met bestaande merchant files: alleen overschrijven met expliciete consentvelden.
 
 ## Veiligheidsregels
 - Schrijf alleen naar `sections/*.liquid` en `templates/*.json`.
@@ -50,7 +40,6 @@ Section pack conventie:
 - Zonder deze velden moeten writes falen.
 - `clone-product-from-url` is uitsluitend voor productdata, niet voor section-import.
 - Gebruik voor tracking uitsluitend fulfillment-tracking tools, nooit customAttributes/metafields als tracking-bron.
-- Gebruik Chrome MCP alleen voor visuele analyse; clone geen derde partij code 1-op-1.
 
 ## MCP-native guidance
 - Resource: `hazify://catalog/tools`

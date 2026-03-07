@@ -3,14 +3,7 @@ import { readThemeFiles } from "../dist/tools/readThemeFiles.js";
 import { validateThemeSection } from "../dist/tools/validateThemeSection.js";
 import { upsertThemeSection } from "../dist/tools/upsertThemeSection.js";
 import { injectSectionIntoTemplate } from "../dist/tools/injectSectionIntoTemplate.js";
-import { upsertThemeSectionPack } from "../dist/tools/upsertThemeSectionPack.js";
-import {
-  MAX_THEME_FILE_BYTES,
-  assertAllowedSectionLibraryAssetPath,
-  assertAllowedThemeFilePath,
-  buildScopedSnippetFilename,
-  buildSectionLibraryStylesFilename,
-} from "../dist/lib/themeSections.js";
+import { MAX_THEME_FILE_BYTES, assertAllowedThemeFilePath } from "../dist/lib/themeSections.js";
 
 const validSectionLiquid = `
 {% schema %}
@@ -64,18 +57,6 @@ assert.ok(
 assert.throws(
   () => assertAllowedThemeFilePath("../templates/index.json", { allowTemplateJson: true }),
   /Invalid theme filename/
-);
-assert.equal(
-  buildSectionLibraryStylesFilename("hero-banner"),
-  "assets/sections-library/hero-banner/styles.css"
-);
-assert.equal(
-  assertAllowedSectionLibraryAssetPath("hero-banner", "icons/check.svg"),
-  "assets/sections-library/hero-banner/icons/check.svg"
-);
-assert.equal(
-  buildScopedSnippetFilename("hero-banner", "cta-button"),
-  "snippets/hero-banner--cta-button.liquid"
 );
 
 const readThemeCalls = [];
@@ -299,101 +280,5 @@ const injectResult = await injectSectionIntoTemplate.execute({
 assert.equal(injectResult.injectedSection.sectionId, "hero-banner");
 assert.ok(capturedTemplateWrite?.sections?.["hero-banner"], "template write should include injected section");
 assert.deepEqual(capturedTemplateWrite?.order, ["hero-banner", "main"]);
-
-const packCalls = [];
-upsertThemeSectionPack.initialize({
-  request: async (query, variables) => {
-    const queryText = String(query);
-    packCalls.push({ queryText, variables });
-    if (queryText.includes("query ReadThemeFilesForSectionPack")) {
-      return {
-        shop: { myshopifyDomain: "demo-shop.myshopify.com" },
-        theme: {
-          id: "gid://shopify/OnlineStoreTheme/99",
-          name: "Draft",
-          role: "UNPUBLISHED",
-          files: {
-            edges: [
-              {
-                node: {
-                  filename: "templates/product.json",
-                  size: 500,
-                  contentType: "application/json",
-                  checksumMd5: "xyz",
-                  updatedAt: "2026-03-07T10:00:00Z",
-                  body: { content: JSON.stringify(basicTemplate) },
-                },
-              },
-              {
-                node: {
-                  filename: "sections/hero-banner.liquid",
-                  size: 100,
-                  contentType: "application/x-liquid",
-                  checksumMd5: "existing",
-                  updatedAt: "2026-03-07T10:00:00Z",
-                  body: { content: validSectionLiquid },
-                },
-              },
-            ],
-            userErrors: [],
-          },
-        },
-      };
-    }
-    if (queryText.includes("mutation ThemeFilesUpsertSectionPack")) {
-      return {
-        themeFilesUpsert: {
-          upsertedThemeFiles: variables.files.map((file) => ({ filename: file.filename })),
-          job: { id: "gid://shopify/Job/4", done: true },
-          userErrors: [],
-        },
-      };
-    }
-    throw new Error(`Unexpected section-pack request: ${queryText.slice(0, 120)}`);
-  },
-});
-
-await assert.rejects(
-  () =>
-    upsertThemeSectionPack.execute({
-      shopDomain: "demo-shop.myshopify.com",
-      themeId: "gid://shopify/OnlineStoreTheme/99",
-      sectionId: "hero-banner",
-      sectionLiquid: validSectionLiquid,
-      stylesCss: ".hero{padding:12px;}",
-      installMode: true,
-    }),
-  /Preflight conflict detected/,
-  "section pack should block overwriting merchant files without explicit consent"
-);
-
-const packResult = await upsertThemeSectionPack.execute({
-  shopDomain: "demo-shop.myshopify.com",
-  themeId: "gid://shopify/OnlineStoreTheme/99",
-  sectionId: "hero-banner",
-  sectionLiquid: validSectionLiquid,
-  stylesCss: ".hero{padding:12px;}",
-  snippets: [{ name: "cta-button", liquid: "<button>Koop nu</button>" }],
-  assets: [{ relativePath: "icons/check.svg", content: "<svg></svg>", contentType: "TEXT" }],
-  targetTemplate: "templates/product.json",
-  position: "before",
-  referenceSectionId: "main",
-  installMode: true,
-  confirm_overwrite_existing: true,
-  overwrite_reason: "Agent update met merchant toestemming",
-});
-
-assert.equal(packResult.sectionPack.id, "hero-banner");
-assert.equal(packResult.sectionPack.overwrittenExisting, true);
-assert.ok(
-  packResult.sectionPack.paths.some((entry) => entry.themeFilename === "assets/sections-library/hero-banner/styles.css"),
-  "section pack should write required styles.css"
-);
-const packMutation = packCalls.find((entry) => entry.queryText.includes("mutation ThemeFilesUpsertSectionPack"));
-assert.ok(packMutation, "section pack should execute themeFilesUpsert mutation");
-assert.ok(
-  packMutation.variables.files.some((file) => file.filename === "snippets/hero-banner--cta-button.liquid"),
-  "section pack should include scoped snippet file"
-);
 
 console.log("themeTools.test.mjs passed");

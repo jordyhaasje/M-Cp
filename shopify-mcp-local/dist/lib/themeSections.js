@@ -4,8 +4,6 @@ const SECTION_HANDLE_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SECTION_SCHEMA_PATTERN = /\{\%\s*schema\s*\%\}([\s\S]*?)\{\%\s*endschema\s*\%\}/i;
 const SECTION_FILENAME_PATTERN = /^sections\/[a-z0-9]+(?:-[a-z0-9]+)*\.liquid$/;
 const TEMPLATE_FILENAME_PATTERN = /^templates\/[a-z0-9][a-z0-9\-_.\/]*\.json$/;
-const SNIPPET_FILENAME_PATTERN = /^snippets\/[a-z0-9]+(?:-[a-z0-9]+)*(?:--[a-z0-9]+(?:-[a-z0-9]+)*)*\.liquid$/;
-const ASSET_FILENAME_PATTERN = /^assets\/sections-library\/[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9\-_.\/]*\.(css|js|json|txt|svg)$/;
 const UNSAFE_PATH_PATTERN = /(^\/|\\|\.\.|\u0000|\r|\n)/;
 const DEFAULT_MAX_THEME_FILE_BYTES = 256 * 1024;
 
@@ -24,10 +22,6 @@ function normalizeSectionHandle(value) {
 
 function buildSectionFilename(sectionHandle) {
   return `sections/${normalizeSectionHandle(sectionHandle)}.liquid`;
-}
-
-function buildSectionLibraryStylesFilename(sectionHandle) {
-  return `assets/sections-library/${normalizeSectionHandle(sectionHandle)}/styles.css`;
 }
 
 function assertAllowedThemeFilePath(filename, options = {}) {
@@ -49,34 +43,6 @@ function assertAllowedThemeFilePath(filename, options = {}) {
       ? `Theme filename '${value}' is not allowed. Allowed: sections/*.liquid and templates/*.json`
       : `Theme filename '${value}' is not allowed. Allowed: sections/*.liquid`
   );
-}
-
-function assertAllowedSectionLibraryAssetPath(sectionHandle, relativeAssetPath) {
-  const safeSectionHandle = normalizeSectionHandle(sectionHandle);
-  const normalizedRelativePath = String(relativeAssetPath || "").trim().toLowerCase();
-  if (!normalizedRelativePath) {
-    throw new Error("Asset path is required");
-  }
-  if (UNSAFE_PATH_PATTERN.test(normalizedRelativePath)) {
-    throw new Error(`Invalid asset path '${relativeAssetPath}'`);
-  }
-  const filename = `assets/sections-library/${safeSectionHandle}/${normalizedRelativePath}`;
-  if (!ASSET_FILENAME_PATTERN.test(filename)) {
-    throw new Error(
-      `Asset filename '${filename}' is not allowed. Allowed: assets/sections-library/<id>/*.(css|js|json|txt|svg)`
-    );
-  }
-  return filename;
-}
-
-function buildScopedSnippetFilename(sectionHandle, snippetName) {
-  const safeSectionHandle = normalizeSectionHandle(sectionHandle);
-  const safeSnippetHandle = normalizeSectionHandle(snippetName);
-  const filename = `snippets/${safeSectionHandle}--${safeSnippetHandle}.liquid`;
-  if (!SNIPPET_FILENAME_PATTERN.test(filename)) {
-    throw new Error(`Snippet filename '${filename}' is not allowed`);
-  }
-  return filename;
 }
 
 function assertThemeFileSize(content, label = "Theme file") {
@@ -321,15 +287,10 @@ function createThemeAuditId() {
 }
 
 export {
-  ASSET_FILENAME_PATTERN,
   MAX_THEME_FILE_BYTES,
-  SNIPPET_FILENAME_PATTERN,
   assertAllowedThemeFilePath,
-  assertAllowedSectionLibraryAssetPath,
   assertThemeFileSize,
-  buildScopedSnippetFilename,
   buildSectionFilename,
-  buildSectionLibraryStylesFilename,
   createThemeAuditId,
   extractSectionSchema,
   insertSectionInTemplate,

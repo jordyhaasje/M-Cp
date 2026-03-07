@@ -41,7 +41,6 @@ node dist/index.js --transport=http
   - `read-theme-files` voor context/verify
   - `validate-theme-section` vóór elke write
   - `upsert-theme-section` voor `sections/*.liquid`
-  - `upsert-theme-section-pack` voor section pack uploads (`sections/<id>.liquid` + `assets/sections-library/<id>/styles.css` + optionele snippets/assets)
   - `inject-section-into-template` voor `templates/*.json`
   - bij section-opdrachten met URL/screenshot/DOM-context: nooit `clone-product-from-url`
   - writes naar live theme (`role=MAIN`) vereisen:
@@ -65,5 +64,4 @@ Testset bevat o.a.:
 - MCP HTTP auth hardening tests
 - tool hardening tests (clone mapping, tracking carrier strictness, refund audit)
 - theme tools tests (validate/upsert/inject/read + live guard + path/size checks)
-- section-pack tests (conflict preflight + consented overwrite + styles/snippets/assets write)
 - license/url security unit tests
