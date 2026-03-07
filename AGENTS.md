@@ -57,14 +57,6 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 3. Publiceer pas als variant-media correct is bevestigd.
 4. Bij twijfel of ontbrekende API-zichtbaarheid: visuele check via `chrome-devtools`.
 
-### Section-build/import regels (verplicht)
-1. Bij een section-opdracht met URL, screenshot of DOM-context: gebruik **nooit** `clone-product-from-url`.
-2. Gebruik Chrome MCP voor inspectiecontext (DOM/CSS/scripts), niet voor mutaties.
-3. Gebruik `validate-theme-section` voor preflight.
-4. Gebruik `upsert-theme-section-pack` voor write (`sections/<id>.liquid` + `assets/sections-library/<id>/styles.css` + optionele snippets/assets).
-5. Gebruik `inject-section-into-template` alleen als `targetTemplate` niet in de pack-write zat.
-6. Verifieer met `read-theme-files`.
-
 ### Orders
 - Ophalen: `get-orders`, `get-order-by-id`
 - Klantorders: `get-customer-orders`
@@ -104,7 +96,6 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 - Nooit refunds doen zonder expliciete validatie van bedrag en scope.
 - Productimport is niet klaar zonder gecontroleerde variant-media.
 - Trackingnummer/vervoerder nooit via `customAttributes` of losse metafields bijwerken; altijd fulfillment-tracking gebruiken.
-- Bij section-opdrachten: nooit `clone-product-from-url` gebruiken.
 - Deel geen gevoelige data buiten Shopify-context.
 
 ## Snelheidsmodus (als snelheid belangrijk is)
