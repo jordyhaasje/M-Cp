@@ -52,6 +52,7 @@ http://localhost:8787/oauth/shopify/callback
 Belangrijk:
 - Onboarding valideert credentials nu live (token exchange + scope-check) voordat tenant-data wordt opgeslagen.
 - Theme section tooling (`read-theme-files`, `validate-theme-section`, `upsert-theme-section`, `inject-section-into-template`) vereist `read_themes` + `write_themes`.
+- Section-pack upload tooling (`upsert-theme-section-pack`) vereist ook `read_themes` + `write_themes`.
 - `read_returns` en `write_order_edits` zijn optioneel voor de huidige codebase.
 - `read_all_orders` telt ook als order-read scope.
 
@@ -142,9 +143,15 @@ Aanbevolen flow:
 1. Gebruik Chrome MCP om DOM/CSS/scripts van referentiepagina op te halen.
 2. Laat de client section liquid genereren (met geldig `{% schema %}` blok).
 3. Gebruik `validate-theme-section` (preflight).
-4. Gebruik `upsert-theme-section` om `sections/<handle>.liquid` te schrijven.
-5. Gebruik `inject-section-into-template` om de section in `templates/*.json` te registreren.
+4. Gebruik `upsert-theme-section-pack` om section + styles (+ optionele snippets/assets) te schrijven.
+5. Gebruik `inject-section-into-template` alleen als `targetTemplate` niet in stap 4 is meegegeven.
 6. Verifieer met `read-theme-files`.
+
+Section-pack paden:
+- `sections/<id>.liquid`
+- `assets/sections-library/<id>/styles.css`
+- optioneel `snippets/<id>--*.liquid`
+- optioneel `assets/sections-library/<id>/*.(css|js|json|txt|svg)`
 
 Live theme guard:
 - Bij `theme.role=MAIN` moet je expliciet meesturen:

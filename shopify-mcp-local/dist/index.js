@@ -33,6 +33,7 @@ import { readThemeFiles } from "./tools/readThemeFiles.js";
 import { validateThemeSection } from "./tools/validateThemeSection.js";
 import { upsertThemeSection } from "./tools/upsertThemeSection.js";
 import { injectSectionIntoTemplate } from "./tools/injectSectionIntoTemplate.js";
+import { upsertThemeSectionPack } from "./tools/upsertThemeSectionPack.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
 import { LicenseManager } from "./lib/licenseManager.js";
 import { createMachineFingerprint } from "./lib/machineFingerprint.js";
@@ -131,6 +132,7 @@ const initializeTools = (shopifyClient) => {
     validateThemeSection.initialize(shopifyClient);
     upsertThemeSection.initialize(shopifyClient);
     injectSectionIntoTemplate.initialize(shopifyClient);
+    upsertThemeSectionPack.initialize(shopifyClient);
 };
 let licenseManager = null;
 let auth = null;
@@ -420,6 +422,7 @@ const createHazifyServer = () => {
         "clone-product-from-url",
         "upsert-theme-section",
         "inject-section-into-template",
+        "upsert-theme-section-pack",
     ]);
     const destructiveTools = new Set([
         "delete-product",
@@ -452,6 +455,7 @@ const createHazifyServer = () => {
         "validate-theme-section": "Validate a section Liquid file before writing to Shopify themes.",
         "upsert-theme-section": "Create or update a section file with live-theme confirmation guard and audit logging.",
         "inject-section-into-template": "Inject a section reference into a JSON template with collision checks and audit logging.",
+        "upsert-theme-section-pack": "Write a full section pack (section + styles + optional snippets/assets) with conflict preflight checks.",
         "get-license-status": "Return current license/access status and effective capabilities.",
     };
     const originalTool = server.tool.bind(server);
@@ -480,6 +484,7 @@ const createHazifyServer = () => {
                     "Gebruik tracking tools met carriers uit get-supported-tracking-companies.",
                     "Theme writes op MAIN/live themes vereisen explicit confirmation velden.",
                     "Gebruik validate-theme-section voor elke write.",
+                    "Gebruik upsert-theme-section-pack voor section + styles.css + optionele snippets/assets.",
                 ],
             },
             tools: Object.entries(toolDescriptions).map(([name, description]) => ({
@@ -509,8 +514,8 @@ const createHazifyServer = () => {
             "1. Gebruik read-theme-files om doeltemplate/sectiecontext te laden.",
             "2. Genereer section code op basis van inspectiecontext (bijv. Chrome MCP output).",
             "3. Valideer altijd met validate-theme-section.",
-            "4. Schrijf section met upsert-theme-section (live theme vereist confirm velden).",
-            "5. Injecteer template referentie met inject-section-into-template.",
+            "4. Schrijf section pack met upsert-theme-section-pack (section + styles + optionele snippets/assets).",
+            "5. Injecteer template referentie met inject-section-into-template of targetTemplate in de pack-call.",
             "6. Verifieer resultaat opnieuw met read-theme-files.",
         ].join("\\n");
         return {
@@ -535,13 +540,13 @@ const createHazifyServer = () => {
             "1. Verzamel inspectiecontext (DOM, styles, scripts) met Chrome MCP.",
             "2. Maak section liquid met geldige {% schema %} JSON.",
             "3. Call validate-theme-section.",
-            "4. Call upsert-theme-section.",
-            "5. Call inject-section-into-template (template + position).",
+            "4. Call upsert-theme-section-pack (section + styles + optionele snippets/assets).",
+            "5. Call inject-section-into-template als targetTemplate niet direct in de pack-call is meegegeven.",
             "6. Call read-theme-files voor verificatie van geschreven section/template.",
             "",
             "Veiligheid:",
             "- Nooit live theme writes zonder liveWrite=true + confirm_live_write + confirmation_reason + change_summary.",
-            "- Gebruik alleen templates/*.json en sections/*.liquid.",
+            "- Gebruik section-pack paden onder sections/*.liquid, assets/sections-library/* en snippets/*.liquid.",
             "",
             `Inspectiecontext: ${args.pageContext || "niet opgegeven"}`,
             `Section doel: ${args.sectionGoal || "niet opgegeven"}`,
@@ -944,6 +949,36 @@ server.tool("upsert-theme-section", {
     change_summary: z.string().optional(),
 }, async (args) => {
     return runLicensedTool("upsert-theme-section", true, upsertThemeSection.execute, args);
+});
+server.tool("upsert-theme-section-pack", {
+    shopDomain: z.string().min(1).describe("Target shop domain, e.g. your-store.myshopify.com"),
+    themeId: z.string().min(1).describe("Shopify theme GID"),
+    sectionId: z.string().min(1).describe("Section id in [a-z0-9-] format"),
+    sectionLiquid: z.string().min(1).describe("Section Liquid source with complete {% schema %}"),
+    stylesCss: z.string().min(1).describe("Required CSS for the section pack"),
+    snippets: z.array(z.object({
+        name: z.string().min(1),
+        liquid: z.string().min(1),
+    })).optional(),
+    assets: z.array(z.object({
+        relativePath: z.string().min(1).describe("Relative asset path under assets/sections-library/<sectionId>/"),
+        content: z.string().min(1),
+        contentType: z.enum(["TEXT", "BASE64"]).default("TEXT"),
+    })).optional(),
+    targetTemplate: z.string().optional().describe("Optional template JSON path for section injection"),
+    sectionKey: z.string().optional().describe("Optional section key in template JSON"),
+    settings: z.record(z.any()).optional(),
+    position: z.enum(["start", "end", "before", "after"]).default("end"),
+    referenceSectionId: z.string().optional().describe("Required when position is before/after"),
+    installMode: z.boolean().default(false).describe("Enable strict preflight conflict flow"),
+    confirm_overwrite_existing: z.boolean().optional(),
+    overwrite_reason: z.string().optional(),
+    liveWrite: z.boolean().default(false).describe("Set true when intentionally writing to a MAIN/live theme"),
+    confirm_live_write: z.boolean().optional(),
+    confirmation_reason: z.string().optional(),
+    change_summary: z.string().optional(),
+}, async (args) => {
+    return runLicensedTool("upsert-theme-section-pack", true, upsertThemeSectionPack.execute, args);
 });
 server.tool("inject-section-into-template", {
     shopDomain: z.string().min(1).describe("Target shop domain, e.g. your-store.myshopify.com"),
