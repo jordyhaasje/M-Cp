@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { AsyncLocalStorage } from "async_hooks";
 import crypto from "crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
@@ -30,9 +29,14 @@ import { cloneProductFromUrl } from "./tools/cloneProductFromUrl.js";
 import { getSupportedTrackingCompanies } from "./tools/getSupportedTrackingCompanies.js";
 import { updateFulfillmentTracking } from "./tools/updateFulfillmentTracking.js";
 import { setOrderTracking } from "./tools/setOrderTracking.js";
+import { readThemeFiles } from "./tools/readThemeFiles.js";
+import { validateThemeSection } from "./tools/validateThemeSection.js";
+import { upsertThemeSection } from "./tools/upsertThemeSection.js";
+import { injectSectionIntoTemplate } from "./tools/injectSectionIntoTemplate.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
 import { LicenseManager } from "./lib/licenseManager.js";
 import { createMachineFingerprint } from "./lib/machineFingerprint.js";
+import { requestContextStore } from "./lib/requestContext.js";
 // Parse command line arguments
 const argv = minimist(process.argv.slice(2));
 // Load environment variables from .env file (if it exists)
@@ -62,7 +66,6 @@ const HAZIFY_MCP_ALLOWED_ORIGINS = String(argv.allowedOrigins || process.env.HAZ
 const useClientCredentials = !!(SHOPIFY_CLIENT_ID && SHOPIFY_CLIENT_SECRET);
 const SERVER_VERSION = "1.1.0";
 const API_VERSION = argv.apiVersion || process.env.SHOPIFY_API_VERSION || "2026-01";
-const requestContextStore = new AsyncLocalStorage();
 const remoteContextCache = new Map();
 const remoteShopifyClientCache = new Map();
 if (!IS_HTTP_TRANSPORT) {
@@ -124,6 +127,10 @@ const initializeTools = (shopifyClient) => {
     getSupportedTrackingCompanies.initialize(shopifyClient);
     updateFulfillmentTracking.initialize(shopifyClient);
     setOrderTracking.initialize(shopifyClient);
+    readThemeFiles.initialize(shopifyClient);
+    validateThemeSection.initialize(shopifyClient);
+    upsertThemeSection.initialize(shopifyClient);
+    injectSectionIntoTemplate.initialize(shopifyClient);
 };
 let licenseManager = null;
 let auth = null;
@@ -411,6 +418,8 @@ const createHazifyServer = () => {
         "delete-product-variants",
         "refund-order",
         "clone-product-from-url",
+        "upsert-theme-section",
+        "inject-section-into-template",
     ]);
     const destructiveTools = new Set([
         "delete-product",
@@ -439,6 +448,10 @@ const createHazifyServer = () => {
         "delete-product-variants": "Delete one or more variants from a product.",
         "refund-order": "Create a full or partial refund on an order.",
         "clone-product-from-url": "Import a product from a public Shopify product URL.",
+        "read-theme-files": "Read Shopify theme files (sections/templates) for context and verification.",
+        "validate-theme-section": "Validate a section Liquid file before writing to Shopify themes.",
+        "upsert-theme-section": "Create or update a section file with live-theme confirmation guard and audit logging.",
+        "inject-section-into-template": "Inject a section reference into a JSON template with collision checks and audit logging.",
         "get-license-status": "Return current license/access status and effective capabilities.",
     };
     const originalTool = server.tool.bind(server);
@@ -453,6 +466,100 @@ const createHazifyServer = () => {
         }
         return originalTool(name, ...rest);
     };
+    server.resource("hazify-tool-catalog", "hazify://catalog/tools", {
+        description: "Compacte toolcatalogus en veiligheidsnotities voor Hazify MCP.",
+        mimeType: "application/json",
+    }, async (uri) => {
+        const catalog = {
+            server: "Hazify MCP",
+            version: SERVER_VERSION,
+            safety: {
+                transport: "Streamable HTTP",
+                auth: ["Authorization: Bearer", "x-api-key"],
+                notes: [
+                    "Gebruik tracking tools met carriers uit get-supported-tracking-companies.",
+                    "Theme writes op MAIN/live themes vereisen explicit confirmation velden.",
+                    "Gebruik validate-theme-section voor elke write.",
+                ],
+            },
+            tools: Object.entries(toolDescriptions).map(([name, description]) => ({
+                name,
+                description,
+                mutating: mutatingTools.has(name),
+                destructive: destructiveTools.has(name),
+            })),
+        };
+        return {
+            contents: [
+                {
+                    uri: uri.href,
+                    mimeType: "application/json",
+                    text: JSON.stringify(catalog, null, 2),
+                },
+            ],
+        };
+    });
+    server.resource("hazify-theme-safety-rules", "hazify://playbooks/theme-safety", {
+        description: "Regels voor inspect -> generate -> validate -> write -> verify flow met Shopify theme sections.",
+        mimeType: "text/markdown",
+    }, async (uri) => {
+        const markdown = [
+            "# Hazify Theme Safety Rules",
+            "",
+            "1. Gebruik read-theme-files om doeltemplate/sectiecontext te laden.",
+            "2. Genereer section code op basis van inspectiecontext (bijv. Chrome MCP output).",
+            "3. Valideer altijd met validate-theme-section.",
+            "4. Schrijf section met upsert-theme-section (live theme vereist confirm velden).",
+            "5. Injecteer template referentie met inject-section-into-template.",
+            "6. Verifieer resultaat opnieuw met read-theme-files.",
+        ].join("\\n");
+        return {
+            contents: [
+                {
+                    uri: uri.href,
+                    mimeType: "text/markdown",
+                    text: markdown,
+                },
+            ],
+        };
+    });
+    server.prompt("hazify-theme-section-playbook", "Guided prompt for section build + import using Chrome MCP context and Hazify tools.", {
+        pageContext: z.string().optional().describe("Short summary from Chrome MCP inspect DOM/scripts"),
+        sectionGoal: z.string().optional().describe("Desired section intent (e.g. hero, faq, comparison)"),
+        templatePath: z.string().optional().describe("Target JSON template path"),
+    }, async (args) => {
+        const instructions = [
+            "Doel: maak een Shopify section 1-op-1 op basis van inspectiecontext en importeer veilig via Hazify tools.",
+            "",
+            "Workflow:",
+            "1. Verzamel inspectiecontext (DOM, styles, scripts) met Chrome MCP.",
+            "2. Maak section liquid met geldige {% schema %} JSON.",
+            "3. Call validate-theme-section.",
+            "4. Call upsert-theme-section.",
+            "5. Call inject-section-into-template (template + position).",
+            "6. Call read-theme-files voor verificatie van geschreven section/template.",
+            "",
+            "Veiligheid:",
+            "- Nooit live theme writes zonder liveWrite=true + confirm_live_write + confirmation_reason + change_summary.",
+            "- Gebruik alleen templates/*.json en sections/*.liquid.",
+            "",
+            `Inspectiecontext: ${args.pageContext || "niet opgegeven"}`,
+            `Section doel: ${args.sectionGoal || "niet opgegeven"}`,
+            `Template: ${args.templatePath || "niet opgegeven"}`,
+        ].join("\\n");
+        return {
+            description: "Hazify section build/import playbook",
+            messages: [
+                {
+                    role: "user",
+                    content: {
+                        type: "text",
+                        text: instructions,
+                    },
+                },
+            ],
+        };
+    });
 server.tool("get-products", {
     searchTitle: z.string().optional(),
     limit: z.number().default(10)
@@ -811,6 +918,48 @@ server.tool("clone-product-from-url", {
     tracked: z.boolean().default(true),
 }, async (args) => {
     return runLicensedTool("clone-product-from-url", true, cloneProductFromUrl.execute, args);
+});
+server.tool("read-theme-files", {
+    shopDomain: z.string().min(1).describe("Target shop domain, e.g. your-store.myshopify.com"),
+    themeId: z.string().min(1).describe("Shopify theme GID"),
+    filenames: z.array(z.string().min(1)).min(1).max(50).describe("Allowed paths: sections/*.liquid and templates/*.json"),
+}, async (args) => {
+    return runLicensedTool("read-theme-files", false, readThemeFiles.execute, args);
+});
+server.tool("validate-theme-section", {
+    sectionHandle: z.string().min(1).describe("Section filename handle, e.g. hero-banner"),
+    liquid: z.string().min(1).describe("Section liquid source"),
+    targetTemplate: z.string().optional().describe("Optional template path for additional validation context"),
+}, async (args) => {
+    return runLicensedTool("validate-theme-section", false, validateThemeSection.execute, args);
+});
+server.tool("upsert-theme-section", {
+    shopDomain: z.string().min(1).describe("Target shop domain, e.g. your-store.myshopify.com"),
+    themeId: z.string().min(1).describe("Shopify theme GID"),
+    sectionHandle: z.string().min(1),
+    liquid: z.string().min(1),
+    liveWrite: z.boolean().default(false).describe("Set true when intentionally writing to a MAIN/live theme"),
+    confirm_live_write: z.boolean().optional(),
+    confirmation_reason: z.string().optional(),
+    change_summary: z.string().optional(),
+}, async (args) => {
+    return runLicensedTool("upsert-theme-section", true, upsertThemeSection.execute, args);
+});
+server.tool("inject-section-into-template", {
+    shopDomain: z.string().min(1).describe("Target shop domain, e.g. your-store.myshopify.com"),
+    themeId: z.string().min(1).describe("Shopify theme GID"),
+    templatePath: z.string().min(1).describe("Template JSON path, e.g. templates/product.json"),
+    sectionHandle: z.string().min(1).describe("Section filename handle, e.g. hero-banner"),
+    sectionId: z.string().min(1).optional().describe("Optional section key in template JSON"),
+    settings: z.record(z.any()).optional(),
+    position: z.enum(["start", "end", "before", "after"]).default("end"),
+    referenceSectionId: z.string().optional().describe("Required when position is before/after"),
+    liveWrite: z.boolean().default(false).describe("Set true when intentionally writing to a MAIN/live theme"),
+    confirm_live_write: z.boolean().optional(),
+    confirmation_reason: z.string().optional(),
+    change_summary: z.string().optional(),
+}, async (args) => {
+    return runLicensedTool("inject-section-into-template", true, injectSectionIntoTemplate.execute, args);
 });
 server.tool("get-license-status", {}, async () => {
     if (!IS_HTTP_TRANSPORT) {

@@ -40,7 +40,7 @@ Deze scopes dekken alle huidige MCP-tools in `shopify-mcp-local/dist/tools`.
 
 Scopes:
 ```text
-read_products,write_products,read_customers,write_customers,read_orders,write_orders,read_fulfillments,read_inventory,write_merchant_managed_fulfillment_orders
+read_products,write_products,read_customers,write_customers,read_orders,write_orders,read_fulfillments,read_inventory,write_merchant_managed_fulfillment_orders,read_themes,write_themes
 ```
 
 Redirect URL's:
@@ -51,6 +51,7 @@ http://localhost:8787/oauth/shopify/callback
 
 Belangrijk:
 - Onboarding valideert credentials nu live (token exchange + scope-check) voordat tenant-data wordt opgeslagen.
+- Theme section tooling (`read-theme-files`, `validate-theme-section`, `upsert-theme-section`, `inject-section-into-template`) vereist `read_themes` + `write_themes`.
 - `read_returns` en `write_order_edits` zijn optioneel voor de huidige codebase.
 - `read_all_orders` telt ook als order-read scope.
 
@@ -86,6 +87,7 @@ OAuth security defaults:
 - Alleen `S256` is toegestaan als `code_challenge_method`.
 - Scope is vast op `mcp:tools`.
 - OAuth authorize-submit gebruikt same-origin form submit (`action=""`) voor compatibiliteit met geproxyde browserflows in LLM clients (zoals ChatGPT/Claude/Perplexity webviews).
+- CSP `form-action` op OAuth-pagina’s staat expliciet loopback callback origins toe (`http://127.0.0.1:*`, `http://localhost:*`, `http://[::1]:*`) plus toegestane custom redirect schemes (zoals `vscode:`), zodat native clients kunnen afronden.
 - OAuth login/authorize routes staan framed toe voor bekende LLM-origins (ChatGPT/Claude/Perplexity), met strikte allowlist.
 
 MCP endpoint:
@@ -130,6 +132,32 @@ Voorbeeld (`mcp-remote`):
   "useBuiltInNode": true
 }
 ```
+
+## Multi-MCP section builder flow (Chrome MCP + Hazify MCP)
+Belangrijk:
+- De remote Shopify MCP kan je lokale Chrome MCP niet direct aanroepen.
+- De AI-client orkestreert beide MCP’s in dezelfde sessie.
+
+Aanbevolen flow:
+1. Gebruik Chrome MCP om DOM/CSS/scripts van referentiepagina op te halen.
+2. Laat de client section liquid genereren (met geldig `{% schema %}` blok).
+3. Gebruik `validate-theme-section` (preflight).
+4. Gebruik `upsert-theme-section` om `sections/<handle>.liquid` te schrijven.
+5. Gebruik `inject-section-into-template` om de section in `templates/*.json` te registreren.
+6. Verifieer met `read-theme-files`.
+
+Live theme guard:
+- Bij `theme.role=MAIN` moet je expliciet meesturen:
+  - `liveWrite=true`
+  - `confirm_live_write=true`
+  - `confirmation_reason`
+  - `change_summary`
+- Zonder deze velden wordt de write hard geblokkeerd.
+
+MCP-native instructies:
+- Resource: `hazify://catalog/tools`
+- Resource: `hazify://playbooks/theme-safety`
+- Prompt: `hazify-theme-section-playbook`
 
 Perplexity fallback (als OAuth in de app niet start):
 ```json
@@ -217,6 +245,16 @@ Fix:
 1. Onboarding opnieuw met juiste `shopDomain`
 2. Of `shopAccessToken` gebruiken
 3. Of app eerst installeren/authoriseren op die shop
+
+### `Target theme is live (MAIN)...`
+Oorzaak:
+- Je schrijft naar het live theme zonder verplichte confirm velden
+
+Fix:
+1. Voeg `liveWrite=true` toe
+2. Voeg `confirm_live_write=true` toe
+3. Voeg `confirmation_reason` + `change_summary` toe
+4. Of schrijf eerst naar een niet-live theme
 
 ## Vereiste remote variabelen
 

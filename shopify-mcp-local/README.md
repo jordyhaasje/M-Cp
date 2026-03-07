@@ -36,6 +36,16 @@ node dist/index.js --transport=http
 - `clone-product-from-url`
   - default `status` is `DRAFT`
   - output bevat `variantMediaMapping` met verificatie-status
+- theme section flow
+  - `read-theme-files` voor context/verify
+  - `validate-theme-section` vóór elke write
+  - `upsert-theme-section` voor `sections/*.liquid`
+  - `inject-section-into-template` voor `templates/*.json`
+  - writes naar live theme (`role=MAIN`) vereisen:
+    - `liveWrite=true`
+    - `confirm_live_write=true`
+    - `confirmation_reason`
+    - `change_summary`
 - tracking updates (`set-order-tracking`, `update-fulfillment-tracking`, tracking via `update-order`)
   - carrier moet exact ondersteund zijn of resolvebare alias
   - ongeldige carrier geeft harde validatiefout
@@ -51,4 +61,5 @@ npm test
 Testset bevat o.a.:
 - MCP HTTP auth hardening tests
 - tool hardening tests (clone mapping, tracking carrier strictness, refund audit)
+- theme tools tests (validate/upsert/inject/read + live guard + path/size checks)
 - license/url security unit tests
