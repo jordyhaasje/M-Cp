@@ -406,14 +406,47 @@ function safeRedirectPath(value, fallback = "/dashboard") {
   return raw;
 }
 
+function normalizeCspOrigin(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return "";
+  }
+  try {
+    const parsed = new URL(value.trim());
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.origin;
+    }
+  } catch {
+    // noop
+  }
+  return "";
+}
+
 function applySecurityHeaders(req, res) {
   const secure = isRequestSecure(req);
+  const formActionSources = new Set(["'self'"]);
+  const connectSources = new Set(["'self'"]);
+
+  const requestOrigin = normalizeCspOrigin(requestBaseUrl(req));
+  const oauthOrigin = normalizeCspOrigin(oauthIssuerBase(req));
+  if (requestOrigin) {
+    formActionSources.add(requestOrigin);
+    connectSources.add(requestOrigin);
+  }
+  if (oauthOrigin) {
+    formActionSources.add(oauthOrigin);
+    connectSources.add(oauthOrigin);
+  }
+
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'"
+    `default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action ${Array.from(
+      formActionSources
+    ).join(" ")}; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src ${Array.from(
+      connectSources
+    ).join(" ")}`
   );
   if (secure) {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
@@ -3478,6 +3511,7 @@ async function handleOAuthAuthorizeGet(req, res, url) {
         error: error instanceof Error ? error.message : String(error),
         clientName: client.clientName,
         clientId,
+        authorizeAction: `${oauthIssuerBase(req)}/oauth/authorize`,
         redirectUri,
         state,
         responseType,
@@ -3504,6 +3538,7 @@ async function handleOAuthAuthorizeGet(req, res, url) {
     renderOAuthAuthorizePageV2({
       clientName: client.clientName,
       clientId,
+      authorizeAction: `${oauthIssuerBase(req)}/oauth/authorize`,
       redirectUri,
       state,
       responseType,
@@ -3617,6 +3652,7 @@ async function handleOAuthAuthorizePost(req, res) {
           error: "Je account heeft nog geen actieve toegang.",
           clientName: client.clientName,
           clientId,
+          authorizeAction: `${oauthIssuerBase(req)}/oauth/authorize`,
           redirectUri,
           state,
           responseType,
@@ -3640,6 +3676,7 @@ async function handleOAuthAuthorizePost(req, res) {
           error: "Je account kan deze koppeling nu niet afronden.",
           clientName: client.clientName,
           clientId,
+          authorizeAction: `${oauthIssuerBase(req)}/oauth/authorize`,
           redirectUri,
           state,
           responseType,
@@ -3664,6 +3701,7 @@ async function handleOAuthAuthorizePost(req, res) {
           error: error instanceof Error ? error.message : String(error),
           clientName: client.clientName,
           clientId,
+          authorizeAction: `${oauthIssuerBase(req)}/oauth/authorize`,
           redirectUri,
           state,
           responseType,
