@@ -29,9 +29,13 @@ Gebruik voor section-cloning/import:
 1. Inspecteer referentie met Chrome MCP (DOM/CSS/scripts).
 2. Genereer section liquid met geldig `{% schema %}`.
 3. Valideer via `validate-theme-section`.
-4. Schrijf via `upsert-theme-section`.
-5. Injecteer in template via `inject-section-into-template`.
+4. Schrijf via `upsert-theme-section-pack`.
+5. Injecteer in template via `inject-section-into-template` alleen als `targetTemplate` niet al in stap 4 zat.
 6. Verifieer met `read-theme-files`.
+
+Intent-regel:
+- Bij section-opdrachten met URL/screenshot/DOM-context nooit `clone-product-from-url` gebruiken.
+- `clone-product-from-url` is alleen voor productimport van een publieke productpagina.
 
 Veiligheidsregel:
 - Als `theme.role=MAIN` moet write expliciet bevestigd zijn met:

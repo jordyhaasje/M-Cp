@@ -36,12 +36,14 @@ node dist/index.js --transport=http
 - `clone-product-from-url`
   - default `status` is `DRAFT`
   - output bevat `variantMediaMapping` met verificatie-status
+  - alleen voor productimport (niet gebruiken voor theme/section opdrachten)
 - theme section flow
   - `read-theme-files` voor context/verify
   - `validate-theme-section` vóór elke write
   - `upsert-theme-section` voor `sections/*.liquid`
   - `upsert-theme-section-pack` voor section pack uploads (`sections/<id>.liquid` + `assets/sections-library/<id>/styles.css` + optionele snippets/assets)
   - `inject-section-into-template` voor `templates/*.json`
+  - bij section-opdrachten met URL/screenshot/DOM-context: nooit `clone-product-from-url`
   - writes naar live theme (`role=MAIN`) vereisen:
     - `liveWrite=true`
     - `confirm_live_write=true`

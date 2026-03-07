@@ -450,7 +450,7 @@ const createHazifyServer = () => {
         "delete-product": "Delete a product by GID.",
         "delete-product-variants": "Delete one or more variants from a product.",
         "refund-order": "Create a full or partial refund on an order.",
-        "clone-product-from-url": "Import a product from a public Shopify product URL.",
+        "clone-product-from-url": "Import a product from a public Shopify product URL (product data only, not for theme sections).",
         "read-theme-files": "Read Shopify theme files (sections/templates) for context and verification.",
         "validate-theme-section": "Validate a section Liquid file before writing to Shopify themes.",
         "upsert-theme-section": "Create or update a section file with live-theme confirmation guard and audit logging.",
@@ -485,6 +485,7 @@ const createHazifyServer = () => {
                     "Theme writes op MAIN/live themes vereisen explicit confirmation velden.",
                     "Gebruik validate-theme-section voor elke write.",
                     "Gebruik upsert-theme-section-pack voor section + styles.css + optionele snippets/assets.",
+                    "Bij section-opdrachten met URL/screenshot/DOM-context: gebruik nooit clone-product-from-url.",
                 ],
             },
             tools: Object.entries(toolDescriptions).map(([name, description]) => ({
@@ -517,6 +518,8 @@ const createHazifyServer = () => {
             "4. Schrijf section pack met upsert-theme-section-pack (section + styles + optionele snippets/assets).",
             "5. Injecteer template referentie met inject-section-into-template of targetTemplate in de pack-call.",
             "6. Verifieer resultaat opnieuw met read-theme-files.",
+            "",
+            "Intent-regel: section-opdracht met URL/screenshot/DOM-context is geen productimport; gebruik nooit clone-product-from-url in deze flow.",
         ].join("\\n");
         return {
             contents: [
@@ -547,6 +550,7 @@ const createHazifyServer = () => {
             "Veiligheid:",
             "- Nooit live theme writes zonder liveWrite=true + confirm_live_write + confirmation_reason + change_summary.",
             "- Gebruik section-pack paden onder sections/*.liquid, assets/sections-library/* en snippets/*.liquid.",
+            "- Gebruik clone-product-from-url nooit voor section-import; alleen voor productdata.",
             "",
             `Inspectiecontext: ${args.pageContext || "niet opgegeven"}`,
             `Section doel: ${args.sectionGoal || "niet opgegeven"}`,

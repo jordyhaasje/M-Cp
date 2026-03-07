@@ -15,6 +15,13 @@ Doel: geef externe AI-clients (ChatGPT, Claude, Perplexity, Cursor, VS Code) een
 - Theme/sections: `read-theme-files`, `validate-theme-section`, `upsert-theme-section`, `upsert-theme-section-pack`, `inject-section-into-template`
 - Status: `get-license-status`
 
+## Intent routing (kritiek)
+- Vraag bevat `section`, `theme`, `liquid`, `template`, `inspecteer URL`, `maak na`, `importeer in theme`:
+  - Gebruik section flow tools.
+  - Gebruik **nooit** `clone-product-from-url`.
+- Vraag bevat productimport van publieke productpagina:
+  - Gebruik `clone-product-from-url`.
+
 ## Verplichte workflow voor section build/import
 1. Inspecteer referentiepagina met Chrome MCP.
 2. Genereer Shopify section liquid met `{% schema %}`.
@@ -41,6 +48,7 @@ Section pack conventie:
   - `confirmation_reason`
   - `change_summary`
 - Zonder deze velden moeten writes falen.
+- `clone-product-from-url` is uitsluitend voor productdata, niet voor section-import.
 - Gebruik voor tracking uitsluitend fulfillment-tracking tools, nooit customAttributes/metafields als tracking-bron.
 - Gebruik Chrome MCP alleen voor visuele analyse; clone geen derde partij code 1-op-1.
 

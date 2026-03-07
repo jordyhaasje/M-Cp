@@ -4,7 +4,6 @@
 Deze workspace is voor operationele uitvoering van:
 - Shopify productbeheer
 - Shopify orderbeheer en refunds
-- Gmail klantcommunicatie en opvolging
 
 De agent werkt snel, veilig en verifieert altijd data voordat er wijzigingen worden gedaan.
 
@@ -38,8 +37,7 @@ Als documentatie en code elkaar tegenspreken: code is leidend, en documentatie m
 ## Prioriteit van tools
 Gebruik tools in deze volgorde:
 1. `shopify-mcp` voor Shopify-data en mutaties
-2. `gmail` voor klantmails en opvolging
-3. `chrome-devtools` alleen als fallback voor visuele controle of wanneer API-acties niet voldoende zijn
+2. `chrome-devtools` alleen als fallback voor visuele controle of wanneer API-acties niet voldoende zijn
 
 ## Shopify taken
 Gebruik altijd de `mcp__shopify-mcp__*` tools.
@@ -58,6 +56,14 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 2. Controleer daarna expliciet variant-media mapping (kleur/stijl moet juiste image hebben).
 3. Publiceer pas als variant-media correct is bevestigd.
 4. Bij twijfel of ontbrekende API-zichtbaarheid: visuele check via `chrome-devtools`.
+
+### Section-build/import regels (verplicht)
+1. Bij een section-opdracht met URL, screenshot of DOM-context: gebruik **nooit** `clone-product-from-url`.
+2. Gebruik Chrome MCP voor inspectiecontext (DOM/CSS/scripts), niet voor mutaties.
+3. Gebruik `validate-theme-section` voor preflight.
+4. Gebruik `upsert-theme-section-pack` voor write (`sections/<id>.liquid` + `assets/sections-library/<id>/styles.css` + optionele snippets/assets).
+5. Gebruik `inject-section-into-template` alleen als `targetTemplate` niet in de pack-write zat.
+6. Verifieer met `read-theme-files`.
 
 ### Orders
 - Ophalen: `get-orders`, `get-order-by-id`
@@ -84,35 +90,12 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
   - reden
   - scope (volledig/gedeeltelijk)
 
-## Gmail taken
-Gebruik altijd de `mcp__gmail__*` tools.
-
-### Inkomende klantmails
-- Zoek mails met `search_emails` (gebruik filters op afzender/ordernummer)
-- Lees inhoud met `read_email`
-- Koppel mail aan order via klant-e-mail en orderdetails
-
-### Uitgaande communicatie
-- Versturen: `send_email`
-- Concepten: `draft_email`
-- Houd replies kort, oplossingsgericht en duidelijk met:
-  - ordernummer
-  - status
-  - vervolgstap
-
-### Labels en opvolging
-- Gebruik labels voor workflow, bijvoorbeeld:
-  - `opvolging`
-  - `wacht-op-klant`
-  - `afgehandeld`
-- Beheer labels via `modify_email` of batch-acties
-
 ## Standaard werkwijze
 1. Verzamel context (order, klant, eerdere communicatie).
 2. Verifieer identiteit, IDs, bedragen en status.
 3. Voer pas daarna mutaties uit.
 4. Controleer resultaat direct na de mutatie (`get-order-by-id` en verifieer `order.tracking.shipments`).
-5. Log relevante info in Shopify-notitie of mailthread.
+5. Log relevante info in Shopify-notitie of auditveld.
 6. Rapporteer kort: wat gedaan is, wat nog openstaat.
 
 ## Veiligheidsregels
@@ -121,12 +104,13 @@ Gebruik altijd de `mcp__gmail__*` tools.
 - Nooit refunds doen zonder expliciete validatie van bedrag en scope.
 - Productimport is niet klaar zonder gecontroleerde variant-media.
 - Trackingnummer/vervoerder nooit via `customAttributes` of losse metafields bijwerken; altijd fulfillment-tracking gebruiken.
-- Deel geen gevoelige data buiten Shopify/Gmail-context.
+- Bij section-opdrachten: nooit `clone-product-from-url` gebruiken.
+- Deel geen gevoelige data buiten Shopify-context.
 
 ## Snelheidsmodus (als snelheid belangrijk is)
 1. Product uit URL: `clone-product-from-url`
 2. Alleen noodzakelijke correcties: `update-product` + `manage-product-variants`
-3. Klant direct informeren via Gmail
+3. Verifieer en rapporteer direct in de task-output
 
 ## Verwachte output van de agent
 Bij afronding altijd melden:

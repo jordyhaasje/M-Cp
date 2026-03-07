@@ -87,7 +87,7 @@ OAuth security defaults:
 - PKCE is verplicht.
 - Alleen `S256` is toegestaan als `code_challenge_method`.
 - Scope is vast op `mcp:tools`.
-- OAuth authorize-submit gebruikt same-origin form submit (`action=""`) voor compatibiliteit met geproxyde browserflows in LLM clients (zoals ChatGPT/Claude/Perplexity webviews).
+- OAuth authorize-confirmatie gebruikt same-origin decision redirects op `/oauth/authorize` (geen cross-origin form submit) voor compatibiliteit met geproxyde browserflows in LLM clients.
 - CSP `form-action` op OAuth-pagina’s staat expliciet loopback callback origins toe (`http://127.0.0.1:*`, `http://localhost:*`, `http://[::1]:*`) plus toegestane custom redirect schemes (zoals `vscode:`), zodat native clients kunnen afronden.
 - OAuth login/authorize routes staan framed toe voor bekende LLM-origins (ChatGPT/Claude/Perplexity), met strikte allowlist.
 
@@ -146,6 +146,10 @@ Aanbevolen flow:
 4. Gebruik `upsert-theme-section-pack` om section + styles (+ optionele snippets/assets) te schrijven.
 5. Gebruik `inject-section-into-template` alleen als `targetTemplate` niet in stap 4 is meegegeven.
 6. Verifieer met `read-theme-files`.
+
+Intent-regel (belangrijk):
+- Een section-opdracht met URL/screenshot/DOM-context is **geen** productimport.
+- Gebruik in die flow nooit `clone-product-from-url`; die tool is alleen voor productdata.
 
 Section-pack paden:
 - `sections/<id>.liquid`
