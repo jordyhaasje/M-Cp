@@ -35,6 +35,7 @@ const config = {
   licenseGraceHours: Number(process.env.LICENSE_GRACE_HOURS || 72),
   readOnlyGraceDays: Number(process.env.READ_ONLY_GRACE_DAYS || 7),
   rateLimitPerMinute: Number(process.env.RATE_LIMIT_PER_MINUTE || 120),
+  maxBodyBytes: Number(process.env.MAX_BODY_BYTES || 1_048_576),
   timestampSkewSeconds: Number(process.env.TIMESTAMP_SKEW_SECONDS || 900),
   freeMode: String(process.env.HAZIFY_FREE_MODE || "true").trim().toLowerCase() !== "false",
   stripeSecretKey: process.env.STRIPE_SECRET_KEY || "",
@@ -405,6 +406,20 @@ function safeRedirectPath(value, fallback = "/dashboard") {
   return raw;
 }
 
+function applySecurityHeaders(req, res) {
+  const secure = isRequestSecure(req);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'"
+  );
+  if (secure) {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+}
+
 function redirectTo(res, location, statusCode = 302) {
   res.writeHead(statusCode, {
     Location: location,
@@ -424,8 +439,16 @@ function json(res, statusCode, payload) {
 
 async function readBody(req, asRaw = false) {
   const chunks = [];
+  let totalBytes = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.from(chunk));
+    const buf = Buffer.from(chunk);
+    totalBytes += buf.length;
+    if (totalBytes > config.maxBodyBytes) {
+      const error = new Error(`Request body too large (max ${config.maxBodyBytes} bytes)`);
+      error.code = "payload_too_large";
+      throw error;
+    }
+    chunks.push(buf);
   }
   const rawBuffer = Buffer.concat(chunks);
   if (asRaw) {
@@ -1282,8 +1305,8 @@ function oauthMetadata(req) {
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
-    code_challenge_methods_supported: ["S256", "plain"],
-    scopes_supported: ["mcp:tools", "offline_access"],
+    code_challenge_methods_supported: ["S256"],
+    scopes_supported: ["mcp:tools"],
     service_documentation: `${requestBaseUrl(req)}/onboarding`,
   };
 }
@@ -2325,6 +2348,9 @@ async function handleMcpTokenIntrospect(req, res) {
     tokenRecord.updatedAt = nowIso();
     await persistDb();
 
+    const authMode = tenant.shopify?.accessToken ? "access_token" : "client_credentials";
+    const includesAccessToken = authMode === "access_token";
+
     return json(res, 200, {
       active: true,
       tokenId: tokenRecord.tokenId,
@@ -2333,9 +2359,10 @@ async function handleMcpTokenIntrospect(req, res) {
       license: canonicalLicense(license),
       shopify: {
         domain: tenant.shopify?.domain || null,
-        accessToken: tenant.shopify?.accessToken || null,
-        clientId: tenant.shopify?.clientId || null,
-        clientSecret: tenant.shopify?.clientSecret || null,
+        authMode,
+        accessToken: includesAccessToken ? tenant.shopify?.accessToken || null : null,
+        clientId: includesAccessToken ? null : tenant.shopify?.clientId || null,
+        clientSecret: includesAccessToken ? null : tenant.shopify?.clientSecret || null,
       },
     });
   } catch (error) {
@@ -3260,57 +3287,6 @@ function getOAuthClient(clientId) {
   return client;
 }
 
-function buildRecoverableOAuthClient(clientId, redirectUri) {
-  const normalizedClientId = typeof clientId === "string" ? clientId.trim() : "";
-  const normalizedRedirectUri = typeof redirectUri === "string" ? redirectUri.trim() : "";
-  if (!normalizedClientId || !normalizedRedirectUri) {
-    return null;
-  }
-  if (!isAllowedRedirectUri(normalizedRedirectUri)) {
-    return null;
-  }
-  // Keep this constrained to sane identifiers to prevent junk records.
-  if (!/^[a-zA-Z0-9._:-]{3,200}$/.test(normalizedClientId)) {
-    return null;
-  }
-  return {
-    clientId: normalizedClientId,
-    clientName: "MCP Client",
-    redirectUris: [normalizedRedirectUri],
-    grantTypes: ["authorization_code", "refresh_token"],
-    responseTypes: ["code"],
-    tokenEndpointAuthMethod: "none",
-    scope: "mcp:tools",
-    clientSecretHash: null,
-    status: "active",
-    createdAt: nowIso(),
-    updatedAt: nowIso(),
-    autoRecovered: true,
-  };
-}
-
-async function recoverOAuthClientIfPossible(clientId, redirectUri) {
-  const normalizedClientId = typeof clientId === "string" ? clientId.trim() : "";
-  if (!normalizedClientId) {
-    return null;
-  }
-  const existing = getOAuthClient(normalizedClientId);
-  if (existing) {
-    return existing;
-  }
-  const recovered = buildRecoverableOAuthClient(normalizedClientId, redirectUri);
-  if (!recovered) {
-    return null;
-  }
-  db.oauthClients[normalizedClientId] = recovered;
-  await persistDb();
-  logEvent("oauth_client_auto_recovered", {
-    clientId: normalizedClientId,
-    redirectUri: redirectUri || "",
-  });
-  return db.oauthClients[normalizedClientId];
-}
-
 function assertOAuthClientRedirectUri(client, redirectUri) {
   if (typeof redirectUri !== "string" || !redirectUri.trim()) {
     throw new Error("redirect_uri is required");
@@ -3398,8 +3374,7 @@ async function handleOAuthRegister(req, res) {
         : "client_secret_post";
     const grantTypes = normalizeStringArray(payload.grant_types);
     const responseTypes = normalizeStringArray(payload.response_types);
-    const scope =
-      typeof payload.scope === "string" && payload.scope.trim() ? payload.scope.trim() : "mcp:tools";
+    const scope = "mcp:tools";
 
     const clientId = randomId("oauthcli");
     const issuedAtSeconds = Math.floor(Date.now() / 1000);
@@ -3453,25 +3428,22 @@ async function handleOAuthAuthorizeGet(req, res, url) {
   const responseType = url.searchParams.get("response_type") || "code";
   const codeChallenge = url.searchParams.get("code_challenge") || "";
   const codeChallengeMethod = url.searchParams.get("code_challenge_method") || "S256";
-  const scope = url.searchParams.get("scope") || "mcp:tools";
+  const scope = "mcp:tools";
 
-  let client = getOAuthClient(clientId);
+  const client = getOAuthClient(clientId);
   if (!client) {
-    client = await recoverOAuthClientIfPossible(clientId, redirectUri);
-    if (!client) {
-      logEvent("oauth_client_missing", { clientId, redirectUri });
-      logEvent("oauth_reconnect_started", { clientId, redirectUri });
-      res.writeHead(410, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-      res.end(
-        renderOAuthReconnectPage({
-          clientId,
-          redirectUri,
-          error: "invalid_client",
-          errorCode: "oauth_client_expired",
-        })
-      );
-      return;
-    }
+    logEvent("oauth_client_missing", { clientId, redirectUri });
+    logEvent("oauth_reconnect_started", { clientId, redirectUri });
+    res.writeHead(410, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(
+      renderOAuthReconnectPage({
+        clientId,
+        redirectUri,
+        error: "invalid_client",
+        errorCode: "oauth_client_expired",
+      })
+    );
+    return;
   }
   try {
     assertOAuthClientRedirectUri(client, redirectUri);
@@ -3483,10 +3455,18 @@ async function handleOAuthAuthorizeGet(req, res, url) {
       });
       return;
     }
-    if (codeChallengeMethod && !["S256", "plain"].includes(codeChallengeMethod)) {
+    if (!codeChallenge) {
       redirectWithOAuthResult(res, redirectUri, {
         error: "invalid_request",
-        error_description: "Unsupported code_challenge_method",
+        error_description: "PKCE code_challenge (S256) is required",
+        state,
+      });
+      return;
+    }
+    if (codeChallengeMethod !== "S256") {
+      redirectWithOAuthResult(res, redirectUri, {
+        error: "invalid_request",
+        error_description: "Unsupported code_challenge_method (only S256 is allowed)",
         state,
       });
       return;
@@ -3555,30 +3535,25 @@ async function handleOAuthAuthorizePost(req, res) {
     const codeChallengeMethod =
       typeof payload.code_challenge_method === "string" && payload.code_challenge_method.trim()
         ? payload.code_challenge_method.trim()
-        : codeChallenge
-        ? "S256"
-        : "";
-    const scope = typeof payload.scope === "string" && payload.scope.trim() ? payload.scope.trim() : "mcp:tools";
+        : "S256";
+    const scope = "mcp:tools";
     const decision =
       typeof payload.decision === "string" && payload.decision.trim() ? payload.decision.trim() : "deny";
 
-    let client = getOAuthClient(clientId);
+    const client = getOAuthClient(clientId);
     if (!client) {
-      client = await recoverOAuthClientIfPossible(clientId, redirectUri);
-      if (!client) {
-        logEvent("oauth_client_missing", { clientId, redirectUri });
-        logEvent("oauth_reconnect_started", { clientId, redirectUri });
-        res.writeHead(410, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-        res.end(
-          renderOAuthReconnectPage({
-            clientId,
-            redirectUri,
-            error: "invalid_client",
-            errorCode: "oauth_client_expired",
-          })
-        );
-        return;
-      }
+      logEvent("oauth_client_missing", { clientId, redirectUri });
+      logEvent("oauth_reconnect_started", { clientId, redirectUri });
+      res.writeHead(410, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(
+        renderOAuthReconnectPage({
+          clientId,
+          redirectUri,
+          error: "invalid_client",
+          errorCode: "oauth_client_expired",
+        })
+      );
+      return;
     }
     assertOAuthClientRedirectUri(client, redirectUri);
     if (responseType !== "code") {
@@ -3589,10 +3564,18 @@ async function handleOAuthAuthorizePost(req, res) {
       });
       return;
     }
-    if (codeChallengeMethod && !["S256", "plain"].includes(codeChallengeMethod)) {
+    if (!codeChallenge) {
       redirectWithOAuthResult(res, redirectUri, {
         error: "invalid_request",
-        error_description: "Unsupported code_challenge_method",
+        error_description: "PKCE code_challenge (S256) is required",
+        state,
+      });
+      return;
+    }
+    if (codeChallengeMethod !== "S256") {
+      redirectWithOAuthResult(res, redirectUri, {
+        error: "invalid_request",
+        error_description: "Unsupported code_challenge_method (only S256 is allowed)",
         state,
       });
       return;
@@ -3703,8 +3686,8 @@ async function handleOAuthAuthorizePost(req, res) {
       tenantId: tenant.tenantId,
       licenseKey,
       scope,
-      codeChallenge: codeChallenge || null,
-      codeChallengeMethod: codeChallenge ? codeChallengeMethod || "S256" : null,
+      codeChallenge,
+      codeChallengeMethod: "S256",
       createdAt: nowIso(),
       expiresAt: addSeconds(nowIso(), Math.max(60, config.oauthCodeTtlMinutes * 60)),
       usedAt: null,
@@ -3767,13 +3750,12 @@ async function handleOAuthToken(req, res) {
       if (!redirectUri || redirectUri !== codeRecord.redirectUri) {
         return oauthJsonError(res, 400, "invalid_grant", "redirect_uri mismatch");
       }
-      if (codeRecord.codeChallenge) {
-        const verifier = typeof payload.code_verifier === "string" ? payload.code_verifier : "";
-        if (
-          !verifyPkceCodeVerifier(verifier, codeRecord.codeChallenge, codeRecord.codeChallengeMethod || "plain")
-        ) {
-          return oauthJsonError(res, 400, "invalid_grant", "Invalid code_verifier");
-        }
+      if (!codeRecord.codeChallenge || codeRecord.codeChallengeMethod !== "S256") {
+        return oauthJsonError(res, 400, "invalid_grant", "Authorization code is missing PKCE requirements");
+      }
+      const verifier = typeof payload.code_verifier === "string" ? payload.code_verifier : "";
+      if (!verifyPkceCodeVerifier(verifier, codeRecord.codeChallenge, "S256")) {
+        return oauthJsonError(res, 400, "invalid_grant", "Invalid code_verifier");
       }
 
       const accessTokenTtlSeconds = Math.max(300, Number(config.oauthAccessTokenTtlSeconds || 3600));
@@ -3883,6 +3865,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const method = req.method || "GET";
     const url = new URL(req.url || "/", `http://localhost:${config.port}`);
+    applySecurityHeaders(req, res);
 
     if (method === "GET" && url.pathname === "/") {
       return handleLandingPage(req, res);
@@ -4068,6 +4051,12 @@ const server = http.createServer(async (req, res) => {
 
     return routeNotFound(res);
   } catch (error) {
+    if (error && typeof error === "object" && error.code === "payload_too_large") {
+      return json(res, 413, {
+        error: "payload_too_large",
+        message: error instanceof Error ? error.message : "Request body too large",
+      });
+    }
     return json(res, 500, {
       error: "internal_error",
       message: error instanceof Error ? error.message : String(error),
@@ -4088,3 +4077,5 @@ server.listen(config.port, () => {
     }
   }
 });
+
+export { server };

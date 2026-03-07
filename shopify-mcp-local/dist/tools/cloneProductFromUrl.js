@@ -4,7 +4,7 @@ import { fetchWithSafeRedirects } from "../lib/urlSecurity.js";
 
 const CloneProductFromUrlInputSchema = z.object({
   sourceUrl: z.string().url().describe("Public Shopify product URL"),
-  status: z.enum(["ACTIVE", "DRAFT", "ARCHIVED"]).default("ACTIVE"),
+  status: z.enum(["ACTIVE", "DRAFT", "ARCHIVED"]).default("DRAFT"),
   titleOverride: z.string().optional(),
   handleOverride: z.string().optional(),
   vendorOverride: z.string().optional(),
@@ -20,6 +20,24 @@ function toAbsoluteUrl(url) {
   if (!url) return url;
   if (url.startsWith("//")) return `https:${url}`;
   return url;
+}
+
+function normalizeComparableUrl(url) {
+  if (!url || typeof url !== "string") return null;
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    parsed.search = "";
+    return parsed.toString();
+  } catch {
+    return url.trim();
+  }
+}
+
+function urlsLikelyMatch(left, right) {
+  const a = normalizeComparableUrl(left);
+  const b = normalizeComparableUrl(right);
+  return !!a && !!b && a === b;
 }
 
 function centsToMoneyString(cents) {
@@ -54,6 +72,56 @@ async function fetchSourceProduct(sourceUrl) {
   return await res.json();
 }
 
+function extractSourceImageEntries(source) {
+  const entries = [];
+  const add = (item) => {
+    const src =
+      typeof item === "string"
+        ? item
+        : item?.src || item?.url || item?.originalSource || item?.image?.src || item?.image?.url;
+    const absSrc = toAbsoluteUrl(src);
+    if (!absSrc) return;
+    entries.push({
+      id:
+        item && typeof item === "object" && item.id !== undefined && item.id !== null
+          ? String(item.id)
+          : null,
+      src: absSrc,
+      alt: item && typeof item === "object" && typeof item.alt === "string" ? item.alt : null,
+    });
+  };
+
+  if (Array.isArray(source.images)) {
+    source.images.forEach(add);
+  }
+  if (Array.isArray(source.media)) {
+    source.media
+      .filter((item) => item?.media_type === "image" || item?.mediaContentType === "IMAGE")
+      .forEach(add);
+  }
+
+  return entries.filter((entry, index, arr) => arr.findIndex((ref) => ref.src === entry.src) === index);
+}
+
+function resolveSourceVariantImageUrl(variant, sourceImagesById) {
+  const featuredImageSrc =
+    variant?.featured_image?.src ||
+    variant?.featured_image?.url ||
+    variant?.image?.src ||
+    variant?.image?.url ||
+    null;
+  const absoluteFeaturedImage = toAbsoluteUrl(featuredImageSrc);
+  if (absoluteFeaturedImage) {
+    return absoluteFeaturedImage;
+  }
+  const imageId =
+    variant?.image_id !== undefined && variant?.image_id !== null ? String(variant.image_id) : null;
+  if (imageId && sourceImagesById.has(imageId)) {
+    return sourceImagesById.get(imageId);
+  }
+  return null;
+}
+
 const cloneProductFromUrl = {
   name: "clone-product-from-url",
   description:
@@ -71,15 +139,15 @@ const cloneProductFromUrl = {
         values: (opt.values || []).map((value) => ({ name: value })),
       }));
 
-      const altBySrc = new Map(
-        (source.media || [])
-          .filter((m) => m?.media_type === "image" && m?.src)
-          .map((m) => [toAbsoluteUrl(m.src), m.alt || null])
+      const sourceImageEntries = extractSourceImageEntries(source);
+      const sourceImagesById = new Map(
+        sourceImageEntries.filter((entry) => entry.id).map((entry) => [entry.id, entry.src])
       );
+      const altBySrc = new Map(sourceImageEntries.map((entry) => [entry.src, entry.alt || null]));
 
       const media = input.importMedia
-        ? (source.images || []).map((src) => {
-            const abs = toAbsoluteUrl(src);
+        ? sourceImageEntries.map((entry) => {
+            const abs = entry.src;
             return {
               originalSource: abs,
               mediaContentType: "IMAGE",
@@ -127,7 +195,7 @@ const cloneProductFromUrl = {
 
       const productId = createPayload.product.id;
 
-      const variants = (source.variants || []).map((v) => {
+      const variantPlans = (source.variants || []).map((v, index) => {
         const optionValues = [];
 
         if (source.options?.[0]?.name && v.option1) {
@@ -140,7 +208,10 @@ const cloneProductFromUrl = {
           optionValues.push({ optionName: source.options[2].name, name: v.option3 });
         }
 
-        return {
+        const sourceImageUrl = input.importMedia
+          ? resolveSourceVariantImageUrl(v, sourceImagesById)
+          : null;
+        const variantInput = {
           price: centsToMoneyString(v.price),
           compareAtPrice: centsToMoneyString(v.compare_at_price),
           taxable: v.taxable ?? input.taxable,
@@ -153,7 +224,20 @@ const cloneProductFromUrl = {
           },
           optionValues: optionValues.length ? optionValues : undefined,
         };
+        if (sourceImageUrl) {
+          variantInput.mediaSrc = [sourceImageUrl];
+        }
+        return {
+          sourceIndex: index,
+          sourceVariantId:
+            v?.id !== undefined && v?.id !== null ? String(v.id) : `source_variant_${index + 1}`,
+          sourceTitle: typeof v?.title === "string" ? v.title : null,
+          sourceImageUrl,
+          variantInput,
+        };
       });
+      const variants = variantPlans.map((plan) => plan.variantInput);
+      const createdVariants = [];
 
       if (variants.length > 0) {
         const bulkCreateMutation = gql`
@@ -169,6 +253,11 @@ const cloneProductFromUrl = {
             ) {
               productVariants {
                 id
+                title
+                selectedOptions {
+                  name
+                  value
+                }
               }
               userErrors {
                 field
@@ -191,8 +280,77 @@ const cloneProductFromUrl = {
           if (errors?.length) {
             throw new Error(errors.map((e) => `${e.field}: ${e.message}`).join(", "));
           }
+          createdVariants.push(...(data.productVariantsBulkCreate.productVariants || []));
         }
       }
+
+      let verifiedVariantMediaById = new Map();
+      let mediaVerificationWarning = null;
+      if (input.importMedia && createdVariants.length > 0) {
+        const verificationQuery = gql`
+          query VerifyVariantMedia($ids: [ID!]!) {
+            nodes(ids: $ids) {
+              ... on ProductVariant {
+                id
+                image {
+                  url
+                }
+              }
+            }
+          }
+        `;
+        try {
+          const verificationData = await shopifyClient.request(verificationQuery, {
+            ids: createdVariants.map((variant) => variant.id),
+          });
+          const nodes = Array.isArray(verificationData?.nodes) ? verificationData.nodes : [];
+          verifiedVariantMediaById = new Map(
+            nodes
+              .filter((node) => node?.id)
+              .map((node) => [node.id, node?.image?.url ? toAbsoluteUrl(node.image.url) : null])
+          );
+        } catch (verificationError) {
+          mediaVerificationWarning =
+            verificationError instanceof Error ? verificationError.message : String(verificationError);
+        }
+      }
+
+      const variantMediaMappings = variantPlans.map((plan) => {
+        const created = createdVariants[plan.sourceIndex] || null;
+        const verifiedImageUrl = created ? verifiedVariantMediaById.get(created.id) || null : null;
+        let status = "no_source_image";
+        if (plan.sourceImageUrl) {
+          if (!created?.id) {
+            status = "variant_not_created";
+          } else if (!input.importMedia) {
+            status = "media_import_disabled";
+          } else if (verifiedImageUrl && urlsLikelyMatch(plan.sourceImageUrl, verifiedImageUrl)) {
+            status = "verified";
+          } else if (verifiedImageUrl && !urlsLikelyMatch(plan.sourceImageUrl, verifiedImageUrl)) {
+            status = "mismatch";
+          } else {
+            status = "unverified";
+          }
+        }
+        return {
+          sourceVariantId: plan.sourceVariantId,
+          sourceTitle: plan.sourceTitle,
+          sourceImageUrl: plan.sourceImageUrl,
+          createdVariantId: created?.id || null,
+          createdVariantTitle: created?.title || null,
+          verifiedVariantImageUrl: verifiedImageUrl,
+          status,
+        };
+      });
+
+      const mappingSummary = {
+        totalVariants: variantMediaMappings.length,
+        withSourceImage: variantMediaMappings.filter((row) => !!row.sourceImageUrl).length,
+        verified: variantMediaMappings.filter((row) => row.status === "verified").length,
+        mismatched: variantMediaMappings.filter((row) => row.status === "mismatch").length,
+        unverified: variantMediaMappings.filter((row) => row.status === "unverified").length,
+        noSourceImage: variantMediaMappings.filter((row) => row.status === "no_source_image").length,
+      };
 
       return {
         product: {
@@ -204,6 +362,11 @@ const cloneProductFromUrl = {
           options: optionDefs.length,
           variants: variants.length,
           media: media.length,
+        },
+        variantMediaMapping: {
+          summary: mappingSummary,
+          warning: mediaVerificationWarning,
+          mappings: variantMediaMappings,
         },
       };
     } catch (error) {

@@ -55,6 +55,10 @@ const HAZIFY_MCP_API_KEY = argv.mcpApiKey || process.env.HAZIFY_MCP_API_KEY;
 const HAZIFY_MCP_CONTEXT_TTL_MS = Number(argv.mcpContextTtlMs || process.env.HAZIFY_MCP_CONTEXT_TTL_MS || 60000);
 const HAZIFY_MCP_PUBLIC_URL = argv.mcpPublicUrl || process.env.HAZIFY_MCP_PUBLIC_URL || "";
 const HAZIFY_MCP_AUTH_SERVER_URL = argv.oauthAuthServerUrl || process.env.HAZIFY_MCP_AUTH_SERVER_URL || "";
+const HAZIFY_MCP_ALLOWED_ORIGINS = String(argv.allowedOrigins || process.env.HAZIFY_MCP_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 const useClientCredentials = !!(SHOPIFY_CLIENT_ID && SHOPIFY_CLIENT_SECRET);
 const SERVER_VERSION = "1.1.0";
 const API_VERSION = argv.apiVersion || process.env.SHOPIFY_API_VERSION || "2026-01";
@@ -762,6 +766,11 @@ server.tool("delete-product-variants", {
 server.tool("refund-order", {
     orderId: z.string().min(1).describe("Shopify order GID, e.g. gid://shopify/Order/123"),
     note: z.string().optional(),
+    audit: z.object({
+        amount: z.string().min(1).describe("Refund amount for audit trail, e.g. 19.95"),
+        reason: z.string().min(3).describe("Reason for refund, e.g. damaged item"),
+        scope: z.enum(["full", "partial"]).describe("Refund scope"),
+    }),
     notify: z.boolean().default(false),
     currency: z.string().optional(),
     allowOverRefunding: z.boolean().optional(),
@@ -792,7 +801,7 @@ server.tool("refund-order", {
 });
 server.tool("clone-product-from-url", {
     sourceUrl: z.string().url().describe("Public Shopify product URL"),
-    status: z.enum(["ACTIVE", "DRAFT", "ARCHIVED"]).default("ACTIVE"),
+    status: z.enum(["ACTIVE", "DRAFT", "ARCHIVED"]).default("DRAFT"),
     titleOverride: z.string().optional(),
     handleOverride: z.string().optional(),
     vendorOverride: z.string().optional(),
@@ -926,7 +935,7 @@ const buildAuthorizationServerMetadata = (req) => {
         response_types_supported: ["code"],
         grant_types_supported: ["authorization_code", "refresh_token"],
         token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
-        code_challenge_methods_supported: ["S256", "plain"],
+        code_challenge_methods_supported: ["S256"],
         scopes_supported: ["mcp:tools"],
         service_documentation: `${issuer}/onboarding`,
     };
@@ -971,36 +980,44 @@ const resolveRequestToken = (req) => {
     if (bearer) {
         return bearer;
     }
-    const rawAuth = parseRawToken(req.headers.authorization);
-    if (rawAuth && !/^Bearer\s+/i.test(rawAuth)) {
-        return rawAuth;
-    }
     const xApiKeyHeader = req.headers["x-api-key"];
     const xApiKey = Array.isArray(xApiKeyHeader) ? parseRawToken(xApiKeyHeader[0]) : parseRawToken(xApiKeyHeader);
     if (xApiKey) {
         return xApiKey;
     }
-    const apiKeyHeader = req.headers["api-key"];
-    const apiKey = Array.isArray(apiKeyHeader) ? parseRawToken(apiKeyHeader[0]) : parseRawToken(apiKeyHeader);
-    if (apiKey) {
-        return apiKey;
-    }
-    const xAuthTokenHeader = req.headers["x-auth-token"];
-    const xAuthToken = Array.isArray(xAuthTokenHeader)
-        ? parseRawToken(xAuthTokenHeader[0])
-        : parseRawToken(xAuthTokenHeader);
-    if (xAuthToken) {
-        return xAuthToken;
-    }
-    const queryApiKey = parseRawToken(req.query?.api_key);
-    if (queryApiKey) {
-        return queryApiKey;
-    }
-    const queryToken = parseRawToken(req.query?.token);
-    if (queryToken) {
-        return queryToken;
-    }
     return null;
+};
+const normalizeOrigin = (value) => {
+    if (typeof value !== "string" || !value.trim()) {
+        return "";
+    }
+    try {
+        return new URL(value.trim()).origin;
+    }
+    catch {
+        return "";
+    }
+};
+const isRequestOriginAllowed = (req) => {
+    const originHeader = req.headers.origin;
+    if (typeof originHeader !== "string" || !originHeader.trim()) {
+        return { allowed: true, reason: "Origin header missing (non-browser client)" };
+    }
+    const requestOrigin = normalizeOrigin(resolveRequestBaseUrl(req));
+    const allowedOrigins = HAZIFY_MCP_ALLOWED_ORIGINS.length
+        ? HAZIFY_MCP_ALLOWED_ORIGINS.map((value) => normalizeOrigin(value)).filter(Boolean)
+        : [requestOrigin].filter(Boolean);
+    if (!allowedOrigins.length) {
+        return { allowed: false, reason: "No valid allowed origins configured for MCP endpoint" };
+    }
+    const receivedOrigin = normalizeOrigin(originHeader);
+    if (!receivedOrigin) {
+        return { allowed: false, reason: "Invalid Origin header" };
+    }
+    if (!allowedOrigins.includes(receivedOrigin)) {
+        return { allowed: false, reason: `Origin '${receivedOrigin}' is not allowed` };
+    }
+    return { allowed: true, reason: "Origin allowed" };
 };
 if (!IS_HTTP_TRANSPORT) {
     // Start stdio server
@@ -1014,6 +1031,13 @@ if (!IS_HTTP_TRANSPORT) {
 }
 else {
     const app = createMcpExpressApp({ host: HTTP_HOST });
+    app.use((req, res, next) => {
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("Referrer-Policy", "no-referrer");
+        res.setHeader("X-Frame-Options", "DENY");
+        res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+        next();
+    });
     const sessions = new Map();
     const respondJsonRpcError = (res, statusCode, message, code = -32000) => {
         res.status(statusCode).json({
@@ -1025,6 +1049,14 @@ else {
     const respondUnauthorized = (req, res, message) => {
         res.setHeader("WWW-Authenticate", buildWwwAuthenticateHeader(req, "invalid_token", message));
         respondJsonRpcError(res, 401, message, -32001);
+    };
+    const assertAllowedOrigin = (req, res) => {
+        const decision = isRequestOriginAllowed(req);
+        if (!decision.allowed) {
+            respondJsonRpcError(res, 403, `Forbidden: ${decision.reason}`);
+            return false;
+        }
+        return true;
     };
     const redirectCompatToAuthServer = (req, res, targetPath, statusCode = 307) => {
         const authBase = resolveAuthServerBaseUrl();
@@ -1061,7 +1093,7 @@ else {
     const resolveRequestAuthContext = async (req, res) => {
         const token = resolveRequestToken(req);
         if (!token) {
-            respondUnauthorized(req, res, "Missing API token");
+            respondUnauthorized(req, res, "Missing API token (use Authorization: Bearer or x-api-key)");
             return null;
         }
         try {
@@ -1073,6 +1105,9 @@ else {
         }
     };
     app.post("/mcp", async (req, res) => {
+        if (!assertAllowedOrigin(req, res)) {
+            return;
+        }
         const context = await resolveRequestAuthContext(req, res);
         if (!context) {
             return;
@@ -1138,6 +1173,9 @@ else {
         }
     });
     app.get("/mcp", async (req, res) => {
+        if (!assertAllowedOrigin(req, res)) {
+            return;
+        }
         const context = await resolveRequestAuthContext(req, res);
         if (!context) {
             return;
@@ -1170,6 +1208,9 @@ else {
         }
     });
     app.delete("/mcp", async (req, res) => {
+        if (!assertAllowedOrigin(req, res)) {
+            return;
+        }
         const context = await resolveRequestAuthContext(req, res);
         if (!context) {
             return;
@@ -1205,3 +1246,4 @@ else {
         console.log(`Hazify MCP HTTP server listening on ${HTTP_HOST}:${HTTP_PORT}`);
     });
 }
+export { httpServer };

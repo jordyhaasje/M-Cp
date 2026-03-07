@@ -253,6 +253,16 @@ const resolveTrackingCompany = (company) => {
     if (caseInsensitiveMatch) {
         return caseInsensitiveMatch;
     }
-    return trimmed;
+    return undefined;
 };
-export { SUPPORTED_TRACKING_COMPANIES, TRACKING_COMPANY_ALIASES, TRACKING_UI_LOCATION, isSupportedTrackingCompany, resolveTrackingCompany };
+const assertSupportedTrackingCompany = (company, fieldName = "trackingCompany") => {
+    if (!company) {
+        return undefined;
+    }
+    const resolved = resolveTrackingCompany(company);
+    if (!resolved || !isSupportedTrackingCompany(resolved)) {
+        throw new Error(`Unsupported ${fieldName} '${company}'. Use get-supported-tracking-companies and pick an exact carrier value.`);
+    }
+    return resolved;
+};
+export { SUPPORTED_TRACKING_COMPANIES, TRACKING_COMPANY_ALIASES, TRACKING_UI_LOCATION, isSupportedTrackingCompany, resolveTrackingCompany, assertSupportedTrackingCompany };

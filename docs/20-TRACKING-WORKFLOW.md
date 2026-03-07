@@ -9,6 +9,10 @@ Trackingnummer en vervoerder moeten in Shopify fulfillment-tracking worden gezet
 3. `set-order-tracking` (voorkeur) of `update-fulfillment-tracking`
 4. `get-order-by-id` ter verificatie
 
+Carrier-validatie:
+- Gebruik een exacte carrier uit `get-supported-tracking-companies` of een ondersteunde alias.
+- Ongeldige carrier-waarden geven nu een harde validatiefout.
+
 ## Succescriterium
 - Nieuwe code staat in `order.tracking.shipments`
 - Juiste vervoerder staat in fulfillment tracking

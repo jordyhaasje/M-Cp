@@ -9,7 +9,9 @@ SHOP_CLIENT_ID="${SHOP_CLIENT_ID:-}"
 SHOP_CLIENT_SECRET="${SHOP_CLIENT_SECRET:-}"
 CONTACT_EMAIL="${CONTACT_EMAIL:-}"
 LABEL="${LABEL:-Smoke test}"
-LICENSE_KEY="${LICENSE_KEY:-}"
+ACCOUNT_NAME="${ACCOUNT_NAME:-Smoke Test User}"
+ACCOUNT_EMAIL="${ACCOUNT_EMAIL:-}"
+ACCOUNT_PASSWORD="${ACCOUNT_PASSWORD:-}"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "jq is required" >&2
@@ -26,35 +28,60 @@ if [[ -z "$SHOP_ACCESS_TOKEN" ]] && ([[ -z "$SHOP_CLIENT_ID" ]] || [[ -z "$SHOP_
   exit 1
 fi
 
-build_onboarding_payload() {
+RUN_ID="${RUN_ID:-$(date +%s)-$RANDOM}"
+if [[ -z "$ACCOUNT_EMAIL" ]]; then
+  ACCOUNT_EMAIL="smoke-${RUN_ID}@example.test"
+fi
+if [[ -z "$ACCOUNT_PASSWORD" ]]; then
+  ACCOUNT_PASSWORD="SmokeTest-${RUN_ID}-Secure!"
+fi
+if [[ -z "$CONTACT_EMAIL" ]]; then
+  CONTACT_EMAIL="$ACCOUNT_EMAIL"
+fi
+
+build_connect_payload() {
   if [[ -n "$SHOP_ACCESS_TOKEN" ]]; then
     jq -n \
-      --arg licenseKey "$LICENSE_KEY" \
       --arg contactEmail "$CONTACT_EMAIL" \
       --arg shopDomain "$SHOP_DOMAIN" \
       --arg shopAccessToken "$SHOP_ACCESS_TOKEN" \
       --arg label "$LABEL" \
-      '{licenseKey:$licenseKey, contactEmail:$contactEmail, shopDomain:$shopDomain, shopAccessToken:$shopAccessToken, label:$label}'
+      '{contactEmail:$contactEmail, shopDomain:$shopDomain, shopAccessToken:$shopAccessToken, label:$label}'
   else
     jq -n \
-      --arg licenseKey "$LICENSE_KEY" \
       --arg contactEmail "$CONTACT_EMAIL" \
       --arg shopDomain "$SHOP_DOMAIN" \
       --arg shopClientId "$SHOP_CLIENT_ID" \
       --arg shopClientSecret "$SHOP_CLIENT_SECRET" \
       --arg label "$LABEL" \
-      '{licenseKey:$licenseKey, contactEmail:$contactEmail, shopDomain:$shopDomain, shopClientId:$shopClientId, shopClientSecret:$shopClientSecret, label:$label}'
+      '{contactEmail:$contactEmail, shopDomain:$shopDomain, shopClientId:$shopClientId, shopClientSecret:$shopClientSecret, label:$label}'
   fi
 }
 
-ONBOARD_PAYLOAD="$(build_onboarding_payload)"
-ONBOARD_JSON="$(curl -sS -X POST "$LICENSE_API_BASE/v1/onboarding/connect-shopify" -H 'content-type: application/json' -d "$ONBOARD_PAYLOAD")"
+COOKIE_JAR="$(mktemp)"
+SIGNUP_JSON="$(jq -n \
+  --arg email "$ACCOUNT_EMAIL" \
+  --arg name "$ACCOUNT_NAME" \
+  --arg password "$ACCOUNT_PASSWORD" \
+  '{email:$email, name:$name, password:$password}' \
+  | curl -sS -c "$COOKIE_JAR" -b "$COOKIE_JAR" -X POST "$LICENSE_API_BASE/v1/account/signup" -H 'content-type: application/json' -d @-)"
+
+if [[ "$(echo "$SIGNUP_JSON" | jq -r '.ok // false')" != "true" ]]; then
+  echo "Account signup failed:" >&2
+  echo "$SIGNUP_JSON" | jq . >&2 || echo "$SIGNUP_JSON" >&2
+  rm -f "$COOKIE_JAR"
+  exit 1
+fi
+
+CONNECT_PAYLOAD="$(build_connect_payload)"
+ONBOARD_JSON="$(curl -sS -c "$COOKIE_JAR" -b "$COOKIE_JAR" -X POST "$LICENSE_API_BASE/v1/onboarding/connect-shopify" -H 'content-type: application/json' -d "$CONNECT_PAYLOAD")"
 TOKEN="$(echo "$ONBOARD_JSON" | jq -r '.mcp.bearerToken // empty')"
 GENERATED_LICENSE="$(echo "$ONBOARD_JSON" | jq -r '.licenseKey // empty')"
 
 if [[ -z "$TOKEN" ]]; then
   echo "Onboarding failed:" >&2
   echo "$ONBOARD_JSON" | jq . >&2 || echo "$ONBOARD_JSON" >&2
+  rm -f "$COOKIE_JAR"
   exit 1
 fi
 
@@ -89,8 +116,11 @@ TOOLS_COUNT="$(jq -r '.result.tools | length' "$TOOLS_BODY_FILE" 2>/dev/null || 
 
 cat <<EOT
 FREE ONBOARDING SMOKE TEST OK
+- accountEmail: $ACCOUNT_EMAIL
 - licenseKey: $GENERATED_LICENSE
 - sessionId: $SESSION_ID
 - mcpUrl: $MCP_URL
 - toolsCount: $TOOLS_COUNT
 EOT
+
+rm -f "$COOKIE_JAR" "$INIT_HEADERS_FILE" "$INIT_BODY_FILE" "$TOOLS_BODY_FILE"

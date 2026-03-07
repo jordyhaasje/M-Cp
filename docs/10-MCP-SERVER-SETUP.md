@@ -13,6 +13,9 @@ Deze workspace heeft twee setup-routes (strikt gescheiden):
 5. Shopify credentials voor remote flow altijd via `/onboarding`, niet in clientconfig.
 6. `HAZIFY_FREE_MODE=true` is standaard: onboarding werkt zonder betaalstap.
 7. Remote MCP moet OAuth discovery endpoints publiceren voor clients zoals ChatGPT.
+8. OAuth authorize/token moet PKCE `S256` afdwingen (geen `plain`).
+9. `/mcp` accepteert alleen `Authorization: Bearer` of `x-api-key` (geen query-token fallback).
+10. Streamable HTTP origin-validatie moet actief blijven op requests met `Origin` header.
 
 ## Aanbevolen checks na wijziging
 1. `node --check /Users/jordy/Desktop/Customer service/shopify-mcp-local/dist/index.js`

@@ -81,6 +81,11 @@ Belangrijk:
 ### 1) OAuth (aanbevolen, o.a. ChatGPT)
 Gebruik alleen de MCP URL. Client doet daarna OAuth discovery + browser autorisatie.
 
+OAuth security defaults:
+- PKCE is verplicht.
+- Alleen `S256` is toegestaan als `code_challenge_method`.
+- Scope is vast op `mcp:tools`.
+
 MCP endpoint:
 - `https://hazify-mcp-remote-production.up.railway.app/mcp`
 
@@ -99,6 +104,10 @@ Compat aliases bestaan ook voor oudere clients:
 
 ### 2) API token (header/bearer)
 Alleen voor clients zonder bruikbare OAuth-flow of voor diagnostiek.
+
+Belangrijk:
+- Alleen `Authorization: Bearer ...` en `x-api-key` worden geaccepteerd op `/mcp`.
+- Query-tokenvarianten zoals `?token=` of `?api_key=` worden geweigerd.
 
 Voorbeeld (`mcp-remote`):
 ```json
@@ -168,7 +177,7 @@ Oorzaak:
 - client probeert een oude lokaal gecachete OAuth-client-id te gebruiken
 
 Fix:
-1. Klik opnieuw op `Connect` vanuit dashboard (server probeert nu automatisch recovery op geldige redirect URI)
+1. Klik opnieuw op `Connect` vanuit dashboard om een geldige reconnect-flow te starten
 2. Blijft het terugkomen: verwijder de oude connector in de client en voeg opnieuw toe
 3. Voor native app-callbacks (zoals `vscode://...`) ondersteunt de server nu ook custom redirect schemes via allowlist
 
@@ -215,6 +224,7 @@ Fix:
 - `HAZIFY_MCP_API_KEY`
 - `HAZIFY_MCP_PUBLIC_URL` (aanbevolen)
 - `HAZIFY_MCP_AUTH_SERVER_URL` (aanbevolen)
+- `HAZIFY_MCP_ALLOWED_ORIGINS` (optioneel, comma-separated allowlist voor `Origin` op `/mcp`)
 - `PORT`
 
 ### License service
@@ -234,6 +244,7 @@ Fix:
 - `OAUTH_ACCESS_TOKEN_TTL_SECONDS` (optioneel)
 - `OAUTH_REFRESH_TOKEN_TTL_DAYS` (optioneel)
 - `OAUTH_CODE_TTL_MINUTES` (optioneel)
+- `MAX_BODY_BYTES` (optioneel, default 1048576)
 - `PORT`
 
 Belangrijk:

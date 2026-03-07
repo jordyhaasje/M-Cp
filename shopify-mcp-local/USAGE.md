@@ -24,13 +24,17 @@ node dist/index.js \
 ```json
 {
   "sourceUrl": "https://vorana.nl/products/elara-jurk-met-overslaghalslijn-en-bijpassende-riem",
-  "status": "ACTIVE",
+  "status": "DRAFT",
   "importDescription": true,
   "importMedia": true,
   "tracked": true,
   "taxable": true
 }
 ```
+
+Na clone:
+- controleer `variantMediaMapping` in de response
+- publiceer pas na bevestigde mapping
 
 ## create-product met media
 ```json
@@ -65,6 +69,11 @@ node dist/index.js \
 {
   "orderId": "gid://shopify/Order/123",
   "note": "Klant retour maat",
+  "audit": {
+    "amount": "19.95",
+    "reason": "Retour verwerkt na kwaliteitsklacht",
+    "scope": "partial"
+  },
   "notify": true,
   "refundLineItems": [
     {
@@ -92,6 +101,7 @@ Let op:
 - `customAttributes` en `metafields` zijn niet de bron voor tracking.
 - Legacy keys zoals `tracking_number`, `carrier`, `tracking_url` worden automatisch omgezet naar fulfillment-tracking.
 - Gebruik voor nieuwe flows altijd `update-fulfillment-tracking`.
+- Carrier moet exact uit `get-supported-tracking-companies` komen (of een ondersteunde alias); anders faalt de mutatie.
 - `orderId`/`id` mag ook ordernummer zijn (`1004` of `#1004`); de MCP resolve dit automatisch naar de Shopify GID.
 
 ## get-supported-tracking-companies

@@ -18,6 +18,11 @@ const RefundTransactionSchema = z.object({
 const RefundOrderInputSchema = z.object({
   orderId: z.string().min(1).describe("Shopify order GID, e.g. gid://shopify/Order/123"),
   note: z.string().optional(),
+  audit: z.object({
+    amount: z.string().min(1).describe("Refund amount for audit trail, e.g. '19.95'"),
+    reason: z.string().min(3).describe("Reason for refund, e.g. 'damaged item'"),
+    scope: z.enum(["full", "partial"]).describe("Refund scope"),
+  }),
   notify: z.boolean().default(false),
   currency: z.string().optional().describe("Presentment currency code, e.g. EUR"),
   allowOverRefunding: z.boolean().optional(),
@@ -42,6 +47,13 @@ const refundOrder = {
   },
   execute: async (input) => {
     try {
+      const audit = input.audit;
+      const auditNote = `[Refund audit] amount=${audit.amount}; scope=${audit.scope}; reason=${audit.reason}`;
+      const finalNote =
+        typeof input.note === "string" && input.note.trim()
+          ? `${input.note.trim()}\n${auditNote}`
+          : auditNote;
+
       const mutation = gql`
         mutation RefundOrder($input: RefundInput!) {
           refundCreate(input: $input) {
@@ -74,7 +86,7 @@ const refundOrder = {
 
       const refundInput = {
         orderId: input.orderId,
-        note: input.note,
+        note: finalNote,
         notify: input.notify,
         currency: input.currency,
         allowOverRefunding: input.allowOverRefunding,
@@ -111,6 +123,7 @@ const refundOrder = {
               name: payload.order.name,
             }
           : null,
+        audit: input.audit,
       };
     } catch (error) {
       console.error("Error creating refund:", error);

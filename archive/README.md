@@ -3,8 +3,8 @@
 Deze map bevat legacy bestanden die niet meer actief in runtime worden gebruikt.
 
 ## Indeling
-- `archive/<datum>/hazify-license-service/...`: oude service testbestanden/prototypes.
 - `archive/<datum>/root-data/...`: oude root runtime data snapshots.
+- alleen minimale historische context bewaren; verwijder ongebruikte artifacts na referentiecheck.
 
 ## Regels
 - Gebruik `docs/archive/` alleen voor legacy documentatie.

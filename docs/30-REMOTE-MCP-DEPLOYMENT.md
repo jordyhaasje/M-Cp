@@ -36,6 +36,7 @@ Productie deployment van `hazify-mcp` met:
 - `HAZIFY_MCP_API_KEY`
 - `HAZIFY_MCP_PUBLIC_URL` (aanbevolen)
 - `HAZIFY_MCP_AUTH_SERVER_URL` (aanbevolen)
+- `HAZIFY_MCP_ALLOWED_ORIGINS` (optioneel, comma-separated allowlist voor browser `Origin` checks)
 - `PORT`
 
 ### License service (OAuth)
@@ -43,6 +44,7 @@ Productie deployment van `hazify-mcp` met:
 - `OAUTH_ACCESS_TOKEN_TTL_SECONDS` (optioneel)
 - `OAUTH_REFRESH_TOKEN_TTL_DAYS` (optioneel)
 - `OAUTH_CODE_TTL_MINUTES` (optioneel)
+- `MAX_BODY_BYTES` (optioneel, default 1048576)
 
 ## Readiness-check
 - `GET /v1/billing/readiness`
@@ -65,10 +67,19 @@ SHOP_ACCESS_TOKEN=shpat_... \
 /Users/jordy/Desktop/Customer\ service/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh
 ```
 
+Wat dit script nu doet:
+1. account signup (`/v1/account/signup`)
+2. store connect (`/v1/onboarding/connect-shopify`) met sessie-cookie
+3. MCP initialize + tools/list verificatie
+
 ## Security
 - Alleen backend-naar-backend introspectie met `x-mcp-api-key`.
 - Shopify credentials blijven server-side.
-- Eindgebruiker krijgt alleen MCP URL + token.
+- OAuth is PKCE S256-only met vaste scope `mcp:tools`.
+- `/mcp` accepteert alleen `Authorization: Bearer` en `x-api-key`.
+- `/mcp` valideert `Origin` op Streamable HTTP requests met browser-origin.
+- Eindgebruiker krijgt alleen MCP URL + token/OAuth-flow.
+- Introspectie geeft alleen minimaal benodigde Shopify auth-velden terug.
 - Zonder `DATABASE_URL` valt storage terug op JSON en kunnen account/OAuth registraties bij redeploy verloren gaan.
 
 ## Optioneel: Stripe later activeren

@@ -1,6 +1,6 @@
 import { gql } from "graphql-request";
 import { z } from "zod";
-import { isSupportedTrackingCompany, resolveTrackingCompany } from "../lib/trackingCompanies.js";
+import { isSupportedTrackingCompany, assertSupportedTrackingCompany } from "../lib/trackingCompanies.js";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
 let shopifyClient;
 const UpdateFulfillmentTrackingInputSchema = z.object({
@@ -223,6 +223,7 @@ const updateFulfillmentTracking = {
     },
     execute: async (input) => {
         try {
+            const resolvedCompany = assertSupportedTrackingCompany(input.trackingCompany, "carrier");
             const resolvedOrder = await resolveOrderIdentifier(shopifyClient, input.orderId);
             const contextResponse = (await fetchOrderTrackingContext(resolvedOrder.id));
             const orderContext = contextResponse.order;
@@ -231,7 +232,6 @@ const updateFulfillmentTracking = {
             }
             const fulfillments = normalizeGraphQLList(orderContext.fulfillments);
             const fulfillmentOrders = normalizeGraphQLList(orderContext.fulfillmentOrders);
-            const resolvedCompany = resolveTrackingCompany(input.trackingCompany);
             const trackingInfoInput = {
                 number: input.trackingNumber.trim()
             };

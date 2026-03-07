@@ -51,6 +51,7 @@ License API voor `hazify-mcp` remote hosting: onboarding, tenant-opslag en MCP t
 
 ### MCP introspectie
 - `POST /v1/mcp/token/introspect` (header: `x-mcp-api-key`)
+- response bevat alleen minimaal noodzakelijke Shopify auth-velden voor MCP runtime (`authMode` + relevante credentials)
 
 ## Onboarding flow (gratis)
 1. Open `/onboarding`.
@@ -76,6 +77,11 @@ SHOP_ACCESS_TOKEN=shpat_... \
 /Users/jordy/Desktop/Customer\ service/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh
 ```
 
+Scriptflow:
+1. account signup (`/v1/account/signup`)
+2. winkel koppelen (`/v1/onboarding/connect-shopify`) met sessie-cookie
+3. MCP `initialize` + `tools/list` verificatie
+
 ## Optioneel: Stripe later activeren
 Als je terug naar betaald wilt:
 1. Zet `HAZIFY_FREE_MODE=false`
@@ -86,6 +92,11 @@ Als je terug naar betaald wilt:
 - Shopify credentials blijven server-side.
 - Token introspectie is backend-only (`x-mcp-api-key`).
 - Accountsessies zijn HTTP-only cookies met server-side gehashte opslag.
+- OAuth authorize/token vereisen PKCE met `S256` (geen `plain`).
+- OAuth scope is gefixeerd op `mcp:tools`.
+- Impliciete auto-recovery van onbekende OAuth clients is uitgeschakeld; alleen gecontroleerde reconnect-flow.
+- HTTP body-size limiet is configureerbaar via `MAX_BODY_BYTES` (default 1MB).
+- Baseline security headers zijn actief op responses.
 - PostgreSQL is primair met JSON fallback voor lokale dev.
 - Zonder `DATABASE_URL` in productie zijn account/OAuth-data niet persistent over redeploy/restart.
 - Geef eindgebruiker alleen MCP URL + OAuth of gegenereerde MCP token.

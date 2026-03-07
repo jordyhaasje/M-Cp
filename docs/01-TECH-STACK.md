@@ -42,6 +42,10 @@ Belangrijk:
 - Shopify credentials blijven server-side (niet in clientconfig)
 - Dynamic Client Registration retourneert altijd string `client_secret` (ChatGPT compat)
 - Native app redirect URI schemes (zoals `vscode://...`) zijn toegestaan via `OAUTH_ALLOWED_CUSTOM_REDIRECT_SCHEMES`
+- PKCE is verplicht en alleen `S256` is toegestaan op authorize/token
+- OAuth scope is gefixeerd op `mcp:tools` (geen vrije scope-input via DCR)
+- Onbekende OAuth clients gaan alleen via gecontroleerde reconnect-flow (geen impliciete auto-recovery)
+- HTTP body-size limiet en baseline security headers zijn actief op responses
 - In productie is `DATABASE_URL` feitelijk verplicht voor persistente accounts/sessies/OAuth-clients
 
 ## Service 2: MCP Remote Service
@@ -60,6 +64,10 @@ Verantwoordelijkheden:
 
 Belangrijk:
 - `401` + `WWW-Authenticate` met `resource_metadata` bij missende/ongeldige token
+- `/mcp` accepteert alleen `Authorization: Bearer` of `x-api-key`
+- Query-token en non-Bearer Authorization fallback zijn uitgeschakeld
+- Streamable HTTP requests met `Origin` header worden gevalideerd tegen allowlist
+- OAuth metadata adverteert alleen `code_challenge_methods_supported: ["S256"]`
 - per-tenant serialization lock voor tool-mutaties
 
 ## Externe integraties
@@ -78,3 +86,4 @@ Belangrijk:
 - header/bearer token fallback voor legacy clients
 - tenant-isolatie op license + shopdomain
 - geen Shopify secrets in eindgebruiker-config
+- token-introspectie geeft alleen minimaal benodigde Shopify auth-velden terug voor MCP runtime

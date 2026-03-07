@@ -1,6 +1,6 @@
 import { gql } from "graphql-request";
 import { z } from "zod";
-import { isSupportedTrackingCompany, resolveTrackingCompany } from "../lib/trackingCompanies.js";
+import { isSupportedTrackingCompany, assertSupportedTrackingCompany } from "../lib/trackingCompanies.js";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
 // Will be initialized in index.ts
 let shopifyClient;
@@ -454,7 +454,7 @@ const buildTrackingRequest = (input, parsedCustomAttributes, parsedMetafields) =
     const trackingNumber = getDefinedValue(tracking.number, input.trackingNumber, parsedCustomAttributes.extracted.trackingNumber, parsedMetafields.extracted.trackingNumber);
     const trackingUrl = getDefinedValue(tracking.url, input.trackingUrl, parsedCustomAttributes.extracted.trackingUrl, parsedMetafields.extracted.trackingUrl);
     const rawCompany = getDefinedValue(tracking.company, input.trackingCompany, parsedCustomAttributes.extracted.trackingCompany, parsedMetafields.extracted.trackingCompany);
-    const resolvedCompany = resolveTrackingCompany(rawCompany);
+    const resolvedCompany = rawCompany ? assertSupportedTrackingCompany(rawCompany, "carrier") : undefined;
     const notifyCustomer = getDefinedValue(tracking.notifyCustomer, input.notifyCustomer);
     const fulfillmentId = getDefinedValue(tracking.fulfillmentId, input.fulfillmentId);
     const trackingInfoInput = {};
