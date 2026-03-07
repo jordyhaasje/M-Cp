@@ -184,6 +184,25 @@ try {
     "metadata should advertise S256 only"
   );
 
+  const authorizeCspProbe = await fetch(
+    `${baseUrl}/oauth/authorize?client_id=missing-client&redirect_uri=${encodeURIComponent("https://chatgpt.com")}&response_type=code&state=csp-probe&code_challenge=probe&code_challenge_method=S256`,
+    {
+      method: "GET",
+      redirect: "manual",
+    }
+  );
+  const authorizeCsp = authorizeCspProbe.headers.get("content-security-policy") || "";
+  assert.match(
+    authorizeCsp,
+    /form-action 'self' https:/,
+    "oauth authorize pages should allow secure form submission for embedded browser flows"
+  );
+  assert.match(
+    authorizeCsp,
+    /frame-ancestors 'self' https:\/\/chatgpt\.com/,
+    "oauth authorize pages should explicitly allow trusted LLM hosts as frame ancestors"
+  );
+
   const registerResponse = await fetch(`${baseUrl}/oauth/register`, {
     method: "POST",
     headers: { "content-type": "application/json" },

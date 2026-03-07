@@ -2062,7 +2062,7 @@ export function renderDashboardPage() {
         }
 
         function buildOpenUrl(client) {
-          if (client === 'chatgpt') return 'https://chatgpt.com/#settings/connectors';
+          if (client === 'chatgpt') return 'https://chatgpt.com/settings/connectors';
           if (client === 'codex') return 'https://developers.openai.com';
           if (client === 'perplexity') return 'https://www.perplexity.ai/settings/connectors';
           if (client === 'claude') return 'https://claude.ai/settings/connectors';

@@ -421,10 +421,22 @@ function normalizeCspOrigin(value) {
   return "";
 }
 
+function requestPathname(req) {
+  try {
+    const parsed = new URL(req.url || "/", "http://localhost");
+    return parsed.pathname || "/";
+  } catch {
+    return "/";
+  }
+}
+
 function applySecurityHeaders(req, res) {
   const secure = isRequestSecure(req);
   const formActionSources = new Set(["'self'"]);
   const connectSources = new Set(["'self'"]);
+  const pathname = requestPathname(req);
+  const isInteractiveOAuthRoute =
+    pathname === "/oauth/authorize" || pathname === "/authorize" || pathname === "/login" || pathname === "/signup";
 
   const requestOrigin = normalizeCspOrigin(requestBaseUrl(req));
   const oauthOrigin = normalizeCspOrigin(oauthIssuerBase(req));
@@ -439,12 +451,18 @@ function applySecurityHeaders(req, res) {
 
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
-  res.setHeader("X-Frame-Options", "DENY");
+  if (!isInteractiveOAuthRoute) {
+    res.setHeader("X-Frame-Options", "DENY");
+  }
+  const frameAncestors = isInteractiveOAuthRoute
+    ? "'self' https://chatgpt.com https://chat.openai.com https://claude.ai https://www.perplexity.ai https://perplexity.ai"
+    : "'none'";
+  const formActionDirective = isInteractiveOAuthRoute
+    ? "'self' https:"
+    : Array.from(formActionSources).join(" ");
   res.setHeader(
     "Content-Security-Policy",
-    `default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action ${Array.from(
-      formActionSources
-    ).join(" ")}; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src ${Array.from(
+    `default-src 'self'; base-uri 'self'; frame-ancestors ${frameAncestors}; form-action ${formActionDirective}; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src ${Array.from(
       connectSources
     ).join(" ")}`
   );
