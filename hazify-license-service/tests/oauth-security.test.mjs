@@ -220,6 +220,27 @@ try {
   const invalidRedirectBody = await invalidRedirectRegister.json();
   assert.equal(invalidRedirectBody.error, "invalid_client_metadata");
 
+  const invalidRedirectAuthorizePage = await fetch(
+    `${baseUrl}/oauth/authorize?client_id=${encodeURIComponent(client.client_id)}&redirect_uri=${encodeURIComponent("https://chatgpt.com")}&response_type=code&state=invalid-redirect&code_challenge=abc123&code_challenge_method=S256`,
+    {
+      method: "GET",
+      headers: {
+        Cookie: `hz_user_session=${sessionToken}`,
+      },
+    }
+  );
+  assert.equal(
+    invalidRedirectAuthorizePage.status,
+    400,
+    "invalid redirect URI should render validation page"
+  );
+  const invalidRedirectAuthorizeHtml = await invalidRedirectAuthorizePage.text();
+  assert.match(
+    invalidRedirectAuthorizeHtml,
+    /<form method="POST" action=""/,
+    "authorize form action should stay same-origin for proxied OAuth clients"
+  );
+
   const noPkceAuthorize = await fetch(
     `${baseUrl}/oauth/authorize?client_id=${encodeURIComponent(client.client_id)}&redirect_uri=${encodeURIComponent(client.redirect_uris[0])}&response_type=code&state=no-pkce`,
     {

@@ -2680,7 +2680,7 @@ export function renderOAuthReconnectPage({
 export function renderOAuthAuthorizePage({
   clientName = "",
   clientId = "",
-  authorizeAction = "/oauth/authorize",
+  authorizeAction = "",
   redirectUri = "",
   state = "",
   responseType = "code",
@@ -2711,7 +2711,7 @@ export function renderOAuthAuthorizePage({
           <div class="content">
             ${error ? `<p class="notice err">${escapeHtml(error)}</p>` : ""}
             <article class="panel">
-              <form method="POST" action="${escapeHtml(authorizeAction || "/oauth/authorize")}" class="grid-2" style="display:grid;">
+              <form method="POST" action="${escapeHtml(authorizeAction || "")}" class="grid-2" style="display:grid;">
                 <input type="hidden" name="client_id" value="${escapeHtml(clientId)}" />
                 <input type="hidden" name="redirect_uri" value="${escapeHtml(redirectUri)}" />
                 <input type="hidden" name="state" value="${escapeHtml(state)}" />
