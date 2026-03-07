@@ -194,23 +194,8 @@ try {
   const authorizeCsp = authorizeCspProbe.headers.get("content-security-policy") || "";
   assert.match(
     authorizeCsp,
-    /form-action[^;]*'self'/,
-    "oauth authorize pages should allow same-origin form submissions"
-  );
-  assert.match(
-    authorizeCsp,
-    /form-action[^;]*http:\/\/127\.0\.0\.1:\*/,
-    "oauth authorize pages should allow loopback callback redirects for native clients"
-  );
-  assert.match(
-    authorizeCsp,
-    /form-action[^;]*http:\/\/localhost:\*/,
-    "oauth authorize pages should allow localhost callback redirects for native clients"
-  );
-  assert.match(
-    authorizeCsp,
-    /form-action[^;]*vscode:/,
-    "oauth authorize pages should allow configured custom redirect schemes"
+    /form-action 'self' https:/,
+    "oauth authorize pages should allow secure form submission for embedded browser flows"
   );
   assert.match(
     authorizeCsp,

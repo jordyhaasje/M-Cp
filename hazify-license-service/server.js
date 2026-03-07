@@ -433,7 +433,6 @@ function requestPathname(req) {
 function applySecurityHeaders(req, res) {
   const secure = isRequestSecure(req);
   const formActionSources = new Set(["'self'"]);
-  const interactiveFormActionSources = new Set(["'self'"]);
   const connectSources = new Set(["'self'"]);
   const pathname = requestPathname(req);
   const isInteractiveOAuthRoute =
@@ -443,24 +442,11 @@ function applySecurityHeaders(req, res) {
   const oauthOrigin = normalizeCspOrigin(oauthIssuerBase(req));
   if (requestOrigin) {
     formActionSources.add(requestOrigin);
-    interactiveFormActionSources.add(requestOrigin);
     connectSources.add(requestOrigin);
   }
   if (oauthOrigin) {
     formActionSources.add(oauthOrigin);
-    interactiveFormActionSources.add(oauthOrigin);
     connectSources.add(oauthOrigin);
-  }
-  if (isInteractiveOAuthRoute) {
-    // Native OAuth clients often use loopback redirect URIs on random local ports.
-    interactiveFormActionSources.add("http://127.0.0.1:*");
-    interactiveFormActionSources.add("http://localhost:*");
-    interactiveFormActionSources.add("http://[::1]:*");
-    for (const scheme of config.oauthAllowedCustomRedirectSchemes) {
-      if (/^[a-z][a-z0-9+.-]*$/i.test(scheme)) {
-        interactiveFormActionSources.add(`${scheme}:`);
-      }
-    }
   }
 
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -472,7 +458,7 @@ function applySecurityHeaders(req, res) {
     ? "'self' https://chatgpt.com https://chat.openai.com https://claude.ai https://www.perplexity.ai https://perplexity.ai"
     : "'none'";
   const formActionDirective = isInteractiveOAuthRoute
-    ? Array.from(interactiveFormActionSources).join(" ")
+    ? "'self' https:"
     : Array.from(formActionSources).join(" ");
   res.setHeader(
     "Content-Security-Policy",
