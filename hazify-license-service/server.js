@@ -3493,6 +3493,12 @@ async function handleOAuthAuthorizeGet(req, res, url) {
   const responseType = url.searchParams.get("response_type") || "code";
   const codeChallenge = url.searchParams.get("code_challenge") || "";
   const codeChallengeMethod = url.searchParams.get("code_challenge_method") || "S256";
+  const decision =
+    typeof url.searchParams.get("decision") === "string" ? String(url.searchParams.get("decision")).trim() : "";
+  const requestedShopDomain =
+    typeof url.searchParams.get("shopDomain") === "string"
+      ? String(url.searchParams.get("shopDomain")).trim()
+      : "";
   const scope = "mcp:tools";
 
   const client = getOAuthClient(clientId);
@@ -3543,6 +3549,7 @@ async function handleOAuthAuthorizeGet(req, res, url) {
         error: error instanceof Error ? error.message : String(error),
         clientName: client.clientName,
         clientId,
+        authorizeAction: url.pathname || "/oauth/authorize",
         redirectUri,
         state,
         responseType,
@@ -3560,6 +3567,24 @@ async function handleOAuthAuthorizeGet(req, res, url) {
     return redirectTo(res, `/login?next=${encodeURIComponent(next)}`);
   }
 
+  if (decision) {
+    return completeOAuthAuthorizeDecision({
+      res,
+      client,
+      clientId,
+      redirectUri,
+      state,
+      responseType,
+      codeChallenge,
+      codeChallengeMethod,
+      scope,
+      decision,
+      licenseKey: accountSession.account.licenseKey,
+      shopDomain: requestedShopDomain,
+      authorizePath: url.pathname || "/oauth/authorize",
+    });
+  }
+
   const shopOptions = getTenantsByLicenseKey(accountSession.account.licenseKey)
     .map((tenant) => tenant?.shopify?.domain)
     .filter(Boolean);
@@ -3569,6 +3594,7 @@ async function handleOAuthAuthorizeGet(req, res, url) {
     renderOAuthAuthorizePageV2({
       clientName: client.clientName,
       clientId,
+      authorizeAction: url.pathname || "/oauth/authorize",
       redirectUri,
       state,
       responseType,
@@ -3578,6 +3604,130 @@ async function handleOAuthAuthorizeGet(req, res, url) {
       shopOptions,
     })
   );
+}
+
+async function completeOAuthAuthorizeDecision({
+  res,
+  client,
+  clientId,
+  redirectUri,
+  state,
+  responseType,
+  codeChallenge,
+  codeChallengeMethod,
+  scope,
+  decision,
+  licenseKey,
+  shopDomain = "",
+  authorizePath = "/oauth/authorize",
+}) {
+  if (decision !== "allow") {
+    redirectWithOAuthResult(res, redirectUri, {
+      error: "access_denied",
+      error_description: "Authorization denied by user",
+      state,
+    });
+    return;
+  }
+
+  let license = db.licenses[licenseKey];
+  if (!license && config.freeMode) {
+    license = ensureFreeLicenseRecord(licenseKey);
+  }
+  if (!license) {
+    res.writeHead(400, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(
+      renderOAuthAuthorizePageV2({
+        error: "Je account heeft nog geen actieve toegang.",
+        clientName: client.clientName,
+        clientId,
+        authorizeAction: authorizePath,
+        redirectUri,
+        state,
+        responseType,
+        codeChallenge,
+        codeChallengeMethod,
+        scope,
+        shopOptions: getTenantsByLicenseKey(licenseKey)
+          .map((tenant) => tenant?.shopify?.domain)
+          .filter(Boolean),
+      })
+    );
+    return;
+  }
+  if (config.freeMode) {
+    license = ensureFreeLicenseRecord(licenseKey);
+  }
+  if (!config.freeMode && !isLicenseUsableForOnboarding(license)) {
+    res.writeHead(400, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(
+      renderOAuthAuthorizePageV2({
+        error: "Je account kan deze koppeling nu niet afronden.",
+        clientName: client.clientName,
+        clientId,
+        authorizeAction: authorizePath,
+        redirectUri,
+        state,
+        responseType,
+        codeChallenge,
+        codeChallengeMethod,
+        scope,
+        shopOptions: getTenantsByLicenseKey(licenseKey)
+          .map((tenant) => tenant?.shopify?.domain)
+          .filter(Boolean),
+      })
+    );
+    return;
+  }
+
+  let tenant;
+  try {
+    tenant = resolveTenantForOAuth(licenseKey, shopDomain);
+  } catch (error) {
+    res.writeHead(400, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(
+      renderOAuthAuthorizePageV2({
+        error: error instanceof Error ? error.message : String(error),
+        clientName: client.clientName,
+        clientId,
+        authorizeAction: authorizePath,
+        redirectUri,
+        state,
+        responseType,
+        codeChallenge,
+        codeChallengeMethod,
+        scope,
+        shopDomain,
+        shopOptions: getTenantsByLicenseKey(licenseKey)
+          .map((entry) => entry?.shopify?.domain)
+          .filter(Boolean),
+      })
+    );
+    return;
+  }
+
+  const authCode = `hzauth_${crypto.randomBytes(24).toString("hex")}`;
+  db.oauthAuthCodes[authCode] = {
+    code: authCode,
+    clientId: client.clientId,
+    redirectUri,
+    tenantId: tenant.tenantId,
+    licenseKey,
+    scope,
+    codeChallenge,
+    codeChallengeMethod: "S256",
+    createdAt: nowIso(),
+    expiresAt: addSeconds(nowIso(), Math.max(60, config.oauthCodeTtlMinutes * 60)),
+    usedAt: null,
+    status: "active",
+  };
+  await persistDb();
+  logEvent("oauth_reconnect_completed", {
+    clientId: client.clientId,
+    tenantId: tenant.tenantId,
+  });
+
+  redirectWithOAuthResult(res, redirectUri, { code: authCode, state });
 }
 
 async function handleOAuthAuthorizePost(req, res) {
@@ -3604,6 +3754,14 @@ async function handleOAuthAuthorizePost(req, res) {
     const scope = "mcp:tools";
     const decision =
       typeof payload.decision === "string" && payload.decision.trim() ? payload.decision.trim() : "deny";
+    const authorizePath = (() => {
+      try {
+        const parsed = new URL(req.url || "/oauth/authorize", "http://localhost");
+        return parsed.pathname || "/oauth/authorize";
+      } catch {
+        return "/oauth/authorize";
+      }
+    })();
 
     const client = getOAuthClient(clientId);
     if (!client) {
@@ -3662,109 +3820,21 @@ async function handleOAuthAuthorizePost(req, res) {
     }
 
     const licenseKey = accountSession.account.licenseKey;
-    if (decision !== "allow") {
-      redirectWithOAuthResult(res, redirectUri, {
-        error: "access_denied",
-        error_description: "Authorization denied by user",
-        state,
-      });
-      return;
-    }
-
-    let license = db.licenses[licenseKey];
-    if (!license && config.freeMode) {
-      license = ensureFreeLicenseRecord(licenseKey);
-    }
-    if (!license) {
-      res.writeHead(400, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-      res.end(
-        renderOAuthAuthorizePageV2({
-          error: "Je account heeft nog geen actieve toegang.",
-          clientName: client.clientName,
-          clientId,
-          redirectUri,
-          state,
-          responseType,
-          codeChallenge,
-          codeChallengeMethod,
-          scope,
-          shopOptions: getTenantsByLicenseKey(licenseKey)
-            .map((tenant) => tenant?.shopify?.domain)
-            .filter(Boolean),
-        })
-      );
-      return;
-    }
-    if (config.freeMode) {
-      license = ensureFreeLicenseRecord(licenseKey);
-    }
-    if (!config.freeMode && !isLicenseUsableForOnboarding(license)) {
-      res.writeHead(400, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-      res.end(
-        renderOAuthAuthorizePageV2({
-          error: "Je account kan deze koppeling nu niet afronden.",
-          clientName: client.clientName,
-          clientId,
-          redirectUri,
-          state,
-          responseType,
-          codeChallenge,
-          codeChallengeMethod,
-          scope,
-          shopOptions: getTenantsByLicenseKey(licenseKey)
-            .map((tenant) => tenant?.shopify?.domain)
-            .filter(Boolean),
-        })
-      );
-      return;
-    }
-
-    let tenant;
-    try {
-      tenant = resolveTenantForOAuth(licenseKey, payload.shopDomain);
-    } catch (error) {
-      res.writeHead(400, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-      res.end(
-        renderOAuthAuthorizePageV2({
-          error: error instanceof Error ? error.message : String(error),
-          clientName: client.clientName,
-          clientId,
-          redirectUri,
-          state,
-          responseType,
-          codeChallenge,
-          codeChallengeMethod,
-          scope,
-          shopDomain: typeof payload.shopDomain === "string" ? payload.shopDomain.trim() : "",
-          shopOptions: getTenantsByLicenseKey(licenseKey)
-            .map((entry) => entry?.shopify?.domain)
-            .filter(Boolean),
-        })
-      );
-      return;
-    }
-    const authCode = `hzauth_${crypto.randomBytes(24).toString("hex")}`;
-    db.oauthAuthCodes[authCode] = {
-      code: authCode,
-      clientId: client.clientId,
+    return completeOAuthAuthorizeDecision({
+      res,
+      client,
+      clientId,
       redirectUri,
-      tenantId: tenant.tenantId,
-      licenseKey,
-      scope,
+      state,
+      responseType,
       codeChallenge,
-      codeChallengeMethod: "S256",
-      createdAt: nowIso(),
-      expiresAt: addSeconds(nowIso(), Math.max(60, config.oauthCodeTtlMinutes * 60)),
-      usedAt: null,
-      status: "active",
-    };
-    await persistDb();
-    logEvent("oauth_reconnect_completed", {
-      clientId: client.clientId,
-      tenantId: tenant.tenantId,
+      codeChallengeMethod,
+      scope,
+      decision,
+      licenseKey,
+      shopDomain: typeof payload.shopDomain === "string" ? payload.shopDomain.trim() : "",
+      authorizePath,
     });
-
-    redirectWithOAuthResult(res, redirectUri, { code: authCode, state });
   } catch (error) {
     return oauthJsonError(res, 400, "invalid_request", error instanceof Error ? error.message : String(error));
   }

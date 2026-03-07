@@ -271,8 +271,13 @@ try {
   const invalidRedirectAuthorizeHtml = await invalidRedirectAuthorizePage.text();
   assert.match(
     invalidRedirectAuthorizeHtml,
-    /<form method="POST" action=""/,
-    "authorize form action should stay same-origin for proxied OAuth clients"
+    /id="oauth-authorize-root"/,
+    "authorize page should render decision container for CSP-safe OAuth confirmation"
+  );
+  assert.match(
+    invalidRedirectAuthorizeHtml,
+    /data-authorize-path="\/oauth\/authorize"/,
+    "authorize decision target should stay same-origin for proxied OAuth clients"
   );
 
   const noPkceAuthorize = await fetch(
