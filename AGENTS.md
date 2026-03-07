@@ -42,6 +42,13 @@ Gebruik tools in deze volgorde:
 ## Shopify taken
 Gebruik altijd de `mcp__shopify-mcp__*` tools.
 
+### Themes en sections
+- Themes ophalen: `get-themes`
+- Theme bestand lezen: `get-theme-file`
+- Theme bestand schrijven/updaten: `upsert-theme-file`
+- Theme bestand verwijderen: `delete-theme-file`
+- Section importeren in live theme: `import-section-to-live-theme`
+
 ### Producten
 - Ophalen: `get-products`, `get-product-by-id`
 - Aanmaken: `create-product`
@@ -56,6 +63,12 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 2. Controleer daarna expliciet variant-media mapping (kleur/stijl moet juiste image hebben).
 3. Publiceer pas als variant-media correct is bevestigd.
 4. Bij twijfel of ontbrekende API-zichtbaarheid: visuele check via `chrome-devtools`.
+
+### Theme/section workflow (verplicht)
+1. Haal themes op met `get-themes` en bevestig live theme (`role=main`) of gebruik expliciet `themeId`.
+2. Maak of update section via `import-section-to-live-theme` of `upsert-theme-file` met key `sections/<handle>.liquid`.
+3. Verifieer direct met `get-theme-file` dat de nieuwe content aanwezig is.
+4. Alleen bij visuele twijfel of rendering issues: check via `chrome-devtools`.
 
 ### Orders
 - Ophalen: `get-orders`, `get-order-by-id`

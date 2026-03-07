@@ -40,7 +40,7 @@ Deze scopes dekken alle huidige MCP-tools in `shopify-mcp-local/dist/tools`.
 
 Scopes:
 ```text
-read_products,write_products,read_customers,write_customers,read_orders,write_orders,read_fulfillments,read_inventory,write_merchant_managed_fulfillment_orders
+read_products,write_products,read_customers,write_customers,read_orders,write_orders,read_fulfillments,read_inventory,write_merchant_managed_fulfillment_orders,read_themes,write_themes
 ```
 
 Redirect URL's:
@@ -51,6 +51,7 @@ http://localhost:8787/oauth/shopify/callback
 
 Belangrijk:
 - Onboarding valideert credentials nu live (token exchange + scope-check) voordat tenant-data wordt opgeslagen.
+- Voor theme tools (`get-themes`, `get-theme-file`, `upsert-theme-file`, `delete-theme-file`, `import-section-to-live-theme`) zijn `read_themes` en `write_themes` vereist.
 - `read_returns` en `write_order_edits` zijn optioneel voor de huidige codebase.
 - `read_all_orders` telt ook als order-read scope.
 

@@ -30,6 +30,11 @@ import { cloneProductFromUrl } from "./tools/cloneProductFromUrl.js";
 import { getSupportedTrackingCompanies } from "./tools/getSupportedTrackingCompanies.js";
 import { updateFulfillmentTracking } from "./tools/updateFulfillmentTracking.js";
 import { setOrderTracking } from "./tools/setOrderTracking.js";
+import { getThemes } from "./tools/getThemes.js";
+import { getThemeFileTool } from "./tools/getThemeFile.js";
+import { upsertThemeFileTool } from "./tools/upsertThemeFile.js";
+import { deleteThemeFileTool } from "./tools/deleteThemeFile.js";
+import { importSectionToLiveTheme } from "./tools/importSectionToLiveTheme.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
 import { LicenseManager } from "./lib/licenseManager.js";
 import { createMachineFingerprint } from "./lib/machineFingerprint.js";
@@ -124,6 +129,11 @@ const initializeTools = (shopifyClient) => {
     getSupportedTrackingCompanies.initialize(shopifyClient);
     updateFulfillmentTracking.initialize(shopifyClient);
     setOrderTracking.initialize(shopifyClient);
+    getThemes.initialize(shopifyClient);
+    getThemeFileTool.initialize(shopifyClient);
+    upsertThemeFileTool.initialize(shopifyClient);
+    deleteThemeFileTool.initialize(shopifyClient);
+    importSectionToLiveTheme.initialize(shopifyClient);
 };
 let licenseManager = null;
 let auth = null;
@@ -411,11 +421,15 @@ const createHazifyServer = () => {
         "delete-product-variants",
         "refund-order",
         "clone-product-from-url",
+        "upsert-theme-file",
+        "delete-theme-file",
+        "import-section-to-live-theme",
     ]);
     const destructiveTools = new Set([
         "delete-product",
         "delete-product-variants",
         "refund-order",
+        "delete-theme-file",
     ]);
     const toolDescriptions = {
         "get-products": "List Shopify products with optional title search.",
@@ -439,6 +453,11 @@ const createHazifyServer = () => {
         "delete-product-variants": "Delete one or more variants from a product.",
         "refund-order": "Create a full or partial refund on an order.",
         "clone-product-from-url": "Import a product from a public Shopify product URL.",
+        "get-themes": "List Shopify themes and identify the live theme.",
+        "get-theme-file": "Read a specific file from a Shopify theme.",
+        "upsert-theme-file": "Create or update a file in a Shopify theme.",
+        "delete-theme-file": "Delete a specific file from a Shopify theme.",
+        "import-section-to-live-theme": "Write a section Liquid file directly into the live theme (or selected theme).",
         "get-license-status": "Return current license/access status and effective capabilities.",
     };
     const originalTool = server.tool.bind(server);
@@ -811,6 +830,51 @@ server.tool("clone-product-from-url", {
     tracked: z.boolean().default(true),
 }, async (args) => {
     return runLicensedTool("clone-product-from-url", true, cloneProductFromUrl.execute, args);
+});
+server.tool("get-themes", {
+    role: z.enum(["main", "unpublished", "demo", "development"]).optional(),
+    limit: z.number().int().positive().max(250).default(100),
+}, async (args) => {
+    const parsedArgs = getThemes.schema.parse(args);
+    return runLicensedTool("get-themes", false, getThemes.execute, parsedArgs);
+});
+server.tool("get-theme-file", {
+    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
+    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
+    key: z.string().min(1).describe("Theme file key, e.g. sections/custom-banner.liquid"),
+    includeContent: z.boolean().default(true),
+}, async (args) => {
+    const parsedArgs = getThemeFileTool.schema.parse(args);
+    return runLicensedTool("get-theme-file", false, getThemeFileTool.execute, parsedArgs);
+});
+server.tool("upsert-theme-file", {
+    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
+    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
+    key: z.string().min(1).describe("Theme file key, e.g. sections/custom-banner.liquid"),
+    value: z.string().optional().describe("Text content for Liquid/JSON/CSS/JS assets"),
+    attachment: z.string().optional().describe("Base64 payload for binary assets"),
+    checksum: z.string().optional(),
+}, async (args) => {
+    const parsedArgs = upsertThemeFileTool.schema.parse(args);
+    return runLicensedTool("upsert-theme-file", true, upsertThemeFileTool.execute, parsedArgs);
+});
+server.tool("delete-theme-file", {
+    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
+    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
+    key: z.string().min(1).describe("Theme file key to delete"),
+}, async (args) => {
+    const parsedArgs = deleteThemeFileTool.schema.parse(args);
+    return runLicensedTool("delete-theme-file", true, deleteThemeFileTool.execute, parsedArgs);
+});
+server.tool("import-section-to-live-theme", {
+    sectionHandle: z.string().min(1).describe("Section handle, e.g. cloudpillo-risk-free"),
+    liquid: z.string().min(1).describe("Complete Liquid section content"),
+    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
+    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
+    overwrite: z.boolean().default(true),
+}, async (args) => {
+    const parsedArgs = importSectionToLiveTheme.schema.parse(args);
+    return runLicensedTool("import-section-to-live-theme", true, importSectionToLiveTheme.execute, parsedArgs);
 });
 server.tool("get-license-status", {}, async () => {
     if (!IS_HTTP_TRANSPORT) {

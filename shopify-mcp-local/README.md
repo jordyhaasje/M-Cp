@@ -36,6 +36,10 @@ node dist/index.js --transport=http
 - `clone-product-from-url`
   - default `status` is `DRAFT`
   - output bevat `variantMediaMapping` met verificatie-status
+- theme beheer
+  - `get-themes` toont live en overige themes
+  - `upsert-theme-file` schrijft/overschrijft theme-bestanden (incl. sections)
+  - `import-section-to-live-theme` schrijft direct naar `sections/<handle>.liquid` in live theme (role `main`), of een expliciet theme ID
 - tracking updates (`set-order-tracking`, `update-fulfillment-tracking`, tracking via `update-order`)
   - carrier moet exact ondersteund zijn of resolvebare alias
   - ongeldige carrier geeft harde validatiefout

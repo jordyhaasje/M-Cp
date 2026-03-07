@@ -3,6 +3,8 @@ import dns from "dns/promises";
 import { cloneProductFromUrl } from "../dist/tools/cloneProductFromUrl.js";
 import { updateFulfillmentTracking } from "../dist/tools/updateFulfillmentTracking.js";
 import { refundOrder } from "../dist/tools/refundOrder.js";
+import { upsertThemeFileTool } from "../dist/tools/upsertThemeFile.js";
+import { importSectionToLiveTheme } from "../dist/tools/importSectionToLiveTheme.js";
 
 const originalLookup = dns.lookup;
 const originalFetch = global.fetch;
@@ -107,6 +109,118 @@ try {
   );
   assert.equal(cloneResult.variantMediaMapping.summary.totalVariants, 1);
   assert.equal(cloneResult.variantMediaMapping.summary.verified, 1);
+
+  const invalidThemeUpsert = upsertThemeFileTool.schema.safeParse({
+    key: "sections/test.liquid",
+  });
+  assert.equal(invalidThemeUpsert.success, false, "upsert-theme-file should require value or attachment");
+
+  const themeRestCalls = [];
+  global.fetch = async (url, options = {}) => {
+    const parsedUrl = new URL(String(url));
+    const method = String(options.method || "GET").toUpperCase();
+    const bodyText = typeof options.body === "string" ? options.body : "";
+    const bodyJson = bodyText ? JSON.parse(bodyText) : null;
+
+    themeRestCalls.push({
+      method,
+      pathname: parsedUrl.pathname,
+      search: parsedUrl.search,
+      bodyJson,
+    });
+
+    if (parsedUrl.pathname.endsWith("/themes.json") && method === "GET") {
+      return new Response(
+        JSON.stringify({
+          themes: [
+            { id: 111, name: "Main Theme", role: "main", previewable: true, processing: false },
+            { id: 222, name: "Dev Theme", role: "development", previewable: true, processing: false },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (parsedUrl.pathname.endsWith("/themes/111/assets.json") && method === "PUT") {
+      const asset = bodyJson?.asset || {};
+      return new Response(
+        JSON.stringify({
+          asset: {
+            key: asset.key,
+            checksum: "abc123",
+            value: asset.value || null,
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (parsedUrl.pathname.endsWith("/themes/111/assets.json") && method === "GET") {
+      const key = parsedUrl.searchParams.get("asset[key]");
+      if (key === "sections/existing.liquid") {
+        return new Response(
+          JSON.stringify({
+            asset: {
+              key,
+              value: "<div>already exists</div>",
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response(JSON.stringify({ errors: "Not Found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    throw new Error(`Unexpected theme REST call: ${method} ${parsedUrl.pathname}${parsedUrl.search}`);
+  };
+
+  const themeClient = {
+    url: "https://unit-test-shop.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: {
+        "X-Shopify-Access-Token": "shpat_theme",
+      },
+    },
+  };
+  upsertThemeFileTool.initialize(themeClient);
+  importSectionToLiveTheme.initialize(themeClient);
+
+  const themeUpsertResult = await upsertThemeFileTool.execute({
+    key: "sections/theme-tooling-test.liquid",
+    value: "<div>theme tooling test</div>",
+  });
+  assert.equal(themeUpsertResult.theme.id, 111);
+  assert.equal(themeUpsertResult.asset.key, "sections/theme-tooling-test.liquid");
+
+  const importResult = await importSectionToLiveTheme.execute({
+    sectionHandle: "Cloudpillo Risk Free!",
+    liquid: "<section>cloudpillo</section>",
+    overwrite: true,
+  });
+  assert.equal(importResult.section.key, "sections/cloudpillo-risk-free.liquid");
+  const importPutRequest = themeRestCalls.find(
+    (entry) =>
+      entry.method === "PUT" &&
+      entry.pathname.endsWith("/themes/111/assets.json") &&
+      entry.bodyJson?.asset?.key === "sections/cloudpillo-risk-free.liquid"
+  );
+  assert.ok(importPutRequest, "import-section-to-live-theme should upsert normalized section key");
+
+  let rejectedExistingSection = false;
+  try {
+    await importSectionToLiveTheme.execute({
+      sectionHandle: "existing",
+      liquid: "<section>overwrite me</section>",
+      overwrite: false,
+    });
+  } catch (error) {
+    rejectedExistingSection =
+      error instanceof Error && error.message.includes("bestaat al");
+  }
+  assert.equal(rejectedExistingSection, true, "overwrite=false should block existing section files");
 
   let rejectedInvalidCarrier = false;
   const originalConsoleError = console.error;

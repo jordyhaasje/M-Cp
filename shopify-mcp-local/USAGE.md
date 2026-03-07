@@ -141,3 +141,43 @@ Gebruik exact dezelfde payload als `set-order-tracking`.
 ```json
 {}
 ```
+
+## get-themes
+```json
+{
+  "role": "main",
+  "limit": 20
+}
+```
+
+## get-theme-file
+```json
+{
+  "themeRole": "main",
+  "key": "sections/cloudpillo-risk-free.liquid",
+  "includeContent": true
+}
+```
+
+## upsert-theme-file (direct file write)
+```json
+{
+  "themeRole": "main",
+  "key": "sections/cloudpillo-risk-free.liquid",
+  "value": "{% schema %}{\"name\":\"Cloudpillo risico-vrij\"}{% endschema %}"
+}
+```
+
+## import-section-to-live-theme (one-shot section import)
+```json
+{
+  "sectionHandle": "cloudpillo-risk-free",
+  "liquid": "<section class=\"cloudpillo-risk-free\">...</section>",
+  "themeRole": "main",
+  "overwrite": true
+}
+```
+
+Belangrijk:
+- Theme tools vereisen Shopify app scopes `read_themes` en `write_themes`.
+- `import-section-to-live-theme` schrijft naar `sections/<sectionHandle>.liquid`.
