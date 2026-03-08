@@ -11,7 +11,7 @@
   },
   "type": "module",
   "scripts": {
-    "build": "node ../../scripts/copy-src-to-dist.mjs ./src ./dist",
+    "build": "node scripts/copy-src-to-dist.mjs ./src ./dist",
     "prestart": "npm run build",
     "start": "node dist/index.js",
     "start:http": "node dist/index.js --transport=http",
