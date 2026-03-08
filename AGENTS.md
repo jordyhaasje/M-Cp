@@ -67,9 +67,10 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 
 ### Theme/section workflow (verplicht)
 1. Haal themes op met `get-themes` en bevestig live theme (`role=main`) of gebruik expliciet `themeId`.
-2. Maak of update section via `import-section-to-live-theme` of `upsert-theme-file` met key `sections/<handle>.liquid`.
-3. Verifieer direct met `get-theme-file` dat de nieuwe content aanwezig is.
-4. Alleen bij visuele twijfel of rendering issues: check via `chrome-devtools`.
+2. Voor editor-aanpasbare sections: gebruik `import-section-to-live-theme` met schema-validatie (`validateSchema=true`) en presets (`requirePresets=true`).
+3. Voeg section toe aan template-volgorde via `addToTemplate=true` en juiste `templateKey` (bijv. `templates/index.json`).
+4. Verifieer met `get-theme-file` dat zowel `sections/<handle>.liquid` als template JSON (`sections` + `order`) klopt.
+5. Alleen bij visuele twijfel of rendering issues: check via `chrome-devtools`.
 
 ### Orders
 - Ophalen: `get-orders`, `get-order-by-id`

@@ -168,6 +168,27 @@ try {
           { status: 200, headers: { "content-type": "application/json" } }
         );
       }
+      if (key === "templates/index.json") {
+        return new Response(
+          JSON.stringify({
+            asset: {
+              key,
+              value: JSON.stringify(
+                {
+                  sections: {
+                    header: { type: "header" },
+                    main: { type: "main-page" },
+                  },
+                  order: ["header", "main"],
+                },
+                null,
+                2
+              ),
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
       return new Response(JSON.stringify({ errors: "Not Found" }), {
         status: 404,
         headers: { "content-type": "application/json" },
@@ -195,10 +216,28 @@ try {
   assert.equal(themeUpsertResult.theme.id, 111);
   assert.equal(themeUpsertResult.asset.key, "sections/theme-tooling-test.liquid");
 
+  const validSectionLiquid = `<section>{{ section.settings.title }}</section>
+{% schema %}
+{
+  "name": "Cloudpillo Risk Free",
+  "settings": [
+    { "type": "text", "id": "title", "label": "Title", "default": "Risk Free" }
+  ],
+  "presets": [
+    { "name": "Cloudpillo Risk Free", "category": "Promotional" }
+  ]
+}
+{% endschema %}`;
+
   const importResult = await importSectionToLiveTheme.execute({
     sectionHandle: "Cloudpillo Risk Free!",
-    liquid: "<section>cloudpillo</section>",
+    liquid: validSectionLiquid,
     overwrite: true,
+    addToTemplate: true,
+    templateKey: "templates/index.json",
+    sectionSettings: {
+      title: "Risk Free",
+    },
   });
   assert.equal(importResult.section.key, "sections/cloudpillo-risk-free.liquid");
   const importPutRequest = themeRestCalls.find(
@@ -208,13 +247,47 @@ try {
       entry.bodyJson?.asset?.key === "sections/cloudpillo-risk-free.liquid"
   );
   assert.ok(importPutRequest, "import-section-to-live-theme should upsert normalized section key");
+  const templatePutRequest = themeRestCalls.find(
+    (entry) =>
+      entry.method === "PUT" &&
+      entry.pathname.endsWith("/themes/111/assets.json") &&
+      entry.bodyJson?.asset?.key === "templates/index.json"
+  );
+  assert.ok(templatePutRequest, "import-section-to-live-theme should update template JSON when addToTemplate=true");
+  const templateJson = JSON.parse(templatePutRequest.bodyJson.asset.value);
+  assert.ok(
+    Object.values(templateJson.sections || {}).some((section) => section?.type === "cloudpillo-risk-free"),
+    "template should include inserted section type"
+  );
+  assert.ok(
+    (templateJson.order || []).some((entry) => String(entry).includes("cloudpillo_risk_free")),
+    "template order should include inserted section id"
+  );
+
+  let rejectedMissingPresets = false;
+  try {
+    await importSectionToLiveTheme.execute({
+      sectionHandle: "No Preset Section",
+      liquid: `<section>no presets</section>
+{% schema %}
+{ "name": "No Preset Section" }
+{% endschema %}`,
+      overwrite: true,
+      validateSchema: true,
+      requirePresets: true,
+    });
+  } catch (error) {
+    rejectedMissingPresets = error instanceof Error && error.message.includes("presets");
+  }
+  assert.equal(rejectedMissingPresets, true, "schema validation should reject sections without presets");
 
   let rejectedExistingSection = false;
   try {
     await importSectionToLiveTheme.execute({
       sectionHandle: "existing",
-      liquid: "<section>overwrite me</section>",
+      liquid: validSectionLiquid,
       overwrite: false,
+      validateSchema: false,
     });
   } catch (error) {
     rejectedExistingSection =

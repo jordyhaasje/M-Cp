@@ -452,7 +452,7 @@ const createHazifyServer = () => {
         "get-theme-file": "Read a specific file from a Shopify theme.",
         "upsert-theme-file": "Create or update a file in a Shopify theme.",
         "delete-theme-file": "Delete a specific file from a Shopify theme.",
-        "import-section-to-live-theme": "Write a section Liquid file directly into the live theme (or selected theme).",
+        "import-section-to-live-theme": "Create/update a section file with schema/preset validation, and optionally add it into a JSON template order.",
         "get-license-status": "Return current license/access status and effective capabilities.",
     };
     const originalTool = server.tool.bind(server);
@@ -867,6 +867,14 @@ server.tool("import-section-to-live-theme", {
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
     overwrite: z.boolean().default(true),
+    validateSchema: z.boolean().default(true).describe("Validate {% schema %} JSON block"),
+    requirePresets: z.boolean().default(true).describe("Require at least one schema preset for Theme Editor Add section"),
+    addToTemplate: z.boolean().default(false).describe("Also insert this section into a JSON template"),
+    templateKey: z.string().default("templates/index.json").describe("Template key, e.g. templates/index.json"),
+    sectionInstanceId: z.string().optional().describe("Optional explicit section ID inside template JSON"),
+    insertPosition: z.enum(["start", "end", "before", "after"]).default("end"),
+    referenceSectionId: z.string().optional().describe("Required when insertPosition is before/after"),
+    sectionSettings: z.record(z.unknown()).optional().describe("Optional initial section settings in template JSON"),
 }, async (args) => {
     const parsedArgs = importSectionToLiveTheme.schema.parse(args);
     return runLicensedTool("import-section-to-live-theme", true, importSectionToLiveTheme.execute, parsedArgs);

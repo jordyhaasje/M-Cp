@@ -55,3 +55,21 @@ Voorbeeld (`mcp-remote`):
 2. `tools/list` werkt
 3. token revoke -> nieuwe request faalt
 4. disallowed origin -> request faalt
+
+## AI workflow: section bouwen op basis van afbeelding + referentie-URL
+Belangrijk: beeldanalyse gebeurt door de AI-client (bijv. ChatGPT), niet door de MCP backend.
+
+Aanpak:
+1. Laat AI eerst de gewenste section structureren (layout, typografie, spacing, blocks, settings).
+2. Laat AI daarna `import-section-to-live-theme` aanroepen met:
+   - `validateSchema=true`
+   - `requirePresets=true`
+   - `addToTemplate=true`
+   - `templateKey` (bijv. `templates/index.json`)
+3. Verifieer met `get-theme-file`:
+   - `sections/<handle>.liquid` bestaat en heeft `{% schema %}` + `presets`
+   - template JSON bevat nieuwe section in `sections` en `order`
+
+Waarom deze flow:
+- Zonder `presets` verschijnt de section niet in **Add section** in Theme Editor.
+- Zonder template insertie staat de section vaak niet op de pagina-volgorde.
