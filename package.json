@@ -9,8 +9,12 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run -ws --if-present build",
-    "test": "npm run -ws --if-present test && npm run test:e2e",
+    "sync:shared": "node scripts/sync-shared-packages.mjs",
+    "verify:shared": "node scripts/verify-shared-packages.mjs",
+    "check:git-sync": "node scripts/check-git-sync.mjs",
+    "smoke:prod": "node scripts/smoke-prod.mjs",
+    "build": "npm run sync:shared && npm run -ws --if-present build && npm run verify:shared",
+    "test": "npm run verify:shared && npm run -ws --if-present test && npm run test:e2e",
     "test:e2e": "node tests/e2e/contract.test.mjs",
     "start:license": "npm run --workspace @hazify/license-service start",
     "start:mcp": "npm run --workspace @hazify/mcp-remote start:remote"

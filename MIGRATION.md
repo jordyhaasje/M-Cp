@@ -25,6 +25,10 @@ Deze migratie zet de repository om naar een remote-first npm-workspaces monorepo
   - `@hazify/shopify-core`
   - `@hazify/mcp-common`
 - `@modelcontextprotocol/sdk` geüpgraded naar `^1.26.0`.
+- App-local mirror packages (`apps/*/packages/*`) worden beheerd via:
+  - `npm run sync:shared`
+  - `npm run verify:shared`
+  Dit voorkomt drift tussen runtime deploy-context en root shared packages.
 
 ## Security/validatie wijzigingen
 - Onboarding scope-validatie vereist nu expliciet:

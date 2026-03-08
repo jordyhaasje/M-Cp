@@ -25,11 +25,18 @@
 - `HAZIFY_MCP_AUTH_SERVER_URL`
 
 ## Deploy checks
-1. `npm run build`
-2. `npm test`
-3. Health check license service
-4. MCP `initialize` + `tools/list`
-5. OAuth flow (`/oauth/register` -> `/oauth/authorize` -> `/oauth/token`)
+1. `npm run verify:shared`
+2. `npm run build`
+3. `npm test`
+4. `npm run check:git-sync`
+5. `npm run smoke:prod`
+6. MCP `initialize` + `tools/list` contracttest in `tests/e2e/contract.test.mjs`
+7. OAuth flow (`/oauth/register` -> `/oauth/authorize` -> `/oauth/token`)
 
 ## Smoke test script
 `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh`
+
+## GitHub push aandachtspunt
+- Als je `.github/workflows/*` wijzigt, moet je push-auth workflow-permissie hebben.
+- Bij HTTPS betekent dit meestal een PAT met `workflow` scope.
+- Gebruik `npm run check:git-sync` om dit vroegtijdig te valideren.

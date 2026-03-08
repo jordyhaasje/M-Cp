@@ -5,10 +5,10 @@ Scope: `apps/hazify-license-service/src/views/pages.js`
 Doel: onboarding en dashboard UX verbeteren zonder API-contracten of runtimegedrag te breken.
 
 ## Workstream 1: Onboarding kort en afvinkbaar
-- [x] Voeg setup-progress indicator toe (max 5 stappen)
-- [x] Toon per stap duidelijke status (klaar/open)
-- [x] Ondersteun "later afronden" flow zonder blokkade
-- [x] Validatie: nieuwe gebruiker ziet direct voortgang en volgende stap
+- [x] Eerdere setup-progress indicator verwijderd op verzoek (rollback)
+- [x] Dashboard zonder setup-progress blijft functioneel
+- [x] Geen setup-blockers toegevoegd in UX-flow
+- [x] Validatie: onboarding en dashboard werken zonder regressie
 
 ## Workstream 2: Klikdoelen en leesbaarheid
 - [x] Verhoog interactieve targets naar minimaal 44px waar nodig
@@ -57,7 +57,7 @@ Doel: onboarding en dashboard UX verbeteren zonder API-contracten of runtimegedr
 - [x] Rest-risico's benoemd
 
 ## Korte changelog
-- Setup-voortgang met 5 stappen toegevoegd inclusief statusbadges en "Later afronden".
+- Setup-voortgang is teruggedraaid; dashboard toont geen setup-progress paneel meer.
 - Dashboard CTA-hiërarchie aangescherpt: per setup-tab één dominante primaire actie.
 - Empty states toegevoegd voor winkels en actieve koppelingen, inclusief directe vervolgstap.
 - Interactie-grootte/typografie verhoogd op kritieke controls.

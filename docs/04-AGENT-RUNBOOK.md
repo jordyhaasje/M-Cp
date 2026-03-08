@@ -13,8 +13,12 @@
 
 ## Verplichte checks
 - Root:
+  - `npm run verify:shared`
   - `npm run build`
   - `npm test`
+- Voor release/deploy:
+  - `npm run check:git-sync`
+  - `npm run smoke:prod`
 - Optioneel gericht:
   - `npm run --workspace @hazify/license-service test`
   - `npm run --workspace @hazify/mcp-remote test`

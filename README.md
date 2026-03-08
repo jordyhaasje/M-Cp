@@ -17,6 +17,23 @@ npm run build
 npm test
 ```
 
+## Operationele checks
+```bash
+# Sync en controleer app-local mirrors van packages/*
+npm run sync:shared
+npm run verify:shared
+
+# Controleer of branch veilig te pushen is (incl. dry-run)
+npm run check:git-sync
+
+# Productie smoke check (kan met defaults of custom base URLs)
+npm run smoke:prod
+```
+
+Optionele custom endpoints voor smoke check:
+- `HAZIFY_LICENSE_BASE_URL`
+- `HAZIFY_MCP_BASE_URL`
+
 ## Productie endpoints
 - License service: `https://hazify-license-service-production.up.railway.app`
 - Remote MCP: `https://hazify-mcp-remote-production.up.railway.app/mcp`
