@@ -1150,119 +1150,6 @@ function shell({ title, body, extraHead = "" }) {
       color: #36465d;
     }
 
-    .status-strip {
-      display: grid;
-      gap: 8px;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .status-pill {
-      border: 1px solid #dce4ef;
-      border-radius: 12px;
-      background: #fff;
-      padding: 10px 12px;
-      display: grid;
-      gap: 4px;
-    }
-
-    .status-pill strong {
-      font-size: .86rem;
-      color: #1e2d44;
-    }
-
-    .status-pill span {
-      font-size: .82rem;
-      color: #54657d;
-    }
-
-    .status-pill.ok {
-      border-color: rgba(15, 122, 78, .34);
-      background: #f3fcf7;
-    }
-
-    .status-pill.warn {
-      border-color: rgba(142, 98, 0, .32);
-      background: #fff9ee;
-    }
-
-    .status-pill.pending {
-      border-color: #dce4ef;
-      background: #f8fbff;
-    }
-
-    .setup-progress {
-      gap: 14px;
-    }
-
-    .setup-progress-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-    }
-
-    .setup-progress-head p {
-      font-size: .86rem;
-    }
-
-    .progress-meter {
-      width: 100%;
-      height: 8px;
-      border-radius: 999px;
-      background: #e8edf5;
-      overflow: hidden;
-    }
-
-    .progress-meter > span {
-      display: block;
-      width: 0;
-      height: 100%;
-      background: linear-gradient(90deg, #0f172a 0%, #23395e 100%);
-      border-radius: inherit;
-      transition: width .18s ease;
-    }
-
-    .progress-list {
-      margin: 0;
-      padding: 0;
-      list-style: none;
-      display: grid;
-      gap: 8px;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-    }
-
-    .progress-step {
-      border: 1px solid #dce4ef;
-      border-radius: 12px;
-      background: #fff;
-      padding: 9px 10px;
-      display: grid;
-      gap: 3px;
-      min-height: 74px;
-    }
-
-    .progress-step strong {
-      font-size: .84rem;
-      color: #243249;
-      line-height: 1.2;
-    }
-
-    .progress-step span {
-      font-size: .78rem;
-      color: #5f7088;
-      line-height: 1.35;
-    }
-
-    .progress-step.done {
-      border-color: rgba(15, 122, 78, .34);
-      background: #f3fcf7;
-    }
-
-    .progress-step.active {
-      border-color: #9db0cb;
-      background: #f7faff;
-    }
-
     .empty-state {
       border: 1px dashed #c8d4e6;
       border-radius: 14px;
@@ -1327,8 +1214,6 @@ function shell({ title, body, extraHead = "" }) {
     @media (max-width: 1024px) {
       .connect-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
       .hero h2 { max-width: 100%; }
-      .progress-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .status-strip { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 768px) {
@@ -1343,7 +1228,6 @@ function shell({ title, body, extraHead = "" }) {
       }
 
       .connect-grid { grid-template-columns: 1fr; }
-      .progress-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
       .setup-item {
         padding: 10px;
@@ -1359,11 +1243,6 @@ function shell({ title, body, extraHead = "" }) {
 
       .content {
         padding: 14px;
-      }
-
-      .setup-progress-head {
-        align-items: flex-start;
-        flex-direction: column;
       }
 
       .brand-ribbon img {
@@ -1424,10 +1303,6 @@ function shell({ title, body, extraHead = "" }) {
 
       .btn-row {
         width: 100%;
-      }
-
-      .progress-list {
-        grid-template-columns: 1fr;
       }
 
       .topbar {
@@ -1759,19 +1634,6 @@ export function renderDashboardPage() {
             <p id="notice" class="notice warn" role="status" aria-live="polite">We laden je gegevens...</p>
             <div id="noticeLive" class="sr-only" aria-live="polite"></div>
 
-            <article class="panel setup-progress" id="setupProgressPanel">
-              <div class="setup-progress-head">
-                <div>
-                  <h3>Setup voortgang</h3>
-                  <p id="setupProgressSummary">0 van 5 stappen voltooid.</p>
-                </div>
-                <button class="btn soft" id="setupLaterBtn" type="button">Later afronden</button>
-              </div>
-              <div class="progress-meter" aria-hidden="true"><span id="setupProgressBar"></span></div>
-              <ol class="progress-list" id="setupProgressList"></ol>
-              <div class="status-strip" id="setupStatusStrip"></div>
-            </article>
-
             <div class="grid-2" style="align-items:start;">
               <article class="panel">
                 <h3>Jouw account</h3>
@@ -2039,11 +1901,6 @@ export function renderDashboardPage() {
         const shopDomainValue = document.getElementById('shopDomainValue');
         const storeList = document.getElementById('storeList');
         const activeConnections = document.getElementById('activeConnections');
-        const setupLaterBtn = document.getElementById('setupLaterBtn');
-        const setupProgressSummary = document.getElementById('setupProgressSummary');
-        const setupProgressList = document.getElementById('setupProgressList');
-        const setupProgressBar = document.getElementById('setupProgressBar');
-        const setupStatusStrip = document.getElementById('setupStatusStrip');
 
         const connectForm = document.getElementById('connectForm');
         const connectBtn = document.getElementById('connectBtn');
@@ -2102,120 +1959,6 @@ export function renderDashboardPage() {
         function focusElementSafely(element) {
           if (!element || typeof element.focus !== 'function') return;
           element.focus({ preventScroll: true });
-        }
-
-        function getSetupSteps(data = {}) {
-          const tenants = Array.isArray(data.tenants) ? data.tenants : [];
-          const selectedTenant = data.tenant || {};
-          const hasAnyTenant = tenants.length > 0;
-          const hasActiveTenant = !!selectedTenant?.tenantId;
-          const hasShopConnected = !!selectedTenant?.shopify?.domain;
-          const hasActiveToken = Number(data?.mcp?.activeTokenCount || 0) > 0;
-          const connectionCount = Array.isArray(data?.connections?.clients)
-            ? data.connections.clients.length
-            : 0;
-          const hasConnection = connectionCount > 0;
-          const credentials = selectedTenant?.shopify?.credentials || {};
-          const credentialsValidated = !!(credentials.lastValidationAt || credentials.validatedAt);
-
-          const steps = [
-            {
-              key: 'account',
-              label: 'Account actief',
-              done: true,
-              detail: 'Aangemeld',
-            },
-            {
-              key: 'tenant',
-              label: 'Winkel toegevoegd',
-              done: hasAnyTenant,
-              detail: hasAnyTenant ? (String(tenants.length) + ' winkel' + (tenants.length === 1 ? '' : 's')) : 'Nog niet gestart',
-            },
-            {
-              key: 'shopify',
-              label: 'Shopify verbonden',
-              done: hasActiveTenant && hasShopConnected,
-              detail: hasShopConnected ? selectedTenant.shopify.domain : 'Verbind je winkel',
-            },
-            {
-              key: 'token',
-              label: 'MCP toegangscode',
-              done: hasActiveToken,
-              detail: hasActiveToken ? 'Actief' : 'Nog niet gemaakt',
-            },
-            {
-              key: 'client',
-              label: 'AI client gekoppeld',
-              done: hasConnection,
-              detail: hasConnection ? (String(connectionCount) + ' actief') : 'Nog geen koppeling',
-            },
-          ];
-
-          return {
-            steps,
-            completed: steps.filter((step) => step.done).length,
-            total: steps.length,
-            hasShopConnected,
-            hasActiveToken,
-            hasConnection,
-            credentialsValidated,
-          };
-        }
-
-        function renderSetupProgress(data = {}) {
-          const snapshot = getSetupSteps(data);
-          const firstPending = snapshot.steps.find((entry) => !entry.done);
-          const firstPendingKey = firstPending ? firstPending.key : '';
-          const percent = snapshot.total ? Math.round((snapshot.completed / snapshot.total) * 100) : 0;
-          setupProgressSummary.textContent = String(snapshot.completed) + ' van ' + String(snapshot.total) + ' stappen voltooid.';
-          setupProgressBar.style.width = String(percent) + '%';
-
-          setupProgressList.innerHTML = snapshot.steps
-            .map((step) => {
-              let stateClass = '';
-              let stateText = 'Open';
-              if (step.done) {
-                stateClass = ' done';
-                stateText = 'Klaar';
-              } else if (firstPendingKey && firstPendingKey === step.key) {
-                stateClass = ' active';
-                stateText = 'Volgende';
-              }
-              return (
-                '<li class="progress-step' +
-                stateClass +
-                '"><strong>' +
-                escapeText(step.label) +
-                '</strong><span>' +
-                escapeText(stateText + ' · ' + step.detail) +
-                '</span></li>'
-              );
-            })
-            .join('');
-
-          const statusRows = [
-            {
-              title: 'Shopify',
-              value: snapshot.hasShopConnected ? 'Verbonden' : 'Nog niet verbonden',
-              className: snapshot.hasShopConnected ? 'ok' : 'warn',
-            },
-            {
-              title: 'MCP token',
-              value: snapshot.hasActiveToken ? 'Actief' : 'Maak token bij eerste setup',
-              className: snapshot.hasActiveToken ? 'ok' : 'pending',
-            },
-            {
-              title: 'Credentials',
-              value: snapshot.credentialsValidated ? 'Gevalideerd' : 'Controle aanbevolen',
-              className: snapshot.credentialsValidated ? 'ok' : 'pending',
-            },
-          ];
-
-          setupStatusStrip.innerHTML = statusRows
-            .map((row) => {
-              return '<article class="status-pill ' + row.className + '"><strong>' + escapeText(row.title) + '</strong><span>' + escapeText(row.value) + '</span></article>';
-            })
-            .join('');
         }
 
         function escapeText(value) {
@@ -2761,11 +2504,6 @@ export function renderDashboardPage() {
           }
           renderStoreList(data.tenants || [], state.selectedTenantId);
           renderActiveConnections(data.connections?.clients || []);
-          renderSetupProgress(data);
-          const setupSnapshot = getSetupSteps(data);
-          setupLaterBtn.disabled = setupSnapshot.completed === setupSnapshot.total;
-          setupLaterBtn.textContent =
-            setupSnapshot.completed === setupSnapshot.total ? 'Setup compleet' : 'Later afronden';
           updateConnectAvailability();
           markSelectedClient(state.selectedClient || 'vscode');
         }
@@ -2913,20 +2651,6 @@ export function renderDashboardPage() {
           if (storeModalBackdrop.classList.contains('open')) {
             closeStoreDetailsModal();
           }
-        });
-
-        setupLaterBtn.addEventListener('click', () => {
-          setConnectTab('quick');
-          const shopDomainInput = document.getElementById('shopDomain');
-          if (shopDomainInput && !state.selectedTenantId) {
-            focusElementSafely(shopDomainInput);
-            setNotice('warn', 'Voeg eerst een winkel toe. Daarna kun je direct een app verbinden.');
-            return;
-          }
-          const preferredButton = connectGrid.querySelector('.quick-connect-item.active .setup-btn') ||
-            connectGrid.querySelector('.setup-btn');
-          focusElementSafely(preferredButton);
-          setNotice('ok', 'Je kunt setup later afronden. Kies een app zodra je klaar bent.');
         });
 
         storeList.addEventListener('click', async (event) => {
