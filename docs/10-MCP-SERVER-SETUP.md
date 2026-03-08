@@ -1,24 +1,17 @@
 # MCP Server Setup (Index)
 
-Deze workspace heeft twee setup-routes (strikt gescheiden):
-
-1. Remote (aanbevolen): `docs/12-REMOTE-MCP-SETUP.md`
-2. Local (legacy/fallback): `docs/archive/11-LOCAL-MCP-SETUP.md`
+## Routes
+1. Remote (standaard): `docs/12-REMOTE-MCP-SETUP.md`
+2. Local fallback (legacy): `docs/archive/11-LOCAL-MCP-SETUP.md`
 
 ## Hard requirements
-1. Productie altijd via HTTPS.
-2. Tracking-updates alleen via fulfillment-tracking tools.
-3. Geen placeholders (`<...>`) in echte configwaarden.
-4. Na toolwijzigingen: MCP-client herstarten.
-5. Shopify credentials voor remote flow altijd via `/onboarding`, niet in clientconfig.
-6. `HAZIFY_FREE_MODE=true` is standaard: onboarding werkt zonder betaalstap.
-7. Remote MCP moet OAuth discovery endpoints publiceren voor clients zoals ChatGPT.
-8. OAuth authorize/token moet PKCE `S256` afdwingen (geen `plain`).
-9. `/mcp` accepteert alleen `Authorization: Bearer` of `x-api-key` (geen query-token fallback).
-10. Streamable HTTP origin-validatie moet actief blijven op requests met `Origin` header.
+1. Productie via HTTPS.
+2. Remote `/mcp` (Streamable HTTP) is primary route.
+3. Shopify credentials alleen via onboarding (server-side), niet in clientconfig.
+4. OAuth PKCE `S256` only.
+5. `/mcp` accepteert alleen Bearer of `x-api-key`.
+6. Origin-validatie blijft actief op browser-origin requests.
 
-## Aanbevolen checks na wijziging
-1. `node --check /Users/jordy/Desktop/Customer service/shopify-mcp-local/dist/index.js`
-2. `node --check /Users/jordy/Desktop/Customer service/hazify-license-service/server.js`
-3. `get-order-by-id` werkt met `1004`, `#1004` en GID.
-4. `set-order-tracking` update zichtbaar in `order.tracking.shipments`.
+## Aanbevolen checks na wijzigingen
+1. `npm run build`
+2. `npm test`

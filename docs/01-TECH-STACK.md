@@ -1,89 +1,47 @@
 # Tech Stack (Productie)
 
-## Overzicht
-Deze workspace draait als een 2-service architectuur:
-1. `hazify-license-service` (Node.js HTTP service)
-2. `shopify-mcp-local` (Node.js MCP server over HTTP transport)
+## Architectuur
+Deze monorepo bevat twee runtime services:
+1. `apps/hazify-license-service` (Node.js HTTP service)
+2. `apps/hazify-mcp-remote` (Node.js MCP service, Streamable HTTP op `/mcp`)
 
-Doel: gebruikers koppelen via één remote MCP URL met OAuth-first authenticatie.
+Gedeelde logica:
+- `packages/shopify-core` (Shopify domain/auth/scope validatie)
+- `packages/mcp-common` (hashing, URL/origin utilities)
 
-## Runtime en platform
-- Taal: JavaScript (ESM)
-- Runtime: Node.js (Railway deploys draaien op Node 18/22 afhankelijk van service config)
-- Hosting: Railway
-- Protocol: MCP Streamable HTTP
-
-## Service 1: License Service
-Pad: `hazify-license-service/server.js`
+## License Service
+Pad: `apps/hazify-license-service/src/server.js`
 
 Verantwoordelijkheden:
-- onboarding + dashboard UI (`/onboarding`, `/dashboard`)
-- licentie- en tenantbeheer
-- uitgifte van MCP bearer tokens
-- dashboard sessie-auth + multi-store context (`/v1/dashboard/*`)
-- OAuth authorization server:
-  - `/.well-known/oauth-authorization-server`
-  - `/.well-known/openid-configuration`
-  - `/oauth/register`
-  - `/oauth/authorize`
-  - `/oauth/token`
-- introspectie endpoint voor MCP service:
-  - `/v1/mcp/token/introspect`
-
-Data-opslag:
-- Primair: PostgreSQL via `DATABASE_URL`
-- Fallback voor lokale dev: JSON datastore via `LICENSE_DB_PATH`
-- domeinen: licenses, tenants, mcpTokens, oauthClients, oauthAuthCodes, oauthRefreshTokens, accounts, accountSessions
-- exports/backups: admin endpoint `/v1/admin/storage/export` (versleuteld als `BACKUP_EXPORT_KEY` is gezet)
-- licenses zijn schema-ready voor Stripe subscription velden (`subscription.*`) naast legacy `stripeCustomerId`/`stripeSubscriptionId`
-- safety-net: bij PostgreSQL met lege state probeert de service eenmalig legacy JSON (`LICENSE_DB_PATH`) te importeren als die file bestaat
+- account signup/login/logout en dashboard sessies
+- onboarding (`/v1/onboarding/connect-shopify`)
+- MCP token create/revoke + introspectie (`/v1/mcp/token/introspect`)
+- OAuth authorization server (`/oauth/register`, `/oauth/authorize`, `/oauth/token`)
 
 Belangrijk:
-- Shopify credentials blijven server-side (niet in clientconfig)
-- Dynamic Client Registration retourneert altijd string `client_secret` (ChatGPT compat)
-- Native app redirect URI schemes (zoals `vscode://...`) zijn toegestaan via `OAUTH_ALLOWED_CUSTOM_REDIRECT_SCHEMES`
-- PKCE is verplicht en alleen `S256` is toegestaan op authorize/token
-- OAuth scope is gefixeerd op `mcp:tools` (geen vrije scope-input via DCR)
-- Onbekende OAuth clients gaan alleen via gecontroleerde reconnect-flow (geen impliciete auto-recovery)
-- HTTP body-size limiet en baseline security headers zijn actief op responses
-- In productie is `DATABASE_URL` feitelijk verplicht voor persistente accounts/sessies/OAuth-clients
+- Shopify credentials blijven server-side
+- Ondersteunt beide vormen: `shopAccessToken` en BYO `shopClientId` + `shopClientSecret`
+- Onboarding valideert verplichte Shopify scopes inclusief `read_themes` en `write_themes`
+- In productie zijn `DATABASE_URL` en `DATA_ENCRYPTION_KEY` verplicht
 
-## Service 2: MCP Remote Service
-Pad: `shopify-mcp-local/dist/index.js`
+## MCP Remote Service
+Pad: `apps/hazify-mcp-remote/src/index.js`
 
 Verantwoordelijkheden:
-- MCP endpoint: `/mcp`
-- tool-executie voor Shopify MCP tools
-- auth context via token introspectie naar license service
-- OAuth metadata/protected resource endpoints:
-  - `/.well-known/oauth-authorization-server`
-  - `/.well-known/openid-configuration`
-  - `/.well-known/oauth-protected-resource`
-- legacy compat routes:
-  - `/register`, `/authorize`, `/token` (redirect naar auth server)
+- MCP endpoint op `/mcp`
+- token introspectie bij license service
+- OAuth discovery metadata
+- tool-executie binnen tenant context
 
 Belangrijk:
-- `401` + `WWW-Authenticate` met `resource_metadata` bij missende/ongeldige token
+- Remote `/mcp` over Streamable HTTP is leidend
+- stdio/local blijft alleen fallback
 - `/mcp` accepteert alleen `Authorization: Bearer` of `x-api-key`
-- Query-token en non-Bearer Authorization fallback zijn uitgeschakeld
-- Streamable HTTP requests met `Origin` header worden gevalideerd tegen allowlist
-- OAuth metadata adverteert alleen `code_challenge_methods_supported: ["S256"]`
-- per-tenant serialization lock voor tool-mutaties
+- Origin allowlist check is actief bij requests met `Origin` header
+- per-tenant serialisatie voor muterende tools
 
-## Externe integraties
-- Shopify Admin GraphQL API
-- OpenAI/ChatGPT connector clients
-- Cursor MCP install deeplink (OAuth-first)
-- VS Code MCP install deeplink (OAuth-first)
-- Claude connectorflow via `claude.ai/settings/connectors` (OAuth-first)
-
-## Productie endpoints
-- License service: `https://hazify-license-service-production.up.railway.app`
-- MCP endpoint: `https://hazify-mcp-remote-production.up.railway.app/mcp`
-
-## Security model
-- OAuth-first voor moderne clients
-- header/bearer token fallback voor legacy clients
-- tenant-isolatie op license + shopdomain
-- geen Shopify secrets in eindgebruiker-config
-- token-introspectie geeft alleen minimaal benodigde Shopify auth-velden terug voor MCP runtime
+## Runtime/Platform
+- Node.js 18+
+- ESM modules
+- npm workspaces op repo root
+- Railway voor productie deploy

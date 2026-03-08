@@ -5,7 +5,7 @@ Alleen als remote URL setup niet beschikbaar is.
 
 ## Startcommando
 ```bash
-node /Users/jordy/Desktop/Customer\ service/shopify-mcp-local/dist/index.js \
+node ./apps/hazify-mcp-remote/dist/index.js \
   --licenseKey HZY-... \
   --licenseApiBaseUrl https://license.jouwdomein.com \
   --clientId SHOPIFY_CLIENT_ID \
@@ -21,7 +21,7 @@ Alternatief:
 [mcp_servers.hazify-mcp]
 command = "node"
 args = [
-  "/Users/jordy/Desktop/Customer service/shopify-mcp-local/dist/index.js",
+  "./apps/hazify-mcp-remote/dist/index.js",
   "--licenseKey", "HZY-...",
   "--licenseApiBaseUrl", "https://license.jouwdomein.com",
   "--clientId", "SHOPIFY_CLIENT_ID",

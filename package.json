@@ -1,0 +1,21 @@
+{
+  "name": "hazify-platform",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Hazify production monorepo for license service and remote MCP",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run -ws --if-present build",
+    "test": "npm run -ws --if-present test && npm run test:e2e",
+    "test:e2e": "node tests/e2e/contract.test.mjs",
+    "start:license": "npm run --workspace @hazify/license-service start",
+    "start:mcp": "npm run --workspace @hazify/mcp-remote start:remote"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  }
+}

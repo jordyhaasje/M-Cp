@@ -15,10 +15,11 @@ De agent werkt snel, veilig en verifieert altijd data voordat er wijzigingen wor
 ## Workspace-structuur (verplicht)
 - Documentatie staat in `docs/`
 - Legacy documentatie staat in `docs/archive/`
-- Legacy data/artifacts staan in `archive/`
-- MCP-servercode staat in `shopify-mcp-local/`
-- License API service staat in `hazify-license-service/`
-- Templates voor nieuwe MCP-servers staan in `templates/mcp-server-template/`
+- Legacy data/artifacts staan in `docs/archive/artifacts/`
+- MCP-servercode staat in `apps/hazify-mcp-remote/`
+- License API service staat in `apps/hazify-license-service/`
+- Gedeelde packages staan in `packages/`
+- Root scripts staan in `scripts/`
 
 ## Codex inleesvolgorde (verplicht)
 1. Lees eerst `docs/00-START-HERE.md`
@@ -30,7 +31,7 @@ De agent werkt snel, veilig en verifieert altijd data voordat er wijzigingen wor
 7. Lees daarna `docs/12-REMOTE-MCP-SETUP.md`
 8. Lees daarna `docs/20-TRACKING-WORKFLOW.md` (bij trackingvragen)
 9. Lees daarna `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/licensing)
-10. Pas daarna pas code aan in `shopify-mcp-local/dist/`
+10. Pas daarna pas code aan in `apps/hazify-mcp-remote/src/`
 
 Als documentatie en code elkaar tegenspreken: code is leidend, en documentatie moet direct worden bijgewerkt in dezelfde wijziging.
 

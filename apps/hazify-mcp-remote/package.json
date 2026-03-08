@@ -1,0 +1,49 @@
+{
+  "name": "@hazify/mcp-remote",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Hazify remote MCP service for Shopify operations over Streamable HTTP",
+  "main": "dist/index.js",
+  "bin": {
+    "hazify-mcp-remote": "dist/index.js",
+    "hazify-mcp": "dist/index.js",
+    "shopify-mcp": "dist/index.js"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/copy-src-to-dist.mjs ./src ./dist",
+    "prestart": "npm run build",
+    "start": "node dist/index.js",
+    "start:http": "node dist/index.js --transport=http",
+    "start:remote": "node dist/index.js --transport=http",
+    "start:fallback:stdio": "node dist/index.js --transport=stdio",
+    "test": "node tests/run.mjs"
+  },
+  "keywords": [
+    "shopify",
+    "mcp",
+    "model-context-protocol",
+    "graphql",
+    "hazify",
+    "remote"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@hazify/mcp-common": "file:../../packages/mcp-common",
+    "@hazify/shopify-core": "file:../../packages/shopify-core",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "dotenv": "^16.0.3",
+    "graphql": "^16.6.0",
+    "graphql-request": "^5.1.0",
+    "minimist": "^1.2.8",
+    "zod": "^3.21.4"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

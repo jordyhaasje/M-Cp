@@ -1,17 +1,21 @@
 # Documentatie-index
 
-Gebruik dit als startpunt; de volledige inleesvolgorde staat in `docs/00-START-HERE.md`.
+Gebruik `docs/00-START-HERE.md` als startpunt.
 
 ## Actief
-- Startpunt: `docs/00-START-HERE.md`
-- Setup: `docs/10-MCP-SERVER-SETUP.md`, `docs/12-REMOTE-MCP-SETUP.md`
-- Deployment/licensing: `docs/30-REMOTE-MCP-DEPLOYMENT.md`
-- Operations: `docs/20-TRACKING-WORKFLOW.md`
+- `docs/00-START-HERE.md`
+- `docs/01-TECH-STACK.md`
+- `docs/02-SYSTEM-FLOW.md`
+- `docs/03-REPO-STRUCTURE.md`
+- `docs/04-AGENT-RUNBOOK.md`
+- `docs/10-MCP-SERVER-SETUP.md`
+- `docs/12-REMOTE-MCP-SETUP.md`
+- `docs/20-TRACKING-WORKFLOW.md`
+- `docs/30-REMOTE-MCP-DEPLOYMENT.md`
 
 ## Archief
-- Legacy docs: `docs/archive/`
-- Legacy data/artifacts: `archive/`
+- `docs/archive/`
 
 ## Services
-- License service: `hazify-license-service/`
-- Remote MCP service: `shopify-mcp-local/`
+- `apps/hazify-license-service/`
+- `apps/hazify-mcp-remote/`
