@@ -61,15 +61,30 @@ Belangrijk: beeldanalyse gebeurt door de AI-client (bijv. ChatGPT), niet door de
 
 Aanpak:
 1. Laat AI eerst de gewenste section structureren (layout, typografie, spacing, blocks, settings).
-2. Laat AI daarna `import-section-to-live-theme` aanroepen met:
-   - `validateSchema=true`
-   - `requirePresets=true`
-   - `addToTemplate=true`
-   - `templateKey` (bijv. `templates/index.json`)
-3. Verifieer met `get-theme-file`:
-   - `sections/<handle>.liquid` bestaat en heeft `{% schema %}` + `presets`
-   - template JSON bevat nieuwe section in `sections` en `order`
+2. Gebruik primair `build-theme-section-bundle`:
+   - schrijft section liquid
+   - valideert schema + presets
+   - voegt section toe aan template order
+   - schrijft extra assets/snippets
+   - verifieert geschreven bestanden
+3. Gebruik `import-section-to-live-theme` alleen als fallback voor losse section writes.
 
 Waarom deze flow:
 - Zonder `presets` verschijnt de section niet in **Add section** in Theme Editor.
 - Zonder template insertie staat de section vaak niet op de pagina-volgorde.
+
+## Eenmalige GPT-instructie (niet per chat)
+Plaats dit in de GPT system instructions:
+
+```text
+Bij verzoeken om Shopify section implementatie moet je tools gebruiken i.p.v. alleen uitleg geven.
+Gebruik eerst build-theme-section-bundle voor section + template + assets/snippets.
+Gebruik alleen fallback tools (import-section-to-live-theme, upsert-theme-file) als dat expliciet nodig is.
+Geef na uitvoering kort: welke bestanden zijn gewijzigd en welke verificatie is gedaan.
+```
+
+## Shopify referentie (voor AI en reviewers)
+- Sections: https://shopify.dev/docs/storefronts/themes/architecture/sections
+- Section schema: https://shopify.dev/docs/storefronts/themes/architecture/sections/section-schema
+- JSON templates: https://shopify.dev/docs/storefronts/themes/architecture/templates/json-templates
+- Liquid reference: https://shopify.dev/docs/api/liquid

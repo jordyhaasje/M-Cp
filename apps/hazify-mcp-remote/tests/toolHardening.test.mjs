@@ -5,6 +5,7 @@ import { updateFulfillmentTracking } from "../src/tools/updateFulfillmentTrackin
 import { refundOrder } from "../src/tools/refundOrder.js";
 import { upsertThemeFileTool } from "../src/tools/upsertThemeFile.js";
 import { importSectionToLiveTheme } from "../src/tools/importSectionToLiveTheme.js";
+import { buildThemeSectionBundle } from "../src/tools/buildThemeSectionBundle.js";
 
 const originalLookup = dns.lookup;
 const originalFetch = global.fetch;
@@ -116,6 +117,23 @@ try {
   assert.equal(invalidThemeUpsert.success, false, "upsert-theme-file should require value or attachment");
 
   const themeRestCalls = [];
+  const themeAssetStore = new Map([
+    ["sections/existing.liquid", "<div>already exists</div>"],
+    [
+      "templates/index.json",
+      JSON.stringify(
+        {
+          sections: {
+            header: { type: "header" },
+            main: { type: "main-page" },
+          },
+          order: ["header", "main"],
+        },
+        null,
+        2
+      ),
+    ],
+  ]);
   global.fetch = async (url, options = {}) => {
     const parsedUrl = new URL(String(url));
     const method = String(options.method || "GET").toUpperCase();
@@ -143,6 +161,13 @@ try {
 
     if (parsedUrl.pathname.endsWith("/themes/111/assets.json") && method === "PUT") {
       const asset = bodyJson?.asset || {};
+      if (typeof asset.key === "string") {
+        if (typeof asset.value === "string") {
+          themeAssetStore.set(asset.key, asset.value);
+        } else if (typeof asset.attachment === "string") {
+          themeAssetStore.set(asset.key, asset.attachment);
+        }
+      }
       return new Response(
         JSON.stringify({
           asset: {
@@ -157,33 +182,12 @@ try {
 
     if (parsedUrl.pathname.endsWith("/themes/111/assets.json") && method === "GET") {
       const key = parsedUrl.searchParams.get("asset[key]");
-      if (key === "sections/existing.liquid") {
+      if (key && themeAssetStore.has(key)) {
         return new Response(
           JSON.stringify({
             asset: {
               key,
-              value: "<div>already exists</div>",
-            },
-          }),
-          { status: 200, headers: { "content-type": "application/json" } }
-        );
-      }
-      if (key === "templates/index.json") {
-        return new Response(
-          JSON.stringify({
-            asset: {
-              key,
-              value: JSON.stringify(
-                {
-                  sections: {
-                    header: { type: "header" },
-                    main: { type: "main-page" },
-                  },
-                  order: ["header", "main"],
-                },
-                null,
-                2
-              ),
+              value: themeAssetStore.get(key),
             },
           }),
           { status: 200, headers: { "content-type": "application/json" } }
@@ -208,6 +212,7 @@ try {
   };
   upsertThemeFileTool.initialize(themeClient);
   importSectionToLiveTheme.initialize(themeClient);
+  buildThemeSectionBundle.initialize(themeClient);
 
   const themeUpsertResult = await upsertThemeFileTool.execute({
     key: "sections/theme-tooling-test.liquid",
@@ -294,6 +299,83 @@ try {
       error instanceof Error && error.message.includes("bestaat al");
   }
   assert.equal(rejectedExistingSection, true, "overwrite=false should block existing section files");
+
+  const bundleSectionLiquid = `<section class="bundle-nav">{{ section.settings.title }}</section>
+{% schema %}
+{
+  "name": "Bundle Navigation",
+  "settings": [
+    { "type": "text", "id": "title", "label": "Title", "default": "Bundle Menu" }
+  ],
+  "presets": [
+    { "name": "Bundle Navigation", "category": "Navigation" }
+  ]
+}
+{% endschema %}`;
+
+  const bundleResult = await buildThemeSectionBundle.execute({
+    sectionHandle: "Bundle Navigation",
+    sectionLiquid: bundleSectionLiquid,
+    overwriteSection: true,
+    addToTemplate: true,
+    templateKey: "templates/index.json",
+    sectionSettings: { title: "Bundle Menu" },
+    additionalFiles: [
+      {
+        key: "assets/section-bundle-navigation.css",
+        value: ".bundle-nav{display:flex;gap:12px;}",
+      },
+      {
+        key: "snippets/bundle-navigation-item.liquid",
+        value: "<a href=\"{{ link }}\">{{ label }}</a>",
+      },
+    ],
+    verify: true,
+    referenceUrl: "https://section.store/pages/bubble-navigation",
+    designNotes: "Circle menu from reference page",
+  });
+
+  assert.equal(bundleResult.action, "built_theme_section_bundle");
+  assert.equal(bundleResult.section.key, "sections/bundle-navigation.liquid");
+  assert.ok(bundleResult.template?.key === "templates/index.json");
+  assert.equal(bundleResult.additionalFiles.length, 2, "bundle should write supporting files");
+  assert.ok(
+    Array.isArray(bundleResult.docs) &&
+      bundleResult.docs.some((doc) => String(doc.url || "").includes("/architecture/sections")),
+    "bundle should return Shopify section docs"
+  );
+
+  const bundleCssWrite = themeRestCalls.find(
+    (entry) =>
+      entry.method === "PUT" &&
+      entry.pathname.endsWith("/themes/111/assets.json") &&
+      entry.bodyJson?.asset?.key === "assets/section-bundle-navigation.css"
+  );
+  assert.ok(bundleCssWrite, "bundle should write CSS asset");
+
+  let rejectedInvalidAdditionalPath = false;
+  try {
+    await buildThemeSectionBundle.execute({
+      sectionHandle: "Invalid Additional",
+      sectionLiquid: bundleSectionLiquid,
+      overwriteSection: true,
+      addToTemplate: false,
+      additionalFiles: [
+        {
+          key: "templates/product.json",
+          value: "{}",
+        },
+      ],
+    });
+  } catch (error) {
+    rejectedInvalidAdditionalPath =
+      error instanceof Error && error.message.includes("additionalFiles key");
+  }
+  assert.equal(
+    rejectedInvalidAdditionalPath,
+    true,
+    "bundle should reject additionalFiles keys outside allowed prefixes"
+  );
 
   let rejectedInvalidCarrier = false;
   const originalConsoleError = console.error;

@@ -45,6 +45,7 @@ import { getThemeFileTool } from "./tools/getThemeFile.js";
 import { upsertThemeFileTool } from "./tools/upsertThemeFile.js";
 import { deleteThemeFileTool } from "./tools/deleteThemeFile.js";
 import { importSectionToLiveTheme } from "./tools/importSectionToLiveTheme.js";
+import { buildThemeSectionBundle } from "./tools/buildThemeSectionBundle.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
 import { LicenseManager } from "./lib/licenseManager.js";
 import { createMachineFingerprint } from "./lib/machineFingerprint.js";
@@ -141,6 +142,7 @@ const initializeTools = (shopifyClient) => {
     upsertThemeFileTool.initialize(shopifyClient);
     deleteThemeFileTool.initialize(shopifyClient);
     importSectionToLiveTheme.initialize(shopifyClient);
+    buildThemeSectionBundle.initialize(shopifyClient);
 };
 let licenseManager = null;
 let auth = null;
@@ -419,6 +421,7 @@ const createHazifyServer = () => {
         "upsert-theme-file",
         "delete-theme-file",
         "import-section-to-live-theme",
+        "build-theme-section-bundle",
     ]);
     const destructiveTools = new Set([
         "delete-product",
@@ -453,6 +456,7 @@ const createHazifyServer = () => {
         "upsert-theme-file": "Create or update a file in a Shopify theme.",
         "delete-theme-file": "Delete a specific file from a Shopify theme.",
         "import-section-to-live-theme": "Create/update a section file with schema/preset validation, and optionally add it into a JSON template order.",
+        "build-theme-section-bundle": "Primary AI section workflow: create section + optional template mapping + extra assets/snippets + verification.",
         "get-license-status": "Return current license/access status and effective capabilities.",
     };
     const originalTool = server.tool.bind(server);
@@ -878,6 +882,31 @@ server.tool("import-section-to-live-theme", {
 }, async (args) => {
     const parsedArgs = importSectionToLiveTheme.schema.parse(args);
     return runLicensedTool("import-section-to-live-theme", true, importSectionToLiveTheme.execute, parsedArgs);
+});
+server.tool("build-theme-section-bundle", {
+    sectionHandle: z.string().min(1).describe("Section handle, e.g. bubble-navigation"),
+    sectionLiquid: z.string().min(1).describe("Full section Liquid including {% schema %} and presets"),
+    themeId: z.coerce.number().int().positive().optional(),
+    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
+    overwriteSection: z.boolean().default(false),
+    addToTemplate: z.boolean().default(true),
+    templateKey: z.string().default("templates/index.json"),
+    sectionInstanceId: z.string().optional(),
+    insertPosition: z.enum(["start", "end", "before", "after"]).default("end"),
+    referenceSectionId: z.string().optional(),
+    sectionSettings: z.record(z.unknown()).optional(),
+    additionalFiles: z.array(z.object({
+        key: z.string().min(1),
+        value: z.string().optional(),
+        attachment: z.string().optional(),
+        checksum: z.string().optional(),
+    })).max(20).default([]),
+    verify: z.boolean().default(true),
+    referenceUrl: z.string().url().optional(),
+    designNotes: z.string().optional(),
+}, async (args) => {
+    const parsedArgs = buildThemeSectionBundle.schema.parse(args);
+    return runLicensedTool("build-theme-section-bundle", true, buildThemeSectionBundle.execute, parsedArgs);
 });
 server.tool("get-license-status", {}, async () => {
     if (!IS_HTTP_TRANSPORT) {

@@ -12,8 +12,9 @@ Dit is de verplichte leesvolgorde voor agents in deze workspace.
 7. `docs/12-REMOTE-MCP-SETUP.md`
 8. `docs/20-TRACKING-WORKFLOW.md` (alleen bij trackingvragen)
 9. `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/deploy/licensing)
-10. `AGENTS.md`
-11. Runtime code in `apps/hazify-license-service/src/` en `apps/hazify-mcp-remote/src/`
+10. `docs/14-GPT-INSTRUCTIONS.md` (bij GPT-configuratie)
+11. `AGENTS.md`
+12. Runtime code in `apps/hazify-license-service/src/` en `apps/hazify-mcp-remote/src/`
 
 ## Actieve mapindeling
 - `apps/hazify-license-service/`

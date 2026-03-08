@@ -15,3 +15,8 @@
 ## Aanbevolen checks na wijzigingen
 1. `npm run build`
 2. `npm test`
+
+## Tooling-richtlijn sections
+- Primair: `build-theme-section-bundle` (section + schema + template + assets/snippets + verificatie)
+- Fallback: `import-section-to-live-theme`, `upsert-theme-file`
+- GPT system instruction template: `docs/14-GPT-INSTRUCTIONS.md`
