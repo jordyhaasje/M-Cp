@@ -38,8 +38,20 @@ if (behind > 0) {
 console.log(`Git sync status: ahead=${ahead}, behind=${behind}`);
 
 const changedFiles = safeRunGit(["diff", "--name-only", "origin/main...HEAD"]);
-if (changedFiles.ok && changedFiles.output.includes(".github/workflows/")) {
-  console.log("Workflow-bestanden aangepast: push vereist token/sleutel met workflow-permissie.");
+const workflowFilesChanged =
+  changedFiles.ok &&
+  changedFiles.output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .some((line) => line.startsWith(".github/workflows/"));
+
+if (workflowFilesChanged) {
+  console.error("Workflow-bestanden aangepast: push vereist token/sleutel met workflow-permissie.");
+  console.error(
+    "Git dry-run kan deze permissie niet betrouwbaar valideren. Gebruik een PAT met `workflow` scope."
+  );
+  process.exit(1);
 }
 
 const dryRun = safeRunGit(["push", "--dry-run", "--porcelain", "origin", "HEAD:main"]);
