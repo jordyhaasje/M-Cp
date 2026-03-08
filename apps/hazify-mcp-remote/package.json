@@ -29,8 +29,8 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@hazify/mcp-common": "file:../../packages/mcp-common",
-    "@hazify/shopify-core": "file:../../packages/shopify-core",
+    "@hazify/mcp-common": "file:./packages/mcp-common",
+    "@hazify/shopify-core": "file:./packages/shopify-core",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "dotenv": "^16.0.3",
     "graphql": "^16.6.0",
