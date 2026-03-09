@@ -16,12 +16,8 @@
 1. `npm run build`
 2. `npm test`
 
-## Tooling-richtlijn sections (v2)
-- Primair: `prepare-section-replica` (read-only preflight + SectionSpec validatie + preview gate)
-- Daarna: `apply-section-replica` (mutating writes naar section/template/assets)
-- `prepare-section-replica` kan `sectionSpec` automatisch genereren op basis van `referenceUrl` + `imageUrls`
-- Legacy wrappers (tijdelijk):
-  - `build-theme-section-bundle`
-  - `import-section-to-live-theme`
-- Legacy wrappers staan standaard uit en moeten expliciet geactiveerd worden met `HAZIFY_ENABLE_LEGACY_SECTION_WRAPPERS=true`
+## Tooling-richtlijn sections (v3)
+- Enige publieke section-tool: `replicate-section-from-reference`
+- Pipeline is intern deterministisch: capture -> detect -> generate -> lint -> strict visual gate -> apply
+- Oudere section-tools zijn verwijderd (geen wrappers of feature-flags meer)
 - Contractdetails: `docs/16-SECTION-REPLICA-RUNBOOK.md`

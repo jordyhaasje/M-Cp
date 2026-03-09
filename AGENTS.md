@@ -49,9 +49,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 - Theme bestand lezen: `get-theme-file`
 - Theme bestand schrijven/updaten: `upsert-theme-file`
 - Theme bestand verwijderen: `delete-theme-file`
-- Section prepare (verplicht): `prepare-section-replica`
-- Section apply (verplicht): `apply-section-replica`
-- Legacy wrappers (tijdelijk): `build-theme-section-bundle`, `import-section-to-live-theme`
+- Section replicatie (verplicht): `replicate-section-from-reference`
 
 ### Producten
 - Ophalen: `get-products`, `get-product-by-id`
@@ -70,11 +68,12 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 
 ### Theme/section workflow (verplicht)
 1. Haal themes op met `get-themes` en bevestig live theme (`role=main`) of gebruik expliciet `themeId`.
-2. Voor sections: gebruik altijd `prepare-section-replica` met `referenceUrl` (+ optionele `imageUrls`). `sectionSpec` is optioneel.
-3. Controleer `validation.preflight` en voer `apply-section-replica` alleen uit bij status `pass`.
-4. Legacy wrappers zijn standaard uitgeschakeld; gebruik ze niet in nieuwe flows.
-5. Verifieer met `get-theme-file` dat `sections/<handle>.liquid`, template JSON (`sections` + `order`) en assets/snippets kloppen.
-6. Alleen bij visuele twijfel of rendering issues: check via `chrome-devtools`.
+2. Voor sections: gebruik altijd `replicate-section-from-reference` met `referenceUrl`.
+3. Geef `visionHints` mee wanneer de gebruiker een niet-publieke afbeelding in ChatGPT uploadt.
+4. Gebruik optioneel `imageUrls` voor publieke afbeeldingen.
+5. Pas alleen toe bij `status=pass`; bij `status=fail` niets schrijven en foutcode teruggeven.
+6. Verifieer met `get-theme-file` dat `sections/<handle>.liquid`, template JSON (`sections` + `order`) en assets kloppen.
+7. Alleen bij visuele twijfel of rendering issues: check via `chrome-devtools`.
 
 ### Orders
 - Ophalen: `get-orders`, `get-order-by-id`

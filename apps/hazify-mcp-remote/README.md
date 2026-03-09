@@ -22,10 +22,10 @@ npm run --workspace @hazify/mcp-remote start:fallback:stdio
 - Origin allowlist check op browser-origin requests
 - OAuth metadata adverteert alleen PKCE `S256`
 
-## Section workflow (v2)
-- `prepare-section-replica` (read-only preflight + planId)
-- `apply-section-replica` (mutating writes via planId)
-- Legacy wrappers `build-theme-section-bundle` en `import-section-to-live-theme` zijn deprecated.
+## Section workflow (v3)
+- `replicate-section-from-reference` (mutating autopipeline met strict visual gate)
+- Input: `referenceUrl` (+ optioneel `visionHints`, `imageUrls`)
+- Output: `status=pass|fail`, `validation`, `visualGate`, en `writes` alleen bij `pass`
 
 ## Tests
 ```bash

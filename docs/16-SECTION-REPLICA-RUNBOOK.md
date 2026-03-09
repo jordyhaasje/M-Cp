@@ -1,97 +1,83 @@
-# Section Replica Runbook (v2)
+# Section Replica Runbook (v3)
 
 ## Doel
-Deterministische section-replicatie voor ChatGPT-first workflows, zonder directe monolithische writes.
+Deterministische section-replicatie via 1 mutating tool, met harde visuele gate vóór writes.
 
-## Kernprincipe
-Section writes verlopen altijd in 2 fasen:
-1. `prepare-section-replica` (read-only)
-2. `apply-section-replica` (mutating)
+## Runtime prerequisites
+- `playwright` + Chromium moeten beschikbaar zijn op de MCP host.
+- In CI/deploy: installeer browser binaries vóór runtime-start (bijv. `npx playwright install chromium`).
 
-`sectionSpec` blijft de interne tussenlaag, maar kan automatisch gegenereerd worden in `prepare`.
+## Publieke tool
+- `replicate-section-from-reference`
+
+De backend voert intern altijd deze pipeline uit:
+1. capture (desktop + mobile reference snapshots)
+2. detect (archetype + target element)
+3. generate (Shopify section bundle)
+4. lint (schema + template preflight)
+5. visual gate (pixel-diff thresholds)
+6. apply (alleen bij status `pass`)
 
 ## Invoercontract
-Minimale invoer:
-- `referenceUrl` (verplicht)
-- `sectionSpec` (optioneel, wordt automatisch gegenereerd als je hem niet meegeeft)
-- `imageUrls` (optioneel)
+Verplicht:
+- `referenceUrl`
 
-Belangrijke velden in `sectionSpec`:
-- `name`, `settings`, `blocks`, `presets`
-- `markup.mode`: `structured` of `liquid`
-- `assets` voor CSS/JS/snippets/extra bestanden
-- `mobileRules` voor responsive CSS-regels
+Optioneel:
+- `visionHints` (voor niet-publieke chat-afbeeldingen)
+- `imageUrls` (publieke image URLs)
+- `themeId` of `themeRole`
+- `templateKey`
+- `insertPosition` + `referenceSectionId`
+- `sectionHandle`
+- `overwriteSection`
+- `maxAttempts` (default 3, max 4)
+- `verify`
 
-## Fase 1: prepare-section-replica
-### Wat deze stap doet
-- valideert `sectionSpec` (schema-lint en referenties)
-- genereert automatisch een editbare `sectionSpec` als die ontbreekt
-- valideert bundle paden (`assets/`, `snippets/`, `locales/`, `blocks/`)
-- voert theme-context preflight uit (theme + template + order-analyse)
-- draait preview snapshot-gate voor desktop/mobile
-- slaat plan op met `planId`
+## Uitvoercontract
+- `status`: `pass` of `fail`
+- `archetype`
+- `confidence`
+- `validation`:
+  - `checks.themeContext`
+  - `checks.schema`
+  - `checks.bundle`
+  - `checks.visual`
+- `visualGate` met desktop/mobile mismatch ratio + thresholds
+- `writes` alleen bij `status=pass`
+- `errorCode` bij `status=fail`
 
-### Verwachte output
-- `planId`
-- `sectionSpec` (genormaliseerd)
-- `filePlan`
-- `validation.preflight`
-- `previewTargets`
+## Archetypes (v3 start)
+- `feature-tabs-media-slider` (Feature #15-achtig)
+- `slideshow-pro`
 
-### Statusregels
-- `pass`: veilig om toe te passen
-- `warn`: toepassen mag alleen als policy dit toelaat
-- `fail`: niet toepassen; eerst oplossen en opnieuw preparen
+Als een referentie niet matcht met ondersteunde archetypes:
+- `status=fail`
+- `errorCode=unsupported_archetype`
+- geen writes
 
-Productiepolicy:
-- `apply` is pass-only (warnings eerst oplossen).
+## Foutcodes
+Minimaal ondersteund:
+- `reference_unreachable`
+- `target_detection_failed`
+- `unsupported_archetype`
+- `schema_invalid`
+- `template_insert_invalid`
+- `visual_gate_fail`
 
-## Fase 2: apply-section-replica
-### Wat deze stap doet
-- leest plan via `planId`
-- blokkeert bij `fail`
-- blokkeert bij `warn` als `allowWarn=false`
-- schrijft:
-  - `sections/<handle>.liquid`
-  - template update (`sections` + `order`) indien geconfigureerd
-  - aanvullende assets/snippets/files
-- voert readback verificatie uit (indien `verify=true`)
-
-### Verwachte output
-- `theme`, `section`, `template`
-- `additionalFiles`
-- `verification`
-- `validation.preflight` (meegenomen uit plan)
-
-## Veelvoorkomende foutcodes
-- `section_exists_overwrite_false`
-- `template_missing_json`
-- `template_missing_reference_section`
-- `template_reference_section_missing`
-- `schema_lint_error`
-- `bundle_invalid_path`
-- `preview_reference_unreachable`
-- `preview_low_keyword_overlap`
-
-Voorbeeld `schema_lint_error`:
-- lege defaults voor string setting types (zoals `text`, `textarea`, `url`) worden al in `prepare` geblokkeerd.
-
-## Legacy compatibiliteit
-- `build-theme-section-bundle` en `import-section-to-live-theme` zijn wrappers op v2, maar standaard uitgeschakeld.
-- Responses bevatten `deprecation` metadata.
-- Nieuwe clients moeten direct `prepare/apply` gebruiken.
+## Visual gate
+- Desktop pass als mismatch ratio `<= 0.12`
+- Mobile pass als mismatch ratio `<= 0.15`
+- Bij overschrijding: `status=fail`, `errorCode=visual_gate_fail`, geen writes
 
 ## Operationele checklist
 1. Gebruik live theme (`role=main`) of expliciete `themeId`.
-2. Controleer in prepare minimaal:
-   - `validation.preflight.status`
-   - `checks.themeContext`
-   - `checks.schema`
-   - `checks.bundle`
-   - `checks.preview`
-3. Voer apply uit met gewenste warning-policy.
-4. Verifieer geschreven bestanden met `get-theme-file`.
-5. Rapporteer:
-   - gewijzigde keys
-   - gebruikte `planId`
-   - eventuele warnings/openstaande issues
+2. Controleer in output altijd:
+   - `status`
+   - `validation.checks`
+   - `visualGate.perViewport`
+3. Alleen bij `status=pass`: readback controleren met `get-theme-file`.
+4. Rapporteer:
+   - section key
+   - template key + section id
+   - assets die geschreven zijn
+   - gebruikte archetype/confidence

@@ -1,13 +1,12 @@
 import assert from "assert";
 import dns from "dns/promises";
+import { PNG } from "pngjs";
 import { cloneProductFromUrl } from "../src/tools/cloneProductFromUrl.js";
 import { updateFulfillmentTracking } from "../src/tools/updateFulfillmentTracking.js";
 import { refundOrder } from "../src/tools/refundOrder.js";
 import { upsertThemeFileTool } from "../src/tools/upsertThemeFile.js";
-import { importSectionToLiveTheme } from "../src/tools/importSectionToLiveTheme.js";
-import { buildThemeSectionBundle } from "../src/tools/buildThemeSectionBundle.js";
-import { prepareSectionReplica } from "../src/tools/prepareSectionReplica.js";
-import { applySectionReplica } from "../src/tools/applySectionReplica.js";
+import { replicateSectionFromReference } from "../src/tools/replicateSectionFromReference.js";
+import { __setSectionReplicationV3RuntimeForTests } from "../src/lib/sectionReplicationV3.js";
 
 const originalLookup = dns.lookup;
 const originalFetch = global.fetch;
@@ -221,10 +220,7 @@ try {
     },
   };
   upsertThemeFileTool.initialize(themeClient);
-  importSectionToLiveTheme.initialize(themeClient);
-  buildThemeSectionBundle.initialize(themeClient);
-  prepareSectionReplica.initialize(themeClient);
-  applySectionReplica.initialize(themeClient);
+  replicateSectionFromReference.initialize(themeClient);
 
   const themeUpsertResult = await upsertThemeFileTool.execute({
     key: "sections/theme-tooling-test.liquid",
@@ -233,274 +229,280 @@ try {
   assert.equal(themeUpsertResult.theme.id, 111);
   assert.equal(themeUpsertResult.asset.key, "sections/theme-tooling-test.liquid");
 
-  const validSectionLiquid = `<section>{{ section.settings.title }}</section>
-{% schema %}
-{
-  "name": "Cloudpillo Risk Free",
-  "settings": [
-    { "type": "text", "id": "title", "label": "Title", "default": "Risk Free" }
-  ],
-  "presets": [
-    { "name": "Cloudpillo Risk Free", "category": "Promotional" }
-  ]
-}
-{% endschema %}`;
-
-  let rejectedLegacyImportWrapper = false;
-  try {
-    await importSectionToLiveTheme.execute({
-      sectionHandle: "Cloudpillo Risk Free!",
-      liquid: validSectionLiquid,
-      overwrite: true,
-      addToTemplate: true,
-      templateKey: "templates/index.json",
-      sectionSettings: {
-        title: "Risk Free",
-      },
-    });
-  } catch (error) {
-    rejectedLegacyImportWrapper =
-      error instanceof Error && error.message.includes("uitgeschakeld");
-  }
-  assert.equal(
-    rejectedLegacyImportWrapper,
-    true,
-    "legacy import wrapper should be disabled by default"
-  );
-
-  const bundleSectionLiquid = `<section class="bundle-nav">{{ section.settings.title }}</section>
-{% schema %}
-{
-  "name": "Bundle Navigation",
-  "settings": [
-    { "type": "text", "id": "title", "label": "Title", "default": "Bundle Menu" }
-  ],
-  "presets": [
-    { "name": "Bundle Navigation", "category": "Navigation" }
-  ]
-}
-{% endschema %}`;
-
-  let rejectedLegacyBundleWrapper = false;
-  try {
-    await buildThemeSectionBundle.execute({
-      sectionHandle: "Bundle Navigation",
-      sectionLiquid: bundleSectionLiquid,
-      overwriteSection: true,
-      addToTemplate: true,
-      templateKey: "templates/index.json",
-      sectionSettings: { title: "Bundle Menu" },
-      additionalFiles: [
-        {
-          key: "assets/section-bundle-navigation.css",
-          value: ".bundle-nav{display:flex;gap:12px;}",
-        },
-      ],
-      verify: true,
-      referenceUrl: "https://section.store/pages/bubble-navigation",
-      designNotes: "Circle menu from reference page",
-    });
-  } catch (error) {
-    rejectedLegacyBundleWrapper =
-      error instanceof Error && error.message.includes("uitgeschakeld");
-  }
-  assert.equal(
-    rejectedLegacyBundleWrapper,
-    true,
-    "legacy bundle wrapper should be disabled by default"
-  );
-
-  const v2Spec = {
-    version: "v2",
-    name: "Replica Hero V2",
-    tag: "section",
-    className: "replica-hero-v2",
-    settings: [
-      { type: "text", id: "headline", label: "Headline", default: "Replica Hero" },
-      { type: "textarea", id: "subline", label: "Subline", default: "Fast and deterministic section generation" },
-      { type: "text", id: "cta_label", label: "CTA label", default: "Shop now" },
-      { type: "url", id: "cta_url", label: "CTA URL" },
-    ],
-    blocks: [
-      {
-        type: "feature",
-        name: "Feature",
-        settings: [
-          { type: "text", id: "title", label: "Title" },
-          { type: "textarea", id: "description", label: "Description" },
-        ],
-      },
-    ],
-    presets: [
-      {
-        name: "Replica Hero V2",
-        category: "Custom",
-        blocks: [{ type: "feature" }],
-      },
-    ],
-    markup: {
-      mode: "structured",
-      sectionItems: [
-        { kind: "heading", settingId: "headline", tag: "h2", className: "replica-hero-v2__headline" },
-        { kind: "richtext", settingId: "subline", className: "replica-hero-v2__subline" },
-        {
-          kind: "button",
-          labelSettingId: "cta_label",
-          urlSettingId: "cta_url",
-          className: "replica-hero-v2__cta",
-        },
-        { kind: "blocks", className: "replica-hero-v2__features", emptyText: "No features configured yet" },
-      ],
-      blockLayouts: [
-        {
-          blockType: "feature",
-          className: "replica-hero-v2__feature",
-          items: [
-            { kind: "heading", settingId: "title", tag: "h3" },
-            { kind: "text", settingId: "description", tag: "p" },
-          ],
-        },
-      ],
-    },
-    mobileRules: [{ breakpointPx: 768, css: ".replica-hero-v2{padding:16px;}" }],
-    assets: {
-      css: ".replica-hero-v2{padding:48px;} .replica-hero-v2__features{display:grid;gap:16px;}",
-      snippets: [{ key: "replica-v2-badge.liquid", content: "<span class=\"replica-badge\">Replica</span>" }],
-      files: [],
-    },
+  const solidPng = (hex = "f2eadf") => {
+    const png = new PNG({ width: 32, height: 32 });
+    const color = hex.length === 6 ? hex : "f2eadf";
+    const red = Number.parseInt(color.slice(0, 2), 16);
+    const green = Number.parseInt(color.slice(2, 4), 16);
+    const blue = Number.parseInt(color.slice(4, 6), 16);
+    for (let i = 0; i < png.data.length; i += 4) {
+      png.data[i] = red;
+      png.data[i + 1] = green;
+      png.data[i + 2] = blue;
+      png.data[i + 3] = 255;
+    }
+    return PNG.sync.write(png);
   };
 
-  const preparedReplica = await prepareSectionReplica.execute({
-    referenceUrl: "https://example.com/replica",
-    imageUrls: [],
-    previewRequired: false,
-    sectionHandle: "Replica Hero V2",
-    sectionSpec: v2Spec,
+  __setSectionReplicationV3RuntimeForTests({
+    captureReference: async () => [
+      {
+        id: "desktop",
+        ok: true,
+        statusCode: 200,
+        clip: { x: 0, y: 0, width: 320, height: 220 },
+        target: {
+          selector: "[id*='ss_feature_15']",
+          score: 1000,
+          heading: "What makes it special?",
+          html: `<section><h2>What makes it special?</h2><button>Soft as a cloud</button><button>Optimal support</button><button>Sustainability</button><p>The BENI BED is a pillowy, roll-up bed that you can take anywhere.</p><img src=\"https://cdn.example.com/feature-1.jpg\"></section>`,
+          text: "Feature 15 what makes it special soft as a cloud optimal support sustainability",
+        },
+        mergedText: "Feature 15 what makes it special soft as a cloud optimal support sustainability",
+        mergedHtml: "<main><section>Feature #15</section></main>",
+      },
+      {
+        id: "mobile",
+        ok: true,
+        statusCode: 200,
+        clip: { x: 0, y: 0, width: 280, height: 420 },
+        target: {
+          selector: "[id*='ss_feature_15']",
+          score: 900,
+          heading: "What makes it special?",
+          html: `<section><h2>What makes it special?</h2></section>`,
+          text: "Feature 15 mobile",
+        },
+        mergedText: "Feature 15 mobile",
+        mergedHtml: "<main><section>Feature #15 mobile</section></main>",
+      },
+    ],
+    renderCandidateViews: async () => [
+      { id: "desktop", ok: true, screenshotBuffer: solidPng("f2eadf"), clip: { x: 0, y: 0, width: 320, height: 220 } },
+      { id: "mobile", ok: true, screenshotBuffer: solidPng("f2eadf"), clip: { x: 0, y: 0, width: 280, height: 420 } },
+    ],
+    compareVisualGate: async ({ attempt }) => {
+      if (attempt === 1) {
+        return {
+          status: "fail",
+          perViewport: [
+            { id: "desktop", pass: false, mismatchRatio: 0.21, threshold: 0.12, mismatchPixels: 2100, totalPixels: 10000 },
+            { id: "mobile", pass: false, mismatchRatio: 0.24, threshold: 0.15, mismatchPixels: 2400, totalPixels: 10000 },
+          ],
+        };
+      }
+      return {
+        status: "pass",
+        perViewport: [
+          { id: "desktop", pass: true, mismatchRatio: 0.06, threshold: 0.12, mismatchPixels: 600, totalPixels: 10000 },
+          { id: "mobile", pass: true, mismatchRatio: 0.08, threshold: 0.15, mismatchPixels: 800, totalPixels: 10000 },
+        ],
+      };
+    },
+  });
+
+  const replicatedSection = await replicateSectionFromReference.execute({
+    referenceUrl: "https://section.store/pages/feature-15",
+    visionHints: "Feature 15 tabs with heading and right image",
+    imageUrls: ["https://cdn.example.com/feature-1.jpg"],
+    sectionHandle: "Feature 15 Slider",
     overwriteSection: true,
     addToTemplate: true,
     templateKey: "templates/index.json",
-    sectionSettings: {
-      headline: "Replica Hero",
-    },
-    applyOn: "warn",
-  });
-  assert.equal(preparedReplica.action, "prepared_section_replica");
-  assert.ok(typeof preparedReplica.planId === "string" && preparedReplica.planId.startsWith("secplan_"));
-  assert.ok(
-    preparedReplica.validation?.preflight?.status === "warn" ||
-      preparedReplica.validation?.preflight?.status === "pass"
-  );
-  assert.equal(preparedReplica.filePlan.section.key, "sections/replica-hero-v2.liquid");
-  assert.ok(Array.isArray(preparedReplica.previewTargets) && preparedReplica.previewTargets.length === 2);
-
-  const appliedReplica = await applySectionReplica.execute({
-    planId: preparedReplica.planId,
-    allowWarn: true,
+    maxAttempts: 3,
     verify: true,
   });
-  assert.equal(appliedReplica.action, "applied_section_replica");
-  assert.equal(appliedReplica.section.key, "sections/replica-hero-v2.liquid");
-  assert.ok(appliedReplica.template?.key === "templates/index.json");
+
+  assert.equal(replicatedSection.action, "replicate_section_from_reference");
+  assert.equal(replicatedSection.status, "pass");
+  assert.equal(replicatedSection.archetype, "feature-tabs-media-slider");
+  assert.equal(replicatedSection.writes.section.key, "sections/feature-15-slider.liquid");
   assert.ok(
-    appliedReplica.additionalFiles.some((entry) => entry.key === "assets/section-replica-hero-v2.css"),
-    "apply-section-replica should write generated section css asset"
+    replicatedSection.writes.additionalFiles.some((entry) => entry.key === "assets/section-feature-15-slider.css"),
+    "replicate-section-from-reference should write generated css asset"
   );
   assert.ok(
-    appliedReplica.additionalFiles.some((entry) => entry.key === "snippets/replica-v2-badge.liquid"),
-    "apply-section-replica should write snippet from section spec"
+    replicatedSection.writes.additionalFiles.some((entry) => entry.key === "assets/section-feature-15-slider.js"),
+    "replicate-section-from-reference should write generated js asset"
   );
+  assert.equal(replicatedSection.attempts.length, 2, "pipeline should retry after visual gate fail");
 
   const directReplicaWrite = themeRestCalls.find(
     (entry) =>
       entry.method === "PUT" &&
       entry.pathname.endsWith("/themes/111/assets.json") &&
-      entry.bodyJson?.asset?.key === "sections/replica-hero-v2.liquid"
+      entry.bodyJson?.asset?.key === "sections/feature-15-slider.liquid"
   );
-  assert.ok(directReplicaWrite, "apply-section-replica should write generated section file");
+  assert.ok(directReplicaWrite, "replicate-section-from-reference should write generated section file");
 
-  const autoPreparedReplica = await prepareSectionReplica.execute({
-    referenceUrl: "https://example.com/replica",
-    imageUrls: ["https://cdn.example.com/reference-1.jpg"],
-    previewRequired: true,
-    sectionHandle: "Auto Replica Section",
-    overwriteSection: true,
-    addToTemplate: false,
-    autoGenerateSpec: true,
-    applyOn: "pass",
+  __setSectionReplicationV3RuntimeForTests({
+    captureReference: async () => [
+      {
+        id: "desktop",
+        ok: true,
+        statusCode: 200,
+        clip: { x: 0, y: 0, width: 320, height: 220 },
+        target: {
+          selector: "section",
+          score: 100,
+          heading: "Random section",
+          html: "<section><h2>Random</h2></section>",
+          text: "random section without known archetype",
+        },
+        mergedText: "random section without known archetype",
+        mergedHtml: "<main>random</main>",
+      },
+      {
+        id: "mobile",
+        ok: true,
+        statusCode: 200,
+        clip: { x: 0, y: 0, width: 280, height: 420 },
+        target: {
+          selector: "section",
+          score: 80,
+          heading: "Random section",
+          html: "<section><h2>Random</h2></section>",
+          text: "random section",
+        },
+        mergedText: "random section",
+        mergedHtml: "<main>random mobile</main>",
+      },
+    ],
   });
-  assert.equal(autoPreparedReplica.validation?.preflight?.status, "pass");
-  assert.equal(autoPreparedReplica.sectionSpec?.blocks?.[0]?.type, "feature");
-  assert.ok(
-    Array.isArray(autoPreparedReplica.sectionSpec?.settings) &&
-      autoPreparedReplica.sectionSpec.settings.length >= 4,
-    "auto-generated section should expose editable section settings"
-  );
-  assert.ok(
-    Array.isArray(autoPreparedReplica.sectionSpec?.presets?.[0]?.blocks) &&
-      autoPreparedReplica.sectionSpec.presets[0].blocks.length >= 1,
-    "auto-generated section should include preset blocks for Theme Editor"
-  );
-  assert.ok(
-    !autoPreparedReplica.sectionSpec.settings.some(
-      (setting) => setting?.id === "eyebrow" && Object.prototype.hasOwnProperty.call(setting, "default")
-    ),
-    "auto-generated section should not set empty defaults for text settings"
-  );
 
-  const invalidDefaultPlan = await prepareSectionReplica.execute({
-    referenceUrl: "https://example.com/replica",
-    imageUrls: [],
-    previewRequired: true,
-    sectionHandle: "Invalid Default Section",
-    sectionSpec: {
-      ...v2Spec,
-      name: "Invalid Default Section",
-      settings: [
-        { type: "text", id: "headline", label: "Headline", default: "" },
+  const unsupportedReplica = await replicateSectionFromReference.execute({
+    referenceUrl: "https://example.com/no-known-archetype",
+    maxAttempts: 1,
+  });
+  assert.equal(unsupportedReplica.status, "fail");
+  assert.equal(unsupportedReplica.errorCode, "unsupported_archetype");
+  assert.equal(unsupportedReplica.writes, null);
+
+  __setSectionReplicationV3RuntimeForTests({
+    captureReference: async () => [
+      {
+        id: "desktop",
+        ok: true,
+        statusCode: 200,
+        clip: { x: 0, y: 0, width: 320, height: 220 },
+        target: {
+          selector: "[id*='ss_feature_15']",
+          score: 1000,
+          heading: "What makes it special?",
+          html: "<section><h2>What makes it special?</h2></section>",
+          text: "feature 15 what makes it special",
+        },
+        mergedText: "feature 15 what makes it special",
+        mergedHtml: "<main>feature 15</main>",
+      },
+      {
+        id: "mobile",
+        ok: true,
+        statusCode: 200,
+        clip: { x: 0, y: 0, width: 280, height: 420 },
+        target: {
+          selector: "[id*='ss_feature_15']",
+          score: 900,
+          heading: "What makes it special?",
+          html: "<section><h2>What makes it special?</h2></section>",
+          text: "feature 15 mobile",
+        },
+        mergedText: "feature 15 mobile",
+        mergedHtml: "<main>feature 15 mobile</main>",
+      },
+    ],
+    renderCandidateViews: async () => [
+      { id: "desktop", ok: true, screenshotBuffer: solidPng("f2eadf"), clip: { x: 0, y: 0, width: 320, height: 220 } },
+      { id: "mobile", ok: true, screenshotBuffer: solidPng("f2eadf"), clip: { x: 0, y: 0, width: 280, height: 420 } },
+    ],
+    compareVisualGate: async () => ({
+      status: "pass",
+      perViewport: [
+        { id: "desktop", pass: true, mismatchRatio: 0.03, threshold: 0.12, mismatchPixels: 300, totalPixels: 10000 },
+        { id: "mobile", pass: true, mismatchRatio: 0.05, threshold: 0.15, mismatchPixels: 500, totalPixels: 10000 },
       ],
-      presets: [{ name: "Invalid Default Section" }],
-      markup: {
-        mode: "structured",
-        sectionItems: [{ kind: "heading", settingId: "headline", tag: "h2" }],
-        blockLayouts: [],
-      },
-      blocks: [],
-      assets: { css: "", snippets: [], files: [] },
-    },
-    overwriteSection: true,
-    addToTemplate: false,
-    applyOn: "pass",
+    }),
   });
-  assert.equal(
-    invalidDefaultPlan.validation?.preflight?.status,
-    "fail",
-    "prepare should fail early on empty default values that Shopify rejects"
-  );
-  assert.ok(
-    (invalidDefaultPlan.validation?.preflight?.issues || []).some(
-      (issue) => issue?.code === "schema_lint_error" && String(issue?.message || "").includes("lege default")
-    ),
-    "prepare should surface schema_lint_error for empty defaults"
-  );
 
-  const failedPreviewPlan = await prepareSectionReplica.execute({
-    referenceUrl: "https://preview-unreachable.invalid/replica",
-    imageUrls: [],
-    previewRequired: true,
-    sectionHandle: "Replica Failing Preview",
-    sectionSpec: {
-      ...v2Spec,
-      name: "Replica Failing Preview",
-      presets: [{ name: "Replica Failing Preview" }],
-      markup: {
-        ...v2Spec.markup,
-      },
-    },
-    overwriteSection: true,
-    addToTemplate: false,
-    applyOn: "warn",
+  const templateFailReplica = await replicateSectionFromReference.execute({
+    referenceUrl: "https://section.store/pages/feature-15",
+    insertPosition: "before",
+    maxAttempts: 1,
   });
-  assert.equal(failedPreviewPlan.validation?.preflight?.status, "fail");
+  assert.equal(templateFailReplica.status, "fail");
+  assert.equal(templateFailReplica.errorCode, "template_insert_invalid");
+  assert.equal(templateFailReplica.writes, null);
+
+  __setSectionReplicationV3RuntimeForTests({
+    captureReference: async () => [
+      { id: "desktop", ok: false, statusCode: null, error: "network timeout" },
+      { id: "mobile", ok: false, statusCode: null, error: "network timeout" },
+    ],
+  });
+
+  const unreachableReplica = await replicateSectionFromReference.execute({
+    referenceUrl: "https://preview-unreachable.invalid/feature",
+    maxAttempts: 1,
+  });
+  assert.equal(unreachableReplica.status, "fail");
+  assert.equal(unreachableReplica.errorCode, "reference_unreachable");
+  assert.equal(unreachableReplica.writes, null);
+
+  __setSectionReplicationV3RuntimeForTests({
+    captureReference: async () => [
+      {
+        id: "desktop",
+        ok: true,
+        statusCode: 200,
+        clip: { x: 0, y: 0, width: 320, height: 220 },
+        target: {
+          selector: "[id*='ss_feature_15']",
+          score: 1000,
+          heading: "What makes it special?",
+          html: "<section><h2>What makes it special?</h2></section>",
+          text: "feature 15 what makes it special",
+        },
+        mergedText: "feature 15 what makes it special",
+        mergedHtml: "<main>feature 15</main>",
+      },
+      {
+        id: "mobile",
+        ok: true,
+        statusCode: 200,
+        clip: { x: 0, y: 0, width: 280, height: 420 },
+        target: {
+          selector: "[id*='ss_feature_15']",
+          score: 900,
+          heading: "What makes it special?",
+          html: "<section><h2>What makes it special?</h2></section>",
+          text: "feature 15 mobile",
+        },
+        mergedText: "feature 15 mobile",
+        mergedHtml: "<main>feature 15 mobile</main>",
+      },
+    ],
+    renderCandidateViews: async () => [
+      { id: "desktop", ok: true, screenshotBuffer: solidPng("f2eadf"), clip: { x: 0, y: 0, width: 320, height: 220 } },
+      { id: "mobile", ok: true, screenshotBuffer: solidPng("f2eadf"), clip: { x: 0, y: 0, width: 280, height: 420 } },
+    ],
+    compareVisualGate: async () => ({
+      status: "fail",
+      perViewport: [
+        { id: "desktop", pass: false, mismatchRatio: 0.42, threshold: 0.12, mismatchPixels: 4200, totalPixels: 10000 },
+        { id: "mobile", pass: false, mismatchRatio: 0.38, threshold: 0.15, mismatchPixels: 3800, totalPixels: 10000 },
+      ],
+    }),
+  });
+
+  const visualFailReplica = await replicateSectionFromReference.execute({
+    referenceUrl: "https://section.store/pages/feature-15",
+    maxAttempts: 1,
+  });
+  assert.equal(visualFailReplica.status, "fail");
+  assert.equal(visualFailReplica.errorCode, "visual_gate_fail");
+  assert.equal(visualFailReplica.writes, null);
+
+  __setSectionReplicationV3RuntimeForTests(null);
 
   let rejectedInvalidCarrier = false;
   const originalConsoleError = console.error;

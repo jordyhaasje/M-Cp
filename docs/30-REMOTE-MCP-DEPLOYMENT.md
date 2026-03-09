@@ -8,6 +8,7 @@
 - Productie blijft op 1 publieke MCP service (`hazify-mcp-remote`).
 - Geen extra customer-facing Railway services voor Chrome DevTools MCP of Shopify Dev MCP.
 - Eventuele browser/validatie tooling alleen intern/dev gebruiken.
+- Publieke section-tooling bestaat uit 1 endpoint: `replicate-section-from-reference` (v3 autopipeline met strict visual gate).
 
 ## Productie endpoints
 - License service: `https://hazify-license-service-production.up.railway.app`
@@ -28,15 +29,19 @@
 - `HAZIFY_MCP_API_KEY`
 - `HAZIFY_MCP_PUBLIC_URL`
 - `HAZIFY_MCP_AUTH_SERVER_URL`
+- `HAZIFY_SECTION_V3_REFERENCE_TIMEOUT_MS` (optioneel)
+- `HAZIFY_SECTION_V3_BROWSER_TIMEOUT_MS` (optioneel)
+- `HAZIFY_SECTION_V3_PIXEL_THRESHOLD` (optioneel)
 
 ## Deploy checks
 1. `npm run verify:shared`
 2. `npm run build`
 3. `npm test`
-4. `npm run check:git-sync`
-5. `npm run smoke:prod`
-6. MCP `initialize` + `tools/list` contracttest in `tests/e2e/contract.test.mjs`
-7. OAuth flow (`/oauth/register` -> `/oauth/authorize` -> `/oauth/token`)
+4. `npx playwright install chromium` (of image met Chromium preinstalled)
+5. `npm run check:git-sync`
+6. `npm run smoke:prod`
+7. MCP `initialize` + `tools/list` contracttest in `tests/e2e/contract.test.mjs`
+8. OAuth flow (`/oauth/register` -> `/oauth/authorize` -> `/oauth/token`)
 
 ## Smoke test script
 `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh`

@@ -5,19 +5,15 @@ Dit document bevat operationele regels voor ChatGPT connector-gebruik.
 ## Doel
 - Geen vaste system-prompt templates onderhouden in docs.
 - Gedrag afdwingen via MCP toolcontracten en runbooks.
-- Voor sections altijd de v2-flow gebruiken.
+- Voor sections altijd de v3-flow gebruiken.
 
 ## Section policy
-1. Gebruik `prepare-section-replica` als eerste stap.
-2. Geef minimaal `referenceUrl` + optionele `imageUrls` mee; laat `sectionSpec` alleen weg als auto-generatie gewenst is.
-3. Controleer `validation.preflight` inclusief `themeContext`, `schema`, `bundle`, `preview`.
-4. Gebruik `apply-section-replica` alleen bij status `pass`.
-5. Verifieer writes met `get-theme-file`.
-6. Bij `schema_lint_error`: corrigeer lege defaults (bijv. `text` setting default `""` is ongeldig).
-
-## Legacy tools
-- `build-theme-section-bundle` en `import-section-to-live-theme` bestaan tijdelijk als deprecated wrappers, maar staan standaard uit.
-- Nieuwe implementaties moeten direct op `prepare/apply` bouwen.
+1. Gebruik alleen `replicate-section-from-reference`.
+2. Geef minimaal `referenceUrl` mee.
+3. Geef `visionHints` mee als de gebruiker een niet-publieke afbeelding in de chat uploadt.
+4. `imageUrls` is optioneel voor publieke image links.
+5. Voer alleen writes uit bij `status=pass`; bij `status=fail` geen mutaties uitvoeren.
+6. Verifieer writes met `get-theme-file` zodra `status=pass` is geretourneerd.
 
 ## Referenties
 - Contract runbook: `docs/16-SECTION-REPLICA-RUNBOOK.md`

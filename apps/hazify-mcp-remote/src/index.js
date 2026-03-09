@@ -44,10 +44,7 @@ import { getThemes } from "./tools/getThemes.js";
 import { getThemeFileTool } from "./tools/getThemeFile.js";
 import { upsertThemeFileTool } from "./tools/upsertThemeFile.js";
 import { deleteThemeFileTool } from "./tools/deleteThemeFile.js";
-import { importSectionToLiveTheme } from "./tools/importSectionToLiveTheme.js";
-import { buildThemeSectionBundle } from "./tools/buildThemeSectionBundle.js";
-import { prepareSectionReplica } from "./tools/prepareSectionReplica.js";
-import { applySectionReplica } from "./tools/applySectionReplica.js";
+import { replicateSectionFromReference } from "./tools/replicateSectionFromReference.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
 import { LicenseManager } from "./lib/licenseManager.js";
 import { createMachineFingerprint } from "./lib/machineFingerprint.js";
@@ -74,9 +71,6 @@ const HAZIFY_MCP_CONTEXT_TTL_MS = Number(argv.mcpContextTtlMs || process.env.HAZ
 const HAZIFY_MCP_PUBLIC_URL = argv.mcpPublicUrl || process.env.HAZIFY_MCP_PUBLIC_URL || "";
 const HAZIFY_MCP_AUTH_SERVER_URL = argv.oauthAuthServerUrl || process.env.HAZIFY_MCP_AUTH_SERVER_URL || "";
 const HAZIFY_MCP_ALLOWED_ORIGINS = parseCommaSeparatedList(argv.allowedOrigins || process.env.HAZIFY_MCP_ALLOWED_ORIGINS || "");
-const HAZIFY_ENABLE_LEGACY_SECTION_WRAPPERS = String(
-    argv.enableLegacySectionWrappers || process.env.HAZIFY_ENABLE_LEGACY_SECTION_WRAPPERS || "false"
-).toLowerCase() === "true";
 const useClientCredentials = !!(SHOPIFY_CLIENT_ID && SHOPIFY_CLIENT_SECRET);
 const SERVER_VERSION = "1.1.0";
 const API_VERSION = argv.apiVersion || process.env.SHOPIFY_API_VERSION || "2026-01";
@@ -146,10 +140,7 @@ const initializeTools = (shopifyClient) => {
     getThemeFileTool.initialize(shopifyClient);
     upsertThemeFileTool.initialize(shopifyClient);
     deleteThemeFileTool.initialize(shopifyClient);
-    importSectionToLiveTheme.initialize(shopifyClient);
-    buildThemeSectionBundle.initialize(shopifyClient);
-    prepareSectionReplica.initialize(shopifyClient);
-    applySectionReplica.initialize(shopifyClient);
+    replicateSectionFromReference.initialize(shopifyClient);
 };
 let licenseManager = null;
 let auth = null;
@@ -427,12 +418,8 @@ const createHazifyServer = () => {
         "clone-product-from-url",
         "upsert-theme-file",
         "delete-theme-file",
-        "apply-section-replica",
+        "replicate-section-from-reference",
     ]);
-    if (HAZIFY_ENABLE_LEGACY_SECTION_WRAPPERS) {
-        mutatingTools.add("import-section-to-live-theme");
-        mutatingTools.add("build-theme-section-bundle");
-    }
     const destructiveTools = new Set([
         "delete-product",
         "delete-product-variants",
@@ -465,14 +452,9 @@ const createHazifyServer = () => {
         "get-theme-file": "Read a specific file from a Shopify theme.",
         "upsert-theme-file": "Create or update a file in a Shopify theme.",
         "delete-theme-file": "Delete a specific file from a Shopify theme.",
-        "prepare-section-replica": "Deterministic phase 1 for section replication: accepts referenceUrl + optional imageUrls and validates/constructs an editable section plan.",
-        "apply-section-replica": "Deterministic phase 2 for section replication: apply a prepared planId (pass-only by policy) and write section/template/assets.",
+        "replicate-section-from-reference": "Section Replication v3 autopipeline: capture reference, detect supported archetype, generate Shopify section bundle, enforce strict visual gate, then apply writes.",
         "get-license-status": "Return current license/access status and effective capabilities.",
     };
-    if (HAZIFY_ENABLE_LEGACY_SECTION_WRAPPERS) {
-        toolDescriptions["import-section-to-live-theme"] = "Deprecated wrapper that forwards to prepare/apply section replica flow.";
-        toolDescriptions["build-theme-section-bundle"] = "Deprecated wrapper that forwards to prepare/apply section replica flow.";
-    }
     const originalTool = server.tool.bind(server);
     server.tool = (name, ...rest) => {
         if (rest.length === 2 && typeof rest[0] === "object" && typeof rest[1] === "function") {
@@ -879,52 +861,13 @@ server.tool("delete-theme-file", {
     const parsedArgs = deleteThemeFileTool.schema.parse(args);
     return runLicensedTool("delete-theme-file", true, deleteThemeFileTool.execute, parsedArgs);
 });
-server.tool("prepare-section-replica", {
-    referenceUrl: z.string().url().describe("Reference URL for the section replication target"),
-    imageUrls: z.array(z.string().url()).max(10).default([]).describe("Optional reference image URLs"),
-    previewRequired: z.boolean().default(true).describe("When true, unreachable preview snapshots fail preflight."),
-    sectionHandle: z.string().min(1).optional().describe("Optional explicit section handle"),
-    sectionSpec: z.object({
-        version: z.literal("v2").default("v2"),
-        handle: z.string().optional(),
-        name: z.string().min(1),
-        description: z.string().optional(),
-        tag: z.string().default("section"),
-        className: z.string().optional(),
-        limit: z.number().int().positive().optional(),
-        maxBlocks: z.number().int().positive().optional(),
-        settings: z.array(z.record(z.unknown())).default([]),
-        blocks: z.array(z.record(z.unknown())).default([]),
-        presets: z.array(z.record(z.unknown())).min(1),
-        markup: z.object({
-            mode: z.enum(["structured", "liquid"]).default("structured"),
-            sectionItems: z.array(z.record(z.unknown())).default([]),
-            blockLayouts: z.array(z.record(z.unknown())).default([]),
-            liquid: z.string().optional(),
-        }),
-        mobileRules: z.array(z.object({
-            breakpointPx: z.number().int().min(240).max(2000),
-            css: z.string().min(1),
-        })).default([]),
-        assets: z.object({
-            css: z.string().default(""),
-            js: z.string().optional(),
-            snippets: z.array(z.object({
-                key: z.string().min(1),
-                content: z.string().min(1),
-            })).default([]),
-            files: z.array(z.object({
-                key: z.string().min(1),
-                content: z.string().min(1),
-            })).default([]),
-        }).default({
-            css: "",
-            snippets: [],
-            files: [],
-        }),
-    }).optional(),
+server.tool("replicate-section-from-reference", {
+    referenceUrl: z.string().url().describe("Reference URL that contains the section to replicate"),
+    visionHints: z.string().max(12000).optional().describe("Optional visual guidance extracted by ChatGPT from non-public uploaded images"),
+    imageUrls: z.array(z.string().url()).max(10).default([]).describe("Optional public image URLs"),
     themeId: z.coerce.number().int().positive().optional(),
     themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
+    sectionHandle: z.string().min(1).optional(),
     overwriteSection: z.boolean().default(false),
     addToTemplate: z.boolean().default(true),
     templateKey: z.string().default("templates/index.json"),
@@ -932,72 +875,12 @@ server.tool("prepare-section-replica", {
     insertPosition: z.enum(["start", "end", "before", "after"]).default("end"),
     referenceSectionId: z.string().optional(),
     sectionSettings: z.record(z.unknown()).optional(),
-    additionalFiles: z.array(z.object({
-        key: z.string().min(1),
-        value: z.string().optional(),
-        attachment: z.string().optional(),
-        checksum: z.string().optional(),
-    })).max(20).default([]),
-    applyOn: z.enum(["pass", "warn"]).default("pass"),
-    autoGenerateSpec: z.boolean().default(true).describe("Generate editable SectionSpec from reference when sectionSpec is omitted."),
-    sourceTool: z.string().optional(),
-}, async (args) => {
-    const parsedArgs = prepareSectionReplica.schema.parse(args);
-    return runLicensedTool("prepare-section-replica", false, prepareSectionReplica.execute, parsedArgs);
-});
-server.tool("apply-section-replica", {
-    planId: z.string().min(1),
-    allowWarn: z.boolean().default(false),
+    maxAttempts: z.number().int().min(1).max(4).default(3),
     verify: z.boolean().default(true),
 }, async (args) => {
-    const parsedArgs = applySectionReplica.schema.parse(args);
-    return runLicensedTool("apply-section-replica", true, applySectionReplica.execute, parsedArgs);
+    const parsedArgs = replicateSectionFromReference.schema.parse(args);
+    return runLicensedTool("replicate-section-from-reference", true, replicateSectionFromReference.execute, parsedArgs);
 });
-if (HAZIFY_ENABLE_LEGACY_SECTION_WRAPPERS) {
-    server.tool("import-section-to-live-theme", {
-        sectionHandle: z.string().min(1).describe("Section handle, e.g. cloudpillo-risk-free"),
-        liquid: z.string().min(1).describe("Complete Liquid section content"),
-        themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-        themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
-        overwrite: z.boolean().default(true),
-        validateSchema: z.boolean().default(true).describe("Validate {% schema %} JSON block"),
-        requirePresets: z.boolean().default(true).describe("Require at least one schema preset for Theme Editor Add section"),
-        addToTemplate: z.boolean().default(false).describe("Also insert this section into a JSON template"),
-        templateKey: z.string().default("templates/index.json").describe("Template key, e.g. templates/index.json"),
-        sectionInstanceId: z.string().optional().describe("Optional explicit section ID inside template JSON"),
-        insertPosition: z.enum(["start", "end", "before", "after"]).default("end"),
-        referenceSectionId: z.string().optional().describe("Required when insertPosition is before/after"),
-        sectionSettings: z.record(z.unknown()).optional().describe("Optional initial section settings in template JSON"),
-    }, async (args) => {
-        const parsedArgs = importSectionToLiveTheme.schema.parse(args);
-        return runLicensedTool("import-section-to-live-theme", true, importSectionToLiveTheme.execute, parsedArgs);
-    });
-    server.tool("build-theme-section-bundle", {
-        sectionHandle: z.string().min(1).describe("Section handle, e.g. bubble-navigation"),
-        sectionLiquid: z.string().min(1).describe("Full section Liquid including {% schema %} and presets"),
-        themeId: z.coerce.number().int().positive().optional(),
-        themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
-        overwriteSection: z.boolean().default(false),
-        addToTemplate: z.boolean().default(true),
-        templateKey: z.string().default("templates/index.json"),
-        sectionInstanceId: z.string().optional(),
-        insertPosition: z.enum(["start", "end", "before", "after"]).default("end"),
-        referenceSectionId: z.string().optional(),
-        sectionSettings: z.record(z.unknown()).optional(),
-        additionalFiles: z.array(z.object({
-            key: z.string().min(1),
-            value: z.string().optional(),
-            attachment: z.string().optional(),
-            checksum: z.string().optional(),
-        })).max(20).default([]),
-        verify: z.boolean().default(true),
-        referenceUrl: z.string().url().optional(),
-        designNotes: z.string().optional(),
-    }, async (args) => {
-        const parsedArgs = buildThemeSectionBundle.schema.parse(args);
-        return runLicensedTool("build-theme-section-bundle", true, buildThemeSectionBundle.execute, parsedArgs);
-    });
-}
 server.tool("get-license-status", {}, async () => {
     if (!IS_HTTP_TRANSPORT) {
         await licenseManager.assertToolAllowed("get-license-status", { mutating: false });
