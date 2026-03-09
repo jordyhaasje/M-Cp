@@ -8,12 +8,12 @@ Section writes verlopen altijd in 2 fasen:
 1. `prepare-section-replica` (read-only)
 2. `apply-section-replica` (mutating)
 
-`sectionSpec` is verplicht als tussenlaag.
+`sectionSpec` blijft de interne tussenlaag, maar kan automatisch gegenereerd worden in `prepare`.
 
 ## Invoercontract
 Minimale invoer:
 - `referenceUrl` (verplicht)
-- `sectionSpec` (verplicht)
+- `sectionSpec` (optioneel, wordt automatisch gegenereerd als je hem niet meegeeft)
 - `imageUrls` (optioneel)
 
 Belangrijke velden in `sectionSpec`:
@@ -25,6 +25,7 @@ Belangrijke velden in `sectionSpec`:
 ## Fase 1: prepare-section-replica
 ### Wat deze stap doet
 - valideert `sectionSpec` (schema-lint en referenties)
+- genereert automatisch een editbare `sectionSpec` als die ontbreekt
 - valideert bundle paden (`assets/`, `snippets/`, `locales/`, `blocks/`)
 - voert theme-context preflight uit (theme + template + order-analyse)
 - draait preview snapshot-gate voor desktop/mobile
@@ -41,6 +42,9 @@ Belangrijke velden in `sectionSpec`:
 - `pass`: veilig om toe te passen
 - `warn`: toepassen mag alleen als policy dit toelaat
 - `fail`: niet toepassen; eerst oplossen en opnieuw preparen
+
+Productiepolicy:
+- `apply` is pass-only (warnings eerst oplossen).
 
 ## Fase 2: apply-section-replica
 ### Wat deze stap doet
@@ -70,7 +74,7 @@ Belangrijke velden in `sectionSpec`:
 - `preview_low_keyword_overlap`
 
 ## Legacy compatibiliteit
-- `build-theme-section-bundle` en `import-section-to-live-theme` zijn wrappers op v2.
+- `build-theme-section-bundle` en `import-section-to-live-theme` zijn wrappers op v2, maar standaard uitgeschakeld.
 - Responses bevatten `deprecation` metadata.
 - Nieuwe clients moeten direct `prepare/apply` gebruiken.
 

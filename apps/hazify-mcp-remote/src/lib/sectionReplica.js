@@ -208,7 +208,7 @@ export const PrepareSectionReplicaInputSchema = z.object({
   imageUrls: z.array(z.string().url()).max(10).default([]),
   previewRequired: z.boolean().default(true),
   sectionHandle: z.string().min(1).optional(),
-  sectionSpec: SectionSpecSchema,
+  sectionSpec: SectionSpecSchema.optional(),
   themeId: z.coerce.number().int().positive().optional(),
   themeRole: ThemeRoleSchema.default("main"),
   overwriteSection: z.boolean().default(false),
@@ -219,13 +219,22 @@ export const PrepareSectionReplicaInputSchema = z.object({
   referenceSectionId: z.string().optional(),
   sectionSettings: z.record(z.unknown()).optional(),
   additionalFiles: z.array(BundleFileSchema).max(20).default([]),
-  applyOn: z.enum(["pass", "warn"]).default("warn"),
+  applyOn: z.enum(["pass", "warn"]).default("pass"),
+  autoGenerateSpec: z.boolean().default(true),
   sourceTool: z.string().optional(),
+}).superRefine((input, ctx) => {
+  if (!input.sectionSpec && !input.autoGenerateSpec) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["sectionSpec"],
+      message: "Geef sectionSpec mee of zet autoGenerateSpec=true.",
+    });
+  }
 });
 
 export const ApplySectionReplicaInputSchema = z.object({
   planId: z.string().min(1),
-  allowWarn: z.boolean().default(true),
+  allowWarn: z.boolean().default(false),
   verify: z.boolean().default(true),
 });
 
@@ -240,6 +249,8 @@ const SCHEMA_BLOCK_REGEX = /{%\s*schema\s*%}([\s\S]*?){%\s*endschema\s*%}/i;
 const SECTION_PLAN_TTL_MS = Number(process.env.HAZIFY_SECTION_PLAN_TTL_MS || 60 * 60 * 1000);
 const ID_OPTIONAL_SETTING_TYPES = new Set(["header", "paragraph", "note"]);
 const ALLOWED_ADDITIONAL_PREFIXES = ["assets/", "snippets/", "locales/", "blocks/"];
+const REQUIRE_PASS_FOR_APPLY = String(process.env.HAZIFY_SECTION_REPLICA_REQUIRE_PASS || "true").toLowerCase() !== "false";
+const AUTO_SPEC_ENABLED = String(process.env.HAZIFY_SECTION_AUTO_SPEC_ENABLED || "true").toLowerCase() !== "false";
 
 const sectionReplicaPlanStore = new Map();
 
@@ -260,6 +271,506 @@ const tokenize = (value) => {
     .split(/[^a-z0-9]+/g)
     .filter((part) => part.length >= 3);
   return Array.from(new Set(tokens));
+};
+
+const decodeHtmlEntities = (value) =>
+  String(value || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+
+const stripHtml = (value) =>
+  decodeHtmlEntities(String(value || "").replace(/<[^>]+>/g, " "))
+    .replace(/\s+/g, " ")
+    .trim();
+
+const extractTagTexts = (html, tagName) => {
+  const regex = new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, "gi");
+  const matches = [];
+  let match;
+  while ((match = regex.exec(String(html || ""))) !== null) {
+    const text = stripHtml(match[1]);
+    if (text) {
+      matches.push(text);
+    }
+  }
+  return matches;
+};
+
+const GENERIC_LABELS = new Set([
+  "next",
+  "previous",
+  "view all",
+  "shop now",
+  "learn more",
+  "read more",
+  "add to cart",
+  "subscribe",
+  "search",
+  "home",
+  "menu",
+]);
+
+const toSentenceCase = (value) => {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
+
+const toRichtextParagraph = (value) => {
+  const normalized = stripHtml(value);
+  if (!normalized) {
+    return "<p>Describe this feature.</p>";
+  }
+  return `<p>${normalized.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`;
+};
+
+const deriveSectionHandleFromReferenceUrl = (referenceUrl) => {
+  try {
+    const url = new URL(referenceUrl);
+    const segments = url.pathname.split("/").filter(Boolean);
+    const candidate = segments.length > 0 ? segments[segments.length - 1] : "replica-section";
+    return normalizeSectionHandle(candidate.replace(/\.(html?|php)$/i, ""));
+  } catch (_error) {
+    return normalizeSectionHandle("replica-section");
+  }
+};
+
+const pickFocusHtml = (html) => {
+  const input = String(html || "");
+  if (!input) {
+    return "";
+  }
+  const needle = input.toLowerCase().indexOf("what makes it special");
+  if (needle < 0) {
+    return input;
+  }
+  const start = Math.max(0, needle - 5000);
+  const end = Math.min(input.length, needle + 20000);
+  return input.slice(start, end);
+};
+
+const extractTabCandidates = (html) => {
+  const candidates = [
+    ...extractTagTexts(html, "button"),
+    ...extractTagTexts(html, "a"),
+    ...extractTagTexts(html, "li"),
+  ];
+  const result = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const normalized = candidate.replace(/\s+/g, " ").trim();
+    const lower = normalized.toLowerCase();
+    const words = lower.split(/\s+/g);
+    if (!normalized || words.length > 5) {
+      continue;
+    }
+    if (normalized.length < 3 || normalized.length > 36) {
+      continue;
+    }
+    if (GENERIC_LABELS.has(lower)) {
+      continue;
+    }
+    if (seen.has(lower)) {
+      continue;
+    }
+    seen.add(lower);
+    result.push(toSentenceCase(normalized));
+    if (result.length >= 8) {
+      break;
+    }
+  }
+  return result;
+};
+
+const extractBodyCandidates = (html) => {
+  const paragraphs = extractTagTexts(html, "p");
+  const listItems = extractTagTexts(html, "li");
+  const texts = [...paragraphs, ...listItems];
+  const result = [];
+  for (const text of texts) {
+    const normalized = text.replace(/\s+/g, " ").trim();
+    if (normalized.length < 35 || normalized.length > 280) {
+      continue;
+    }
+    result.push(normalized);
+    if (result.length >= 10) {
+      break;
+    }
+  }
+  return result;
+};
+
+const hasImageEditableField = (sectionSpec) => {
+  const settings = [...(sectionSpec.settings || [])];
+  for (const block of sectionSpec.blocks || []) {
+    settings.push(...(block.settings || []));
+  }
+  return settings.some((setting) => {
+    const type = String(setting?.type || "").toLowerCase().trim();
+    return type === "image_picker" || type === "image" || type === "url";
+  });
+};
+
+const buildAutoFeature15LiquidMarkup = () => `
+<section class="hz-feature-replica" style="--hz-bg: {{ section.settings.bg_color }}; --hz-text: {{ section.settings.text_color }}; --hz-muted: {{ section.settings.muted_color }}; --hz-accent: {{ section.settings.accent_color }}; padding-top: {{ section.settings.padding_top }}px; padding-bottom: {{ section.settings.padding_bottom }}px;">
+  <div class="page-width hz-feature-replica__container">
+    {% if section.blocks.size > 0 %}
+      <div class="hz-feature-replica__tabs" role="tablist" aria-label="{{ section.settings.heading | escape }}">
+        {% for block in section.blocks %}
+          <button
+            type="button"
+            class="hz-feature-replica__tab{% if forloop.first %} is-active{% endif %}"
+            data-tab-index="{{ forloop.index0 }}"
+            role="tab"
+            aria-selected="{% if forloop.first %}true{% else %}false{% endif %}"
+            aria-controls="hz-feature-panel-{{ section.id }}-{{ forloop.index0 }}"
+            id="hz-feature-tab-{{ section.id }}-{{ forloop.index0 }}"
+          >
+            {{ block.settings.tab_title | default: block.settings.heading | escape }}
+          </button>
+        {% endfor %}
+      </div>
+
+      <div class="hz-feature-replica__content">
+        <div class="hz-feature-replica__copy">
+          {% if section.settings.eyebrow != blank %}
+            <p class="hz-feature-replica__eyebrow">{{ section.settings.eyebrow | escape }}</p>
+          {% endif %}
+          <h2 class="hz-feature-replica__title">{{ section.settings.heading | escape }}</h2>
+          <div class="hz-feature-replica__panels">
+            {% for block in section.blocks %}
+              <article
+                id="hz-feature-panel-{{ section.id }}-{{ forloop.index0 }}"
+                class="hz-feature-replica__panel{% if forloop.first %} is-active{% endif %}"
+                data-tab-index="{{ forloop.index0 }}"
+                role="tabpanel"
+                aria-labelledby="hz-feature-tab-{{ section.id }}-{{ forloop.index0 }}"
+                {% unless forloop.first %}hidden{% endunless %}
+                {{ block.shopify_attributes }}
+              >
+                <h3 class="hz-feature-replica__panel-title">{{ block.settings.heading | escape }}</h3>
+                <div class="hz-feature-replica__panel-text rte">{{ block.settings.body }}</div>
+                {% if block.settings.cta_label != blank and block.settings.cta_url != blank %}
+                  <a class="hz-feature-replica__panel-link" href="{{ block.settings.cta_url }}">{{ block.settings.cta_label | escape }}</a>
+                {% endif %}
+              </article>
+            {% endfor %}
+          </div>
+          <div class="hz-feature-replica__dots" aria-hidden="true">
+            {% for block in section.blocks %}
+              <button
+                type="button"
+                class="hz-feature-replica__dot{% if forloop.first %} is-active{% endif %}"
+                data-tab-index="{{ forloop.index0 }}"
+                tabindex="-1"
+              ></button>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="hz-feature-replica__media" aria-live="polite">
+          {% for block in section.blocks %}
+            <figure class="hz-feature-replica__figure{% if forloop.first %} is-active{% endif %}" data-tab-index="{{ forloop.index0 }}" {% unless forloop.first %}hidden{% endunless %}>
+              {% if block.settings.image != blank %}
+                <img
+                  src="{{ block.settings.image | image_url: width: 1400 }}"
+                  alt="{{ block.settings.image_alt | default: block.settings.heading | escape }}"
+                  loading="lazy"
+                >
+              {% elsif block.settings.image_url != blank %}
+                <img
+                  src="{{ block.settings.image_url | escape }}"
+                  alt="{{ block.settings.image_alt | default: block.settings.heading | escape }}"
+                  loading="lazy"
+                >
+              {% endif %}
+            </figure>
+          {% endfor %}
+        </div>
+      </div>
+    {% else %}
+      <p class="hz-feature-replica__empty">Voeg minimaal 1 block toe in Theme Editor.</p>
+    {% endif %}
+  </div>
+</section>
+`;
+
+const buildAutoFeature15Css = () => `
+.hz-feature-replica {
+  background: var(--hz-bg, #f1eadf);
+  color: var(--hz-text, #1b1b1b);
+}
+.hz-feature-replica__container {
+  display: grid;
+  gap: 1rem;
+}
+.hz-feature-replica__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+.hz-feature-replica__tab {
+  border: 1px solid rgba(0,0,0,.2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--hz-muted, #666);
+  padding: .45rem .85rem;
+  font-size: .85rem;
+  line-height: 1.1;
+  cursor: pointer;
+}
+.hz-feature-replica__tab.is-active {
+  color: var(--hz-text, #1b1b1b);
+  border-color: var(--hz-accent, #1b1b1b);
+  background: rgba(255,255,255,.45);
+}
+.hz-feature-replica__content {
+  display: grid;
+  gap: 1rem;
+}
+.hz-feature-replica__eyebrow {
+  margin: 0 0 .35rem;
+  font-size: .78rem;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--hz-muted, #666);
+}
+.hz-feature-replica__title {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.4vw, 2.5rem);
+  line-height: 1.08;
+}
+.hz-feature-replica__panel-title {
+  margin: .75rem 0 .4rem;
+  font-size: 1.1rem;
+}
+.hz-feature-replica__panel-text {
+  color: var(--hz-muted, #666);
+}
+.hz-feature-replica__panel-link {
+  display: inline-block;
+  margin-top: .7rem;
+  color: var(--hz-accent, #1b1b1b);
+  text-underline-offset: 3px;
+}
+.hz-feature-replica__media {
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(0,0,0,.06);
+  min-height: 220px;
+}
+.hz-feature-replica__figure {
+  margin: 0;
+}
+.hz-feature-replica__figure img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.hz-feature-replica__dots {
+  margin-top: .75rem;
+  display: flex;
+  gap: .4rem;
+}
+.hz-feature-replica__dot {
+  width: 7px;
+  height: 7px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0,0,0,.25);
+  padding: 0;
+}
+.hz-feature-replica__dot.is-active {
+  background: var(--hz-accent, #1b1b1b);
+}
+@media screen and (min-width: 990px) {
+  .hz-feature-replica__content {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 2rem;
+  }
+  .hz-feature-replica__media {
+    min-height: 380px;
+  }
+}
+@media screen and (max-width: 768px) {
+  .hz-feature-replica__title {
+    font-size: 1.9rem;
+  }
+}
+`;
+
+const buildAutoFeature15Js = () => `
+(() => {
+  const init = (root) => {
+    if (!root || root.dataset.hzFeatureReady === "true") {
+      return;
+    }
+    root.dataset.hzFeatureReady = "true";
+
+    const tabs = Array.from(root.querySelectorAll(".hz-feature-replica__tab"));
+    const dots = Array.from(root.querySelectorAll(".hz-feature-replica__dot"));
+    const panels = Array.from(root.querySelectorAll(".hz-feature-replica__panel"));
+    const figures = Array.from(root.querySelectorAll(".hz-feature-replica__figure"));
+
+    const setActive = (index) => {
+      tabs.forEach((tab, idx) => {
+        const active = idx === index;
+        tab.classList.toggle("is-active", active);
+        tab.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      dots.forEach((dot, idx) => dot.classList.toggle("is-active", idx === index));
+      panels.forEach((panel, idx) => {
+        const active = idx === index;
+        panel.classList.toggle("is-active", active);
+        if (active) {
+          panel.removeAttribute("hidden");
+        } else {
+          panel.setAttribute("hidden", "hidden");
+        }
+      });
+      figures.forEach((figure, idx) => {
+        const active = idx === index;
+        figure.classList.toggle("is-active", active);
+        if (active) {
+          figure.removeAttribute("hidden");
+        } else {
+          figure.setAttribute("hidden", "hidden");
+        }
+      });
+    };
+
+    const onTrigger = (event) => {
+      const target = event.target.closest("[data-tab-index]");
+      if (!target || !root.contains(target)) {
+        return;
+      }
+      const next = Number(target.dataset.tabIndex || "0");
+      if (!Number.isFinite(next)) {
+        return;
+      }
+      setActive(next);
+    };
+
+    root.addEventListener("click", onTrigger);
+  };
+
+  const initAll = (scope = document) => {
+    scope.querySelectorAll(".hz-feature-replica").forEach(init);
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => initAll(document));
+  } else {
+    initAll(document);
+  }
+
+  document.addEventListener("shopify:section:load", (event) => {
+    if (event?.target?.querySelectorAll) {
+      initAll(event.target);
+    }
+  });
+})();
+`;
+
+const buildAutoSectionSpecFromReference = ({ sectionHandle, referenceSnapshots, imageUrls }) => {
+  const firstReachableSnapshot = referenceSnapshots.find((entry) => entry.ok);
+  const html = firstReachableSnapshot?.html || "";
+  const focusedHtml = pickFocusHtml(html);
+
+  const headings = [
+    ...extractTagTexts(focusedHtml, "h2"),
+    ...extractTagTexts(focusedHtml, "h3"),
+    ...extractTagTexts(html, "h2"),
+  ];
+  const heading =
+    headings.find((entry) => entry.toLowerCase().includes("what makes")) ||
+    headings.find((entry) => entry.length >= 8 && entry.length <= 80) ||
+    "What makes it special?";
+
+  const defaultTabs = ["Soft as a cloud", "Optimal support", "Sustainability", "Care guide"];
+  const tabCandidates = extractTabCandidates(focusedHtml);
+  const selectedTabs = (tabCandidates.length >= 3 ? tabCandidates : defaultTabs).slice(0, 6);
+  const bodyCandidates = extractBodyCandidates(focusedHtml);
+
+  const blockDefaults = selectedTabs.map((tabTitle, index) => {
+    const body = bodyCandidates[index] || bodyCandidates[0] || "Describe this feature here.";
+    const imageUrl = imageUrls[index] || imageUrls[0] || "";
+    return {
+      type: "feature",
+      settings: {
+        tab_title: tabTitle,
+        heading: tabTitle,
+        body: toRichtextParagraph(body),
+        image_url: imageUrl,
+        image_alt: tabTitle,
+        cta_label: "",
+        cta_url: "",
+      },
+    };
+  });
+
+  return {
+    version: "v2",
+    handle: sectionHandle,
+    name: humanizeHandle(sectionHandle),
+    description: `Auto-generated section replica from ${firstReachableSnapshot?.title || "reference URL"}`,
+    tag: "section",
+    className: "hz-feature-replica-section",
+    settings: [
+      { type: "text", id: "eyebrow", label: "Eyebrow", default: "" },
+      { type: "text", id: "heading", label: "Heading", default: heading },
+      { type: "color", id: "bg_color", label: "Background color", default: "#f1eadf" },
+      { type: "color", id: "text_color", label: "Text color", default: "#1b1b1b" },
+      { type: "color", id: "muted_color", label: "Muted text color", default: "#666666" },
+      { type: "color", id: "accent_color", label: "Accent color", default: "#1b1b1b" },
+      { type: "range", id: "padding_top", min: 0, max: 160, step: 4, unit: "px", label: "Padding top", default: 48 },
+      { type: "range", id: "padding_bottom", min: 0, max: 160, step: 4, unit: "px", label: "Padding bottom", default: 48 },
+    ],
+    blocks: [
+      {
+        type: "feature",
+        name: "Feature",
+        settings: [
+          { type: "text", id: "tab_title", label: "Tab title" },
+          { type: "text", id: "heading", label: "Heading" },
+          { type: "richtext", id: "body", label: "Body" },
+          { type: "image_picker", id: "image", label: "Image (theme asset)" },
+          { type: "url", id: "image_url", label: "Image URL fallback" },
+          { type: "text", id: "image_alt", label: "Image alt text" },
+          { type: "text", id: "cta_label", label: "CTA label" },
+          { type: "url", id: "cta_url", label: "CTA URL" },
+        ],
+      },
+    ],
+    presets: [
+      {
+        name: humanizeHandle(sectionHandle),
+        category: "Custom",
+        blocks: blockDefaults,
+      },
+    ],
+    markup: {
+      mode: "liquid",
+      liquid: buildAutoFeature15LiquidMarkup(),
+      sectionItems: [],
+      blockLayouts: [],
+    },
+    mobileRules: [],
+    assets: {
+      css: buildAutoFeature15Css(),
+      js: buildAutoFeature15Js(),
+      snippets: [],
+      files: [],
+    },
+  };
 };
 
 const byteLength = (value) => Buffer.byteLength(String(value || ""), "utf8");
@@ -916,6 +1427,7 @@ const fetchReferenceTarget = async (referenceUrl, userAgent) => {
       title: (String(html).match(/<title>([\s\S]*?)<\/title>/i)?.[1] || "").trim().slice(0, 200),
       textHash,
       textTokens: tokenize(normalizedText),
+      html,
       fetchError: null,
     };
   } catch (error) {
@@ -926,6 +1438,7 @@ const fetchReferenceTarget = async (referenceUrl, userAgent) => {
       title: "",
       textHash: null,
       textTokens: [],
+      html: "",
       fetchError: error instanceof Error ? error.message : String(error),
     };
   } finally {
@@ -933,7 +1446,7 @@ const fetchReferenceTarget = async (referenceUrl, userAgent) => {
   }
 };
 
-const evaluatePreviewGate = ({ referenceSnapshots, sectionSpec, imageUrls, previewRequired }) => {
+const evaluatePreviewGate = ({ referenceSnapshots, sectionSpec, imageUrls, previewRequired, strictMode }) => {
   const issues = [];
 
   const tokenPool = [];
@@ -970,9 +1483,10 @@ const evaluatePreviewGate = ({ referenceSnapshots, sectionSpec, imageUrls, previ
         : "Preview snapshot-gate kon referenceUrl niet ophalen; status is als warning vastgelegd omdat previewRequired=false.",
     });
   } else {
-    if (overlapScore < 0.04) {
+    const minimumOverlap = strictMode ? 0.08 : 0.04;
+    if (overlapScore < minimumOverlap) {
       issues.push({
-        severity: imageUrls.length > 0 ? "warn" : "warn",
+        severity: strictMode && previewRequired ? "error" : "warn",
         code: "preview_low_keyword_overlap",
         message:
           "Preview snapshot-gate: lage semantische overlap tussen sectionSpec en referentiecontent. Controleer naming/settings/blocks.",
@@ -987,6 +1501,23 @@ const evaluatePreviewGate = ({ referenceSnapshots, sectionSpec, imageUrls, previ
         message: "Preview snapshot-gate: reference response is klein; visuele vergelijking kan beperkt zijn.",
       });
     }
+  }
+
+  if (!hasImageEditableField(sectionSpec) && imageUrls.length > 0) {
+    issues.push({
+      severity: strictMode ? "error" : "warn",
+      code: "preview_missing_image_editable_fields",
+      message:
+        "SectionSpec bevat geen bewerkbare image/image_url velden terwijl imageUrls zijn meegegeven. Voeg image settings toe.",
+    });
+  }
+
+  if ((sectionSpec.blocks || []).length === 0) {
+    issues.push({
+      severity: strictMode ? "error" : "warn",
+      code: "preview_missing_blocks",
+      message: "SectionSpec bevat geen blocks. Voeg blocks toe zodat de section in Theme Editor schaalbaar bewerkbaar is.",
+    });
   }
 
   return {
@@ -1189,12 +1720,34 @@ export const parseLegacySectionLiquid = ({ liquid, sectionHandle, validateSchema
 export const prepareSectionReplicaPlan = async ({ shopifyClient, apiVersion, input }) => {
   const parsedInput = PrepareSectionReplicaInputSchema.parse(input);
 
-  const desiredHandle = parsedInput.sectionHandle || parsedInput.sectionSpec.handle || parsedInput.sectionSpec.name;
+  if (!parsedInput.sectionSpec && !AUTO_SPEC_ENABLED) {
+    throw new Error("Auto section generation is uitgeschakeld op deze server. Geef expliciet sectionSpec mee.");
+  }
+
+  const desktopSnapshot = await fetchReferenceTarget(parsedInput.referenceUrl, PREVIEW_USER_AGENTS.desktop);
+  const mobileSnapshot = await fetchReferenceTarget(parsedInput.referenceUrl, PREVIEW_USER_AGENTS.mobile);
+  const referenceSnapshots = [desktopSnapshot, mobileSnapshot];
+
+  const desiredHandle =
+    parsedInput.sectionHandle ||
+    parsedInput.sectionSpec?.handle ||
+    parsedInput.sectionSpec?.name ||
+    deriveSectionHandleFromReferenceUrl(parsedInput.referenceUrl);
   const sectionHandle = normalizeSectionHandle(desiredHandle);
-  const normalizedSectionSpec = {
-    ...parsedInput.sectionSpec,
+
+  const generationMode = parsedInput.sectionSpec ? "provided" : "auto";
+  const baseSectionSpec =
+    parsedInput.sectionSpec ||
+    buildAutoSectionSpecFromReference({
+      sectionHandle,
+      referenceSnapshots,
+      imageUrls: parsedInput.imageUrls,
+    });
+
+  const normalizedSectionSpec = SectionSpecSchema.parse({
+    ...baseSectionSpec,
     handle: sectionHandle,
-  };
+  });
 
   const compiled = compileSectionReplicaFiles({
     sectionHandle,
@@ -1234,13 +1787,12 @@ export const prepareSectionReplicaPlan = async ({ shopifyClient, apiVersion, inp
     overwriteSection: parsedInput.overwriteSection,
   });
 
-  const desktopSnapshot = await fetchReferenceTarget(parsedInput.referenceUrl, PREVIEW_USER_AGENTS.desktop);
-  const mobileSnapshot = await fetchReferenceTarget(parsedInput.referenceUrl, PREVIEW_USER_AGENTS.mobile);
   const previewEval = evaluatePreviewGate({
-    referenceSnapshots: [desktopSnapshot, mobileSnapshot],
+    referenceSnapshots,
     sectionSpec: normalizedSectionSpec,
     imageUrls: parsedInput.imageUrls,
     previewRequired: parsedInput.previewRequired,
+    strictMode: parsedInput.applyOn === "pass" || generationMode === "auto",
   });
 
   const previewIssues = previewEval.issues;
@@ -1323,6 +1875,7 @@ export const prepareSectionReplicaPlan = async ({ shopifyClient, apiVersion, inp
     },
     previewTargets,
     keywordContext: sectionSpecToKeywordString(normalizedSectionSpec),
+    generationMode,
   };
 
   putPlan(plan);
@@ -1349,6 +1902,7 @@ export const prepareSectionReplicaPlan = async ({ shopifyClient, apiVersion, inp
       sourceTool: parsedInput.sourceTool || "prepare-section-replica",
       generatedAt: asIsoNow(),
       applyOn: parsedInput.applyOn,
+      generationMode,
       overlapScore: previewEval.overlapScore,
     },
   };
@@ -1379,6 +1933,12 @@ export const applySectionReplicaPlan = async ({ shopifyClient, apiVersion, input
 
   if (preflight.status === "warn" && !parsedInput.allowWarn) {
     throw new Error("Section plan bevat warnings. Zet allowWarn=true of corrigeer de warnings via prepare-section-replica.");
+  }
+
+  if (REQUIRE_PASS_FOR_APPLY && preflight.status !== "pass") {
+    throw new Error(
+      "Deze server staat alleen apply toe bij preflight status 'pass'. Corrigeer warnings/fouten en run prepare-section-replica opnieuw."
+    );
   }
 
   if (plan.input.applyOn === "pass" && preflight.status !== "pass") {

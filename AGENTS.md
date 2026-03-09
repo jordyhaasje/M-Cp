@@ -70,9 +70,9 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 
 ### Theme/section workflow (verplicht)
 1. Haal themes op met `get-themes` en bevestig live theme (`role=main`) of gebruik expliciet `themeId`.
-2. Voor sections: gebruik altijd `prepare-section-replica` met `referenceUrl` + `sectionSpec` (+ optionele `imageUrls`).
-3. Controleer `validation.preflight` en voer alleen daarna `apply-section-replica` uit.
-4. Gebruik legacy wrappers alleen voor backward compatibility; plan migratie naar `prepare/apply`.
+2. Voor sections: gebruik altijd `prepare-section-replica` met `referenceUrl` (+ optionele `imageUrls`). `sectionSpec` is optioneel.
+3. Controleer `validation.preflight` en voer `apply-section-replica` alleen uit bij status `pass`.
+4. Legacy wrappers zijn standaard uitgeschakeld; gebruik ze niet in nieuwe flows.
 5. Verifieer met `get-theme-file` dat `sections/<handle>.liquid`, template JSON (`sections` + `order`) en assets/snippets kloppen.
 6. Alleen bij visuele twijfel of rendering issues: check via `chrome-devtools`.
 

@@ -7,7 +7,7 @@ let shopifyClient;
 const applySectionReplica = {
   name: "apply-section-replica",
   description:
-    "Deterministic phase 2 for section replication: applies a previously prepared plan and writes section/template/assets.",
+    "Deterministic phase 2 for section replication: applies a previously prepared pass-level plan and writes section/template/assets.",
   schema: ApplySectionReplicaInputSchema,
   initialize(client) {
     shopifyClient = client;

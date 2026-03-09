@@ -7,7 +7,7 @@ let shopifyClient;
 const prepareSectionReplica = {
   name: "prepare-section-replica",
   description:
-    "Deterministic phase 1 for section replication: validates SectionSpec + theme context + preview gate and stores a plan.",
+    "Deterministic phase 1 for section replication: accepts referenceUrl + optional imageUrls, auto-generates SectionSpec when omitted, and stores a validated plan.",
   schema: PrepareSectionReplicaInputSchema,
   initialize(client) {
     shopifyClient = client;

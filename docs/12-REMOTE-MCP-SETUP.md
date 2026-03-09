@@ -62,7 +62,7 @@ Belangrijk: beeldanalyse gebeurt door de AI-client (bijv. ChatGPT), niet door de
 Verplichte flow:
 1. `prepare-section-replica`
 2. controleer `validation.preflight.status` + `checks` + `previewTargets`
-3. `apply-section-replica` (alleen bij status `pass` of `warn` volgens policy)
+3. `apply-section-replica` (alleen bij status `pass`)
 4. verifieer met `get-theme-file` op:
    - `sections/<handle>.liquid`
    - template JSON (`sections` + `order`)
@@ -72,12 +72,14 @@ Inputcontract voor gebruikers:
 - korte opdracht
 - referentie-URL (verplicht)
 - optionele afbeelding(en)
+- `sectionSpec` is optioneel; backend kan dit automatisch genereren
 
 ## Clientselectie en hosting
 - ChatGPT productie: selecteer standaard alleen Hazify MCP voor section-taken.
 - Chrome DevTools MCP en Shopify Dev MCP:
   - niet customer-facing hosten als extra publieke Railway services
   - alleen intern/dev gebruiken wanneer nodig voor visuele controle of extra validatie
+- Legacy wrappers zijn standaard uitgeschakeld (`HAZIFY_ENABLE_LEGACY_SECTION_WRAPPERS=false`).
 
 ## Shopify referentie (voor reviewers)
 - Sections: https://shopify.dev/docs/storefronts/themes/architecture/sections

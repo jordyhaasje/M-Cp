@@ -19,7 +19,9 @@
 ## Tooling-richtlijn sections (v2)
 - Primair: `prepare-section-replica` (read-only preflight + SectionSpec validatie + preview gate)
 - Daarna: `apply-section-replica` (mutating writes naar section/template/assets)
+- `prepare-section-replica` kan `sectionSpec` automatisch genereren op basis van `referenceUrl` + `imageUrls`
 - Legacy wrappers (tijdelijk):
   - `build-theme-section-bundle`
   - `import-section-to-live-theme`
+- Legacy wrappers staan standaard uit en moeten expliciet geactiveerd worden met `HAZIFY_ENABLE_LEGACY_SECTION_WRAPPERS=true`
 - Contractdetails: `docs/16-SECTION-REPLICA-RUNBOOK.md`

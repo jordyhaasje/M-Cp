@@ -9,12 +9,13 @@ Dit document bevat operationele regels voor ChatGPT connector-gebruik.
 
 ## Section policy
 1. Gebruik `prepare-section-replica` als eerste stap.
-2. Controleer `validation.preflight` inclusief `themeContext`, `schema`, `bundle`, `preview`.
-3. Gebruik `apply-section-replica` alleen bij toegestane status (`pass` of `warn` volgens policy).
-4. Verifieer writes met `get-theme-file`.
+2. Geef minimaal `referenceUrl` + optionele `imageUrls` mee; laat `sectionSpec` alleen weg als auto-generatie gewenst is.
+3. Controleer `validation.preflight` inclusief `themeContext`, `schema`, `bundle`, `preview`.
+4. Gebruik `apply-section-replica` alleen bij status `pass`.
+5. Verifieer writes met `get-theme-file`.
 
 ## Legacy tools
-- `build-theme-section-bundle` en `import-section-to-live-theme` bestaan tijdelijk als deprecated wrappers.
+- `build-theme-section-bundle` en `import-section-to-live-theme` bestaan tijdelijk als deprecated wrappers, maar staan standaard uit.
 - Nieuwe implementaties moeten direct op `prepare/apply` bouwen.
 
 ## Referenties

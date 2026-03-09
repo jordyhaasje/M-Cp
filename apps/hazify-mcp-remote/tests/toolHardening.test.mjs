@@ -149,6 +149,14 @@ try {
       bodyJson,
     });
 
+    if (parsedUrl.hostname === "example.com" && method === "GET") {
+      const repeated = Array.from({ length: 40 }, () => "<p>Replica Hero V2 fast and deterministic section generation with configurable tabs, headings, images, cta label, and cta url.</p>").join("");
+      return new Response(
+        `<html><head><title>Replica Hero V2</title></head><body><h2>Replica Hero V2</h2><h3>Fast and deterministic section generation</h3>${repeated}</body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } }
+      );
+    }
+
     if (parsedUrl.pathname.endsWith("/themes.json") && method === "GET") {
       return new Response(
         JSON.stringify({
@@ -238,72 +246,27 @@ try {
 }
 {% endschema %}`;
 
-  const importResult = await importSectionToLiveTheme.execute({
-    sectionHandle: "Cloudpillo Risk Free!",
-    liquid: validSectionLiquid,
-    overwrite: true,
-    addToTemplate: true,
-    templateKey: "templates/index.json",
-    sectionSettings: {
-      title: "Risk Free",
-    },
-  });
-  assert.equal(importResult.section.key, "sections/cloudpillo-risk-free.liquid");
-  assert.equal(importResult.deprecation?.status, "deprecated_wrapper");
-  const importPutRequest = themeRestCalls.find(
-    (entry) =>
-      entry.method === "PUT" &&
-      entry.pathname.endsWith("/themes/111/assets.json") &&
-      entry.bodyJson?.asset?.key === "sections/cloudpillo-risk-free.liquid"
-  );
-  assert.ok(importPutRequest, "import-section-to-live-theme should upsert normalized section key");
-  const templatePutRequest = themeRestCalls.find(
-    (entry) =>
-      entry.method === "PUT" &&
-      entry.pathname.endsWith("/themes/111/assets.json") &&
-      entry.bodyJson?.asset?.key === "templates/index.json"
-  );
-  assert.ok(templatePutRequest, "import-section-to-live-theme should update template JSON when addToTemplate=true");
-  const templateJson = JSON.parse(templatePutRequest.bodyJson.asset.value);
-  assert.ok(
-    Object.values(templateJson.sections || {}).some((section) => section?.type === "cloudpillo-risk-free"),
-    "template should include inserted section type"
-  );
-  assert.ok(
-    (templateJson.order || []).some((entry) => String(entry).includes("cloudpillo_risk_free")),
-    "template order should include inserted section id"
-  );
-
-  let rejectedMissingPresets = false;
+  let rejectedLegacyImportWrapper = false;
   try {
     await importSectionToLiveTheme.execute({
-      sectionHandle: "No Preset Section",
-      liquid: `<section>no presets</section>
-{% schema %}
-{ "name": "No Preset Section" }
-{% endschema %}`,
-      overwrite: true,
-      validateSchema: true,
-      requirePresets: true,
-    });
-  } catch (error) {
-    rejectedMissingPresets = error instanceof Error && error.message.includes("presets");
-  }
-  assert.equal(rejectedMissingPresets, true, "schema validation should reject sections without presets");
-
-  let rejectedExistingSection = false;
-  try {
-    await importSectionToLiveTheme.execute({
-      sectionHandle: "existing",
+      sectionHandle: "Cloudpillo Risk Free!",
       liquid: validSectionLiquid,
-      overwrite: false,
-      validateSchema: false,
+      overwrite: true,
+      addToTemplate: true,
+      templateKey: "templates/index.json",
+      sectionSettings: {
+        title: "Risk Free",
+      },
     });
   } catch (error) {
-    rejectedExistingSection =
-      error instanceof Error && error.message.includes("bestaat al");
+    rejectedLegacyImportWrapper =
+      error instanceof Error && error.message.includes("uitgeschakeld");
   }
-  assert.equal(rejectedExistingSection, true, "overwrite=false should block existing section files");
+  assert.equal(
+    rejectedLegacyImportWrapper,
+    true,
+    "legacy import wrapper should be disabled by default"
+  );
 
   const bundleSectionLiquid = `<section class="bundle-nav">{{ section.settings.title }}</section>
 {% schema %}
@@ -318,69 +281,33 @@ try {
 }
 {% endschema %}`;
 
-  const bundleResult = await buildThemeSectionBundle.execute({
-    sectionHandle: "Bundle Navigation",
-    sectionLiquid: bundleSectionLiquid,
-    overwriteSection: true,
-    addToTemplate: true,
-    templateKey: "templates/index.json",
-    sectionSettings: { title: "Bundle Menu" },
-    additionalFiles: [
-      {
-        key: "assets/section-bundle-navigation.css",
-        value: ".bundle-nav{display:flex;gap:12px;}",
-      },
-      {
-        key: "snippets/bundle-navigation-item.liquid",
-        value: "<a href=\"{{ link }}\">{{ label }}</a>",
-      },
-    ],
-    verify: true,
-    referenceUrl: "https://section.store/pages/bubble-navigation",
-    designNotes: "Circle menu from reference page",
-  });
-
-  assert.equal(bundleResult.action, "built_theme_section_bundle");
-  assert.equal(bundleResult.section.key, "sections/bundle-navigation.liquid");
-  assert.ok(bundleResult.template?.key === "templates/index.json");
-  assert.equal(bundleResult.additionalFiles.length, 2, "bundle should write supporting files");
-  assert.equal(bundleResult.deprecation?.status, "deprecated_wrapper");
-  assert.ok(
-    Array.isArray(bundleResult.docs) &&
-      bundleResult.docs.some((doc) => String(doc.url || "").includes("/architecture/sections")),
-    "bundle should return Shopify section docs"
-  );
-
-  const bundleCssWrite = themeRestCalls.find(
-    (entry) =>
-      entry.method === "PUT" &&
-      entry.pathname.endsWith("/themes/111/assets.json") &&
-      entry.bodyJson?.asset?.key === "assets/section-bundle-navigation.css"
-  );
-  assert.ok(bundleCssWrite, "bundle should write CSS asset");
-
-  let rejectedInvalidAdditionalPath = false;
+  let rejectedLegacyBundleWrapper = false;
   try {
     await buildThemeSectionBundle.execute({
-      sectionHandle: "Invalid Additional",
+      sectionHandle: "Bundle Navigation",
       sectionLiquid: bundleSectionLiquid,
       overwriteSection: true,
-      addToTemplate: false,
+      addToTemplate: true,
+      templateKey: "templates/index.json",
+      sectionSettings: { title: "Bundle Menu" },
       additionalFiles: [
         {
-          key: "templates/product.json",
-          value: "{}",
+          key: "assets/section-bundle-navigation.css",
+          value: ".bundle-nav{display:flex;gap:12px;}",
         },
       ],
+      verify: true,
+      referenceUrl: "https://section.store/pages/bubble-navigation",
+      designNotes: "Circle menu from reference page",
     });
   } catch (error) {
-    rejectedInvalidAdditionalPath =
-      error instanceof Error && error.message.includes("additionalFiles key");
+    rejectedLegacyBundleWrapper =
+      error instanceof Error && error.message.includes("uitgeschakeld");
   }
   assert.equal(
-    rejectedInvalidAdditionalPath,
+    rejectedLegacyBundleWrapper,
     true,
-    "bundle should reject additionalFiles keys outside allowed prefixes"
+    "legacy bundle wrapper should be disabled by default"
   );
 
   const v2Spec = {
@@ -491,8 +418,31 @@ try {
   );
   assert.ok(directReplicaWrite, "apply-section-replica should write generated section file");
 
-  const failedPreviewPlan = await prepareSectionReplica.execute({
+  const autoPreparedReplica = await prepareSectionReplica.execute({
     referenceUrl: "https://example.com/replica",
+    imageUrls: ["https://cdn.example.com/reference-1.jpg"],
+    previewRequired: true,
+    sectionHandle: "Auto Replica Section",
+    overwriteSection: true,
+    addToTemplate: false,
+    autoGenerateSpec: true,
+    applyOn: "pass",
+  });
+  assert.equal(autoPreparedReplica.validation?.preflight?.status, "pass");
+  assert.equal(autoPreparedReplica.sectionSpec?.blocks?.[0]?.type, "feature");
+  assert.ok(
+    Array.isArray(autoPreparedReplica.sectionSpec?.settings) &&
+      autoPreparedReplica.sectionSpec.settings.length >= 4,
+    "auto-generated section should expose editable section settings"
+  );
+  assert.ok(
+    Array.isArray(autoPreparedReplica.sectionSpec?.presets?.[0]?.blocks) &&
+      autoPreparedReplica.sectionSpec.presets[0].blocks.length >= 1,
+    "auto-generated section should include preset blocks for Theme Editor"
+  );
+
+  const failedPreviewPlan = await prepareSectionReplica.execute({
+    referenceUrl: "https://preview-unreachable.invalid/replica",
     imageUrls: [],
     previewRequired: true,
     sectionHandle: "Replica Failing Preview",

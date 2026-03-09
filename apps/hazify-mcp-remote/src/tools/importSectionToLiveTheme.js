@@ -6,6 +6,8 @@ import {
 } from "../lib/sectionReplica.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
+const ENABLE_LEGACY_SECTION_WRAPPERS =
+  String(process.env.HAZIFY_ENABLE_LEGACY_SECTION_WRAPPERS || "false").toLowerCase() === "true";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 
 const ImportSectionToLiveThemeInputSchema = z.object({
@@ -63,6 +65,12 @@ const importSectionToLiveTheme = {
   },
   execute: async (input) => {
     try {
+      if (!ENABLE_LEGACY_SECTION_WRAPPERS) {
+        throw new Error(
+          "import-section-to-live-theme is uitgeschakeld. Gebruik prepare-section-replica gevolgd door apply-section-replica."
+        );
+      }
+
       const parsedInput = ImportSectionToLiveThemeInputSchema.parse(input);
 
       const sectionSpec = parseLegacySectionLiquid({
