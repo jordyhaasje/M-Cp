@@ -30,6 +30,7 @@
 - `HAZIFY_MCP_PUBLIC_URL`
 - `HAZIFY_MCP_AUTH_SERVER_URL`
 - `PLAYWRIGHT_BROWSERS_PATH=0`
+- `RAILPACK_DEPLOY_APT_PACKAGES` (vereist voor Chromium runtime libs)
 - `HAZIFY_SECTION_V3_REFERENCE_TIMEOUT_MS` (optioneel)
 - `HAZIFY_SECTION_V3_BROWSER_TIMEOUT_MS` (optioneel)
 - `HAZIFY_SECTION_V3_PIXEL_THRESHOLD` (optioneel)
@@ -41,10 +42,11 @@
 2. `npm run build`
 3. `npm test`
 4. Bevestig in buildlogs dat `postinstall` Playwright Chromium installeert (geen ontbrekende executable errors)
-5. `npm run check:git-sync`
-6. `npm run smoke:prod`
-7. MCP `initialize` + `tools/list` contracttest in `tests/e2e/contract.test.mjs`
-8. OAuth flow (`/oauth/register` -> `/oauth/authorize` -> `/oauth/token`)
+5. Bevestig in buildlogs dat runtime apt deps worden geïnstalleerd via `RAILPACK_DEPLOY_APT_PACKAGES`
+6. `npm run check:git-sync`
+7. `npm run smoke:prod`
+8. MCP `initialize` + `tools/list` contracttest in `tests/e2e/contract.test.mjs`
+9. OAuth flow (`/oauth/register` -> `/oauth/authorize` -> `/oauth/token`)
 
 ## Smoke test script
 `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh`

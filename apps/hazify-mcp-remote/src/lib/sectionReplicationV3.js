@@ -126,9 +126,12 @@ export const ReplicateSectionFromReferenceInputSchema = z.object({
 
 const toIsoNow = () => new Date().toISOString();
 
-const formatErrorMessage = (error) => {
+const formatErrorMessage = (error, maxLength = 500) => {
   const raw = error instanceof Error ? error.message : String(error);
-  return raw.length > 500 ? `${raw.slice(0, 497)}...` : raw;
+  if (!Number.isFinite(maxLength) || maxLength <= 0) {
+    return raw;
+  }
+  return raw.length > maxLength ? `${raw.slice(0, Math.max(1, maxLength - 3))}...` : raw;
 };
 
 const isPlaywrightBrowserMissingError = (error) => {
@@ -2437,7 +2440,7 @@ export const replicateSectionFromReferencePipeline = async ({ shopifyClient, api
         attempts,
       };
     } catch (error) {
-      const runtimeMessage = formatErrorMessage(error);
+      const runtimeMessage = formatErrorMessage(error, 4000);
       const issueCode = isPlaywrightBrowserMissingError(error) ? "browser_runtime_unavailable" : "runtime_error";
       attemptLog.runtimeError = {
         code: issueCode,
