@@ -25,7 +25,11 @@ npm run --workspace @hazify/mcp-remote start:fallback:stdio
 ## Section workflow (v3)
 - `replicate-section-from-reference` (mutating autopipeline met strict visual gate)
 - Input: `referenceUrl` (+ optioneel `visionHints`, `imageUrls`)
-- Output: `status=pass|fail`, `validation`, `visualGate`, en `writes` alleen bij `pass`
+- Output: `status=pass|fail`, `validation`, `visualGate`, `policy`, en `writes` alleen bij `pass`
+
+## Playwright runtime
+- Chromium wordt standaard geïnstalleerd via `postinstall`.
+- Voor runtime-consistentie: gebruik `PLAYWRIGHT_BROWSERS_PATH=0` (aanbevolen voor Railway).
 
 ## Tests
 ```bash

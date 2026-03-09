@@ -29,15 +29,18 @@
 - `HAZIFY_MCP_API_KEY`
 - `HAZIFY_MCP_PUBLIC_URL`
 - `HAZIFY_MCP_AUTH_SERVER_URL`
+- `PLAYWRIGHT_BROWSERS_PATH=0`
 - `HAZIFY_SECTION_V3_REFERENCE_TIMEOUT_MS` (optioneel)
 - `HAZIFY_SECTION_V3_BROWSER_TIMEOUT_MS` (optioneel)
 - `HAZIFY_SECTION_V3_PIXEL_THRESHOLD` (optioneel)
+- `HAZIFY_PLAYWRIGHT_INSTALL` (optioneel, default aan)
+- `HAZIFY_PLAYWRIGHT_INSTALL_STRICT` (optioneel, default aan in CI/Railway)
 
 ## Deploy checks
 1. `npm run verify:shared`
 2. `npm run build`
 3. `npm test`
-4. `npx playwright install chromium` (of image met Chromium preinstalled)
+4. Bevestig in buildlogs dat `postinstall` Playwright Chromium installeert (geen ontbrekende executable errors)
 5. `npm run check:git-sync`
 6. `npm run smoke:prod`
 7. MCP `initialize` + `tools/list` contracttest in `tests/e2e/contract.test.mjs`

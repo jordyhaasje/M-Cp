@@ -1,9 +1,14 @@
 import crypto from "crypto";
+import fs from "node:fs";
 import { z } from "zod";
 import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
 import { chromium } from "playwright";
 import { getThemeFile, resolveTheme, upsertThemeFile } from "./themeFiles.js";
+
+if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
+}
 
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 
@@ -118,6 +123,23 @@ export const ReplicateSectionFromReferenceInputSchema = z.object({
 });
 
 const toIsoNow = () => new Date().toISOString();
+
+const formatErrorMessage = (error) => {
+  const raw = error instanceof Error ? error.message : String(error);
+  return raw.length > 500 ? `${raw.slice(0, 497)}...` : raw;
+};
+
+const isPlaywrightBrowserMissingError = (error) => {
+  const message = formatErrorMessage(error).toLowerCase();
+  if (error && typeof error === "object" && error.code === "browser_runtime_unavailable") {
+    return true;
+  }
+  return (
+    message.includes("executable doesn't exist") ||
+    (message.includes("playwright") && message.includes("install")) ||
+    message.includes("chrome-headless-shell")
+  );
+};
 
 const tokenize = (value) =>
   Array.from(
@@ -1559,11 +1581,32 @@ const renderSlideshowPreviewHtml = ({ heading, slides, css }) => {
 
 const bufferToBase64 = (buffer) => Buffer.from(buffer).toString("base64");
 
-const createBrowser = async () =>
-  chromium.launch({
-    headless: true,
-    args: ["--disable-dev-shm-usage", "--no-sandbox"],
-  });
+const createBrowser = async () => {
+  const executablePath = chromium.executablePath();
+  if (executablePath && !fs.existsSync(executablePath)) {
+    const error = new Error(
+      `Chromium executable niet gevonden op '${executablePath}'. Zorg dat Playwright Chromium in de runtime-image is geïnstalleerd.`
+    );
+    error.code = "browser_runtime_unavailable";
+    throw error;
+  }
+
+  try {
+    return await chromium.launch({
+      headless: true,
+      args: ["--disable-dev-shm-usage", "--no-sandbox"],
+    });
+  } catch (error) {
+    if (isPlaywrightBrowserMissingError(error)) {
+      const runtimeError = new Error(
+        `Playwright browser binary ontbreekt in runtime. ${formatErrorMessage(error)}`
+      );
+      runtimeError.code = "browser_runtime_unavailable";
+      throw runtimeError;
+    }
+    throw error;
+  }
+};
 
 const defaultCaptureReference = async ({ referenceUrl, archetype, visionHints }) => {
   const browser = await createBrowser();
@@ -1782,12 +1825,53 @@ const buildFailureResponse = ({
   validation,
   visualGate,
   writes: null,
+  policy: {
+    writesAllowed: false,
+    manualFallbackAllowed: false,
+    nextAction: "stop_and_report_failure",
+  },
   attempts,
   telemetry: {
     pipeline: "section-replication-v3",
     generatedAt: toIsoNow(),
   },
 });
+
+const buildRuntimeFailureResponse = ({ errorCode = "reference_unreachable", message, issueCode, attempts = [] }) => {
+  const runtimeIssue = issue(
+    "error",
+    issueCode || "runtime_error",
+    message || "Runtime fout tijdens section replicatie."
+  );
+
+  return buildFailureResponse({
+    errorCode,
+    message: `Section replication v3 faalde: ${errorCode}.`,
+    archetype: null,
+    confidence: 0,
+    validation: {
+      status: "fail",
+      checks: {
+        themeContext: toValidationCheck("themeContext", []),
+        schema: toValidationCheck("schema", []),
+        bundle: toValidationCheck("bundle", [runtimeIssue]),
+        visual: toValidationCheck("visual", []),
+      },
+      issues: [runtimeIssue],
+    },
+    visualGate: {
+      status: "fail",
+      perViewport: PREVIEW_TARGETS.map((entry) => ({
+        id: entry.id,
+        pass: false,
+        mismatchRatio: 1,
+        threshold: entry.threshold,
+        error: issueCode || "runtime_error",
+      })),
+    },
+    attempts,
+  });
+};
 
 const classifyFailureCode = ({ schemaIssues, themeIssues, visualStatus, referenceViews, archetype }) => {
   if ((referenceViews || []).every((entry) => !entry.ok)) {
@@ -1815,6 +1899,73 @@ const classifyFailureCode = ({ schemaIssues, themeIssues, visualStatus, referenc
   }
 
   return "visual_gate_fail";
+};
+
+const validateTemplateInstallReadback = ({ templateValue, templateKey, sectionId, sectionHandle }) => {
+  const issues = [];
+  let parsedTemplate = null;
+
+  try {
+    parsedTemplate = ensureJsonTemplateStructure(templateValue, templateKey);
+  } catch (error) {
+    issues.push(
+      issue(
+        "error",
+        "template_insert_invalid",
+        `Template readback parse mislukt voor '${templateKey}': ${formatErrorMessage(error)}`
+      )
+    );
+    return {
+      status: "fail",
+      issues,
+      sectionPresent: false,
+      orderContainsSection: false,
+      sectionType: null,
+    };
+  }
+
+  const templateSection = parsedTemplate.sections?.[sectionId];
+  const sectionPresent = Boolean(templateSection);
+  const orderContainsSection = Array.isArray(parsedTemplate.order) && parsedTemplate.order.includes(sectionId);
+  const sectionType = templateSection?.type || null;
+
+  if (!sectionPresent) {
+    issues.push(
+      issue(
+        "error",
+        "template_insert_invalid",
+        `Template '${templateKey}' mist section instance '${sectionId}' na write/readback.`
+      )
+    );
+  }
+
+  if (sectionPresent && sectionType !== sectionHandle) {
+    issues.push(
+      issue(
+        "error",
+        "template_insert_invalid",
+        `Template '${templateKey}' heeft voor '${sectionId}' type '${sectionType}', verwacht '${sectionHandle}'.`
+      )
+    );
+  }
+
+  if (!orderContainsSection) {
+    issues.push(
+      issue(
+        "error",
+        "template_insert_invalid",
+        `Template '${templateKey}' bevat section '${sectionId}' niet in order-array na write/readback.`
+      )
+    );
+  }
+
+  return {
+    status: issues.some((entry) => entry.severity === "error") ? "fail" : "pass",
+    issues,
+    sectionPresent,
+    orderContainsSection,
+    sectionType,
+  };
 };
 
 const applyWrites = async ({
@@ -1910,6 +2061,7 @@ const applyWrites = async ({
   const verification = {
     section: null,
     template: null,
+    templateInstall: null,
     additionalFiles: [],
   };
 
@@ -1926,6 +2078,14 @@ const applyWrites = async ({
         key: input.templateKey,
       });
       verification.template = summarizeAssetRead(templateRead.asset);
+      if (templateUpdate?.sectionId) {
+        verification.templateInstall = validateTemplateInstallReadback({
+          templateValue: templateRead.asset?.value || "",
+          templateKey: input.templateKey,
+          sectionId: templateUpdate.sectionId,
+          sectionHandle,
+        });
+      }
     }
 
     for (const write of additionalWrites) {
@@ -1970,7 +2130,42 @@ const mergeViewHtml = (views) =>
     .trim();
 
 export const replicateSectionFromReferencePipeline = async ({ shopifyClient, apiVersion, input }) => {
-  const parsedInput = ReplicateSectionFromReferenceInputSchema.parse(input);
+  const parsedInputResult = ReplicateSectionFromReferenceInputSchema.safeParse(input);
+  if (!parsedInputResult.success) {
+    const schemaIssues = parsedInputResult.error.issues.map((entry) =>
+      issue("error", "schema_invalid", `Input '${entry.path.join(".") || "root"}' is ongeldig: ${entry.message}`)
+    );
+
+    return buildFailureResponse({
+      errorCode: "schema_invalid",
+      message: "Section replication v3 faalde: schema_invalid.",
+      archetype: null,
+      confidence: 0,
+      validation: {
+        status: "fail",
+        checks: {
+          themeContext: toValidationCheck("themeContext", []),
+          schema: toValidationCheck("schema", schemaIssues),
+          bundle: toValidationCheck("bundle", []),
+          visual: toValidationCheck("visual", []),
+        },
+        issues: schemaIssues,
+      },
+      visualGate: {
+        status: "fail",
+        perViewport: PREVIEW_TARGETS.map((entry) => ({
+          id: entry.id,
+          pass: false,
+          mismatchRatio: 1,
+          threshold: entry.threshold,
+          error: "input_invalid",
+        })),
+      },
+      attempts: [],
+    });
+  }
+
+  const parsedInput = parsedInputResult.data;
   const sectionHandle = deriveSectionHandle(parsedInput);
   const sectionKey = `sections/${sectionHandle}.liquid`;
 
@@ -1982,201 +2177,232 @@ export const replicateSectionFromReferencePipeline = async ({ shopifyClient, api
       startedAt: toIsoNow(),
     };
 
-    const referenceViews = await activeRuntime.captureReference({
-      referenceUrl: parsedInput.referenceUrl,
-      archetype: null,
-      visionHints: parsedInput.visionHints,
-      attempt,
-    });
+    try {
+      const referenceViews = await activeRuntime.captureReference({
+        referenceUrl: parsedInput.referenceUrl,
+        archetype: null,
+        visionHints: parsedInput.visionHints,
+        attempt,
+      });
 
-    attemptLog.referenceViews = (referenceViews || []).map((entry) => ({
-      id: entry.id,
-      ok: Boolean(entry.ok),
-      statusCode: entry.statusCode || null,
-      error: entry.error || null,
-      clip: entry.clip || null,
-      target: entry.target
-        ? {
-            selector: entry.target.selector,
-            score: entry.target.score,
-            heading: entry.target.heading,
-          }
-        : null,
-    }));
+      attemptLog.referenceViews = (referenceViews || []).map((entry) => ({
+        id: entry.id,
+        ok: Boolean(entry.ok),
+        statusCode: entry.statusCode || null,
+        error: entry.error || null,
+        clip: entry.clip || null,
+        target: entry.target
+          ? {
+              selector: entry.target.selector,
+              score: entry.target.score,
+              heading: entry.target.heading,
+            }
+          : null,
+      }));
 
-    if ((referenceViews || []).every((entry) => !entry.ok)) {
-      attempts.push(attemptLog);
-      continue;
-    }
-
-    if ((referenceViews || []).some((entry) => entry.error === "target_detection_failed")) {
-      attempts.push(attemptLog);
-      continue;
-    }
-
-    const mergedText = mergeViewText(referenceViews);
-    const mergedHtml = mergeViewHtml(referenceViews);
-
-    const archetypeMatch = detectArchetype({
-      referenceUrl: parsedInput.referenceUrl,
-      mergedText,
-      visionHints: parsedInput.visionHints,
-    });
-
-    if (!archetypeMatch) {
-      attemptLog.archetype = null;
-      attempts.push(attemptLog);
-      continue;
-    }
-
-    attemptLog.archetype = archetypeMatch.archetype;
-    attemptLog.confidence = archetypeMatch.confidence;
-
-    const referenceContext = {
-      views: referenceViews,
-      mergedText,
-      mergedHtml,
-    };
-
-    const generated = buildArchetypeBundle({
-      archetype: archetypeMatch.archetype,
-      sectionHandle,
-      reference: referenceContext,
-      imageUrls: parsedInput.imageUrls,
-      attempt,
-    });
-
-    const lint = lintSchema(generated.schema);
-
-    const themePreflight = await runThemeContextPreflight({
-      shopifyClient,
-      apiVersion,
-      themeId: parsedInput.themeId,
-      themeRole: parsedInput.themeRole,
-      sectionHandle,
-      sectionKey,
-      overwriteSection: parsedInput.overwriteSection,
-      addToTemplate: parsedInput.addToTemplate,
-      templateKey: parsedInput.templateKey,
-      insertPosition: parsedInput.insertPosition,
-      referenceSectionId: parsedInput.referenceSectionId,
-      sectionInstanceId: parsedInput.sectionInstanceId,
-    });
-
-    const compiled = buildSectionLiquid({
-      sectionHandle,
-      sectionMarkup: generated.sectionMarkup,
-      schema: generated.schema,
-      css: generated.css,
-      js: generated.js,
-    });
-
-    const candidateViews = await activeRuntime.renderCandidateViews({
-      previewHtml: generated.previewHtml,
-      referenceViews,
-      archetype: archetypeMatch.archetype,
-      attempt,
-    });
-
-    const visualGate = await activeRuntime.compareVisualGate({
-      referenceViews,
-      candidateViews,
-      archetype: archetypeMatch.archetype,
-      attempt,
-    });
-
-    const visualIssues = [];
-    for (const result of visualGate.perViewport || []) {
-      if (!result.pass) {
-        visualIssues.push(
-          issue(
-            "error",
-            "visual_gate_fail",
-            `Visual gate '${result.id}' mismatch ${Number(result.mismatchRatio || 1).toFixed(4)} > ${Number(result.threshold || 0).toFixed(4)}.`
-          )
-        );
-      }
-    }
-
-    const schemaIssues = lint.issues || [];
-    const themeIssues = themePreflight.issues || [];
-    const validationIssues = [...schemaIssues, ...themeIssues, ...visualIssues];
-
-    const validation = {
-      status: deriveStatus(validationIssues),
-      checks: {
-        themeContext: toValidationCheck("themeContext", themeIssues),
-        schema: toValidationCheck("schema", schemaIssues),
-        bundle: toValidationCheck("bundle", []),
-        visual: toValidationCheck("visual", visualIssues),
-      },
-      issues: validationIssues,
-    };
-
-    attemptLog.validation = {
-      status: validation.status,
-      issues: validation.issues,
-    };
-
-    if (validation.status !== "pass") {
-      attempts.push(attemptLog);
-      if (attempt < parsedInput.maxAttempts) {
+      if ((referenceViews || []).every((entry) => !entry.ok)) {
+        attempts.push(attemptLog);
         continue;
       }
 
-      const errorCode = classifyFailureCode({
-        schemaIssues,
-        themeIssues,
-        visualStatus: visualGate.status,
-        referenceViews,
-        archetype: archetypeMatch.archetype,
+      if ((referenceViews || []).some((entry) => entry.error === "target_detection_failed")) {
+        attempts.push(attemptLog);
+        continue;
+      }
+
+      const mergedText = mergeViewText(referenceViews);
+      const mergedHtml = mergeViewHtml(referenceViews);
+
+      const archetypeMatch = detectArchetype({
+        referenceUrl: parsedInput.referenceUrl,
+        mergedText,
+        visionHints: parsedInput.visionHints,
       });
 
-      return buildFailureResponse({
-        errorCode,
-        message: `Section replication v3 faalde: ${errorCode}.`,
+      if (!archetypeMatch) {
+        attemptLog.archetype = null;
+        attempts.push(attemptLog);
+        continue;
+      }
+
+      attemptLog.archetype = archetypeMatch.archetype;
+      attemptLog.confidence = archetypeMatch.confidence;
+
+      const referenceContext = {
+        views: referenceViews,
+        mergedText,
+        mergedHtml,
+      };
+
+      const generated = buildArchetypeBundle({
+        archetype: archetypeMatch.archetype,
+        sectionHandle,
+        reference: referenceContext,
+        imageUrls: parsedInput.imageUrls,
+        attempt,
+      });
+
+      const lint = lintSchema(generated.schema);
+
+      const themePreflight = await runThemeContextPreflight({
+        shopifyClient,
+        apiVersion,
+        themeId: parsedInput.themeId,
+        themeRole: parsedInput.themeRole,
+        sectionHandle,
+        sectionKey,
+        overwriteSection: parsedInput.overwriteSection,
+        addToTemplate: parsedInput.addToTemplate,
+        templateKey: parsedInput.templateKey,
+        insertPosition: parsedInput.insertPosition,
+        referenceSectionId: parsedInput.referenceSectionId,
+        sectionInstanceId: parsedInput.sectionInstanceId,
+      });
+
+      const compiled = buildSectionLiquid({
+        sectionHandle,
+        sectionMarkup: generated.sectionMarkup,
+        schema: generated.schema,
+        css: generated.css,
+        js: generated.js,
+      });
+
+      const candidateViews = await activeRuntime.renderCandidateViews({
+        previewHtml: generated.previewHtml,
+        referenceViews,
+        archetype: archetypeMatch.archetype,
+        attempt,
+      });
+
+      const visualGate = await activeRuntime.compareVisualGate({
+        referenceViews,
+        candidateViews,
+        archetype: archetypeMatch.archetype,
+        attempt,
+      });
+
+      const visualIssues = [];
+      for (const result of visualGate.perViewport || []) {
+        if (!result.pass) {
+          visualIssues.push(
+            issue(
+              "error",
+              "visual_gate_fail",
+              `Visual gate '${result.id}' mismatch ${Number(result.mismatchRatio || 1).toFixed(4)} > ${Number(result.threshold || 0).toFixed(4)}.`
+            )
+          );
+        }
+      }
+
+      const schemaIssues = lint.issues || [];
+      const themeIssues = themePreflight.issues || [];
+      const validationIssues = [...schemaIssues, ...themeIssues, ...visualIssues];
+
+      const validation = {
+        status: deriveStatus(validationIssues),
+        checks: {
+          themeContext: toValidationCheck("themeContext", themeIssues),
+          schema: toValidationCheck("schema", schemaIssues),
+          bundle: toValidationCheck("bundle", []),
+          visual: toValidationCheck("visual", visualIssues),
+        },
+        issues: validationIssues,
+      };
+
+      attemptLog.validation = {
+        status: validation.status,
+        issues: validation.issues,
+      };
+
+      if (validation.status !== "pass") {
+        attempts.push(attemptLog);
+        if (attempt < parsedInput.maxAttempts) {
+          continue;
+        }
+
+        const errorCode = classifyFailureCode({
+          schemaIssues,
+          themeIssues,
+          visualStatus: visualGate.status,
+          referenceViews,
+          archetype: archetypeMatch.archetype,
+        });
+
+        return buildFailureResponse({
+          errorCode,
+          message: `Section replication v3 faalde: ${errorCode}.`,
+          archetype: archetypeMatch.archetype,
+          confidence: archetypeMatch.confidence,
+          validation,
+          visualGate,
+          attempts,
+        });
+      }
+
+      const writes = await applyWrites({
+        shopifyClient,
+        apiVersion,
+        input: parsedInput,
+        sectionHandle,
+        sectionKey,
+        sectionLiquid: compiled.sectionLiquid,
+        additionalFiles: compiled.additionalFiles,
+      });
+
+      attempts.push(attemptLog);
+
+      return {
+        action: "replicate_section_from_reference",
+        status: "pass",
         archetype: archetypeMatch.archetype,
         confidence: archetypeMatch.confidence,
         validation,
         visualGate,
-        attempts,
-      });
-    }
-
-    const writes = await applyWrites({
-      shopifyClient,
-      apiVersion,
-      input: parsedInput,
-      sectionHandle,
-      sectionKey,
-      sectionLiquid: compiled.sectionLiquid,
-      additionalFiles: compiled.additionalFiles,
-    });
-
-    attempts.push(attemptLog);
-
-    return {
-      action: "replicate_section_from_reference",
-      status: "pass",
-      archetype: archetypeMatch.archetype,
-      confidence: archetypeMatch.confidence,
-      validation,
-      visualGate,
-      writes: {
-        ...writes,
-        section: {
-          ...writes.section,
-          schema: compiled.schemaSummary,
+        writes: {
+          ...writes,
+          section: {
+            ...writes.section,
+            schema: compiled.schemaSummary,
+          },
         },
-      },
-      telemetry: {
-        pipeline: "section-replication-v3",
-        generatedAt: toIsoNow(),
-        attempts: attempts.length,
-        referenceHash: crypto.createHash("sha256").update(`${parsedInput.referenceUrl}|${parsedInput.visionHints || ""}`).digest("hex"),
-      },
-      attempts,
-    };
+        policy: {
+          writesAllowed: true,
+          manualFallbackAllowed: false,
+          nextAction: "verify_readback",
+        },
+        telemetry: {
+          pipeline: "section-replication-v3",
+          generatedAt: toIsoNow(),
+          attempts: attempts.length,
+          referenceHash: crypto
+            .createHash("sha256")
+            .update(`${parsedInput.referenceUrl}|${parsedInput.visionHints || ""}`)
+            .digest("hex"),
+        },
+        attempts,
+      };
+    } catch (error) {
+      const runtimeMessage = formatErrorMessage(error);
+      const issueCode = isPlaywrightBrowserMissingError(error) ? "browser_runtime_unavailable" : "runtime_error";
+      attemptLog.runtimeError = {
+        code: issueCode,
+        message: runtimeMessage,
+      };
+      attempts.push(attemptLog);
+
+      if (issueCode === "browser_runtime_unavailable" || attempt >= parsedInput.maxAttempts) {
+        const userMessage =
+          issueCode === "browser_runtime_unavailable"
+            ? "Playwright Chromium ontbreekt in runtime. Installeer browser-binaries tijdens deploy zodat capture en visual gate kunnen draaien."
+            : `Runtime fout tijdens section replicatie: ${runtimeMessage}`;
+        return buildRuntimeFailureResponse({
+          errorCode: "reference_unreachable",
+          message: userMessage,
+          issueCode,
+          attempts,
+        });
+      }
+    }
   }
 
   const sawTargetDetectionFailure = attempts.some((attempt) =>

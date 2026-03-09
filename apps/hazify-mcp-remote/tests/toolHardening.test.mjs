@@ -449,6 +449,30 @@ try {
   assert.equal(unreachableReplica.writes, null);
 
   __setSectionReplicationV3RuntimeForTests({
+    captureReference: async () => {
+      const error = new Error(
+        "browserType.launch: Executable doesn't exist at /root/.cache/ms-playwright/chromium/chrome"
+      );
+      error.code = "browser_runtime_unavailable";
+      throw error;
+    },
+  });
+
+  const missingBrowserReplica = await replicateSectionFromReference.execute({
+    referenceUrl: "https://section.store/pages/feature-15",
+    maxAttempts: 1,
+  });
+  assert.equal(missingBrowserReplica.status, "fail");
+  assert.equal(missingBrowserReplica.errorCode, "reference_unreachable");
+  assert.equal(missingBrowserReplica.writes, null);
+  assert.equal(missingBrowserReplica.policy.writesAllowed, false);
+  assert.equal(missingBrowserReplica.policy.manualFallbackAllowed, false);
+  assert.ok(
+    missingBrowserReplica.validation.issues.some((entry) => entry.code === "browser_runtime_unavailable"),
+    "missing browser runtime should return explicit browser_runtime_unavailable issue"
+  );
+
+  __setSectionReplicationV3RuntimeForTests({
     captureReference: async () => [
       {
         id: "desktop",

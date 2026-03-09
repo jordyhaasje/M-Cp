@@ -67,8 +67,10 @@ Verplichte flow:
    - `status=pass|fail`
    - `archetype`, `confidence`
    - `validation` en `visualGate` per desktop/mobile
+   - `policy` (`writesAllowed`, `manualFallbackAllowed`, `nextAction`)
    - `writes` alleen bij `status=pass`
-4. Verifieer met `get-theme-file` op:
+4. Als `status=fail` of `policy.writesAllowed=false`: stop zonder handmatige section-import en rapporteer foutcode.
+5. Verifieer met `get-theme-file` op:
    - `sections/<handle>.liquid`
    - template JSON (`sections` + `order`)
    - geschreven assets

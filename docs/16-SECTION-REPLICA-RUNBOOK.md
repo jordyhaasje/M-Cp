@@ -5,7 +5,9 @@ Deterministische section-replicatie via 1 mutating tool, met harde visuele gate 
 
 ## Runtime prerequisites
 - `playwright` + Chromium moeten beschikbaar zijn op de MCP host.
-- In CI/deploy: installeer browser binaries vóór runtime-start (bijv. `npx playwright install chromium`).
+- Browser-install gebeurt standaard via `postinstall` in `@hazify/mcp-remote`.
+- Zet in productie `PLAYWRIGHT_BROWSERS_PATH=0` zodat runtime dezelfde ingebakken browser-binaries gebruikt.
+- Alleen wanneer je expliciet wilt overslaan: `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` of `HAZIFY_PLAYWRIGHT_INSTALL=0`.
 
 ## Publieke tool
 - `replicate-section-from-reference`
@@ -45,6 +47,10 @@ Optioneel:
 - `visualGate` met desktop/mobile mismatch ratio + thresholds
 - `writes` alleen bij `status=pass`
 - `errorCode` bij `status=fail`
+- `policy`:
+  - `writesAllowed=true|false`
+  - `manualFallbackAllowed=false` (altijd)
+  - `nextAction` met vervolgactie voor agent
 
 ## Archetypes (v3 start)
 - `feature-tabs-media-slider` (Feature #15-achtig)
@@ -76,7 +82,8 @@ Minimaal ondersteund:
    - `validation.checks`
    - `visualGate.perViewport`
 3. Alleen bij `status=pass`: readback controleren met `get-theme-file`.
-4. Rapporteer:
+4. Bij `status=fail` of `policy.writesAllowed=false`: stop en rapporteer fout; geen handmatige section-import uitvoeren.
+5. Rapporteer:
    - section key
    - template key + section id
    - assets die geschreven zijn

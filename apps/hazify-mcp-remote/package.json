@@ -11,6 +11,7 @@
   },
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/install-playwright-chromium.mjs",
     "build": "node scripts/copy-src-to-dist.mjs ./src ./dist",
     "prestart": "npm run build",
     "start": "node dist/index.js",

@@ -14,6 +14,7 @@ Dit document bevat operationele regels voor ChatGPT connector-gebruik.
 4. `imageUrls` is optioneel voor publieke image links.
 5. Voer alleen writes uit bij `status=pass`; bij `status=fail` geen mutaties uitvoeren.
 6. Verifieer writes met `get-theme-file` zodra `status=pass` is geretourneerd.
+7. Als output `policy.writesAllowed=false` of `errorCode` aanwezig is: stop direct en rapporteer de fout, zonder handmatige replica/import.
 
 ## Referenties
 - Contract runbook: `docs/16-SECTION-REPLICA-RUNBOOK.md`
