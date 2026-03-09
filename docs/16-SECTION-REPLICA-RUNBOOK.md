@@ -73,6 +73,9 @@ Productiepolicy:
 - `preview_reference_unreachable`
 - `preview_low_keyword_overlap`
 
+Voorbeeld `schema_lint_error`:
+- lege defaults voor string setting types (zoals `text`, `textarea`, `url`) worden al in `prepare` geblokkeerd.
+
 ## Legacy compatibiliteit
 - `build-theme-section-bundle` en `import-section-to-live-theme` zijn wrappers op v2, maar standaard uitgeschakeld.
 - Responses bevatten `deprecation` metadata.

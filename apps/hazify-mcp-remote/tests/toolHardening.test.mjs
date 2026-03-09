@@ -440,6 +440,48 @@ try {
       autoPreparedReplica.sectionSpec.presets[0].blocks.length >= 1,
     "auto-generated section should include preset blocks for Theme Editor"
   );
+  assert.ok(
+    !autoPreparedReplica.sectionSpec.settings.some(
+      (setting) => setting?.id === "eyebrow" && Object.prototype.hasOwnProperty.call(setting, "default")
+    ),
+    "auto-generated section should not set empty defaults for text settings"
+  );
+
+  const invalidDefaultPlan = await prepareSectionReplica.execute({
+    referenceUrl: "https://example.com/replica",
+    imageUrls: [],
+    previewRequired: true,
+    sectionHandle: "Invalid Default Section",
+    sectionSpec: {
+      ...v2Spec,
+      name: "Invalid Default Section",
+      settings: [
+        { type: "text", id: "headline", label: "Headline", default: "" },
+      ],
+      presets: [{ name: "Invalid Default Section" }],
+      markup: {
+        mode: "structured",
+        sectionItems: [{ kind: "heading", settingId: "headline", tag: "h2" }],
+        blockLayouts: [],
+      },
+      blocks: [],
+      assets: { css: "", snippets: [], files: [] },
+    },
+    overwriteSection: true,
+    addToTemplate: false,
+    applyOn: "pass",
+  });
+  assert.equal(
+    invalidDefaultPlan.validation?.preflight?.status,
+    "fail",
+    "prepare should fail early on empty default values that Shopify rejects"
+  );
+  assert.ok(
+    (invalidDefaultPlan.validation?.preflight?.issues || []).some(
+      (issue) => issue?.code === "schema_lint_error" && String(issue?.message || "").includes("lege default")
+    ),
+    "prepare should surface schema_lint_error for empty defaults"
+  );
 
   const failedPreviewPlan = await prepareSectionReplica.execute({
     referenceUrl: "https://preview-unreachable.invalid/replica",

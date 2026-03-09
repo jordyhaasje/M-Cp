@@ -13,6 +13,7 @@ Dit document bevat operationele regels voor ChatGPT connector-gebruik.
 3. Controleer `validation.preflight` inclusief `themeContext`, `schema`, `bundle`, `preview`.
 4. Gebruik `apply-section-replica` alleen bij status `pass`.
 5. Verifieer writes met `get-theme-file`.
+6. Bij `schema_lint_error`: corrigeer lege defaults (bijv. `text` setting default `""` is ongeldig).
 
 ## Legacy tools
 - `build-theme-section-bundle` en `import-section-to-live-theme` bestaan tijdelijk als deprecated wrappers, maar staan standaard uit.

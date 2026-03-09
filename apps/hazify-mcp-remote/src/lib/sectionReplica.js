@@ -249,6 +249,21 @@ const SCHEMA_BLOCK_REGEX = /{%\s*schema\s*%}([\s\S]*?){%\s*endschema\s*%}/i;
 const SECTION_PLAN_TTL_MS = Number(process.env.HAZIFY_SECTION_PLAN_TTL_MS || 60 * 60 * 1000);
 const ID_OPTIONAL_SETTING_TYPES = new Set(["header", "paragraph", "note"]);
 const ALLOWED_ADDITIONAL_PREFIXES = ["assets/", "snippets/", "locales/", "blocks/"];
+const SETTING_TYPES_WITHOUT_DEFAULT = new Set([
+  "article",
+  "blog",
+  "collection",
+  "image_picker",
+  "page",
+  "product",
+]);
+const NON_EMPTY_STRING_DEFAULT_TYPES = new Set([
+  "text",
+  "textarea",
+  "url",
+  "inline_richtext",
+  "liquid",
+]);
 const REQUIRE_PASS_FOR_APPLY = String(process.env.HAZIFY_SECTION_REPLICA_REQUIRE_PASS || "true").toLowerCase() !== "false";
 const AUTO_SPEC_ENABLED = String(process.env.HAZIFY_SECTION_AUTO_SPEC_ENABLED || "true").toLowerCase() !== "false";
 
@@ -703,17 +718,18 @@ const buildAutoSectionSpecFromReference = ({ sectionHandle, referenceSnapshots, 
   const blockDefaults = selectedTabs.map((tabTitle, index) => {
     const body = bodyCandidates[index] || bodyCandidates[0] || "Describe this feature here.";
     const imageUrl = imageUrls[index] || imageUrls[0] || "";
+    const settings = {
+      tab_title: tabTitle,
+      heading: tabTitle,
+      body: toRichtextParagraph(body),
+      image_alt: tabTitle,
+    };
+    if (imageUrl) {
+      settings.image_url = imageUrl;
+    }
     return {
       type: "feature",
-      settings: {
-        tab_title: tabTitle,
-        heading: tabTitle,
-        body: toRichtextParagraph(body),
-        image_url: imageUrl,
-        image_alt: tabTitle,
-        cta_label: "",
-        cta_url: "",
-      },
+      settings,
     };
   });
 
@@ -725,7 +741,7 @@ const buildAutoSectionSpecFromReference = ({ sectionHandle, referenceSnapshots, 
     tag: "section",
     className: "hz-feature-replica-section",
     settings: [
-      { type: "text", id: "eyebrow", label: "Eyebrow", default: "" },
+      { type: "text", id: "eyebrow", label: "Eyebrow" },
       { type: "text", id: "heading", label: "Heading", default: heading },
       { type: "color", id: "bg_color", label: "Background color", default: "#f1eadf" },
       { type: "color", id: "text_color", label: "Text color", default: "#1b1b1b" },
@@ -806,6 +822,49 @@ const humanizeHandle = (handle) =>
     .trim() || "Custom Section";
 
 const uniqueStrings = (values) => Array.from(new Set(values.filter((value) => typeof value === "string" && value.trim())));
+
+const hasOwn = (value, key) => Boolean(value && Object.prototype.hasOwnProperty.call(value, key));
+
+const validateSettingDefaultRules = ({ setting, settingType, scopeLabel, errors }) => {
+  if (!hasOwn(setting, "default")) {
+    return;
+  }
+
+  const defaultValue = setting.default;
+
+  if (SETTING_TYPES_WITHOUT_DEFAULT.has(settingType)) {
+    errors.push(`${scopeLabel} type '${settingType}' ondersteunt geen 'default' attribuut.`);
+    return;
+  }
+
+  if (typeof defaultValue === "string" && NON_EMPTY_STRING_DEFAULT_TYPES.has(settingType) && !defaultValue.trim()) {
+    errors.push(`${scopeLabel} type '${settingType}' heeft een lege default string; laat 'default' weg of geef een niet-lege waarde.`);
+  }
+
+  if (settingType === "select" && Array.isArray(setting.options) && setting.options.length > 0) {
+    const optionValues = setting.options
+      .map((option) => (option && typeof option === "object" ? option.value : undefined))
+      .filter((value) => value !== undefined)
+      .map((value) => String(value));
+    if (optionValues.length > 0 && !optionValues.includes(String(defaultValue))) {
+      errors.push(`${scopeLabel} type 'select' heeft default '${String(defaultValue)}' die niet voorkomt in options.`);
+    }
+  }
+
+  if (settingType === "text_alignment") {
+    const allowed = new Set(["left", "center", "right"]);
+    if (!allowed.has(String(defaultValue))) {
+      errors.push(`${scopeLabel} type 'text_alignment' heeft ongeldige default '${String(defaultValue)}'.`);
+    }
+  }
+
+  if (settingType === "link_list") {
+    const allowed = new Set(["main-menu", "footer"]);
+    if (!allowed.has(String(defaultValue))) {
+      errors.push(`${scopeLabel} type 'link_list' heeft ongeldige default '${String(defaultValue)}' (toegestaan: main-menu, footer).`);
+    }
+  }
+};
 
 const ensureJsonTemplateStructure = (rawValue, templateKey) => {
   let parsed;
@@ -921,6 +980,13 @@ const lintSectionSpec = (sectionSpec) => {
       }
       sectionIdSet.add(settingId);
     }
+
+    validateSettingDefaultRules({
+      setting,
+      settingType,
+      scopeLabel: `section.settings '${settingId || settingType}'`,
+      errors,
+    });
   }
 
   const blockTypeSet = new Set();
@@ -960,6 +1026,13 @@ const lintSectionSpec = (sectionSpec) => {
         }
         blockIdSet.add(settingId);
       }
+
+      validateSettingDefaultRules({
+        setting,
+        settingType,
+        scopeLabel: `block '${blockType}' setting '${settingId || settingType}'`,
+        errors,
+      });
     }
 
     blockSettingIdsByType.set(blockType, new Set(blockIds));
