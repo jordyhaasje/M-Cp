@@ -56,34 +56,30 @@ Voorbeeld (`mcp-remote`):
 3. token revoke -> nieuwe request faalt
 4. disallowed origin -> request faalt
 
-## AI workflow: section bouwen op basis van afbeelding + referentie-URL
+## Section workflow (ChatGPT-first)
 Belangrijk: beeldanalyse gebeurt door de AI-client (bijv. ChatGPT), niet door de MCP backend.
 
-Aanpak:
-1. Laat AI eerst de gewenste section structureren (layout, typografie, spacing, blocks, settings).
-2. Gebruik primair `build-theme-section-bundle`:
-   - schrijft section liquid
-   - valideert schema + presets
-   - voegt section toe aan template order
-   - schrijft extra assets/snippets
-   - verifieert geschreven bestanden
-3. Gebruik `import-section-to-live-theme` alleen als fallback voor losse section writes.
+Verplichte flow:
+1. `prepare-section-replica`
+2. controleer `validation.preflight.status` + `checks` + `previewTargets`
+3. `apply-section-replica` (alleen bij status `pass` of `warn` volgens policy)
+4. verifieer met `get-theme-file` op:
+   - `sections/<handle>.liquid`
+   - template JSON (`sections` + `order`)
+   - geschreven assets/snippets
 
-Waarom deze flow:
-- Zonder `presets` verschijnt de section niet in **Add section** in Theme Editor.
-- Zonder template insertie staat de section vaak niet op de pagina-volgorde.
+Inputcontract voor gebruikers:
+- korte opdracht
+- referentie-URL (verplicht)
+- optionele afbeelding(en)
 
-## Eenmalige GPT-instructie (niet per chat)
-Plaats dit in de GPT system instructions:
+## Clientselectie en hosting
+- ChatGPT productie: selecteer standaard alleen Hazify MCP voor section-taken.
+- Chrome DevTools MCP en Shopify Dev MCP:
+  - niet customer-facing hosten als extra publieke Railway services
+  - alleen intern/dev gebruiken wanneer nodig voor visuele controle of extra validatie
 
-```text
-Bij verzoeken om Shopify section implementatie moet je tools gebruiken i.p.v. alleen uitleg geven.
-Gebruik eerst build-theme-section-bundle voor section + template + assets/snippets.
-Gebruik alleen fallback tools (import-section-to-live-theme, upsert-theme-file) als dat expliciet nodig is.
-Geef na uitvoering kort: welke bestanden zijn gewijzigd en welke verificatie is gedaan.
-```
-
-## Shopify referentie (voor AI en reviewers)
+## Shopify referentie (voor reviewers)
 - Sections: https://shopify.dev/docs/storefronts/themes/architecture/sections
 - Section schema: https://shopify.dev/docs/storefronts/themes/architecture/sections/section-schema
 - JSON templates: https://shopify.dev/docs/storefronts/themes/architecture/templates/json-templates

@@ -46,6 +46,8 @@ import { upsertThemeFileTool } from "./tools/upsertThemeFile.js";
 import { deleteThemeFileTool } from "./tools/deleteThemeFile.js";
 import { importSectionToLiveTheme } from "./tools/importSectionToLiveTheme.js";
 import { buildThemeSectionBundle } from "./tools/buildThemeSectionBundle.js";
+import { prepareSectionReplica } from "./tools/prepareSectionReplica.js";
+import { applySectionReplica } from "./tools/applySectionReplica.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
 import { LicenseManager } from "./lib/licenseManager.js";
 import { createMachineFingerprint } from "./lib/machineFingerprint.js";
@@ -143,6 +145,8 @@ const initializeTools = (shopifyClient) => {
     deleteThemeFileTool.initialize(shopifyClient);
     importSectionToLiveTheme.initialize(shopifyClient);
     buildThemeSectionBundle.initialize(shopifyClient);
+    prepareSectionReplica.initialize(shopifyClient);
+    applySectionReplica.initialize(shopifyClient);
 };
 let licenseManager = null;
 let auth = null;
@@ -420,6 +424,7 @@ const createHazifyServer = () => {
         "clone-product-from-url",
         "upsert-theme-file",
         "delete-theme-file",
+        "apply-section-replica",
         "import-section-to-live-theme",
         "build-theme-section-bundle",
     ]);
@@ -455,8 +460,10 @@ const createHazifyServer = () => {
         "get-theme-file": "Read a specific file from a Shopify theme.",
         "upsert-theme-file": "Create or update a file in a Shopify theme.",
         "delete-theme-file": "Delete a specific file from a Shopify theme.",
-        "import-section-to-live-theme": "Create/update a section file with schema/preset validation, and optionally add it into a JSON template order.",
-        "build-theme-section-bundle": "Primary AI section workflow: create section + optional template mapping + extra assets/snippets + verification.",
+        "prepare-section-replica": "Deterministic phase 1 for section replication: validate SectionSpec + theme context + preview gate and return a planId.",
+        "apply-section-replica": "Deterministic phase 2 for section replication: apply a prepared planId and write section/template/assets.",
+        "import-section-to-live-theme": "Deprecated wrapper that forwards to prepare/apply section replica flow.",
+        "build-theme-section-bundle": "Deprecated wrapper that forwards to prepare/apply section replica flow.",
         "get-license-status": "Return current license/access status and effective capabilities.",
     };
     const originalTool = server.tool.bind(server);
@@ -864,6 +871,79 @@ server.tool("delete-theme-file", {
 }, async (args) => {
     const parsedArgs = deleteThemeFileTool.schema.parse(args);
     return runLicensedTool("delete-theme-file", true, deleteThemeFileTool.execute, parsedArgs);
+});
+server.tool("prepare-section-replica", {
+    referenceUrl: z.string().url().describe("Reference URL for the section replication target"),
+    imageUrls: z.array(z.string().url()).max(10).default([]).describe("Optional reference image URLs"),
+    previewRequired: z.boolean().default(true).describe("When true, unreachable preview snapshots fail preflight."),
+    sectionHandle: z.string().min(1).optional().describe("Optional explicit section handle"),
+    sectionSpec: z.object({
+        version: z.literal("v2").default("v2"),
+        handle: z.string().optional(),
+        name: z.string().min(1),
+        description: z.string().optional(),
+        tag: z.string().default("section"),
+        className: z.string().optional(),
+        limit: z.number().int().positive().optional(),
+        maxBlocks: z.number().int().positive().optional(),
+        settings: z.array(z.record(z.unknown())).default([]),
+        blocks: z.array(z.record(z.unknown())).default([]),
+        presets: z.array(z.record(z.unknown())).min(1),
+        markup: z.object({
+            mode: z.enum(["structured", "liquid"]).default("structured"),
+            sectionItems: z.array(z.record(z.unknown())).default([]),
+            blockLayouts: z.array(z.record(z.unknown())).default([]),
+            liquid: z.string().optional(),
+        }),
+        mobileRules: z.array(z.object({
+            breakpointPx: z.number().int().min(240).max(2000),
+            css: z.string().min(1),
+        })).default([]),
+        assets: z.object({
+            css: z.string().default(""),
+            js: z.string().optional(),
+            snippets: z.array(z.object({
+                key: z.string().min(1),
+                content: z.string().min(1),
+            })).default([]),
+            files: z.array(z.object({
+                key: z.string().min(1),
+                content: z.string().min(1),
+            })).default([]),
+        }).default({
+            css: "",
+            snippets: [],
+            files: [],
+        }),
+    }),
+    themeId: z.coerce.number().int().positive().optional(),
+    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
+    overwriteSection: z.boolean().default(false),
+    addToTemplate: z.boolean().default(true),
+    templateKey: z.string().default("templates/index.json"),
+    sectionInstanceId: z.string().optional(),
+    insertPosition: z.enum(["start", "end", "before", "after"]).default("end"),
+    referenceSectionId: z.string().optional(),
+    sectionSettings: z.record(z.unknown()).optional(),
+    additionalFiles: z.array(z.object({
+        key: z.string().min(1),
+        value: z.string().optional(),
+        attachment: z.string().optional(),
+        checksum: z.string().optional(),
+    })).max(20).default([]),
+    applyOn: z.enum(["pass", "warn"]).default("warn"),
+    sourceTool: z.string().optional(),
+}, async (args) => {
+    const parsedArgs = prepareSectionReplica.schema.parse(args);
+    return runLicensedTool("prepare-section-replica", false, prepareSectionReplica.execute, parsedArgs);
+});
+server.tool("apply-section-replica", {
+    planId: z.string().min(1),
+    allowWarn: z.boolean().default(true),
+    verify: z.boolean().default(true),
+}, async (args) => {
+    const parsedArgs = applySectionReplica.schema.parse(args);
+    return runLicensedTool("apply-section-replica", true, applySectionReplica.execute, parsedArgs);
 });
 server.tool("import-section-to-live-theme", {
     sectionHandle: z.string().min(1).describe("Section handle, e.g. cloudpillo-risk-free"),

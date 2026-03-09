@@ -6,6 +6,8 @@ import { refundOrder } from "../src/tools/refundOrder.js";
 import { upsertThemeFileTool } from "../src/tools/upsertThemeFile.js";
 import { importSectionToLiveTheme } from "../src/tools/importSectionToLiveTheme.js";
 import { buildThemeSectionBundle } from "../src/tools/buildThemeSectionBundle.js";
+import { prepareSectionReplica } from "../src/tools/prepareSectionReplica.js";
+import { applySectionReplica } from "../src/tools/applySectionReplica.js";
 
 const originalLookup = dns.lookup;
 const originalFetch = global.fetch;
@@ -213,6 +215,8 @@ try {
   upsertThemeFileTool.initialize(themeClient);
   importSectionToLiveTheme.initialize(themeClient);
   buildThemeSectionBundle.initialize(themeClient);
+  prepareSectionReplica.initialize(themeClient);
+  applySectionReplica.initialize(themeClient);
 
   const themeUpsertResult = await upsertThemeFileTool.execute({
     key: "sections/theme-tooling-test.liquid",
@@ -245,6 +249,7 @@ try {
     },
   });
   assert.equal(importResult.section.key, "sections/cloudpillo-risk-free.liquid");
+  assert.equal(importResult.deprecation?.status, "deprecated_wrapper");
   const importPutRequest = themeRestCalls.find(
     (entry) =>
       entry.method === "PUT" &&
@@ -339,6 +344,7 @@ try {
   assert.equal(bundleResult.section.key, "sections/bundle-navigation.liquid");
   assert.ok(bundleResult.template?.key === "templates/index.json");
   assert.equal(bundleResult.additionalFiles.length, 2, "bundle should write supporting files");
+  assert.equal(bundleResult.deprecation?.status, "deprecated_wrapper");
   assert.ok(
     Array.isArray(bundleResult.docs) &&
       bundleResult.docs.some((doc) => String(doc.url || "").includes("/architecture/sections")),
@@ -376,6 +382,133 @@ try {
     true,
     "bundle should reject additionalFiles keys outside allowed prefixes"
   );
+
+  const v2Spec = {
+    version: "v2",
+    name: "Replica Hero V2",
+    tag: "section",
+    className: "replica-hero-v2",
+    settings: [
+      { type: "text", id: "headline", label: "Headline", default: "Replica Hero" },
+      { type: "textarea", id: "subline", label: "Subline", default: "Fast and deterministic section generation" },
+      { type: "text", id: "cta_label", label: "CTA label", default: "Shop now" },
+      { type: "url", id: "cta_url", label: "CTA URL" },
+    ],
+    blocks: [
+      {
+        type: "feature",
+        name: "Feature",
+        settings: [
+          { type: "text", id: "title", label: "Title" },
+          { type: "textarea", id: "description", label: "Description" },
+        ],
+      },
+    ],
+    presets: [
+      {
+        name: "Replica Hero V2",
+        category: "Custom",
+        blocks: [{ type: "feature" }],
+      },
+    ],
+    markup: {
+      mode: "structured",
+      sectionItems: [
+        { kind: "heading", settingId: "headline", tag: "h2", className: "replica-hero-v2__headline" },
+        { kind: "richtext", settingId: "subline", className: "replica-hero-v2__subline" },
+        {
+          kind: "button",
+          labelSettingId: "cta_label",
+          urlSettingId: "cta_url",
+          className: "replica-hero-v2__cta",
+        },
+        { kind: "blocks", className: "replica-hero-v2__features", emptyText: "No features configured yet" },
+      ],
+      blockLayouts: [
+        {
+          blockType: "feature",
+          className: "replica-hero-v2__feature",
+          items: [
+            { kind: "heading", settingId: "title", tag: "h3" },
+            { kind: "text", settingId: "description", tag: "p" },
+          ],
+        },
+      ],
+    },
+    mobileRules: [{ breakpointPx: 768, css: ".replica-hero-v2{padding:16px;}" }],
+    assets: {
+      css: ".replica-hero-v2{padding:48px;} .replica-hero-v2__features{display:grid;gap:16px;}",
+      snippets: [{ key: "replica-v2-badge.liquid", content: "<span class=\"replica-badge\">Replica</span>" }],
+      files: [],
+    },
+  };
+
+  const preparedReplica = await prepareSectionReplica.execute({
+    referenceUrl: "https://example.com/replica",
+    imageUrls: [],
+    previewRequired: false,
+    sectionHandle: "Replica Hero V2",
+    sectionSpec: v2Spec,
+    overwriteSection: true,
+    addToTemplate: true,
+    templateKey: "templates/index.json",
+    sectionSettings: {
+      headline: "Replica Hero",
+    },
+    applyOn: "warn",
+  });
+  assert.equal(preparedReplica.action, "prepared_section_replica");
+  assert.ok(typeof preparedReplica.planId === "string" && preparedReplica.planId.startsWith("secplan_"));
+  assert.ok(
+    preparedReplica.validation?.preflight?.status === "warn" ||
+      preparedReplica.validation?.preflight?.status === "pass"
+  );
+  assert.equal(preparedReplica.filePlan.section.key, "sections/replica-hero-v2.liquid");
+  assert.ok(Array.isArray(preparedReplica.previewTargets) && preparedReplica.previewTargets.length === 2);
+
+  const appliedReplica = await applySectionReplica.execute({
+    planId: preparedReplica.planId,
+    allowWarn: true,
+    verify: true,
+  });
+  assert.equal(appliedReplica.action, "applied_section_replica");
+  assert.equal(appliedReplica.section.key, "sections/replica-hero-v2.liquid");
+  assert.ok(appliedReplica.template?.key === "templates/index.json");
+  assert.ok(
+    appliedReplica.additionalFiles.some((entry) => entry.key === "assets/section-replica-hero-v2.css"),
+    "apply-section-replica should write generated section css asset"
+  );
+  assert.ok(
+    appliedReplica.additionalFiles.some((entry) => entry.key === "snippets/replica-v2-badge.liquid"),
+    "apply-section-replica should write snippet from section spec"
+  );
+
+  const directReplicaWrite = themeRestCalls.find(
+    (entry) =>
+      entry.method === "PUT" &&
+      entry.pathname.endsWith("/themes/111/assets.json") &&
+      entry.bodyJson?.asset?.key === "sections/replica-hero-v2.liquid"
+  );
+  assert.ok(directReplicaWrite, "apply-section-replica should write generated section file");
+
+  const failedPreviewPlan = await prepareSectionReplica.execute({
+    referenceUrl: "https://example.com/replica",
+    imageUrls: [],
+    previewRequired: true,
+    sectionHandle: "Replica Failing Preview",
+    sectionSpec: {
+      ...v2Spec,
+      name: "Replica Failing Preview",
+      presets: [{ name: "Replica Failing Preview" }],
+      markup: {
+        ...v2Spec.markup,
+      },
+    },
+    overwriteSection: true,
+    addToTemplate: false,
+    applyOn: "warn",
+  });
+  assert.equal(failedPreviewPlan.validation?.preflight?.status, "fail");
 
   let rejectedInvalidCarrier = false;
   const originalConsoleError = console.error;

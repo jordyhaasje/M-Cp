@@ -29,9 +29,10 @@ De agent werkt snel, veilig en verifieert altijd data voordat er wijzigingen wor
 5. Lees daarna `docs/04-AGENT-RUNBOOK.md`
 6. Lees daarna `docs/10-MCP-SERVER-SETUP.md`
 7. Lees daarna `docs/12-REMOTE-MCP-SETUP.md`
-8. Lees daarna `docs/20-TRACKING-WORKFLOW.md` (bij trackingvragen)
-9. Lees daarna `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/licensing)
-10. Pas daarna pas code aan in `apps/hazify-mcp-remote/src/`
+8. Lees daarna `docs/16-SECTION-REPLICA-RUNBOOK.md` (bij sectionvragen)
+9. Lees daarna `docs/20-TRACKING-WORKFLOW.md` (bij trackingvragen)
+10. Lees daarna `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/licensing)
+11. Pas daarna pas code aan in `apps/hazify-mcp-remote/src/`
 
 Als documentatie en code elkaar tegenspreken: code is leidend, en documentatie moet direct worden bijgewerkt in dezelfde wijziging.
 
@@ -48,8 +49,9 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 - Theme bestand lezen: `get-theme-file`
 - Theme bestand schrijven/updaten: `upsert-theme-file`
 - Theme bestand verwijderen: `delete-theme-file`
-- Section importeren in live theme: `import-section-to-live-theme`
-- Section bundle (aanbevolen): `build-theme-section-bundle`
+- Section prepare (verplicht): `prepare-section-replica`
+- Section apply (verplicht): `apply-section-replica`
+- Legacy wrappers (tijdelijk): `build-theme-section-bundle`, `import-section-to-live-theme`
 
 ### Producten
 - Ophalen: `get-products`, `get-product-by-id`
@@ -68,10 +70,11 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 
 ### Theme/section workflow (verplicht)
 1. Haal themes op met `get-themes` en bevestig live theme (`role=main`) of gebruik expliciet `themeId`.
-2. Voor nieuwe sections: gebruik primair `build-theme-section-bundle` (section + template + assets/snippets + verificatie).
-3. Gebruik `import-section-to-live-theme`/`upsert-theme-file` alleen als gerichte fallback.
-4. Verifieer met `get-theme-file` dat zowel `sections/<handle>.liquid` als template JSON (`sections` + `order`) klopt.
-5. Alleen bij visuele twijfel of rendering issues: check via `chrome-devtools`.
+2. Voor sections: gebruik altijd `prepare-section-replica` met `referenceUrl` + `sectionSpec` (+ optionele `imageUrls`).
+3. Controleer `validation.preflight` en voer alleen daarna `apply-section-replica` uit.
+4. Gebruik legacy wrappers alleen voor backward compatibility; plan migratie naar `prepare/apply`.
+5. Verifieer met `get-theme-file` dat `sections/<handle>.liquid`, template JSON (`sections` + `order`) en assets/snippets kloppen.
+6. Alleen bij visuele twijfel of rendering issues: check via `chrome-devtools`.
 
 ### Orders
 - Ophalen: `get-orders`, `get-order-by-id`

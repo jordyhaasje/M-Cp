@@ -4,6 +4,11 @@
 1. `apps/hazify-license-service` beheert accounts, onboarding, OAuth en token-introspectie.
 2. `apps/hazify-mcp-remote` serveert `/mcp` en voert tools uit binnen tenant-context.
 
+## Section replication hosting strategy
+- Productie blijft op 1 publieke MCP service (`hazify-mcp-remote`).
+- Geen extra customer-facing Railway services voor Chrome DevTools MCP of Shopify Dev MCP.
+- Eventuele browser/validatie tooling alleen intern/dev gebruiken.
+
 ## Productie endpoints
 - License service: `https://hazify-license-service-production.up.railway.app`
 - MCP endpoint: `https://hazify-mcp-remote-production.up.railway.app/mcp`

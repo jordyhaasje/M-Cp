@@ -2,8 +2,9 @@
 
 ## Startcheck
 1. Lees verplicht in volgorde: `00` → `01` → `02` → `03` → `04` → `10` → `12`.
-2. Controleer taakcontext in `AGENTS.md`.
-3. Pas daarna code aan.
+2. Bij sectionwerk: lees ook `16-SECTION-REPLICA-RUNBOOK.md`.
+3. Controleer taakcontext in `AGENTS.md`.
+4. Pas daarna code aan.
 
 ## Werkvolgorde
 1. Impactscan met `rg`.

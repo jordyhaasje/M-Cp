@@ -1,6 +1,9 @@
 import { z } from "zod";
-import { getThemeFile, upsertThemeFile } from "../lib/themeFiles.js";
-import { importSectionToLiveTheme } from "./importSectionToLiveTheme.js";
+import {
+  applySectionReplicaPlan,
+  parseLegacySectionLiquid,
+  prepareSectionReplicaPlan,
+} from "../lib/sectionReplica.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
@@ -55,7 +58,6 @@ const BuildThemeSectionBundleInputSchema = z.object({
   designNotes: z.string().optional().describe("Optional brief/context from user request"),
 });
 
-const ALLOWED_ADDITIONAL_PREFIXES = ["assets/", "snippets/", "locales/", "blocks/"];
 const SHOPIFY_THEME_DOCS = [
   {
     title: "Shopify Sections architecture",
@@ -75,148 +77,85 @@ const SHOPIFY_THEME_DOCS = [
   },
 ];
 
-function assertAllowedAdditionalKey(key) {
-  const normalized = String(key || "").trim().toLowerCase();
-  const allowed = ALLOWED_ADDITIONAL_PREFIXES.some((prefix) => normalized.startsWith(prefix));
-
-  if (!allowed) {
-    throw new Error(
-      `additionalFiles key '${key}' is niet toegestaan. Gebruik alleen: ${ALLOWED_ADDITIONAL_PREFIXES.join(", ")}`
-    );
-  }
-
-  if (normalized.startsWith("sections/") || normalized.startsWith("templates/")) {
-    throw new Error(
-      `Gebruik section/template velden van build-theme-section-bundle voor '${key}', niet additionalFiles.`
-    );
-  }
-}
-
-const summarizeAssetRead = (asset) => {
-  const valueSize = typeof asset?.value === "string" ? Buffer.byteLength(asset.value, "utf8") : null;
-  const attachmentSize = typeof asset?.attachment === "string" ? asset.attachment.length : null;
-
-  return {
-    key: asset?.key || null,
-    checksum: asset?.checksum || null,
-    valueBytes: valueSize,
-    hasAttachment: Boolean(asset?.attachment),
-    attachmentLength: attachmentSize,
-  };
-};
-
 let shopifyClient;
 
 const buildThemeSectionBundle = {
   name: "build-theme-section-bundle",
   description:
-    "Primary AI workflow for Shopify sections: writes section, maps template order, writes supporting assets/snippets, and verifies output.",
+    "Legacy compatibility wrapper. Uses Section Replication v2 (prepare/apply) internally and returns deprecation metadata.",
   schema: BuildThemeSectionBundleInputSchema,
   initialize(client) {
     shopifyClient = client;
-    importSectionToLiveTheme.initialize(client);
   },
   execute: async (input) => {
     try {
       const parsed = BuildThemeSectionBundleInputSchema.parse(input);
 
-      const sectionResult = await importSectionToLiveTheme.execute({
-        sectionHandle: parsed.sectionHandle,
+      const sectionSpec = parseLegacySectionLiquid({
         liquid: parsed.sectionLiquid,
-        themeId: parsed.themeId,
-        themeRole: parsed.themeRole,
-        overwrite: parsed.overwriteSection,
+        sectionHandle: parsed.sectionHandle,
         validateSchema: true,
         requirePresets: true,
-        addToTemplate: parsed.addToTemplate,
-        templateKey: parsed.templateKey,
-        sectionInstanceId: parsed.sectionInstanceId,
-        insertPosition: parsed.insertPosition,
-        referenceSectionId: parsed.referenceSectionId,
-        sectionSettings: parsed.sectionSettings,
       });
 
-      const additionalWrites = [];
-      for (const file of parsed.additionalFiles) {
-        assertAllowedAdditionalKey(file.key);
-
-        const writeResult = await upsertThemeFile(shopifyClient, API_VERSION, {
+      const prepared = await prepareSectionReplicaPlan({
+        shopifyClient,
+        apiVersion: API_VERSION,
+        input: {
+          referenceUrl: parsed.referenceUrl || "https://example.com/",
+          imageUrls: [],
+          previewRequired: false,
+          sectionHandle: parsed.sectionHandle,
+          sectionSpec,
           themeId: parsed.themeId,
           themeRole: parsed.themeRole,
-          key: file.key,
-          value: file.value,
-          attachment: file.attachment,
-          checksum: file.checksum,
-        });
-
-        additionalWrites.push({
-          key: file.key,
-          checksum: writeResult.asset?.checksum || null,
-          mode: typeof file.value === "string" ? "value" : "attachment",
-        });
-      }
-
-      if (!parsed.verify) {
-        return {
-          action: "built_theme_section_bundle",
-          theme: sectionResult.theme,
-          section: sectionResult.section,
-          template: sectionResult.template,
-          additionalFiles: additionalWrites,
-          verification: { skipped: true },
-          references: {
-            sourceUrl: parsed.referenceUrl || null,
-            designNotes: parsed.designNotes || null,
-          },
-          docs: SHOPIFY_THEME_DOCS,
-        };
-      }
-
-      const verification = {
-        section: null,
-        template: null,
-        additionalFiles: [],
-      };
-
-      const sectionRead = await getThemeFile(shopifyClient, API_VERSION, {
-        themeId: parsed.themeId,
-        themeRole: parsed.themeRole,
-        key: sectionResult.section.key,
+          overwriteSection: parsed.overwriteSection,
+          addToTemplate: parsed.addToTemplate,
+          templateKey: parsed.templateKey,
+          sectionInstanceId: parsed.sectionInstanceId,
+          insertPosition: parsed.insertPosition,
+          referenceSectionId: parsed.referenceSectionId,
+          sectionSettings: parsed.sectionSettings,
+          additionalFiles: parsed.additionalFiles,
+          applyOn: "warn",
+          sourceTool: "build-theme-section-bundle",
+        },
       });
-      verification.section = summarizeAssetRead(sectionRead.asset);
 
-      if (parsed.addToTemplate) {
-        const templateRead = await getThemeFile(shopifyClient, API_VERSION, {
-          themeId: parsed.themeId,
-          themeRole: parsed.themeRole,
-          key: parsed.templateKey,
-        });
-
-        verification.template = summarizeAssetRead(templateRead.asset);
-      }
-
-      for (const write of additionalWrites) {
-        const fileRead = await getThemeFile(shopifyClient, API_VERSION, {
-          themeId: parsed.themeId,
-          themeRole: parsed.themeRole,
-          key: write.key,
-        });
-
-        verification.additionalFiles.push(summarizeAssetRead(fileRead.asset));
-      }
+      const applied = await applySectionReplicaPlan({
+        shopifyClient,
+        apiVersion: API_VERSION,
+        input: {
+          planId: prepared.planId,
+          allowWarn: true,
+          verify: parsed.verify,
+        },
+      });
 
       return {
         action: "built_theme_section_bundle",
-        theme: sectionResult.theme,
-        section: sectionResult.section,
-        template: sectionResult.template,
-        additionalFiles: additionalWrites,
-        verification,
+        theme: applied.theme,
+        section: applied.section,
+        template: applied.template,
+        additionalFiles: applied.additionalFiles,
+        verification: applied.verification,
         references: {
           sourceUrl: parsed.referenceUrl || null,
           designNotes: parsed.designNotes || null,
         },
         docs: SHOPIFY_THEME_DOCS,
+        sectionReplica: {
+          planId: prepared.planId,
+          preflight: prepared.validation.preflight,
+          previewTargets: prepared.previewTargets,
+        },
+        deprecation: {
+          status: "deprecated_wrapper",
+          message:
+            "build-theme-section-bundle is deprecated. Gebruik prepare-section-replica + apply-section-replica.",
+          replacementTools: ["prepare-section-replica", "apply-section-replica"],
+          sunset: "TBD",
+        },
       };
     } catch (error) {
       console.error("Error building theme section bundle:", error);
