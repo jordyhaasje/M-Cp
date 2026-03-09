@@ -44,7 +44,6 @@ import { getThemes } from "./tools/getThemes.js";
 import { getThemeFileTool } from "./tools/getThemeFile.js";
 import { upsertThemeFileTool } from "./tools/upsertThemeFile.js";
 import { deleteThemeFileTool } from "./tools/deleteThemeFile.js";
-import { replicateSectionFromReference } from "./tools/replicateSectionFromReference.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
 import { LicenseManager } from "./lib/licenseManager.js";
 import { createMachineFingerprint } from "./lib/machineFingerprint.js";
@@ -52,6 +51,10 @@ import { createMachineFingerprint } from "./lib/machineFingerprint.js";
 const argv = minimist(process.argv.slice(2));
 // Load environment variables from .env file (if it exists)
 dotenv.config();
+if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+    process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
+}
+const { replicateSectionFromReference } = await import("./tools/replicateSectionFromReference.js");
 const TRANSPORT = String(argv.transport || process.env.HAZIFY_MCP_TRANSPORT || "stdio").toLowerCase();
 const IS_HTTP_TRANSPORT = TRANSPORT === "http" || TRANSPORT === "streamable-http";
 const HTTP_HOST = argv.host || process.env.HAZIFY_MCP_HTTP_HOST || "0.0.0.0";
