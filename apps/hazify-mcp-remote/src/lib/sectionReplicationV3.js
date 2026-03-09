@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
@@ -1583,30 +1584,43 @@ const renderSlideshowPreviewHtml = ({ heading, slides, css }) => {
 const bufferToBase64 = (buffer) => Buffer.from(buffer).toString("base64");
 
 const discoverLocalPlaywrightExecutable = () => {
-  const localBrowsersRoot = path.join(process.cwd(), "node_modules", "playwright-core", ".local-browsers");
-  if (!fs.existsSync(localBrowsersRoot)) {
-    return null;
-  }
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const baseCandidates = Array.from(
+    new Set([
+      process.cwd(),
+      process.env.PWD || "",
+      path.resolve(moduleDir, "..", ".."),
+      path.resolve(moduleDir, "..", "..", ".."),
+      "/app",
+    ].filter(Boolean))
+  );
 
-  const entries = fs
-    .readdirSync(localBrowsersRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort((a, b) => b.localeCompare(a));
-
-  const chromiumDir = entries.find((name) => name.startsWith("chromium-"));
-  if (chromiumDir) {
-    const chromePath = path.join(localBrowsersRoot, chromiumDir, "chrome-linux64", "chrome");
-    if (fs.existsSync(chromePath)) {
-      return chromePath;
+  for (const basePath of baseCandidates) {
+    const localBrowsersRoot = path.join(basePath, "node_modules", "playwright-core", ".local-browsers");
+    if (!fs.existsSync(localBrowsersRoot)) {
+      continue;
     }
-  }
 
-  const shellDir = entries.find((name) => name.startsWith("chromium_headless_shell-"));
-  if (shellDir) {
-    const shellPath = path.join(localBrowsersRoot, shellDir, "chrome-headless-shell-linux64", "chrome-headless-shell");
-    if (fs.existsSync(shellPath)) {
-      return shellPath;
+    const entries = fs
+      .readdirSync(localBrowsersRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((a, b) => b.localeCompare(a));
+
+    const chromiumDir = entries.find((name) => name.startsWith("chromium-"));
+    if (chromiumDir) {
+      const chromePath = path.join(localBrowsersRoot, chromiumDir, "chrome-linux64", "chrome");
+      if (fs.existsSync(chromePath)) {
+        return chromePath;
+      }
+    }
+
+    const shellDir = entries.find((name) => name.startsWith("chromium_headless_shell-"));
+    if (shellDir) {
+      const shellPath = path.join(localBrowsersRoot, shellDir, "chrome-headless-shell-linux64", "chrome-headless-shell");
+      if (fs.existsSync(shellPath)) {
+        return shellPath;
+      }
     }
   }
 
