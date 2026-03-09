@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import fs from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
@@ -1581,11 +1582,50 @@ const renderSlideshowPreviewHtml = ({ heading, slides, css }) => {
 
 const bufferToBase64 = (buffer) => Buffer.from(buffer).toString("base64");
 
+const discoverLocalPlaywrightExecutable = () => {
+  const localBrowsersRoot = path.join(process.cwd(), "node_modules", "playwright-core", ".local-browsers");
+  if (!fs.existsSync(localBrowsersRoot)) {
+    return null;
+  }
+
+  const entries = fs
+    .readdirSync(localBrowsersRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort((a, b) => b.localeCompare(a));
+
+  const chromiumDir = entries.find((name) => name.startsWith("chromium-"));
+  if (chromiumDir) {
+    const chromePath = path.join(localBrowsersRoot, chromiumDir, "chrome-linux64", "chrome");
+    if (fs.existsSync(chromePath)) {
+      return chromePath;
+    }
+  }
+
+  const shellDir = entries.find((name) => name.startsWith("chromium_headless_shell-"));
+  if (shellDir) {
+    const shellPath = path.join(localBrowsersRoot, shellDir, "chrome-headless-shell-linux64", "chrome-headless-shell");
+    if (fs.existsSync(shellPath)) {
+      return shellPath;
+    }
+  }
+
+  return null;
+};
+
 const createBrowser = async () => {
-  const executablePath = chromium.executablePath();
-  if (executablePath && !fs.existsSync(executablePath)) {
+  const runtimeExecutablePath = chromium.executablePath();
+  const localExecutablePath = discoverLocalPlaywrightExecutable();
+  const resolvedExecutablePath =
+    runtimeExecutablePath && fs.existsSync(runtimeExecutablePath)
+      ? runtimeExecutablePath
+      : localExecutablePath && fs.existsSync(localExecutablePath)
+        ? localExecutablePath
+        : null;
+
+  if (!resolvedExecutablePath) {
     const error = new Error(
-      `Chromium executable niet gevonden op '${executablePath}'. Zorg dat Playwright Chromium in de runtime-image is geïnstalleerd.`
+      `Chromium executable niet gevonden. runtimePath='${runtimeExecutablePath}', localPath='${localExecutablePath || ""}'. Zorg dat Playwright Chromium in de runtime-image is geïnstalleerd.`
     );
     error.code = "browser_runtime_unavailable";
     throw error;
@@ -1595,11 +1635,12 @@ const createBrowser = async () => {
     return await chromium.launch({
       headless: true,
       args: ["--disable-dev-shm-usage", "--no-sandbox"],
+      executablePath: resolvedExecutablePath,
     });
   } catch (error) {
     if (isPlaywrightBrowserMissingError(error)) {
       const runtimeError = new Error(
-        `Playwright browser binary ontbreekt in runtime. ${formatErrorMessage(error)}`
+        `Playwright browser binary ontbreekt in runtime (resolvedPath='${resolvedExecutablePath}'). ${formatErrorMessage(error)}`
       );
       runtimeError.code = "browser_runtime_unavailable";
       throw runtimeError;
