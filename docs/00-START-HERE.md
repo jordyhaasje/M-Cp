@@ -10,14 +10,15 @@ Dit is de verplichte leesvolgorde voor agents in deze workspace.
 5. `docs/04-AGENT-RUNBOOK.md`
 6. `docs/50-REPO-CLEANUP-PR-PLAN.md` (bij cleanup/refactorwerk)
 7. `docs/51-REPO-CLEANUP-TRACKER.md` (bij cleanup/refactorwerk)
-8. `docs/10-MCP-SERVER-SETUP.md`
-9. `docs/12-REMOTE-MCP-SETUP.md`
-10. `docs/16-SECTION-REPLICA-RUNBOOK.md` (bij sectionvragen)
-11. `docs/20-TRACKING-WORKFLOW.md` (alleen bij trackingvragen)
-12. `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/deploy/licensing)
-13. `docs/14-GPT-INSTRUCTIONS.md` (bij GPT-configuratie)
-14. `AGENTS.md`
-15. Runtime code in `apps/hazify-license-service/src/` en `apps/hazify-mcp-remote/src/`
+8. `docs/52-CLEANUP-RELEASE-NOTES.md` (bij cleanup/release-overdracht)
+9. `docs/10-MCP-SERVER-SETUP.md`
+10. `docs/12-REMOTE-MCP-SETUP.md`
+11. `docs/16-SECTION-REPLICA-RUNBOOK.md` (bij sectionvragen)
+12. `docs/20-TRACKING-WORKFLOW.md` (alleen bij trackingvragen)
+13. `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/deploy/licensing)
+14. `docs/14-GPT-INSTRUCTIONS.md` (bij GPT-configuratie)
+15. `AGENTS.md`
+16. Runtime code in `apps/hazify-license-service/src/` en `apps/hazify-mcp-remote/src/`
 
 ## Actieve mapindeling
 - `apps/hazify-license-service/`

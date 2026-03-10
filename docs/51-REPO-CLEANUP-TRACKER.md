@@ -55,6 +55,8 @@ De grote cleanupfases zijn functioneel afgerond. De resterende aandacht zit nu n
 ## Post-cleanup uitvoering
 - [x] Commitserie opsplitsen per cleanupfase
 - [x] Repo-root Railway beheerpad voor `Hazify-License-Service` voorbereiden en valideren
+- [x] Release notes per cleanupcommit vastgelegd
+- [x] `check:git-sync` uitgevoerd; push blijft operationeel geblokkeerd op GitHub `workflow` permissie
 
 ## Changelog
 - 2026-03-10: cleanup PR-plan toegevoegd.
@@ -102,6 +104,8 @@ De grote cleanupfases zijn functioneel afgerond. De resterende aandacht zit nu n
 - 2026-03-10: repo-root service-router toegevoegd via `HAZIFY_SERVICE_MODE`, plus `railway:link:mcp` en `railway:link:license` voor expliciete projectwissel.
 - 2026-03-10: `Hazify-License-Service` repo-root deploy succesvol gevalideerd via deployment `85d9c4f7-eb9d-4761-a29c-44b60483edb2`.
 - 2026-03-10: `Hazify-MCP-Remote` repo-root deploy opnieuw bevestigd via deployment `9225c0ab-98d4-472a-a754-8684e7569b3a`.
+- 2026-03-10: release notes vastgelegd in `docs/52-CLEANUP-RELEASE-NOTES.md`.
+- 2026-03-10: `npm run check:git-sync` bevestigde `ahead=3`, `behind=0`; automatische push-dry-run blijft geblokkeerd zolang workflow-permissie ontbreekt.
 
 ## Fase 2 detail
 - [x] `npm ci` staat in CI
