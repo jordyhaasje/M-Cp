@@ -1,2 +1,8 @@
 await import("./oauth-security.test.mjs");
+await import("./oauth-helpers.test.mjs");
+await import("./http-helpers.test.mjs");
+await import("./account-helpers.test.mjs");
+await import("./account-sessions.test.mjs");
+await import("./billing-helpers.test.mjs");
+await import("./license-records.test.mjs");
 console.log("All hazify-license-service tests passed");

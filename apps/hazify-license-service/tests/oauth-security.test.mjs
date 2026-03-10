@@ -169,7 +169,7 @@ try {
   process.env.MCP_PUBLIC_URL = `${baseUrl}/mcp`;
   process.env.MAX_BODY_BYTES = "1048576";
 
-  const serverModuleUrl = `${pathToFileURL(path.join(serviceCwd, "server.js")).href}?test=${Date.now()}`;
+  const serverModuleUrl = `${pathToFileURL(path.join(serviceCwd, "src", "server.js")).href}?test=${Date.now()}`;
   const serverModule = await import(serverModuleUrl);
   serverInstance = serverModule.server;
 
