@@ -135,11 +135,57 @@ try {
       ),
     ],
   ]);
+  let storefrontRenderFailureSectionId = null;
+
+  const readTemplateJson = (templateKey) => {
+    const raw = themeAssetStore.get(templateKey);
+    if (!raw) {
+      return null;
+    }
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  };
+
+  const renderSectionHtml = ({ sectionId, pathname }) => {
+    if (!sectionId) {
+      return null;
+    }
+
+    if (sectionId === storefrontRenderFailureSectionId) {
+      return "__LIQUID_ERROR__";
+    }
+
+    const normalizedPath = String(pathname || "/");
+    const templateKey =
+      normalizedPath === "/" ? "templates/index.json" : null;
+    const templateJson = templateKey ? readTemplateJson(templateKey) : null;
+    const templateSectionType = templateJson?.sections?.[sectionId]?.type;
+
+    if (templateSectionType) {
+      const sectionSource = themeAssetStore.get(`sections/${templateSectionType}.liquid`);
+      if (!sectionSource) {
+        return null;
+      }
+      return `<div id="shopify-section-${sectionId}" class="shopify-section">${templateSectionType}</div>`;
+    }
+
+    const staticSectionSource = themeAssetStore.get(`sections/${sectionId}.liquid`);
+    if (!staticSectionSource) {
+      return null;
+    }
+
+    return `<div id="shopify-section-${sectionId}" class="shopify-section">${sectionId}</div>`;
+  };
+
   global.fetch = async (url, options = {}) => {
     const parsedUrl = new URL(String(url));
     const method = String(options.method || "GET").toUpperCase();
     const bodyText = typeof options.body === "string" ? options.body : "";
     const bodyJson = bodyText ? JSON.parse(bodyText) : null;
+    const queryText = typeof bodyJson?.query === "string" ? bodyJson.query : "";
 
     themeRestCalls.push({
       method,
@@ -154,6 +200,144 @@ try {
         `<html><head><title>Replica Hero V2</title></head><body><h2>Replica Hero V2</h2><h3>Fast and deterministic section generation</h3>${repeated}</body></html>`,
         { status: 200, headers: { "content-type": "text/html" } }
       );
+    }
+
+    if (
+      parsedUrl.hostname === "unit-test-shop.myshopify.com" &&
+      method === "GET" &&
+      !parsedUrl.pathname.startsWith("/admin/")
+    ) {
+      const sectionId = parsedUrl.searchParams.get("section_id");
+      const renderedHtml = renderSectionHtml({ sectionId, pathname: parsedUrl.pathname });
+      if (renderedHtml === "__LIQUID_ERROR__") {
+        return new Response("Liquid error: section render failed", {
+          status: 500,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (!renderedHtml) {
+        return new Response("Not Found", {
+          status: 404,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response(renderedHtml, {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+
+    if (parsedUrl.pathname.endsWith("/graphql.json") && method === "POST") {
+      if (queryText.includes("query ThemeList")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              themes: {
+                nodes: [
+                  {
+                    id: "gid://shopify/OnlineStoreTheme/111",
+                    name: "Main Theme",
+                    role: "MAIN",
+                    processing: false,
+                    createdAt: "2026-03-10T00:00:00Z",
+                    updatedAt: "2026-03-10T00:00:00Z",
+                  },
+                  {
+                    id: "gid://shopify/OnlineStoreTheme/222",
+                    name: "Dev Theme",
+                    role: "DEVELOPMENT",
+                    processing: false,
+                    createdAt: "2026-03-10T00:00:00Z",
+                    updatedAt: "2026-03-10T00:00:00Z",
+                  },
+                ],
+              },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (queryText.includes("query ThemeFileById")) {
+        const filename = bodyJson?.variables?.filenames?.[0];
+        const storedValue = filename ? themeAssetStore.get(filename) : null;
+        return new Response(
+          JSON.stringify({
+            data: {
+              theme: {
+                id: "gid://shopify/OnlineStoreTheme/111",
+                name: "Main Theme",
+                role: "MAIN",
+                processing: false,
+                createdAt: "2026-03-10T00:00:00Z",
+                updatedAt: "2026-03-10T00:00:00Z",
+                files: {
+                  nodes:
+                    filename && storedValue
+                      ? [
+                          {
+                            filename,
+                            checksumMd5: "abc123",
+                            contentType: "text/plain",
+                            createdAt: "2026-03-10T00:00:00Z",
+                            updatedAt: "2026-03-10T00:00:00Z",
+                            size: String(storedValue.length),
+                            body: { content: storedValue },
+                          },
+                        ]
+                      : [],
+                  userErrors: [],
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (queryText.includes("mutation ThemeFilesUpsert")) {
+        const files = Array.isArray(bodyJson?.variables?.files) ? bodyJson.variables.files : [];
+        for (const file of files) {
+          if (typeof file?.filename !== "string") {
+            continue;
+          }
+          if (file?.body?.type === "BASE64" && typeof file?.body?.value === "string") {
+            themeAssetStore.set(file.filename, file.body.value);
+          } else if (typeof file?.body?.value === "string") {
+            themeAssetStore.set(file.filename, file.body.value);
+          }
+        }
+        return new Response(
+          JSON.stringify({
+            data: {
+              themeFilesUpsert: {
+                upsertedThemeFiles: files.map((file) => ({ filename: file.filename })),
+                job: { id: "gid://shopify/Job/1" },
+                userErrors: [],
+              },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (queryText.includes("mutation ThemeFilesDelete")) {
+        const files = Array.isArray(bodyJson?.variables?.files) ? bodyJson.variables.files : [];
+        for (const file of files) {
+          themeAssetStore.delete(file);
+        }
+        return new Response(
+          JSON.stringify({
+            data: {
+              themeFilesDelete: {
+                deletedThemeFiles: files.map((filename) => ({ filename })),
+                userErrors: [],
+              },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
     }
 
     if (parsedUrl.pathname.endsWith("/themes.json") && method === "GET") {
@@ -208,7 +392,7 @@ try {
       });
     }
 
-    throw new Error(`Unexpected theme REST call: ${method} ${parsedUrl.pathname}${parsedUrl.search}`);
+    throw new Error(`Unexpected theme admin call: ${method} ${parsedUrl.pathname}${parsedUrl.search}`);
   };
 
   const themeClient = {
@@ -228,6 +412,24 @@ try {
   });
   assert.equal(themeUpsertResult.theme.id, 111);
   assert.equal(themeUpsertResult.asset.key, "sections/theme-tooling-test.liquid");
+
+  const checksumThemeUpsertResult = await upsertThemeFileTool.execute({
+    key: "sections/existing.liquid",
+    value: "<div>updated via graphql checksum write</div>",
+    checksum: "abc123",
+  });
+  assert.equal(checksumThemeUpsertResult.theme.id, 111);
+  assert.equal(themeAssetStore.get("sections/existing.liquid"), "<div>updated via graphql checksum write</div>");
+  assert.equal(
+    themeRestCalls.some(
+      (entry) =>
+        entry.method === "PUT" &&
+        entry.pathname.endsWith("/themes/111/assets.json") &&
+        entry.bodyJson?.asset?.key === "sections/existing.liquid"
+    ),
+    false,
+    "checksum-based writes should stay on GraphQL when theme file GraphQL is available"
+  );
 
   const solidPng = (hex = "f2eadf") => {
     const png = new PNG({ width: 32, height: 32 });
@@ -317,21 +519,44 @@ try {
   assert.equal(replicatedSection.status, "pass");
   assert.equal(replicatedSection.archetype, "feature-tabs-media-slider");
   assert.equal(replicatedSection.writes.section.key, "sections/feature-15-slider.liquid");
-  assert.ok(
-    replicatedSection.writes.additionalFiles.some((entry) => entry.key === "assets/section-feature-15-slider.css"),
-    "replicate-section-from-reference should write generated css asset"
-  );
-  assert.ok(
-    replicatedSection.writes.additionalFiles.some((entry) => entry.key === "assets/section-feature-15-slider.js"),
-    "replicate-section-from-reference should write generated js asset"
+  assert.equal(
+    replicatedSection.writes.additionalFiles.length,
+    0,
+    "replicate-section-from-reference should inline generated css/js into the section file"
   );
   assert.equal(replicatedSection.attempts.length, 2, "pipeline should retry after visual gate fail");
 
+  const generatedSectionLiquid = themeAssetStore.get("sections/feature-15-slider.liquid") || "";
+  assert.ok(
+    generatedSectionLiquid.includes("{% stylesheet %}") && generatedSectionLiquid.includes("{% endstylesheet %}"),
+    "replicate-section-from-reference should embed stylesheet tags in the section file"
+  );
+  assert.ok(
+    generatedSectionLiquid.includes("{% javascript %}") && generatedSectionLiquid.includes("{% endjavascript %}"),
+    "replicate-section-from-reference should embed javascript tags in the section file"
+  );
+  assert.equal(replicatedSection.writes.verification.themeRender.status, "pass");
+  assert.equal(replicatedSection.writes.verification.themeRender.staticSection.status, "pass");
+  assert.equal(replicatedSection.writes.verification.themeRender.templateInstance.status, "pass");
+
   const directReplicaWrite = themeRestCalls.find(
-    (entry) =>
-      entry.method === "PUT" &&
-      entry.pathname.endsWith("/themes/111/assets.json") &&
-      entry.bodyJson?.asset?.key === "sections/feature-15-slider.liquid"
+    (entry) => {
+      if (
+        entry.method === "PUT" &&
+        entry.pathname.endsWith("/themes/111/assets.json") &&
+        entry.bodyJson?.asset?.key === "sections/feature-15-slider.liquid"
+      ) {
+        return true;
+      }
+      return (
+        entry.method === "POST" &&
+        entry.pathname.endsWith("/graphql.json") &&
+        String(entry.bodyJson?.query || "").includes("mutation ThemeFilesUpsert") &&
+        entry.bodyJson?.variables?.files?.some(
+          (file) => file?.filename === "sections/feature-15-slider.liquid"
+        )
+      );
+    }
   );
   assert.ok(directReplicaWrite, "replicate-section-from-reference should write generated section file");
 
@@ -471,6 +696,72 @@ try {
     missingBrowserReplica.validation.issues.some((entry) => entry.code === "browser_runtime_unavailable"),
     "missing browser runtime should return explicit browser_runtime_unavailable issue"
   );
+
+  storefrontRenderFailureSectionId = "feature-15-render-fail";
+
+  __setSectionReplicationV3RuntimeForTests({
+    captureReference: async () => [
+      {
+        id: "desktop",
+        ok: true,
+        statusCode: 200,
+        clip: { x: 0, y: 0, width: 320, height: 220 },
+        target: {
+          selector: "[id*='ss_feature_15']",
+          score: 1000,
+          heading: "What makes it special?",
+          html: "<section><h2>What makes it special?</h2></section>",
+          text: "feature 15 what makes it special",
+        },
+        mergedText: "feature 15 what makes it special",
+        mergedHtml: "<main>feature 15</main>",
+      },
+      {
+        id: "mobile",
+        ok: true,
+        statusCode: 200,
+        clip: { x: 0, y: 0, width: 280, height: 420 },
+        target: {
+          selector: "[id*='ss_feature_15']",
+          score: 900,
+          heading: "What makes it special?",
+          html: "<section><h2>What makes it special?</h2></section>",
+          text: "feature 15 mobile",
+        },
+        mergedText: "feature 15 mobile",
+        mergedHtml: "<main>feature 15 mobile</main>",
+      },
+    ],
+    renderCandidateViews: async () => [
+      { id: "desktop", ok: true, screenshotBuffer: solidPng("f2eadf"), clip: { x: 0, y: 0, width: 320, height: 220 } },
+      { id: "mobile", ok: true, screenshotBuffer: solidPng("f2eadf"), clip: { x: 0, y: 0, width: 280, height: 420 } },
+    ],
+    compareVisualGate: async () => ({
+      status: "pass",
+      perViewport: [
+        { id: "desktop", pass: true, mismatchRatio: 0.03, threshold: 0.12, mismatchPixels: 300, totalPixels: 10000 },
+        { id: "mobile", pass: true, mismatchRatio: 0.05, threshold: 0.15, mismatchPixels: 500, totalPixels: 10000 },
+      ],
+    }),
+  });
+
+  const themeRenderFailReplica = await replicateSectionFromReference.execute({
+    referenceUrl: "https://section.store/pages/feature-15",
+    sectionHandle: "Feature 15 Render Fail",
+    overwriteSection: true,
+    addToTemplate: false,
+    maxAttempts: 1,
+    verify: true,
+  });
+  assert.equal(themeRenderFailReplica.status, "fail");
+  assert.equal(themeRenderFailReplica.errorCode, "theme_context_render_failed");
+  assert.equal(themeRenderFailReplica.writes, null);
+  assert.equal(themeAssetStore.has("sections/feature-15-render-fail.liquid"), false);
+  assert.ok(
+    themeRenderFailReplica.validation.issues.some((entry) => entry.code === "theme_context_static_render_failed"),
+    "theme-context render failures should be surfaced explicitly"
+  );
+  storefrontRenderFailureSectionId = null;
 
   __setSectionReplicationV3RuntimeForTests({
     captureReference: async () => [

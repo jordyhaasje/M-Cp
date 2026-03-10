@@ -25,11 +25,15 @@ const replicateSectionFromReference = {
     } catch (error) {
       console.error("Error replicating section from reference:", error);
       const message = error instanceof Error ? error.message : String(error);
+      const errorCode =
+        error && typeof error === "object" && typeof error.code === "string" && error.code.trim()
+          ? error.code.trim()
+          : "runtime_error";
       return {
         action: "replicate_section_from_reference",
         status: "fail",
-        errorCode: "reference_unreachable",
-        message: `Section replication v3 faalde door onverwachte runtime fout: ${message}`,
+        errorCode,
+        message: `Section replication v3 faalde door onverwachte runtime fout (${errorCode}): ${message}`,
         archetype: null,
         confidence: 0,
         validation: {

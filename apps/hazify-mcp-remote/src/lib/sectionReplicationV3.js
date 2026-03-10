@@ -6,7 +6,7 @@ import { z } from "zod";
 import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
 import { chromium } from "playwright";
-import { getThemeFile, resolveTheme, upsertThemeFile } from "./themeFiles.js";
+import { deleteThemeFile, getThemeFile, resolveTheme, upsertThemeFile } from "./themeFiles.js";
 
 if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
   process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
@@ -24,6 +24,7 @@ const SECTION_SETTING_TYPES_WITHOUT_DEFAULT = new Set([
 ]);
 
 const NON_EMPTY_DEFAULT_TYPES = new Set(["text", "textarea", "url", "inline_richtext", "liquid"]);
+const SUPPORTED_ARCHETYPES = ["feature-tabs-media-slider", "slideshow-pro"];
 
 const PREVIEW_TARGETS = [
   {
@@ -102,7 +103,7 @@ const CompiledSectionSchema = z
   .passthrough();
 
 const ArchetypeResultSchema = z.object({
-  archetype: z.enum(["feature-tabs-media-slider", "slideshow-pro"]),
+  archetype: z.enum(SUPPORTED_ARCHETYPES),
   confidence: z.number().min(0).max(1),
 });
 
@@ -306,6 +307,286 @@ const summarizeAssetRead = (asset) => ({
   hasAttachment: Boolean(asset?.attachment),
   attachmentLength: typeof asset?.attachment === "string" ? asset.attachment.length : null,
 });
+
+const getStorefrontDomainFromClient = (shopifyClient) => {
+  const rawUrl = shopifyClient?.url;
+  if (!rawUrl || typeof rawUrl !== "string") {
+    throw new Error("Shopify client URL ontbreekt; kan storefront render URL niet bepalen.");
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch (_error) {
+    throw new Error("Shopify client URL is ongeldig; kan storefront render URL niet bepalen.");
+  }
+
+  const domain = String(parsed.hostname || "").trim().toLowerCase();
+  if (!domain || !domain.endsWith(".myshopify.com")) {
+    throw new Error(`Shopify storefront domein '${domain}' is ongeldig voor section render verificatie.`);
+  }
+
+  return domain;
+};
+
+const deriveTemplateRenderPath = (templateKey) => {
+  const normalized = String(templateKey || "").trim().toLowerCase();
+
+  if (normalized === "templates/index.json" || normalized === "templates/index.liquid") {
+    return "/";
+  }
+  if (normalized === "templates/cart.json" || normalized === "templates/cart.liquid") {
+    return "/cart";
+  }
+  if (normalized === "templates/search.json" || normalized === "templates/search.liquid") {
+    return "/search";
+  }
+  if (normalized === "templates/404.json" || normalized === "templates/404.liquid") {
+    return "/404";
+  }
+  if (normalized === "templates/password.json" || normalized === "templates/password.liquid") {
+    return "/password";
+  }
+
+  return null;
+};
+
+const renderThemeSectionInStorefront = async ({ shopifyClient, theme, pathName = "/", sectionId }) => {
+  const domain = getStorefrontDomainFromClient(shopifyClient);
+  const normalizedSectionId = String(sectionId || "").trim();
+  const normalizedPath = String(pathName || "/").trim() || "/";
+  const themeRole = String(theme?.role || "").trim().toLowerCase();
+
+  if (!normalizedSectionId) {
+    return {
+      status: "warn",
+      skipped: true,
+      httpStatus: null,
+      path: normalizedPath,
+      sectionId: null,
+      reason: "section_id_missing",
+      htmlBytes: 0,
+    };
+  }
+
+  if (themeRole !== "main") {
+    return {
+      status: "warn",
+      skipped: true,
+      httpStatus: null,
+      path: normalizedPath,
+      sectionId: normalizedSectionId,
+      reason: "non_main_theme",
+      htmlBytes: 0,
+    };
+  }
+
+  const url = new URL(`https://${domain}${normalizedPath.startsWith("/") ? normalizedPath : `/${normalizedPath}`}`);
+  url.searchParams.set("section_id", normalizedSectionId);
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "text/html",
+    },
+  });
+
+  const html = await response.text();
+  const trimmedHtml = String(html || "").trim();
+  const hasLiquidError = /liquid(?:\s+syntax)?\s+error/i.test(trimmedHtml);
+  const status = response.ok && trimmedHtml && !hasLiquidError ? "pass" : "fail";
+
+  return {
+    status,
+    skipped: false,
+    httpStatus: response.status,
+    path: normalizedPath,
+    sectionId: normalizedSectionId,
+    htmlBytes: Buffer.byteLength(trimmedHtml, "utf8"),
+    hasLiquidError,
+    preview: trimmedHtml.slice(0, 240),
+  };
+};
+
+const verifyThemeRenderAfterWrites = async ({
+  shopifyClient,
+  theme,
+  sectionHandle,
+  addToTemplate,
+  templateKey,
+  sectionInstanceId,
+}) => {
+  const issues = [];
+  const staticSection = await renderThemeSectionInStorefront({
+    shopifyClient,
+    theme,
+    pathName: "/",
+    sectionId: sectionHandle,
+  });
+
+  if (staticSection.status === "fail") {
+    issues.push(
+      issue(
+        "error",
+        "theme_context_static_render_failed",
+        `Section '${sectionHandle}' rendert niet in storefront-context op '/': HTTP ${staticSection.httpStatus || "?"}.`
+      )
+    );
+  } else if (staticSection.status === "warn") {
+    issues.push(
+      issue(
+        "warn",
+        "theme_context_static_render_skipped",
+        `Storefront rendercheck voor section '${sectionHandle}' is overgeslagen (${staticSection.reason}).`
+      )
+    );
+  }
+
+  let templateInstance = null;
+  if (addToTemplate && sectionInstanceId) {
+    const renderPath = deriveTemplateRenderPath(templateKey);
+    if (!renderPath) {
+      issues.push(
+        issue(
+          "warn",
+          "theme_context_template_render_skipped",
+          `Template '${templateKey}' heeft geen veilige storefront route-mapping; dynamische section rendercheck is overgeslagen.`
+        )
+      );
+      templateInstance = {
+        status: "warn",
+        skipped: true,
+        path: null,
+        sectionId: sectionInstanceId,
+        reason: "template_route_unmapped",
+        httpStatus: null,
+        htmlBytes: 0,
+      };
+    } else {
+      templateInstance = await renderThemeSectionInStorefront({
+        shopifyClient,
+        theme,
+        pathName: renderPath,
+        sectionId: sectionInstanceId,
+      });
+
+      if (templateInstance.status === "fail") {
+        issues.push(
+          issue(
+            "error",
+            "theme_context_template_render_failed",
+            `Section instance '${sectionInstanceId}' rendert niet in template-context '${renderPath}': HTTP ${templateInstance.httpStatus || "?"}.`
+          )
+        );
+      } else if (templateInstance.status === "warn") {
+        issues.push(
+          issue(
+            "warn",
+            "theme_context_template_render_skipped",
+            `Template rendercheck voor section instance '${sectionInstanceId}' is overgeslagen (${templateInstance.reason}).`
+          )
+        );
+      }
+    }
+  }
+
+  return {
+    status: deriveStatus(issues),
+    staticSection,
+    templateInstance,
+    issues,
+  };
+};
+
+const readExistingThemeFileIfPresent = async ({ shopifyClient, apiVersion, themeId, key }) => {
+  try {
+    return await getThemeFile(shopifyClient, apiVersion, { themeId, key });
+  } catch (error) {
+    if (error?.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+};
+
+const restoreThemeFileSnapshot = async ({ shopifyClient, apiVersion, themeId, key, snapshot }) => {
+  try {
+    if (snapshot?.asset) {
+      await upsertThemeFile(shopifyClient, apiVersion, {
+        themeId,
+        key,
+        value: snapshot.asset.value,
+        attachment: snapshot.asset.attachment,
+      });
+      return { key, action: "restore", status: "pass" };
+    }
+
+    await deleteThemeFile(shopifyClient, apiVersion, { themeId, key });
+    return { key, action: "delete", status: "pass" };
+  } catch (error) {
+    if (!snapshot?.asset && error?.status === 404) {
+      return { key, action: "delete", status: "pass" };
+    }
+    return {
+      key,
+      action: snapshot?.asset ? "restore" : "delete",
+      status: "fail",
+      error: formatErrorMessage(error),
+    };
+  }
+};
+
+const rollbackThemeWrites = async ({
+  shopifyClient,
+  apiVersion,
+  themeId,
+  sectionKey,
+  sectionSnapshot,
+  templateKey,
+  templateSnapshot,
+  additionalSnapshots,
+}) => {
+  const results = [];
+
+  results.push(
+    await restoreThemeFileSnapshot({
+      shopifyClient,
+      apiVersion,
+      themeId,
+      key: sectionKey,
+      snapshot: sectionSnapshot,
+    })
+  );
+
+  if (templateKey) {
+    results.push(
+      await restoreThemeFileSnapshot({
+        shopifyClient,
+        apiVersion,
+        themeId,
+        key: templateKey,
+        snapshot: templateSnapshot,
+      })
+    );
+  }
+
+  for (const snapshot of additionalSnapshots || []) {
+    results.push(
+      await restoreThemeFileSnapshot({
+        shopifyClient,
+        apiVersion,
+        themeId,
+        key: snapshot.key,
+        snapshot: snapshot.snapshot,
+      })
+    );
+  }
+
+  return {
+    status: results.every((entry) => entry.status === "pass") ? "pass" : "fail",
+    results,
+  };
+};
 
 const issue = (severity, code, message) => ({ severity, code, message });
 
@@ -645,13 +926,13 @@ const detectArchetype = ({ referenceUrl, mergedText, visionHints }) => {
   })();
 
   const text = `${String(mergedText || "").toLowerCase()} ${String(visionHints || "").toLowerCase()}`;
-
-  if (pathname.includes("feature-15") || text.includes("what makes it special") || text.includes("feature 15")) {
-    return ArchetypeResultSchema.parse({ archetype: "feature-tabs-media-slider", confidence: 0.92 });
-  }
-
-  if (pathname.includes("slideshow-pro") || text.includes("slideshow pro") || text.includes("slideshow")) {
-    return ArchetypeResultSchema.parse({ archetype: "slideshow-pro", confidence: 0.88 });
+  for (const blueprint of Object.values(SECTION_BLUEPRINTS)) {
+    if (blueprint.matches({ pathname, text })) {
+      return ArchetypeResultSchema.parse({
+        archetype: blueprint.key,
+        confidence: blueprint.confidence,
+      });
+    }
   }
 
   return null;
@@ -817,6 +1098,15 @@ const feature15Css = ({ variant = 1 } = {}) => {
 
 const feature15Js = () => `
 (() => {
+  const destroySection = (root) => {
+    if (!root || typeof root.__hzFeature15OnClick !== "function") {
+      return;
+    }
+    root.removeEventListener("click", root.__hzFeature15OnClick);
+    delete root.__hzFeature15OnClick;
+    delete root.dataset.hzFeature15Ready;
+  };
+
   const initSection = (root) => {
     if (!root || root.dataset.hzFeature15Ready === "true") {
       return;
@@ -853,7 +1143,7 @@ const feature15Js = () => `
       });
     };
 
-    root.addEventListener("click", (event) => {
+    const onClick = (event) => {
       const trigger = event.target.closest("[data-tab-index]");
       if (!trigger || !root.contains(trigger)) {
         return;
@@ -863,7 +1153,10 @@ const feature15Js = () => `
         return;
       }
       setActive(index);
-    });
+    };
+
+    root.__hzFeature15OnClick = onClick;
+    root.addEventListener("click", onClick);
   };
 
   const initAll = (scope = document) => {
@@ -879,6 +1172,29 @@ const feature15Js = () => `
   document.addEventListener("shopify:section:load", (event) => {
     if (event?.target?.querySelectorAll) {
       initAll(event.target);
+    }
+  });
+
+  document.addEventListener("shopify:section:unload", (event) => {
+    if (event?.target?.querySelectorAll) {
+      event.target.querySelectorAll(".hz-feature15").forEach(destroySection);
+    }
+  });
+
+  document.addEventListener("shopify:block:select", (event) => {
+    const panel = event?.target?.closest?.(".hz-feature15__panel, .hz-feature15__figure");
+    const root = panel?.closest?.(".hz-feature15");
+    if (!root) {
+      return;
+    }
+    const index = Number(panel.dataset.tabIndex || "0");
+    if (!Number.isFinite(index)) {
+      return;
+    }
+    const trigger = root.querySelector('.hz-feature15__tab[data-tab-index="' + index + '"]');
+    if (trigger) {
+      trigger.click();
+      trigger.focus();
     }
   });
 })();
@@ -1007,6 +1323,15 @@ const slideshowCss = ({ variant = 1 } = {}) => {
 
 const slideshowJs = () => `
 (() => {
+  const destroy = (root) => {
+    if (!root || typeof root.__hzSlideshowOnClick !== "function") {
+      return;
+    }
+    root.removeEventListener("click", root.__hzSlideshowOnClick);
+    delete root.__hzSlideshowOnClick;
+    delete root.dataset.hzSlideshowReady;
+  };
+
   const init = (root) => {
     if (!root || root.dataset.hzSlideshowReady === "true") {
       return;
@@ -1033,14 +1358,17 @@ const slideshowJs = () => `
       });
     };
 
-    root.addEventListener("click", (event) => {
+    const onClick = (event) => {
       const button = event.target.closest("[data-direction]");
       if (!button || !root.contains(button)) {
         return;
       }
       const direction = button.dataset.direction;
       setIndex(direction === "prev" ? index - 1 : index + 1);
-    });
+    };
+
+    root.__hzSlideshowOnClick = onClick;
+    root.addEventListener("click", onClick);
   };
 
   const initAll = (scope = document) => {
@@ -1057,6 +1385,38 @@ const slideshowJs = () => `
     if (event?.target?.querySelectorAll) {
       initAll(event.target);
     }
+  });
+
+  document.addEventListener("shopify:section:unload", (event) => {
+    if (event?.target?.querySelectorAll) {
+      event.target.querySelectorAll(".hz-slideshow-pro").forEach(destroy);
+    }
+  });
+
+  document.addEventListener("shopify:block:select", (event) => {
+    const slide = event?.target?.closest?.(".hz-slideshow-pro__slide");
+    const root = slide?.closest?.(".hz-slideshow-pro");
+    if (!root) {
+      return;
+    }
+    const index = Number(slide.dataset.slideIndex || "0");
+    if (!Number.isFinite(index)) {
+      return;
+    }
+    const controls = root.querySelectorAll(".hz-slideshow-pro__control");
+    if (!controls.length) {
+      return;
+    }
+    const slides = Array.from(root.querySelectorAll(".hz-slideshow-pro__slide"));
+    slides.forEach((entry, slideIndex) => {
+      const active = slideIndex === index;
+      entry.classList.toggle("is-active", active);
+      if (active) {
+        entry.removeAttribute("hidden");
+      } else {
+        entry.setAttribute("hidden", "hidden");
+      }
+    });
   });
 })();
 `;
@@ -1283,30 +1643,70 @@ const buildSlideshowArchetypeBundle = ({ sectionHandle, reference, imageUrls, at
   };
 };
 
-const buildArchetypeBundle = ({ archetype, sectionHandle, reference, imageUrls, attempt }) => {
-  if (archetype === "feature-tabs-media-slider") {
-    return buildFeatureArchetypeBundle({ sectionHandle, reference, imageUrls, attempt });
-  }
+const SECTION_BLUEPRINTS = Object.freeze({
+  "feature-tabs-media-slider": {
+    key: "feature-tabs-media-slider",
+    label: "Feature Tabs Media Slider",
+    confidence: 0.92,
+    selectors: [
+      "#shopify-section-template--21494267248969__ss_feature_15_tnnCDT",
+      "[id*='ss_feature_15']",
+      "[class*='ss_feature_15']",
+      "[class*='feature-thumbs-slider']",
+      "[class*='feature-template']",
+      "section",
+    ],
+    matches: ({ pathname, text }) =>
+      pathname.includes("feature-15") || text.includes("what makes it special") || text.includes("feature 15"),
+    buildBundle: buildFeatureArchetypeBundle,
+  },
+  "slideshow-pro": {
+    key: "slideshow-pro",
+    label: "Slideshow Pro",
+    confidence: 0.88,
+    selectors: [
+      "[id*='slideshow_pro']",
+      "[id*='slideshow-pro']",
+      "[class*='slideshow-pro']",
+      "[class*='slideshow']",
+      "[class*='swiper']",
+      "section",
+    ],
+    matches: ({ pathname, text }) =>
+      pathname.includes("slideshow-pro") || text.includes("slideshow pro") || text.includes("slideshow"),
+    buildBundle: buildSlideshowArchetypeBundle,
+  },
+});
 
-  if (archetype === "slideshow-pro") {
-    return buildSlideshowArchetypeBundle({ sectionHandle, reference, imageUrls, attempt });
+export const SUPPORTED_SECTION_BLUEPRINTS = Object.freeze(
+  SUPPORTED_ARCHETYPES.map((key) => ({
+    key,
+    label: SECTION_BLUEPRINTS[key].label,
+  }))
+);
+
+const buildArchetypeBundle = ({ archetype, sectionHandle, reference, imageUrls, attempt }) => {
+  const blueprint = SECTION_BLUEPRINTS[archetype];
+  if (blueprint) {
+    return blueprint.buildBundle({ sectionHandle, reference, imageUrls, attempt });
   }
 
   throw new Error(`Unsupported archetype '${archetype}'`);
 };
 
 const buildSectionLiquid = ({ sectionHandle, sectionMarkup, schema, css, js }) => {
-  const cssAssetName = `section-${sectionHandle}.css`;
-  const jsAssetName = `section-${sectionHandle}.js`;
-
   const lines = [];
+  lines.push(String(sectionMarkup || "").trim());
   if (css && css.trim()) {
-    lines.push(`{{ '${cssAssetName}' | asset_url | stylesheet_tag }}`);
+    lines.push(`{% stylesheet %}`);
+    lines.push(css.trim());
+    lines.push(`{% endstylesheet %}`);
   }
   if (js && js.trim()) {
-    lines.push(`<script src=\"{{ '${jsAssetName}' | asset_url }}\" defer=\"defer\"></script>`);
+    lines.push(`{% javascript %}`);
+    lines.push(js.trim());
+    lines.push(`{% endjavascript %}`);
   }
-  lines.push(String(sectionMarkup || "").trim());
   lines.push(`{% schema %}`);
   lines.push(JSON.stringify(schema, null, 2));
   lines.push(`{% endschema %}`);
@@ -1314,17 +1714,9 @@ const buildSectionLiquid = ({ sectionHandle, sectionMarkup, schema, css, js }) =
 
   const sectionLiquid = `${lines.join("\n").trim()}\n`;
 
-  const additionalFiles = [];
-  if (css && css.trim()) {
-    additionalFiles.push({ key: `assets/${cssAssetName}`, value: `${css.trim()}\n` });
-  }
-  if (js && js.trim()) {
-    additionalFiles.push({ key: `assets/${jsAssetName}`, value: `${js.trim()}\n` });
-  }
-
   return {
     sectionLiquid,
-    additionalFiles,
+    additionalFiles: [],
     schemaSummary: {
       name: schema.name,
       presetsCount: Array.isArray(schema.presets) ? schema.presets.length : 0,
@@ -1379,25 +1771,6 @@ const comparePngBuffers = (referenceBuffer, candidateBuffer) => {
   };
 };
 
-const selectorSets = {
-  "feature-tabs-media-slider": [
-    "#shopify-section-template--21494267248969__ss_feature_15_tnnCDT",
-    "[id*='ss_feature_15']",
-    "[class*='ss_feature_15']",
-    "[class*='feature-thumbs-slider']",
-    "[class*='feature-template']",
-    "section",
-  ],
-  "slideshow-pro": [
-    "[id*='slideshow_pro']",
-    "[id*='slideshow-pro']",
-    "[class*='slideshow-pro']",
-    "[class*='slideshow']",
-    "[class*='swiper']",
-    "section",
-  ],
-};
-
 const scoreElement = async (locator, tokens) => {
   const box = await locator.boundingBox();
   if (!box || box.width < 80 || box.height < 80) {
@@ -1441,7 +1814,7 @@ const scoreElement = async (locator, tokens) => {
 };
 
 const findBestTarget = async (page, archetype, tokenSource) => {
-  const selectors = selectorSets[archetype] || ["section", "main", "body"];
+  const selectors = SECTION_BLUEPRINTS[archetype]?.selectors || ["section", "main", "body"];
   const tokens = tokenize(tokenSource).slice(0, 20);
   const candidates = [];
 
@@ -2040,17 +2413,16 @@ const applyWrites = async ({
     themeRole: input.themeRole,
   });
 
+  const existingSection = await readExistingThemeFileIfPresent({
+    shopifyClient,
+    apiVersion,
+    themeId: resolvedTheme.id,
+    key: sectionKey,
+  });
+
   if (!input.overwriteSection) {
-    try {
-      await getThemeFile(shopifyClient, apiVersion, {
-        themeId: resolvedTheme.id,
-        key: sectionKey,
-      });
+    if (existingSection) {
       throw new Error(`Section '${sectionKey}' bestaat al. Zet overwriteSection=true.`);
-    } catch (error) {
-      if (error?.status !== 404) {
-        throw error;
-      }
     }
   }
 
@@ -2061,11 +2433,13 @@ const applyWrites = async ({
   });
 
   let templateUpdate = null;
+  let templateSnapshot = null;
   if (input.addToTemplate) {
     const templateFile = await getThemeFile(shopifyClient, apiVersion, {
       themeId: resolvedTheme.id,
       key: input.templateKey,
     });
+    templateSnapshot = templateFile;
 
     const templateJson = ensureJsonTemplateStructure(templateFile.asset?.value || "", input.templateKey);
     const sectionId = pickSectionInstanceId(sectionHandle, input.sectionInstanceId, templateJson);
@@ -2100,7 +2474,18 @@ const applyWrites = async ({
   }
 
   const additionalWrites = [];
+  const additionalSnapshots = [];
   for (const file of additionalFiles) {
+    additionalSnapshots.push({
+      key: file.key,
+      snapshot: await readExistingThemeFileIfPresent({
+        shopifyClient,
+        apiVersion,
+        themeId: resolvedTheme.id,
+        key: file.key,
+      }),
+    });
+
     const writeResult = await upsertThemeFile(shopifyClient, apiVersion, {
       themeId: resolvedTheme.id,
       key: file.key,
@@ -2121,6 +2506,8 @@ const applyWrites = async ({
     template: null,
     templateInstall: null,
     additionalFiles: [],
+    themeRender: null,
+    rollback: null,
   };
 
   if (input.verify) {
@@ -2152,6 +2539,34 @@ const applyWrites = async ({
         key: write.key,
       });
       verification.additionalFiles.push(summarizeAssetRead(fileRead.asset));
+    }
+
+    verification.themeRender = await verifyThemeRenderAfterWrites({
+      shopifyClient,
+      theme: resolvedTheme,
+      sectionHandle,
+      addToTemplate: input.addToTemplate,
+      templateKey: input.templateKey,
+      sectionInstanceId: templateUpdate?.sectionId || null,
+    });
+
+    if (verification.themeRender.status === "fail") {
+      verification.rollback = await rollbackThemeWrites({
+        shopifyClient,
+        apiVersion,
+        themeId: resolvedTheme.id,
+        sectionKey,
+        sectionSnapshot: existingSection,
+        templateKey: templateUpdate?.key || null,
+        templateSnapshot,
+        additionalSnapshots,
+      });
+
+      const renderFailure = new Error("Generated section faalde in echte storefront render-context.");
+      renderFailure.code = "theme_context_render_failed";
+      renderFailure.verification = verification;
+      renderFailure.rollback = verification.rollback;
+      throw renderFailure;
     }
   }
 
@@ -2338,6 +2753,7 @@ export const replicateSectionFromReferencePipeline = async ({ shopifyClient, api
         archetype: archetypeMatch.archetype,
         attempt,
       });
+      attemptLog.visualGate = visualGate;
 
       const visualIssues = [];
       for (const result of visualGate.perViewport || []) {
@@ -2440,6 +2856,54 @@ export const replicateSectionFromReferencePipeline = async ({ shopifyClient, api
         attempts,
       };
     } catch (error) {
+      if (error?.code === "theme_context_render_failed") {
+        const themeIssues = [
+          ...((error?.verification?.themeRender?.issues || []).map((entry) => entry)),
+          ...((error?.rollback?.results || [])
+            .filter((entry) => entry.status !== "pass")
+            .map((entry) =>
+              issue(
+                "warn",
+                "theme_context_render_rollback_failed",
+                `Rollback voor '${entry.key}' faalde tijdens ${entry.action}: ${entry.error || "onbekende fout"}.`
+              )
+            )),
+        ];
+
+        attemptLog.postWriteVerification = error?.verification || null;
+        attemptLog.rollback = error?.rollback || null;
+        attempts.push(attemptLog);
+
+        return buildFailureResponse({
+          errorCode: "theme_context_render_failed",
+          message: "Section replication v3 faalde: theme_context_render_failed.",
+          archetype: attemptLog.archetype || null,
+          confidence: typeof attemptLog.confidence === "number" ? attemptLog.confidence : 0,
+          validation: {
+            status: "fail",
+            checks: {
+              themeContext: toValidationCheck("themeContext", themeIssues),
+              schema: toValidationCheck("schema", []),
+              bundle: toValidationCheck("bundle", []),
+              visual: toValidationCheck("visual", []),
+            },
+            issues: themeIssues,
+          },
+          visualGate:
+            attemptLog.visualGate ||
+            {
+              status: "pass",
+              perViewport: PREVIEW_TARGETS.map((entry) => ({
+                id: entry.id,
+                pass: true,
+                mismatchRatio: 0,
+                threshold: entry.threshold,
+              })),
+            },
+          attempts,
+        });
+      }
+
       const runtimeMessage = formatErrorMessage(error, 4000);
       const issueCode = isPlaywrightBrowserMissingError(error) ? "browser_runtime_unavailable" : "runtime_error";
       attemptLog.runtimeError = {

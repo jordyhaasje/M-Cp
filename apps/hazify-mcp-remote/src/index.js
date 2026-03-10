@@ -55,7 +55,7 @@ if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
     process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
 }
 const { replicateSectionFromReference } = await import("./tools/replicateSectionFromReference.js");
-const TRANSPORT = String(argv.transport || process.env.HAZIFY_MCP_TRANSPORT || "stdio").toLowerCase();
+const TRANSPORT = String(argv.transport || process.env.HAZIFY_MCP_TRANSPORT || "http").toLowerCase();
 const IS_HTTP_TRANSPORT = TRANSPORT === "http" || TRANSPORT === "streamable-http";
 const HTTP_HOST = argv.host || process.env.HAZIFY_MCP_HTTP_HOST || "0.0.0.0";
 const HTTP_PORT = Number(argv.port || process.env.PORT || process.env.HAZIFY_MCP_HTTP_PORT || 8788);

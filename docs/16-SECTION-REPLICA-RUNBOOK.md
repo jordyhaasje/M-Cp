@@ -1,7 +1,7 @@
 # Section Replica Runbook (v3)
 
 ## Doel
-Deterministische section-replicatie via 1 mutating tool, met harde visuele gate vóór writes.
+Begrensde section-replicatie via 1 mutating tool, met een preview-based visuele gate vóór writes en een storefront theme-context rendercheck ná writes.
 
 ## Runtime prerequisites
 - `playwright` + Chromium moeten beschikbaar zijn op de MCP host.
@@ -17,8 +17,17 @@ De backend voert intern altijd deze pipeline uit:
 2. detect (archetype + target element)
 3. generate (Shopify section bundle)
 4. lint (schema + template preflight)
-5. visual gate (pixel-diff thresholds)
+5. visual gate (pixel-diff thresholds op preview-captures)
 6. apply (alleen bij status `pass`)
+7. storefront verify (echte section rendercheck voor main themes; rollback bij fail)
+
+Belangrijk:
+- De implementatie is momenteel beperkt tot de archetypes hieronder.
+- De ondersteunde archetypes staan nu ook expliciet als blueprint-catalogus in code (`SUPPORTED_SECTION_BLUEPRINTS` in `src/lib/sectionReplicationV3.js`).
+- De visual gate blijft een pre-write preview-check.
+- Na writes doet de pipeline voor main themes ook een echte storefront section rendercheck via Shopify's Section Rendering API (`section_id`), en rolt de write terug als die rendercheck faalt.
+- Voor niet-main themes of templates zonder veilige route-mapping wordt de storefront rendercheck expliciet als `warn` gerapporteerd in `writes.verification.themeRender`.
+- Gegenereerde section CSS/JS wordt nu inline in de section opgenomen via `{% stylesheet %}` en `{% javascript %}`; er worden geen losse `assets/section-*.css/js` meer geschreven.
 
 ## Invoercontract
 Verplicht:
@@ -51,6 +60,7 @@ Optioneel:
   - `writesAllowed=true|false`
   - `manualFallbackAllowed=false` (altijd)
   - `nextAction` met vervolgactie voor agent
+- Bij `status=pass` bevat `writes.verification.themeRender` de storefront render-uitkomst.
 
 ## Archetypes (v3 start)
 - `feature-tabs-media-slider` (Feature #15-achtig)
@@ -69,6 +79,7 @@ Minimaal ondersteund:
 - `schema_invalid`
 - `template_insert_invalid`
 - `visual_gate_fail`
+- `theme_context_render_failed`
 
 ## Visual gate
 - Desktop pass als mismatch ratio `<= 0.12`
@@ -82,8 +93,10 @@ Minimaal ondersteund:
    - `validation.checks`
    - `visualGate.perViewport`
 3. Alleen bij `status=pass`: readback controleren met `get-theme-file`.
-4. Bij `status=fail` of `policy.writesAllowed=false`: stop en rapporteer fout; geen handmatige section-import uitvoeren.
-5. Rapporteer:
+4. Controleer bij `status=pass` ook `writes.verification.themeRender`.
+5. Bij `writes.verification.themeRender.status=warn`: rapporteren waarom de storefront rendercheck is overgeslagen.
+6. Bij `status=fail` of `policy.writesAllowed=false`: stop en rapporteer fout; geen handmatige section-import uitvoeren.
+7. Rapporteer:
    - section key
    - template key + section id
    - assets die geschreven zijn
