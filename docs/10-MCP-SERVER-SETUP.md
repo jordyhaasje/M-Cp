@@ -11,6 +11,7 @@
 4. OAuth PKCE `S256` only.
 5. `/mcp` accepteert alleen Bearer of `x-api-key`.
 6. Origin-validatie blijft actief op browser-origin requests.
+7. Productie draait standaard op HTTP transport; gebruik `stdio` alleen nog expliciet als legacy/local fallback.
 
 ## Aanbevolen checks na wijzigingen
 1. `npm run build`
@@ -18,6 +19,7 @@
 
 ## Tooling-richtlijn sections (v3)
 - Enige publieke section-tool: `replicate-section-from-reference`
-- Pipeline is intern deterministisch: capture -> detect -> generate -> lint -> strict visual gate -> apply
+- Pipeline is intern gefaseerd: capture -> detect -> generate -> lint -> preview-based visual gate -> apply
+- De huidige implementatie ondersteunt alleen de expliciet gedocumenteerde archetypes uit `docs/16-SECTION-REPLICA-RUNBOOK.md`
 - Oudere section-tools zijn verwijderd (geen wrappers of feature-flags meer)
 - Contractdetails: `docs/16-SECTION-REPLICA-RUNBOOK.md`

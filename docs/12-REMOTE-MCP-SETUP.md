@@ -3,6 +3,8 @@
 ## Doel
 Eindgebruikers verbinden via remote MCP zonder lokale server setup.
 
+De publieke route gebruikt remote HTTP. De runtime default van de service staat nu ook op `http`; `stdio` blijft alleen beschikbaar via `--transport=stdio` of `npm run --workspace @hazify/mcp-remote start:fallback:stdio`.
+
 - MCP URL: `https://hazify-mcp-remote-production.up.railway.app/mcp`
 - License service: `https://hazify-license-service-production.up.railway.app`
 

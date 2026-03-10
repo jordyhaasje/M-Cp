@@ -6,5 +6,9 @@ Gebruik voor actieve implementaties altijd de hoofdmap `docs/`.
 
 Inhoud:
 - `11-LOCAL-MCP-SETUP.md`: oude lokale/fallback setup
+- `40-UI-UX-IMPROVEMENT-TRACKER.md`: afgeronde UI/UX cleanup-tracker
 - `99-IMPLEMENTATION-TRACKER-2026-03-04.md`: historische implementatietracker
+- `90-REPO-CLEANUP-TRACKER.md`: historische cleanup-tracker
+- `artifacts/root-archive/`: verplaatste root-artifacts uit eerdere cleanup-slices
 - `connectors-legacy/`: oudere handmatige connector snippets
+- `templates/mcp-server-template/`: historisch template-artifact voor oude MCP-server bootstrap

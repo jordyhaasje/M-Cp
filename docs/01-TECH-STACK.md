@@ -17,6 +17,8 @@ Verantwoordelijkheden:
 - onboarding (`/v1/onboarding/connect-shopify`)
 - MCP token create/revoke + introspectie (`/v1/mcp/token/introspect`)
 - OAuth authorization server (`/oauth/register`, `/oauth/authorize`, `/oauth/token`)
+- billing/Stripe checkout, portal en webhook verwerking
+- admin/readiness/export routes voor operations
 
 Belangrijk:
 - Shopify credentials blijven server-side
@@ -32,16 +34,17 @@ Verantwoordelijkheden:
 - token introspectie bij license service
 - OAuth discovery metadata
 - tool-executie binnen tenant context
+- theme-bestanden via Admin GraphQL theme management; REST Asset API blijft alleen als compat-fallback voor shops waar theme GraphQL nog niet beschikbaar is
 
 Belangrijk:
 - Remote `/mcp` over Streamable HTTP is leidend
-- stdio/local blijft alleen fallback
+- stdio/local blijft alleen expliciete fallback via `--transport=stdio` of `start:fallback:stdio`
 - `/mcp` accepteert alleen `Authorization: Bearer` of `x-api-key`
 - Origin allowlist check is actief bij requests met `Origin` header
 - per-tenant serialisatie voor muterende tools
 
 ## Runtime/Platform
-- Node.js 18+
+- Node.js 20+ aanbevolen; CI draait op Node 22
 - ESM modules
 - npm workspaces op repo root
 - Railway voor productie deploy

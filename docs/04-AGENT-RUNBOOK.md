@@ -14,7 +14,8 @@
 
 ## Verplichte checks
 - Root:
-  - `npm run verify:shared`
+  - `npm run check:docs`
+  - `npm run check:repo`
   - `npm run build`
   - `npm test`
 - Voor release/deploy:

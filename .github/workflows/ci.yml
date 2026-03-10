@@ -21,7 +21,13 @@ jobs:
           cache: npm
 
       - name: Install
-        run: npm install
+        run: npm ci
+
+      - name: Documentation checks
+        run: npm run check:docs
+
+      - name: Repository hygiene checks
+        run: npm run check:repo
 
       - name: Verify shared package mirrors
         run: npm run verify:shared

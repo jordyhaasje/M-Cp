@@ -8,6 +8,8 @@ Gebruik `docs/00-START-HERE.md` als startpunt.
 - `docs/02-SYSTEM-FLOW.md`
 - `docs/03-REPO-STRUCTURE.md`
 - `docs/04-AGENT-RUNBOOK.md`
+- `docs/50-REPO-CLEANUP-PR-PLAN.md`
+- `docs/51-REPO-CLEANUP-TRACKER.md`
 - `docs/10-MCP-SERVER-SETUP.md`
 - `docs/12-REMOTE-MCP-SETUP.md`
 - `docs/14-GPT-INSTRUCTIONS.md`

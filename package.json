@@ -9,15 +9,18 @@
     "packages/*"
   ],
   "scripts": {
-    "sync:shared": "node scripts/sync-shared-packages.mjs",
-    "verify:shared": "node scripts/verify-shared-packages.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+    "check:repo": "node scripts/check-repo-hygiene.mjs",
     "check:git-sync": "node scripts/check-git-sync.mjs",
     "smoke:prod": "node scripts/smoke-prod.mjs",
-    "build": "npm run sync:shared && npm run -ws --if-present build && npm run verify:shared",
-    "test": "npm run verify:shared && npm run -ws --if-present test && npm run test:e2e",
+    "build": "npm run -ws --if-present build",
+    "test": "npm run -ws --if-present test && npm run test:e2e",
     "test:e2e": "node tests/e2e/contract.test.mjs",
+    "start": "node scripts/start-service.mjs",
     "start:license": "npm run --workspace @hazify/license-service start",
-    "start:mcp": "npm run --workspace @hazify/mcp-remote start:remote"
+    "start:mcp": "npm run --workspace @hazify/mcp-remote build && npm run --workspace @hazify/mcp-remote start:remote",
+    "railway:link:mcp": "railway link -p Hazify-MCP-Remote -e production -s Hazify-MCP-Remote",
+    "railway:link:license": "railway link -p Hazify-License-Service -e production -s Hazify-License-Service"
   },
   "engines": {
     "node": ">=18.18.0"
