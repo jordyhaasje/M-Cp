@@ -31,7 +31,7 @@ Section-replicatie via gefaseerde orchestration met expliciete artifacts en duid
 5. `replicate-section-from-reference` (compat wrapper)
 
 ## Staged flow
-1. **Inspect**: referentie-URL (+ optionele shared image) analyseren, target selector + captures opslaan.
+1. **Inspect**: referentie-URL (+ optionele shared image) analyseren; `targetHint`/`visionHints` zijn semantisch, alleen `targetSelector` forceert CSS-targeting.
 2. **Generate**: section bundle genereren uit `inspectionId`.
 3. **Validate**: schema/template + visual checks uitvoeren op `bundleId`.
 4. **Import**: bundle schrijven naar doeltheme, readback + template install + render verificatie.
@@ -53,6 +53,7 @@ Section-replicatie via gefaseerde orchestration met expliciete artifacts en duid
 - **Visual validation**: blockt bij threshold-overschrijding.
   - desktop `<= 0.12`
   - mobile `<= 0.15`
+- **Inspection quality gating**: generatie blockt als captures/extracted/target-confirmatie onvoldoende zijn.
 - **Import verification**:
   - section readback
   - template install readback

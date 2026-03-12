@@ -93,13 +93,47 @@ try {
   const chromeFallback = new ChromeInspectorAdapter({ bridge: null });
   const inspect = await chromeFallback.inspectReference({
     referenceUrl: "https://example.com",
+    targetHint: "hero top banner",
     viewports: ["desktop", "mobile"],
     timeoutMs: 30000,
   });
   assert.equal(inspect.status, "pass");
   assert.ok(inspect.domSummary.title);
   assert.ok(Array.isArray(inspect.extracted.textCandidates));
+  assert.notEqual(inspect.target.selector, "hero top banner");
+  assert.match(String(inspect.target.reasoning || ""), /semantische detectie/i);
   assert.ok(inspect.issues.some((issue) => issue.code === "adapter_unavailable"));
+
+  const proxyFailBridge = new ChromeInspectorAdapter({
+    bridge: {
+      async callTool() {
+        const error = new Error("ValueError: File arg rewrite paths are required when proxied mounts are present.");
+        error.code = "bridge_process_failed";
+        throw error;
+      },
+    },
+  });
+
+  const inspectFromProxyFailure = await proxyFailBridge.inspectReference({
+    referenceUrl: "https://example.com",
+    targetHint: "headline section",
+    visionHints: "blue background with centered title",
+    sharedImage: {
+      imageBase64: "ZmFrZQ==",
+      mimeType: "image/png",
+    },
+    viewports: ["desktop", "mobile"],
+    timeoutMs: 30000,
+  });
+  assert.equal(inspectFromProxyFailure.status, "pass");
+  assert.ok(
+    inspectFromProxyFailure.issues.some((entry) => entry.code === "shared_image_unreadable"),
+    "sharedImage proxy failure should be surfaced with shared_image_unreadable"
+  );
+  assert.ok(
+    inspectFromProxyFailure.issues.some((entry) => entry.code === "adapter_unavailable"),
+    "bridge fallback should still include adapter_unavailable issue"
+  );
 
   const compare = await chromeFallback.compareVisual({
     inspection: {},

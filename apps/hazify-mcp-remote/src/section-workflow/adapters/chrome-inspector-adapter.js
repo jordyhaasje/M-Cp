@@ -1,6 +1,8 @@
 import { createIssue } from "../error-model.js";
 import { toAdapterBridgeFailureIssue } from "./mcp-client-bridge.js";
 
+const HINT_TOKEN_MIN_LENGTH = 3;
+
 const extractTagValues = (html, tag) => {
   const values = [];
   const regex = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "gi");
@@ -33,6 +35,91 @@ const extractImageUrls = (html) => {
   return urls;
 };
 
+const tokenizeHintText = (...values) => {
+  const seen = new Set();
+  for (const value of values) {
+    const lowered = String(value || "").toLowerCase();
+    const tokens = lowered
+      .replace(/[^a-z0-9]+/g, " ")
+      .split(/\s+/g)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length >= HINT_TOKEN_MIN_LENGTH);
+    for (const token of tokens) {
+      seen.add(token);
+    }
+  }
+  return [...seen];
+};
+
+const toStringArray = (values) =>
+  Array.isArray(values) ? values.filter((entry) => typeof entry === "string" && entry.trim().length > 0) : [];
+
+const scoreByHintTokens = (value, tokens) => {
+  const haystack = String(value || "").toLowerCase();
+  if (!haystack) {
+    return 0;
+  }
+  let score = 0;
+  for (const token of tokens) {
+    if (haystack.includes(token)) {
+      score += 1;
+    }
+  }
+  return score;
+};
+
+const prioritizeByHints = (values, tokens, maxCount = 20) => {
+  const entries = toStringArray(values).map((value, index) => ({
+    value,
+    score: scoreByHintTokens(value, tokens),
+    index,
+  }));
+
+  entries.sort((left, right) => {
+    if (right.score !== left.score) {
+      return right.score - left.score;
+    }
+    return left.index - right.index;
+  });
+
+  return entries.map((entry) => entry.value).slice(0, maxCount);
+};
+
+const hasSharedImageInput = (sharedImage) =>
+  Boolean(
+    sharedImage &&
+      ((typeof sharedImage.imageUrl === "string" && sharedImage.imageUrl.trim()) ||
+        (typeof sharedImage.imageBase64 === "string" && sharedImage.imageBase64.trim()))
+  );
+
+const isProxySharedImageRewriteError = (error) =>
+  String(error?.message || "").toLowerCase().includes("file arg rewrite paths are required");
+
+const toSharedImageDeliveryIssue = (error) =>
+  createIssue({
+    code: "shared_image_unreadable",
+    stage: "inspection",
+    severity: "warn",
+    blocking: false,
+    source: "chrome-mcp",
+    message: isProxySharedImageRewriteError(error)
+      ? "sharedImage kon niet worden doorgegeven via de proxy (rewrite paths vereist); inspectie ging verder zonder gedeelde afbeelding."
+      : "sharedImage kon niet worden verwerkt; inspectie ging verder zonder gedeelde afbeelding.",
+    details: {
+      upstreamMessage: error instanceof Error ? error.message : String(error || ""),
+    },
+  });
+
+const fallbackTargetReasoning = ({ explicitSelector, semanticTokens }) => {
+  if (explicitSelector) {
+    return "Expliciete targetSelector gebruikt als CSS target in fallback inspectie.";
+  }
+  if (semanticTokens.length > 0) {
+    return "Geen expliciete CSS selector opgegeven; targetHint/visionHints gebruikt als semantische detectiehints.";
+  }
+  return "Geen selector-hints opgegeven; fallback inspectie gebruikt algemene section-heuristiek.";
+};
+
 export class ChromeInspectorAdapter {
   constructor({ bridge = null, provider = "chrome-mcp" } = {}) {
     this.bridge = bridge;
@@ -49,9 +136,10 @@ export class ChromeInspectorAdapter {
           timeoutMs: input.timeoutMs,
         });
 
-        const payload = bridged.structuredContent && typeof bridged.structuredContent === "object"
-          ? bridged.structuredContent
-          : {};
+        const payload =
+          bridged.structuredContent && typeof bridged.structuredContent === "object"
+            ? bridged.structuredContent
+            : {};
 
         return {
           source: "chrome-mcp",
@@ -60,20 +148,32 @@ export class ChromeInspectorAdapter {
           domSummary: payload.domSummary || {},
           styleTokens: payload.styleTokens || {},
           captures: payload.captures || {},
+          extracted: {
+            textCandidates: toStringArray(payload?.extracted?.textCandidates),
+            imageCandidates: toStringArray(payload?.extracted?.imageCandidates),
+          },
           issues: Array.isArray(payload.issues) ? payload.issues : [],
         };
       } catch (error) {
-        return {
-          source: "chrome-mcp",
-          status: "fail",
-          target: { selector: null, viewports: [] },
-          domSummary: {},
-          styleTokens: {},
-          captures: {},
-          issues: [toAdapterBridgeFailureIssue({ stage: "inspection", source: "chrome-mcp", error })],
-        };
+        const bridgeIssue = toAdapterBridgeFailureIssue({ stage: "inspection", source: "chrome-mcp", error });
+        const sharedImageIssue = hasSharedImageInput(input?.sharedImage) ? toSharedImageDeliveryIssue(error) : null;
+        return this.inspectReferenceFallback(input, {
+          seedIssues: [bridgeIssue, sharedImageIssue].filter(Boolean),
+        });
       }
     }
+
+    return this.inspectReferenceFallback(input);
+  }
+
+  async inspectReferenceFallback(input, { seedIssues = [] } = {}) {
+    const sharedImage = input?.sharedImage && typeof input.sharedImage === "object" ? input.sharedImage : null;
+    const explicitSelector = String(input?.targetSelector || "").trim();
+    const semanticTokens = tokenizeHintText(
+      input?.targetHint || "",
+      input?.visionHints || "",
+      sharedImage?.imageUrl || ""
+    );
 
     try {
       const response = await fetch(input.referenceUrl, {
@@ -83,14 +183,17 @@ export class ChromeInspectorAdapter {
         },
       });
       const html = await response.text();
-      const headings = [
-        ...extractTagValues(html, "h1"),
-        ...extractTagValues(html, "h2"),
-        ...extractTagValues(html, "h3"),
-      ].slice(0, 20);
-      const paragraphs = extractTagValues(html, "p").slice(0, 20);
-      const images = extractImageUrls(html).slice(0, 20);
+      const headings = extractTagValues(html, "h1")
+        .concat(extractTagValues(html, "h2"))
+        .concat(extractTagValues(html, "h3"))
+        .slice(0, 50);
+      const paragraphs = extractTagValues(html, "p").slice(0, 50);
+      const images = extractImageUrls(html).slice(0, 40);
       const title = extractTagValues(html, "title")[0] || null;
+
+      const combinedText = [...headings, ...paragraphs];
+      const textCandidates = prioritizeByHints(combinedText, semanticTokens, 20);
+      const imageCandidates = prioritizeByHints(images, semanticTokens, 20);
 
       const captures = {};
       for (const viewport of input.viewports || ["desktop", "mobile"]) {
@@ -102,6 +205,7 @@ export class ChromeInspectorAdapter {
       }
 
       const issues = [
+        ...seedIssues,
         createIssue({
           code: "adapter_unavailable",
           stage: "inspection",
@@ -109,15 +213,30 @@ export class ChromeInspectorAdapter {
           blocking: false,
           source: "chrome-mcp",
           message:
-            "Chrome MCP bridge niet geconfigureerd; inspectie draait in beperkte fallback-modus zonder echte browser screenshots.",
+            "Chrome MCP bridge niet beschikbaar; inspectie draait in beperkte fallback-modus zonder echte browser screenshots.",
         }),
       ];
+
+      if (sharedImage?.imageBase64) {
+        issues.push(
+          createIssue({
+            code: "shared_image_unreadable",
+            stage: "inspection",
+            severity: "warn",
+            blocking: false,
+            source: "chrome-mcp",
+            message:
+              "sharedImage.imageBase64 is niet visueel gevalideerd in fallback inspectie; alleen semantische hints uit targetHint/visionHints/imageUrl zijn gebruikt.",
+          })
+        );
+      }
 
       return {
         source: "chrome-mcp",
         status: response.ok ? "pass" : "fail",
         target: {
-          selector: input.targetHint || "section",
+          selector: explicitSelector || (textCandidates.length > 0 || imageCandidates.length > 0 ? "section" : null),
+          reasoning: fallbackTargetReasoning({ explicitSelector, semanticTokens }),
           viewports: (input.viewports || ["desktop", "mobile"]).map((id) => ({
             id,
             clip: {
@@ -139,13 +258,14 @@ export class ChromeInspectorAdapter {
             headingCount: headings.length,
             paragraphCount: paragraphs.length,
             imageCount: images.length,
+            semanticTokenCount: semanticTokens.length,
           },
         },
         captures,
         issues,
         extracted: {
-          textCandidates: [...headings, ...paragraphs].slice(0, 20),
-          imageCandidates: images,
+          textCandidates,
+          imageCandidates,
         },
       };
     } catch (error) {
@@ -156,7 +276,9 @@ export class ChromeInspectorAdapter {
         domSummary: {},
         styleTokens: {},
         captures: {},
+        extracted: { textCandidates: [], imageCandidates: [] },
         issues: [
+          ...seedIssues,
           createIssue({
             code: "reference_unreachable",
             stage: "inspection",

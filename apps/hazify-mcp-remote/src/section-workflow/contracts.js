@@ -43,6 +43,7 @@ export const InspectReferenceSectionInputSchema = z.object({
   sharedImage: SharedImageSchema.optional(),
   visionHints: z.string().max(12000).optional(),
   targetHint: z.string().max(400).optional(),
+  targetSelector: z.string().max(400).optional(),
   viewports: z.array(z.enum(["desktop", "mobile"])) .min(1).max(2).default(["desktop", "mobile"]),
   timeoutMs: z.number().int().min(5000).max(60000).default(30000),
 });

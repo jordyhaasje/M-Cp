@@ -126,7 +126,12 @@ const inspectResponse = await runBridge({
     toolName: "inspect-reference",
     args: {
       referenceUrl: "https://example.com",
-      targetHint: "section.hero",
+      targetHint: "hero banner with centered CTA",
+      targetSelector: "section.hero",
+      visionHints: "Use the large top hero section with headline and primary button",
+      sharedImage: {
+        imageUrl: "https://cdn.example.com/hero-banner.png",
+      },
       viewports: ["desktop", "mobile"],
       timeoutMs: 10000,
     },
@@ -137,12 +142,17 @@ assert.equal(inspectResponse.structuredContent?.status, "pass");
 assert.equal(inspectResponse.structuredContent?.source, "chrome-mcp");
 assert.ok(inspectResponse.structuredContent?.captures?.desktop?.screenshotBase64);
 assert.ok(inspectResponse.structuredContent?.captures?.mobile?.screenshotBase64);
+assert.ok(inspectResponse.structuredContent?.target?.selector);
+assert.ok(Array.isArray(inspectResponse.structuredContent?.extracted?.textCandidates));
+assert.ok(Array.isArray(inspectResponse.structuredContent?.extracted?.imageCandidates));
 
 const chromeLogAfterInspect = await fs.readFile(chromeLogPath, "utf8");
 assert.ok(chromeLogAfterInspect.includes("new_page"));
 assert.ok(chromeLogAfterInspect.includes("evaluate_script"));
 assert.ok(chromeLogAfterInspect.includes("take_snapshot"));
 assert.ok(chromeLogAfterInspect.includes("take_screenshot"));
+assert.ok(chromeLogAfterInspect.includes("semanticHintTokens"));
+assert.equal(chromeLogAfterInspect.includes("querySelector(targetHint)"), false);
 
 const renderResponse = await runBridge({
   scriptPath: chromeBridgeScript,

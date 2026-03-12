@@ -29,6 +29,7 @@
   - `target_detection_failed`
   - `shared_image_unreadable`
   - `shared_image_payload_too_large`
+  - `inspection_quality_insufficient`
 - Generation:
   - `generation_failed`
   - `section_handle_invalid`

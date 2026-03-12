@@ -16,6 +16,7 @@ export const CORE_ERROR_CODES = Object.freeze([
   "target_detection_failed",
   "shared_image_unreadable",
   "shared_image_payload_too_large",
+  "inspection_quality_insufficient",
   "generation_failed",
   "section_handle_invalid",
   "schema_invalid",

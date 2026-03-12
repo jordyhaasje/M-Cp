@@ -5,14 +5,16 @@ Input:
 - `referenceUrl` (required)
 - `sharedImage.imageUrl` xor `sharedImage.imageBase64`
 - `sharedImage.imageBase64` max `8388608` chars
-- `visionHints`, `targetHint`
+- `visionHints`, `targetHint` (semantische hint)
+- `targetSelector` (optioneel, expliciete CSS selector)
 - `viewports` default `['desktop','mobile']`
 - `timeoutMs` default `30000`
 
 Output:
 - `status`, `inspectionId`, `reference`, `target`, `extracted`, `captures`
+- `quality.ready` + `quality.checks` (inspectie-kwaliteit voor generatie-gating)
 - `warnings[]`, `errors[]`
-- `nextRecommendedTool='generate-shopify-section-bundle'` bij pass
+- `nextRecommendedTool='generate-shopify-section-bundle'` alleen bij voldoende inspectie-kwaliteit
 
 ## 2) generate-shopify-section-bundle
 Input:

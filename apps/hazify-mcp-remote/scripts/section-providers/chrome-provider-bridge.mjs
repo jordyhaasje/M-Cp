@@ -278,12 +278,70 @@ const withChromeClient = async (fn, timeoutMs = DEFAULT_TIMEOUT_MS) => {
 const callTool = async (client, name, args, timeoutMs = DEFAULT_TIMEOUT_MS) =>
   callWithTimeout(client.callTool({ name, arguments: args || {} }), timeoutMs, `chrome tool ${name}`);
 
+const toStringArray = (values) =>
+  Array.isArray(values) ? values.filter((entry) => typeof entry === "string" && entry.trim().length > 0) : [];
+
+const uniqueValues = (values) => {
+  const seen = new Set();
+  const output = [];
+  for (const value of toStringArray(values)) {
+    if (seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    output.push(value);
+  }
+  return output;
+};
+
+const tokenizeHints = (...values) => {
+  const seen = new Set();
+  for (const value of values) {
+    const tokens = String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .split(/\s+/g)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length >= 3);
+    for (const token of tokens) {
+      seen.add(token);
+    }
+  }
+  return [...seen];
+};
+
+const prioritizeValues = (values, tokens, maxCount = 20) => {
+  const entries = uniqueValues(values).map((value, index) => ({
+    value,
+    index,
+    score: tokens.reduce((acc, token) => acc + (String(value).toLowerCase().includes(token) ? 1 : 0), 0),
+  }));
+
+  entries.sort((left, right) => {
+    if (right.score !== left.score) {
+      return right.score - left.score;
+    }
+    return left.index - right.index;
+  });
+
+  return entries.map((entry) => entry.value).slice(0, maxCount);
+};
+
 const handleInspectReference = async (args) => {
   const referenceUrl = String(args?.referenceUrl || "").trim();
   const targetHint = String(args?.targetHint || "").trim();
+  const targetSelector = String(args?.targetSelector || "").trim();
+  const visionHints = String(args?.visionHints || "").trim();
+  const sharedImage = args?.sharedImage && typeof args.sharedImage === "object" ? args.sharedImage : null;
+  const sharedImageUrl = String(sharedImage?.imageUrl || "").trim();
+  const sharedImageBase64 = String(sharedImage?.imageBase64 || "").trim();
+  const sharedImageProvided = Boolean(sharedImageUrl || sharedImageBase64);
+  const sharedImageMalformed = Boolean(sharedImage && !sharedImageProvided);
+  const semanticHintTokens = tokenizeHints(targetHint, visionHints, sharedImageUrl);
+  const sharedImageUrlTokens = tokenizeHints(sharedImageUrl);
   const timeoutMs = Number(args?.timeoutMs) || DEFAULT_TIMEOUT_MS;
   const viewportIds = Array.isArray(args?.viewports) && args.viewports.length
-    ? args.viewports.map((entry) => String(entry))
+    ? [...new Set(args.viewports.map((entry) => String(entry).trim()).filter(Boolean))]
     : ["desktop", "mobile"];
 
   if (!referenceUrl) {
@@ -308,27 +366,112 @@ const handleInspectReference = async (args) => {
       await callTool(client, "new_page", { url: referenceUrl }, timeoutMs);
 
       const evaluator = `() => {
-        const targetHint = ${JSON.stringify(targetHint)};
+        const explicitSelector = ${JSON.stringify(targetSelector)};
+        const semanticHintTokens = ${JSON.stringify(semanticHintTokens)};
+        const sharedImageUrlTokens = ${JSON.stringify(sharedImageUrlTokens)};
+        const hasSharedImageBase64 = ${JSON.stringify(Boolean(sharedImageBase64))};
         const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+        const unique = (values) => Array.from(new Set(values.filter(Boolean)));
+        const score = (value, tokens) => {
+          const haystack = String(value || '').toLowerCase();
+          if (!haystack) return 0;
+          return tokens.reduce((acc, token) => acc + (haystack.includes(token) ? 1 : 0), 0);
+        };
+        const selectorForElement = (element) => {
+          if (!element) return null;
+          if (element.id) return '#' + element.id;
+          const classes = element.classList ? Array.from(element.classList).slice(0, 2).join('.') : '';
+          if (classes) return element.tagName.toLowerCase() + '.' + classes;
+          return element.tagName.toLowerCase();
+        };
+        const collectText = (element) => unique(
+          Array.from(element.querySelectorAll('h1, h2, h3, h4, p, li, a, span'))
+            .map((el) => clean(el.innerText))
+            .filter(Boolean)
+        );
+        const collectImages = (element) => unique(
+          Array.from(element.querySelectorAll('img'))
+            .map((el) => String(el.currentSrc || el.src || '').trim())
+            .filter(Boolean)
+        );
         const headings = Array.from(document.querySelectorAll('h1, h2, h3')).map((el) => clean(el.innerText)).filter(Boolean).slice(0, 20);
         const paragraphs = Array.from(document.querySelectorAll('p')).map((el) => clean(el.innerText)).filter(Boolean).slice(0, 20);
-        const images = Array.from(document.querySelectorAll('img')).map((el) => el.src).filter(Boolean).slice(0, 20);
-        const targetElement = targetHint && document.querySelector(targetHint)
-          ? document.querySelector(targetHint)
-          : document.querySelector('main section, section, main, body');
-        const selector = (() => {
-          if (!targetElement) return null;
-          if (targetElement.id) return '#' + targetElement.id;
-          if (targetElement.classList && targetElement.classList.length) return targetElement.tagName.toLowerCase() + '.' + Array.from(targetElement.classList).slice(0, 2).join('.');
-          return targetElement.tagName.toLowerCase();
-        })();
+        const images = Array.from(document.querySelectorAll('img')).map((el) => String(el.currentSrc || el.src || '').trim()).filter(Boolean).slice(0, 20);
+        const candidates = unique(Array.from(document.querySelectorAll('main section, section, [data-section-id], [class*="section"], main > div, main article, article, [role="region"], main, body')));
+
+        let explicitSelectorMatched = false;
+        let targetElement = null;
+        let targetReasoning = null;
+
+        if (explicitSelector) {
+          const matched = document.querySelector(explicitSelector);
+          if (matched) {
+            explicitSelectorMatched = true;
+            targetElement = matched;
+            targetReasoning = 'Target geselecteerd via expliciete targetSelector.';
+          } else {
+            targetReasoning = 'Expliciete targetSelector niet gevonden; semantische detectie toegepast.';
+          }
+        }
+
+        if (!targetElement) {
+          let best = null;
+          for (const candidate of candidates) {
+            const candidateText = collectText(candidate);
+            const candidateImages = collectImages(candidate);
+            const candidateSelector = selectorForElement(candidate);
+            const candidateLabel = [
+              candidate.id || '',
+              candidate.className || '',
+              candidate.getAttribute('aria-label') || '',
+              candidate.getAttribute('data-section-id') || '',
+            ].join(' ');
+            const textScore = score(candidateText.join(' '), semanticHintTokens);
+            const labelScore = score(candidateLabel, semanticHintTokens);
+            const imageScore = score(candidateImages.join(' '), sharedImageUrlTokens);
+            const imagePresenceBonus = hasSharedImageBase64 && candidateImages.length > 0 ? 1 : 0;
+            const totalScore = textScore * 2 + labelScore * 2 + imageScore * 3 + imagePresenceBonus;
+
+            if (!best || totalScore > best.totalScore) {
+              best = {
+                totalScore,
+                element: candidate,
+                selector: candidateSelector,
+                text: candidateText,
+                images: candidateImages,
+              };
+            }
+          }
+
+          if (best?.element) {
+            targetElement = best.element;
+            if (semanticHintTokens.length > 0 || sharedImageUrlTokens.length > 0 || hasSharedImageBase64) {
+              targetReasoning = 'Target semantisch geselecteerd op basis van hints (score=' + best.totalScore + ').';
+            } else {
+              targetReasoning = 'Target geselecteerd op basis van standaard section-heuristiek.';
+            }
+          }
+        }
+
+        const targetTextCandidates = targetElement ? collectText(targetElement).slice(0, 20) : [];
+        const targetImageCandidates = targetElement ? collectImages(targetElement).slice(0, 20) : [];
         const bodyStyle = getComputedStyle(document.body);
         return {
           title: document.title || null,
           headings,
           paragraphs,
           images,
-          targetSelector: selector,
+          targetSelector: selectorForElement(targetElement),
+          targetReasoning,
+          targetTextCandidates,
+          targetImageCandidates,
+          hintUsage: {
+            semanticHintTokensCount: semanticHintTokens.length,
+            sharedImageUrlTokensCount: sharedImageUrlTokens.length,
+            sharedImageMode: hasSharedImageBase64 ? 'base64' : (sharedImageUrlTokens.length > 0 ? 'url' : 'none'),
+            explicitSelectorProvided: Boolean(explicitSelector),
+            explicitSelectorMatched,
+          },
           styleTokens: {
             body: {
               color: bodyStyle.color,
@@ -370,16 +513,67 @@ const handleInspectReference = async (args) => {
         });
       }
 
+      const textCandidates = prioritizeValues(
+        [
+          ...(Array.isArray(evaluationPayload.targetTextCandidates) ? evaluationPayload.targetTextCandidates : []),
+          ...(Array.isArray(evaluationPayload.headings) ? evaluationPayload.headings : []),
+          ...(Array.isArray(evaluationPayload.paragraphs) ? evaluationPayload.paragraphs : []),
+        ],
+        semanticHintTokens,
+        20
+      );
+
+      const imageCandidates = prioritizeValues(
+        [
+          ...(Array.isArray(evaluationPayload.targetImageCandidates) ? evaluationPayload.targetImageCandidates : []),
+          ...(Array.isArray(evaluationPayload.images) ? evaluationPayload.images : []),
+        ],
+        tokenizeHints(sharedImageUrl, targetHint, visionHints),
+        20
+      );
+
+      const issues = [];
+      if (sharedImageMalformed) {
+        issues.push(
+          issue({
+            code: "shared_image_unreadable",
+            stage: "inspection",
+            severity: "warn",
+            blocking: false,
+            message: "sharedImage is aangeleverd zonder geldige imageUrl of imageBase64; inspectie gebruikte alleen URL/hints.",
+          })
+        );
+      }
+      if (sharedImageProvided && !sharedImageUrl && sharedImageBase64) {
+        issues.push(
+          issue({
+            code: "shared_image_unreadable",
+            stage: "inspection",
+            severity: "warn",
+            blocking: false,
+            message:
+              "sharedImage.imageBase64 is gebruikt als semantische beeldhint, maar zonder directe pixel-koppeling aan referentiebeelden.",
+          })
+        );
+      }
+      if (targetSelector && !evaluationPayload?.hintUsage?.explicitSelectorMatched) {
+        issues.push(
+          issue({
+            code: "target_detection_failed",
+            stage: "inspection",
+            severity: "warn",
+            blocking: false,
+            message: "Expliciete targetSelector matchte niet; semantische target-detectie is gebruikt.",
+          })
+        );
+      }
+
       return {
         source: SOURCE,
         status: "pass",
         target: {
-          selector: evaluationPayload.targetSelector || targetHint || null,
-          reasoning: evaluationPayload.targetSelector
-            ? "Target selector bepaald via browser DOM inspectie."
-            : targetHint
-              ? "Target selector overgenomen uit targetHint."
-              : null,
+          selector: evaluationPayload.targetSelector || null,
+          reasoning: evaluationPayload.targetReasoning || null,
           viewports,
         },
         domSummary: {
@@ -390,14 +584,11 @@ const handleInspectReference = async (args) => {
         },
         styleTokens: evaluationPayload.styleTokens || {},
         extracted: {
-          textCandidates: [
-            ...(Array.isArray(evaluationPayload.headings) ? evaluationPayload.headings : []),
-            ...(Array.isArray(evaluationPayload.paragraphs) ? evaluationPayload.paragraphs : []),
-          ].slice(0, 20),
-          imageCandidates: Array.isArray(evaluationPayload.images) ? evaluationPayload.images : [],
+          textCandidates,
+          imageCandidates,
         },
         captures,
-        issues: [],
+        issues,
       };
     }, timeoutMs);
   } catch (error) {

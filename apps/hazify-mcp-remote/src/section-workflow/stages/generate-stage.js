@@ -19,6 +19,37 @@ const take = (values, count, fallback = []) => {
   return next.slice(0, count).length ? next.slice(0, count) : fallback;
 };
 
+const hasCaptureData = (capture) =>
+  Boolean(
+    capture &&
+      typeof capture === "object" &&
+      typeof capture.screenshotBase64 === "string" &&
+      capture.screenshotBase64.trim().length > 0 &&
+      Number(capture.width) > 0 &&
+      Number(capture.height) > 0
+  );
+
+const hasInspectionQualityReady = (inspectionArtifact) => {
+  const qualityReady = inspectionArtifact?.payload?.quality?.ready;
+  if (typeof qualityReady === "boolean") {
+    return qualityReady;
+  }
+
+  const extracted = inspectionArtifact?.payload?.extracted || {};
+  const textCandidates = Array.isArray(extracted.textCandidates)
+    ? extracted.textCandidates.filter((entry) => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+  const captures = inspectionArtifact?.payload?.captures || {};
+  const desktopCaptureOk = hasCaptureData(captures.desktop);
+  const mobileCaptureOk = hasCaptureData(captures.mobile);
+  const target = inspectionArtifact?.payload?.target || {};
+  const hasTargetHint =
+    (typeof target.selector === "string" && target.selector.trim().length > 0) ||
+    (typeof target.reasoning === "string" && target.reasoning.trim().length > 0);
+
+  return desktopCaptureOk && mobileCaptureOk && textCandidates.length >= 1 && hasTargetHint;
+};
+
 const buildSectionLiquid = ({ sectionHandle, sectionName, textCandidates, imageCandidates }) => {
   const heading = textCandidates[0] || sectionName || "Generated section";
   const body = textCandidates[1] || "Deze sectie is gegenereerd op basis van de referentie-inspectie.";
@@ -114,6 +145,54 @@ export const runGenerateStage = async ({ input, runtime }) => {
             blocking: true,
             source: "hazify",
             message: `inspectionId '${normalizedInput.inspectionId}' niet gevonden voor deze tenant.`,
+          }),
+        ],
+        warnings: [],
+        nextRecommendedTool: "none",
+      };
+    }
+
+    if (inspection.status !== "pass") {
+      return {
+        action: "generate_shopify_section_bundle",
+        stage: "generation",
+        status: "fail",
+        performedBy: "hazify",
+        bundleId: null,
+        inspectionId: normalizedInput.inspectionId,
+        bundle: null,
+        errors: [
+          createIssue({
+            code: "inspection_quality_insufficient",
+            stage: "generation",
+            severity: "error",
+            blocking: true,
+            source: "hazify",
+            message: "Inspectie-artifact staat niet in pass-status; generatie is geblokkeerd.",
+          }),
+        ],
+        warnings: [],
+        nextRecommendedTool: "none",
+      };
+    }
+
+    if (!hasInspectionQualityReady(inspection)) {
+      return {
+        action: "generate_shopify_section_bundle",
+        stage: "generation",
+        status: "fail",
+        performedBy: "hazify",
+        bundleId: null,
+        inspectionId: normalizedInput.inspectionId,
+        bundle: null,
+        errors: [
+          createIssue({
+            code: "inspection_quality_insufficient",
+            stage: "generation",
+            severity: "error",
+            blocking: true,
+            source: "hazify",
+            message: "Inspectie-artifact bevat onvoldoende betrouwbare data; generatie is geblokkeerd.",
           }),
         ],
         warnings: [],

@@ -52,6 +52,7 @@ import { ShopifyAuth } from "./lib/shopifyAuth.js";
 import { LicenseManager } from "./lib/licenseManager.js";
 import { createMachineFingerprint } from "./lib/machineFingerprint.js";
 import { SectionWorkflowOrchestrator, setSectionWorkflowOrchestrator } from "./section-workflow/orchestrator.js";
+import { SHARED_IMAGE_BASE64_MAX_CHARS } from "./section-workflow/contracts.js";
 import { resolveArtifactTtlConfig } from "./section-workflow/artifacts/artifact-ttl.js";
 import { MemoryArtifactStore } from "./section-workflow/artifacts/memory-artifact-store.js";
 import { PersistentArtifactStore } from "./section-workflow/artifacts/persistent-artifact-store.js";
@@ -966,12 +967,13 @@ server.tool("inspect-reference-section", {
     sharedImage: z
         .object({
         imageUrl: z.string().url().optional(),
-        imageBase64: z.string().min(1).optional(),
+        imageBase64: z.string().min(1).max(SHARED_IMAGE_BASE64_MAX_CHARS).optional(),
         mimeType: z.enum(["image/png", "image/jpeg", "image/webp"]).optional(),
     })
         .optional(),
     visionHints: z.string().max(12000).optional(),
     targetHint: z.string().max(400).optional(),
+    targetSelector: z.string().max(400).optional(),
     viewports: z.array(z.enum(["desktop", "mobile"])).min(1).max(2).default(["desktop", "mobile"]),
     timeoutMs: z.number().int().min(5000).max(60000).default(30000),
 }, async (args) => {

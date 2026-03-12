@@ -9,6 +9,8 @@ import { SHARED_IMAGE_BASE64_MAX_CHARS } from "../src/section-workflow/contracts
 
 const artifactStore = new MemoryArtifactStore({ maxPerTenant: 50, sweepIntervalMs: 60000 });
 const ttlConfig = resolveArtifactTtlConfig();
+const ONE_BY_ONE_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=";
 
 const runtime = {
   artifactStore,
@@ -33,8 +35,8 @@ const runtime = {
         domSummary: { title: "Reference page" },
         styleTokens: { colors: ["#111111"] },
         captures: {
-          desktop: { screenshotBase64: "", width: 1440, height: 900 },
-          mobile: { screenshotBase64: "", width: 390, height: 844 },
+          desktop: { screenshotBase64: ONE_BY_ONE_PNG_BASE64, width: 1440, height: 900 },
+          mobile: { screenshotBase64: ONE_BY_ONE_PNG_BASE64, width: 390, height: 844 },
         },
         extracted: {
           textCandidates: ["Hero heading", "Hero body copy"],
@@ -132,6 +134,56 @@ try {
   });
   assert.equal(inspectResult.status, "pass");
   assert.match(inspectResult.inspectionId || "", /^ins_/);
+
+  const degradedInspect = await runInspectStage({
+    input: {
+      referenceUrl: "https://example.com/hero",
+      viewports: ["desktop", "mobile"],
+      targetHint: "hero top banner",
+    },
+    runtime: {
+      ...runtime,
+      chromeInspector: {
+        ...runtime.chromeInspector,
+        async inspectReference() {
+          return {
+            source: "chrome-mcp",
+            status: "pass",
+            target: { selector: null, reasoning: null, viewports: [] },
+            domSummary: {},
+            styleTokens: {},
+            captures: {
+              desktop: { screenshotBase64: "", width: 1440, height: 900 },
+              mobile: { screenshotBase64: "", width: 390, height: 844 },
+            },
+            extracted: { textCandidates: [], imageCandidates: [] },
+            issues: [],
+          };
+        },
+      },
+    },
+  });
+  assert.equal(degradedInspect.status, "fail");
+  assert.equal(degradedInspect.nextRecommendedTool, "none");
+  assert.ok(
+    degradedInspect.errors.some((entry) => entry.code === "inspection_quality_insufficient"),
+    "inspection should fail with inspection_quality_insufficient when captures/extracted data is empty"
+  );
+
+  const blockedGenerate = await runGenerateStage({
+    input: {
+      inspectionId: degradedInspect.inspectionId,
+      sectionHandle: "blocked-section",
+      templateHint: "templates/index.json",
+    },
+    runtime,
+  });
+  assert.equal(blockedGenerate.status, "fail");
+  assert.equal(blockedGenerate.nextRecommendedTool, "none");
+  assert.ok(
+    blockedGenerate.errors.some((entry) => entry.code === "inspection_quality_insufficient"),
+    "generation should be blocked when inspection quality is insufficient"
+  );
 
   const oversizedInspect = await runInspectStage({
     input: {

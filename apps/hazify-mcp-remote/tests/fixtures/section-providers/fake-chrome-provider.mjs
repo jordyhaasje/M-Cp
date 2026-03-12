@@ -51,8 +51,11 @@ server.tool(
   {
     function: z.string(),
   },
-  async () => {
+  async ({ function: evaluateFunction }) => {
     logCall("evaluate_script");
+    if (logFile) {
+      fs.appendFileSync(logFile, `evaluate_script_source=${evaluateFunction}\n`);
+    }
     const payload = {
       title: "Fake Example",
       headings: ["Fake heading"],
