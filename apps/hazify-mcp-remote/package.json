@@ -33,6 +33,8 @@
     "@hazify/mcp-common": "file:../../packages/mcp-common",
     "@hazify/shopify-core": "file:../../packages/shopify-core",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@shopify/dev-mcp": "^1.7.1",
+    "chrome-devtools-mcp": "^0.20.0",
     "dotenv": "^16.0.3",
     "graphql": "^16.6.0",
     "graphql-request": "^5.1.0",
@@ -48,6 +50,6 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.12.0"
   }
 }

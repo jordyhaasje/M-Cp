@@ -11,10 +11,17 @@ Section-replicatie via gefaseerde orchestration met expliciete artifacts en duid
   - v1 transport: stdio subprocess
   - `HAZIFY_SECTION_CHROME_MCP_STDIO_COMMAND` (+ optioneel args/cwd)
   - `HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_COMMAND` (+ optioneel args/cwd)
+  - Aanbevolen bridge wrappers:
+    - `node apps/hazify-mcp-remote/scripts/section-providers/chrome-provider-bridge.mjs`
+    - `node apps/hazify-mcp-remote/scripts/section-providers/shopify-dev-provider-bridge.mjs`
+  - Wrapper upstream providers:
+    - Chrome: `chrome-devtools-mcp`
+    - Shopify Dev: `@shopify/dev-mcp` (scoped package)
   - HTTP bridge is in v1 runtime expliciet uitgeschakeld
 - Artifact storage:
   - `HAZIFY_SECTION_ARTIFACT_MODE=hybrid` (aanbevolen)
   - L2 persistence via license service `/v1/mcp/artifacts/*`
+- Node runtime: `>=22.12.0` aanbevolen voor provider-compatibiliteit.
 
 ## Publieke tools
 1. `inspect-reference-section`

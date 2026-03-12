@@ -1,0 +1,105 @@
+#!/usr/bin/env node
+import fs from "node:fs";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+
+const logFile = String(process.env.FAKE_PROVIDER_LOG_FILE || "").trim();
+const logCall = (name) => {
+  if (!logFile) {
+    return;
+  }
+  fs.appendFileSync(logFile, `${name}\n`);
+};
+
+const SCREENSHOT_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=";
+
+const server = new McpServer({
+  name: "fake-chrome-provider",
+  version: "1.0.0",
+});
+
+server.tool(
+  "new_page",
+  {
+    url: z.string(),
+  },
+  async ({ url }) => {
+    logCall("new_page");
+    return {
+      content: [{ type: "text", text: `Opened ${url}` }],
+    };
+  }
+);
+
+server.tool(
+  "emulate",
+  {
+    viewport: z.string().optional(),
+  },
+  async () => {
+    logCall("emulate");
+    return {
+      content: [{ type: "text", text: "Emulated viewport" }],
+    };
+  }
+);
+
+server.tool(
+  "evaluate_script",
+  {
+    function: z.string(),
+  },
+  async () => {
+    logCall("evaluate_script");
+    const payload = {
+      title: "Fake Example",
+      headings: ["Fake heading"],
+      paragraphs: ["Fake paragraph"],
+      images: ["https://cdn.example.com/fake.png"],
+      targetSelector: "section.fake-section",
+      styleTokens: {
+        body: {
+          color: "rgb(0, 0, 0)",
+          backgroundColor: "rgb(255, 255, 255)",
+          fontFamily: "Arial, sans-serif",
+        },
+      },
+    };
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Script ran on page and returned:\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``,
+        },
+      ],
+    };
+  }
+);
+
+server.tool("take_snapshot", {}, async () => {
+  logCall("take_snapshot");
+  return {
+    content: [
+      {
+        type: "text",
+        text: "## Latest page snapshot\nuid=1_0 RootWebArea \"Fake Example\"",
+      },
+    ],
+  };
+});
+
+server.tool("take_screenshot", {}, async () => {
+  logCall("take_screenshot");
+  return {
+    content: [
+      { type: "text", text: "Screenshot captured" },
+      { type: "image", data: SCREENSHOT_BASE64, mimeType: "image/png" },
+    ],
+  };
+});
+
+const transport = new StdioServerTransport();
+await server.connect(transport);

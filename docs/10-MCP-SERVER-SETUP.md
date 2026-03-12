@@ -26,7 +26,7 @@
 - Compat tool:
   - `replicate-section-from-reference` (wrapper over staged flow met legacy outputvelden)
 - Interne adapters:
-  - Chrome/browser inspectie via `chrome-mcp` bridge
-  - Schema/template validatie via `shopify-dev-mcp` bridge
+  - Chrome/browser inspectie via `chrome-mcp` bridge (`chrome-provider-bridge.mjs` -> `chrome-devtools-mcp`)
+  - Schema/template validatie via `shopify-dev-mcp` bridge (`shopify-dev-provider-bridge.mjs` -> `@shopify/dev-mcp`)
   - Theme import/verificatie via Shopify Admin in Hazify
 - Contractdetails: `docs/18-SECTION-TOOL-CONTRACTS.md`

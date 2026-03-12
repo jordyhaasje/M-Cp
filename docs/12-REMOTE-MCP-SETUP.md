@@ -84,7 +84,10 @@ Belangrijk:
 - ChatGPT productie: selecteer standaard alleen Hazify MCP voor section-taken.
 - Chrome DevTools MCP en Shopify Dev MCP:
   - niet customer-facing hosten als extra publieke Railway services
-  - alleen intern/dev gebruiken wanneer nodig voor visuele controle of extra validatie
+  - alleen intern/dev gebruiken via stdio bridge wrappers binnen `hazify-mcp-remote`
+  - provider packages:
+    - Chrome: `chrome-devtools-mcp`
+    - Shopify Dev: `@shopify/dev-mcp` (scoped)
 
 ## Shopify referentie (voor reviewers)
 - Sections: https://shopify.dev/docs/storefronts/themes/architecture/sections

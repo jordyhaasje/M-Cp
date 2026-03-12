@@ -2,6 +2,7 @@ await import("./licenseManager.test.mjs");
 await import("./urlSecurity.test.mjs");
 await import("./sectionWorkflowArtifacts.test.mjs");
 await import("./sectionWorkflowAdapters.test.mjs");
+await import("./sectionProviderBridges.test.mjs");
 await import("./sectionWorkflowStages.test.mjs");
 await import("./replicateSectionCompat.test.mjs");
 await import("./mcpHttpAuth.test.mjs");

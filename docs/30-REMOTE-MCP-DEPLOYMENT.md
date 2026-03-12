@@ -40,6 +40,7 @@
 - `DATA_ENCRYPTION_KEY`
 - `ADMIN_API_KEY`
 - `MCP_API_KEY`
+- `MAX_BODY_BYTES` (aanbevolen minimaal `1048576`; hoger bij grotere artifact payloads)
 - `HAZIFY_MCP_ARTIFACTS_MAX_PER_TENANT` (L2 artifact quota, default 2000)
 - `PUBLIC_BASE_URL`
 - `MCP_PUBLIC_URL`
@@ -52,6 +53,7 @@
 - `HAZIFY_MCP_PUBLIC_URL`
 - `HAZIFY_MCP_AUTH_SERVER_URL`
 - `PLAYWRIGHT_BROWSERS_PATH=0`
+- `NIXPACKS_NODE_VERSION=22` (of hoger; `>=22.12.0` vereist)
 - `RAILPACK_DEPLOY_APT_PACKAGES` (vereist voor Chromium runtime libs)
 - `HAZIFY_SECTION_ARTIFACT_MODE` (`hybrid` aanbevolen)
 - `HAZIFY_SECTION_ARTIFACT_MAX_PER_TENANT`
@@ -64,12 +66,20 @@
 - `HAZIFY_SECTION_ARTIFACT_TTL_BUNDLE_MS`
 - `HAZIFY_SECTION_ARTIFACT_TTL_VALIDATION_MS`
 - `HAZIFY_SECTION_ARTIFACT_TTL_IMPORT_MS`
-- `HAZIFY_SECTION_CHROME_MCP_STDIO_COMMAND` (optioneel)
-- `HAZIFY_SECTION_CHROME_MCP_STDIO_ARGS` (optioneel)
+- `HAZIFY_SECTION_CHROME_MCP_STDIO_COMMAND` (verplicht voor staged browser-bridge; aanbevolen `node`)
+- `HAZIFY_SECTION_CHROME_MCP_STDIO_ARGS` (aanbevolen `["apps/hazify-mcp-remote/scripts/section-providers/chrome-provider-bridge.mjs"]`)
 - `HAZIFY_SECTION_CHROME_MCP_STDIO_CWD` (optioneel)
-- `HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_COMMAND` (optioneel)
-- `HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_ARGS` (optioneel)
+- `HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_COMMAND` (verplicht voor staged validator-bridge; aanbevolen `node`)
+- `HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_ARGS` (aanbevolen `["apps/hazify-mcp-remote/scripts/section-providers/shopify-dev-provider-bridge.mjs"]`)
 - `HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_CWD` (optioneel)
+- `HAZIFY_SECTION_PROVIDER_TIMEOUT_MS` (optioneel; default `45000`)
+- `HAZIFY_SECTION_CHROME_UPSTREAM_COMMAND` (aanbevolen `npx`)
+- `HAZIFY_SECTION_CHROME_UPSTREAM_ARGS` (aanbevolen `["-y","chrome-devtools-mcp","--headless","--isolated","--no-usage-statistics","--chromeArg=--no-sandbox","--chromeArg=--disable-setuid-sandbox"]`)
+- `HAZIFY_SECTION_CHROME_UPSTREAM_CWD` (optioneel)
+- `HAZIFY_SECTION_SHOPIFY_DEV_UPSTREAM_COMMAND` (aanbevolen `npx`)
+- `HAZIFY_SECTION_SHOPIFY_DEV_UPSTREAM_ARGS` (aanbevolen `["-y","@shopify/dev-mcp"]`)
+- `HAZIFY_SECTION_SHOPIFY_DEV_UPSTREAM_CWD` (optioneel)
+- `HAZIFY_SECTION_SHOPIFY_DEV_API` (aanbevolen `liquid`)
 - HTTP bridge vars mogen blijven bestaan voor toekomstige support, maar worden in v1 runtime geweigerd.
 - `HAZIFY_SECTION_COMPAT_MODE` (`staged` aanbevolen)
 - `HAZIFY_PLAYWRIGHT_INSTALL` (optioneel, default aan)

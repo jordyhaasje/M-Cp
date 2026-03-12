@@ -31,15 +31,21 @@ const bridgeResponse = await providerBridge.callTool({
 assert.equal(bridgeResponse.structuredContent.toolName, "inspect-reference");
 
 const envProviders = buildBridgeProviderConfigFromEnv({
-  HAZIFY_SECTION_CHROME_MCP_STDIO_COMMAND: "npx",
-  HAZIFY_SECTION_CHROME_MCP_STDIO_ARGS: "[\"-y\",\"chrome-mcp\"]",
-  HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_COMMAND: "npx",
-  HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_ARGS: "-y shopify-dev-mcp",
+  HAZIFY_SECTION_CHROME_MCP_STDIO_COMMAND: "node",
+  HAZIFY_SECTION_CHROME_MCP_STDIO_ARGS:
+    "[\"apps/hazify-mcp-remote/scripts/section-providers/chrome-provider-bridge.mjs\"]",
+  HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_COMMAND: "node",
+  HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_ARGS:
+    "[\"apps/hazify-mcp-remote/scripts/section-providers/shopify-dev-provider-bridge.mjs\"]",
 });
 assert.equal(envProviders["chrome-mcp"].transport, "stdio");
-assert.deepEqual(envProviders["chrome-mcp"].args, ["-y", "chrome-mcp"]);
+assert.deepEqual(envProviders["chrome-mcp"].args, [
+  "apps/hazify-mcp-remote/scripts/section-providers/chrome-provider-bridge.mjs",
+]);
 assert.equal(envProviders["shopify-dev-mcp"].transport, "stdio");
-assert.deepEqual(envProviders["shopify-dev-mcp"].args, ["-y", "shopify-dev-mcp"]);
+assert.deepEqual(envProviders["shopify-dev-mcp"].args, [
+  "apps/hazify-mcp-remote/scripts/section-providers/shopify-dev-provider-bridge.mjs",
+]);
 
 const httpBridge = new McpClientBridge({
   providers: {

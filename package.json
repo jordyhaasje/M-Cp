@@ -23,6 +23,6 @@
     "railway:link:license": "railway link -p Hazify-License-Service -e production -s Hazify-License-Service"
   },
   "engines": {
-    "node": ">=18.18.0"
+    "node": ">=22.12.0"
   }
 }
