@@ -1,103 +1,69 @@
-# Section Replica Runbook (v3)
+# Section Replica Runbook (Staged)
 
 ## Doel
-Begrensde section-replicatie via 1 mutating tool, met een preview-based visuele gate vóór writes en een storefront theme-context rendercheck ná writes.
+Section-replicatie via gefaseerde orchestration met expliciete artifacts en duidelijke scheiding van inspectie, generatie, validatie en import.
 
 ## Runtime prerequisites
-- `playwright` + Chromium moeten beschikbaar zijn op de MCP host.
-- Browser-install gebeurt standaard via `postinstall` in `@hazify/mcp-remote`.
-- Zet in productie `PLAYWRIGHT_BROWSERS_PATH=0` zodat runtime dezelfde ingebakken browser-binaries gebruikt.
-- Alleen wanneer je expliciet wilt overslaan: `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` of `HAZIFY_PLAYWRIGHT_INSTALL=0`.
+- `playwright` + Chromium op de MCP host.
+- Browser-install via `postinstall` in `@hazify/mcp-remote`.
+- Productie: `PLAYWRIGHT_BROWSERS_PATH=0`.
+- Interne adapter-bridges:
+  - v1 transport: stdio subprocess
+  - `HAZIFY_SECTION_CHROME_MCP_STDIO_COMMAND` (+ optioneel args/cwd)
+  - `HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_COMMAND` (+ optioneel args/cwd)
+  - HTTP bridge is in v1 runtime expliciet uitgeschakeld
+- Artifact storage:
+  - `HAZIFY_SECTION_ARTIFACT_MODE=hybrid` (aanbevolen)
+  - L2 persistence via license service `/v1/mcp/artifacts/*`
 
-## Publieke tool
-- `replicate-section-from-reference`
+## Publieke tools
+1. `inspect-reference-section`
+2. `generate-shopify-section-bundle`
+3. `validate-shopify-section-bundle`
+4. `import-shopify-section-bundle`
+5. `replicate-section-from-reference` (compat wrapper)
 
-De backend voert intern altijd deze pipeline uit:
-1. capture (desktop + mobile reference snapshots)
-2. detect (archetype + target element)
-3. generate (Shopify section bundle)
-4. lint (schema + template preflight)
-5. visual gate (pixel-diff thresholds op preview-captures)
-6. apply (alleen bij status `pass`)
-7. storefront verify (echte section rendercheck voor main themes; rollback bij fail)
+## Staged flow
+1. **Inspect**: referentie-URL (+ optionele shared image) analyseren, target selector + captures opslaan.
+2. **Generate**: section bundle genereren uit `inspectionId`.
+3. **Validate**: schema/template + visual checks uitvoeren op `bundleId`.
+4. **Import**: bundle schrijven naar doeltheme, readback + template install + render verificatie.
 
-Belangrijk:
-- De implementatie is momenteel beperkt tot de archetypes hieronder.
-- De ondersteunde archetypes staan nu ook expliciet als blueprint-catalogus in code (`SUPPORTED_SECTION_BLUEPRINTS` in `src/lib/sectionReplicationV3.js`).
-- De visual gate blijft een pre-write preview-check.
-- Na writes doet de pipeline voor main themes ook een echte storefront section rendercheck via Shopify's Section Rendering API (`section_id`), en rolt de write terug als die rendercheck faalt.
-- Voor niet-main themes of templates zonder veilige route-mapping wordt de storefront rendercheck expliciet als `warn` gerapporteerd in `writes.verification.themeRender`.
-- Gegenereerde section CSS/JS wordt nu inline in de section opgenomen via `{% stylesheet %}` en `{% javascript %}`; er worden geen losse `assets/section-*.css/js` meer geschreven.
+## Theme-targeting regels
+1. `themeId` heeft hoogste prioriteit.
+2. Daarna `themeRole`.
+3. Als beide ontbreken: fallback naar live theme (`role=main`).
 
-## Invoercontract
-Verplicht:
-- `referenceUrl`
+## Compatibiliteit
+- `replicate-section-from-reference` orkestreert intern dezelfde stages.
+- Output behoudt legacy velden (`status`, `validation`, `visualGate`, `writes`, `policy`).
+- Extra metadata:
+  - `compat.deprecated=true`
+  - `artifacts.inspectionId|bundleId|validationId|importId`
 
-Optioneel:
-- `visionHints` (voor niet-publieke chat-afbeeldingen)
-- `imageUrls` (publieke image URLs)
-- `themeId` of `themeRole`
-- `templateKey`
-- `insertPosition` + `referenceSectionId`
-- `sectionHandle`
-- `overwriteSection`
-- `maxAttempts` (default 3, max 4)
-- `verify`
+## Validatie en blokkering
+- **Schema/template validation**: blockt import bij errors.
+- **Visual validation**: blockt bij threshold-overschrijding.
+  - desktop `<= 0.12`
+  - mobile `<= 0.15`
+- **Import verification**:
+  - section readback
+  - template install readback
+  - storefront rendercheck (main theme strict)
 
-## Uitvoercontract
-- `status`: `pass` of `fail`
-- `archetype`
-- `confidence`
-- `validation`:
-  - `checks.themeContext`
-  - `checks.schema`
-  - `checks.bundle`
-  - `checks.visual`
-- `visualGate` met desktop/mobile mismatch ratio + thresholds
-- `writes` alleen bij `status=pass`
-- `errorCode` bij `status=fail`
-- `policy`:
-  - `writesAllowed=true|false`
-  - `manualFallbackAllowed=false` (altijd)
-  - `nextAction` met vervolgactie voor agent
-- Bij `status=pass` bevat `writes.verification.themeRender` de storefront render-uitkomst.
-
-## Archetypes (v3 start)
-- `feature-tabs-media-slider` (Feature #15-achtig)
-- `slideshow-pro`
-
-Als een referentie niet matcht met ondersteunde archetypes:
-- `status=fail`
-- `errorCode=unsupported_archetype`
-- geen writes
-
-## Foutcodes
-Minimaal ondersteund:
-- `reference_unreachable`
-- `target_detection_failed`
-- `unsupported_archetype`
-- `schema_invalid`
-- `template_insert_invalid`
-- `visual_gate_fail`
-- `theme_context_render_failed`
-
-## Visual gate
-- Desktop pass als mismatch ratio `<= 0.12`
-- Mobile pass als mismatch ratio `<= 0.15`
-- Bij overschrijding: `status=fail`, `errorCode=visual_gate_fail`, geen writes
+## Rollback
+- Bij blocking verificatiefout na write: rollback van section/template/additional files.
+- Resultaat in `rollback.status` (`pass|fail|not_needed`).
 
 ## Operationele checklist
-1. Gebruik live theme (`role=main`) of expliciete `themeId`.
-2. Controleer in output altijd:
-   - `status`
-   - `validation.checks`
-   - `visualGate.perViewport`
-3. Alleen bij `status=pass`: readback controleren met `get-theme-file`.
-4. Controleer bij `status=pass` ook `writes.verification.themeRender`.
-5. Bij `writes.verification.themeRender.status=warn`: rapporteren waarom de storefront rendercheck is overgeslagen.
-6. Bij `status=fail` of `policy.writesAllowed=false`: stop en rapporteer fout; geen handmatige section-import uitvoeren.
-7. Rapporteer:
-   - section key
-   - template key + section id
-   - assets die geschreven zijn
-   - gebruikte archetype/confidence
+1. Start met inspect-stage en noteer `inspectionId`.
+2. Gebruik artifact IDs per stage; mix geen tenant-contexten.
+3. Importeer alleen na `validate.status=pass` en `importReadiness.ready=true`.
+4. Controleer altijd `verification.readback`, `verification.templateInstall`, `verification.themeRender`.
+5. Bij `status=fail`: rapporteer `errors[]` en voer geen handmatige writes uit.
+
+## Referenties
+- `docs/17-SECTION-ORCHESTRATION-ARCHITECTURE.md`
+- `docs/18-SECTION-TOOL-CONTRACTS.md`
+- `docs/19-SECTION-ARTIFACT-LIFECYCLE.md`
+- `docs/21-SECTION-ERROR-MODEL.md`

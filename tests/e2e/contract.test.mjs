@@ -296,6 +296,18 @@ try {
     toolNames.includes("replicate-section-from-reference"),
     "tools/list should expose replicate-section-from-reference"
   );
+  for (const expectedTool of [
+    "inspect-reference-section",
+    "generate-shopify-section-bundle",
+    "validate-shopify-section-bundle",
+    "import-shopify-section-bundle",
+  ]) {
+    assert.equal(
+      toolNames.includes(expectedTool),
+      true,
+      `tools/list should expose staged tool '${expectedTool}'`
+    );
+  }
   for (const removedTool of [
     "prepare-section-replica",
     "apply-section-replica",

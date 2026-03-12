@@ -5,16 +5,20 @@ Dit document bevat operationele regels voor ChatGPT connector-gebruik.
 ## Doel
 - Geen vaste system-prompt templates onderhouden in docs.
 - Gedrag afdwingen via MCP toolcontracten en runbooks.
-- Voor sections altijd de v3-flow gebruiken.
+- Voor sections altijd de staged orchestration flow gebruiken.
 
 ## Section policy
-1. Gebruik alleen `replicate-section-from-reference`.
-2. Geef minimaal `referenceUrl` mee.
-3. Geef `visionHints` mee als de gebruiker een niet-publieke afbeelding in de chat uploadt.
-4. `imageUrls` is optioneel voor publieke image links.
-5. Voer alleen writes uit bij `status=pass`; bij `status=fail` geen mutaties uitvoeren.
-6. Verifieer writes met `get-theme-file` zodra `status=pass` is geretourneerd.
-7. Als output `policy.writesAllowed=false` of `errorCode` aanwezig is: stop direct en rapporteer de fout, zonder handmatige replica/import.
+1. Gebruik bij voorkeur staged tools:
+   - `inspect-reference-section`
+   - `generate-shopify-section-bundle`
+   - `validate-shopify-section-bundle`
+   - `import-shopify-section-bundle`
+2. Compat-tool `replicate-section-from-reference` mag als wrapper gebruikt worden wanneer de client nog op legacy shape rekent.
+3. Geef minimaal `referenceUrl` mee.
+4. Geef `visionHints` mee als de gebruiker een niet-publieke afbeelding in de chat uploadt.
+5. Voer alleen imports/writes uit na succesvolle validatie (`status=pass`).
+6. Verifieer writes met `get-theme-file` zodra import succesvol is afgerond.
+7. Als output fouten of blocking issues bevat: stop direct en rapporteer de fout, zonder handmatige replica/import.
 
 ## Referenties
 - Contract runbook: `docs/16-SECTION-REPLICA-RUNBOOK.md`

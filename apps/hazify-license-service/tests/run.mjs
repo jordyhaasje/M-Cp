@@ -5,4 +5,5 @@ await import("./account-helpers.test.mjs");
 await import("./account-sessions.test.mjs");
 await import("./billing-helpers.test.mjs");
 await import("./license-records.test.mjs");
+await import("./mcp-artifacts.test.mjs");
 console.log("All hazify-license-service tests passed");

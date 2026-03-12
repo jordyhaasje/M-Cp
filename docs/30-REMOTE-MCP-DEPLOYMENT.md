@@ -23,7 +23,12 @@
 - Productie blijft op 1 publieke MCP service (`hazify-mcp-remote`).
 - Geen extra customer-facing Railway services voor Chrome DevTools MCP of Shopify Dev MCP.
 - Eventuele browser/validatie tooling alleen intern/dev gebruiken.
-- Publieke section-tooling bestaat uit 1 endpoint: `replicate-section-from-reference` (v3 autopipeline met strict visual gate en storefront render-verificatie voor main themes).
+- Publieke section-tooling gebruikt staged orchestration tools plus compat wrapper:
+  - `inspect-reference-section`
+  - `generate-shopify-section-bundle`
+  - `validate-shopify-section-bundle`
+  - `import-shopify-section-bundle`
+  - `replicate-section-from-reference` (compat)
 
 ## Productie endpoints
 - License service: `https://hazify-license-service-production.up.railway.app`
@@ -35,6 +40,7 @@
 - `DATA_ENCRYPTION_KEY`
 - `ADMIN_API_KEY`
 - `MCP_API_KEY`
+- `HAZIFY_MCP_ARTIFACTS_MAX_PER_TENANT` (L2 artifact quota, default 2000)
 - `PUBLIC_BASE_URL`
 - `MCP_PUBLIC_URL`
 - `HAZIFY_SERVICE_MODE=license`
@@ -47,9 +53,25 @@
 - `HAZIFY_MCP_AUTH_SERVER_URL`
 - `PLAYWRIGHT_BROWSERS_PATH=0`
 - `RAILPACK_DEPLOY_APT_PACKAGES` (vereist voor Chromium runtime libs)
-- `HAZIFY_SECTION_V3_REFERENCE_TIMEOUT_MS` (optioneel)
-- `HAZIFY_SECTION_V3_BROWSER_TIMEOUT_MS` (optioneel)
-- `HAZIFY_SECTION_V3_PIXEL_THRESHOLD` (optioneel)
+- `HAZIFY_SECTION_ARTIFACT_MODE` (`hybrid` aanbevolen)
+- `HAZIFY_SECTION_ARTIFACT_MAX_PER_TENANT`
+- `HAZIFY_SECTION_ARTIFACT_SWEEP_INTERVAL_MS`
+- `HAZIFY_SECTION_ARTIFACT_PURGE_INTERVAL_MS`
+- `HAZIFY_SECTION_ARTIFACT_PERSIST_URL` (license-service base URL)
+- `HAZIFY_SECTION_ARTIFACT_PERSIST_API_KEY` (`x-mcp-api-key`)
+- `HAZIFY_SECTION_ARTIFACT_PERSIST_TIMEOUT_MS`
+- `HAZIFY_SECTION_ARTIFACT_TTL_INSPECTION_MS`
+- `HAZIFY_SECTION_ARTIFACT_TTL_BUNDLE_MS`
+- `HAZIFY_SECTION_ARTIFACT_TTL_VALIDATION_MS`
+- `HAZIFY_SECTION_ARTIFACT_TTL_IMPORT_MS`
+- `HAZIFY_SECTION_CHROME_MCP_STDIO_COMMAND` (optioneel)
+- `HAZIFY_SECTION_CHROME_MCP_STDIO_ARGS` (optioneel)
+- `HAZIFY_SECTION_CHROME_MCP_STDIO_CWD` (optioneel)
+- `HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_COMMAND` (optioneel)
+- `HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_ARGS` (optioneel)
+- `HAZIFY_SECTION_SHOPIFY_DEV_MCP_STDIO_CWD` (optioneel)
+- HTTP bridge vars mogen blijven bestaan voor toekomstige support, maar worden in v1 runtime geweigerd.
+- `HAZIFY_SECTION_COMPAT_MODE` (`staged` aanbevolen)
 - `HAZIFY_PLAYWRIGHT_INSTALL` (optioneel, default aan)
 - `HAZIFY_PLAYWRIGHT_INSTALL_STRICT` (optioneel, default aan in CI/Railway)
 

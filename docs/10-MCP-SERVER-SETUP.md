@@ -17,9 +17,16 @@
 1. `npm run build`
 2. `npm test`
 
-## Tooling-richtlijn sections (v3)
-- Enige publieke section-tool: `replicate-section-from-reference`
-- Pipeline is intern gefaseerd: capture -> detect -> generate -> lint -> preview-based visual gate -> apply
-- De huidige implementatie ondersteunt alleen de expliciet gedocumenteerde archetypes uit `docs/16-SECTION-REPLICA-RUNBOOK.md`
-- Oudere section-tools zijn verwijderd (geen wrappers of feature-flags meer)
-- Contractdetails: `docs/16-SECTION-REPLICA-RUNBOOK.md`
+## Tooling-richtlijn sections (staged orchestration)
+- Publieke staged tools:
+  - `inspect-reference-section`
+  - `generate-shopify-section-bundle`
+  - `validate-shopify-section-bundle`
+  - `import-shopify-section-bundle`
+- Compat tool:
+  - `replicate-section-from-reference` (wrapper over staged flow met legacy outputvelden)
+- Interne adapters:
+  - Chrome/browser inspectie via `chrome-mcp` bridge
+  - Schema/template validatie via `shopify-dev-mcp` bridge
+  - Theme import/verificatie via Shopify Admin in Hazify
+- Contractdetails: `docs/18-SECTION-TOOL-CONTRACTS.md`

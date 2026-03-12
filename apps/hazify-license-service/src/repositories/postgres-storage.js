@@ -173,6 +173,21 @@ CREATE TABLE IF NOT EXISTS mcp_tokens (
   expires_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS mcp_artifacts (
+  tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+  artifact_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  parent_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ,
+  last_accessed_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ,
+  version TEXT NOT NULL DEFAULT 'section-workflow-v1',
+  PRIMARY KEY (tenant_id, artifact_id)
+);
+
 CREATE TABLE IF NOT EXISTS oauth_clients (
   client_id TEXT PRIMARY KEY,
   client_name TEXT NOT NULL,
@@ -225,6 +240,7 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
       licenses,
       tenants,
       mcpTokens,
+      mcpArtifacts,
       oauthClients,
       oauthAuthCodes,
       oauthRefreshTokens,
@@ -234,6 +250,7 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
       this.pool.query("SELECT * FROM licenses"),
       this.pool.query("SELECT * FROM tenants"),
       this.pool.query("SELECT * FROM mcp_tokens"),
+      this.pool.query("SELECT * FROM mcp_artifacts"),
       this.pool.query("SELECT * FROM oauth_clients"),
       this.pool.query("SELECT * FROM oauth_auth_codes"),
       this.pool.query("SELECT * FROM oauth_refresh_tokens"),
@@ -283,6 +300,25 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
       lastUsedAt: row.last_used_at ? new Date(row.last_used_at).toISOString() : null,
       expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
     }));
+
+    state.mcpArtifacts = Object.fromEntries(
+      mcpArtifacts.rows.map((row) => [
+        `${row.tenant_id}:${row.artifact_id}`,
+        {
+          artifactId: row.artifact_id,
+          tenantId: row.tenant_id,
+          type: row.type,
+          status: row.status,
+          parentIds: toJson(row.parent_ids_json, []),
+          payload: toJson(row.payload_json, {}),
+          createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+          updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+          lastAccessedAt: row.last_accessed_at ? new Date(row.last_accessed_at).toISOString() : null,
+          expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
+          version: row.version || "section-workflow-v1",
+        },
+      ])
+    );
 
     state.oauthClients = rowMap(oauthClients.rows, "client_id", (row) => ({
       clientId: row.client_id,
@@ -360,7 +396,7 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
     try {
       await client.query("BEGIN");
       await client.query(
-        "TRUNCATE TABLE oauth_refresh_tokens, oauth_auth_codes, oauth_clients, mcp_tokens, account_sessions, accounts, tenants, licenses RESTART IDENTITY CASCADE"
+        "TRUNCATE TABLE oauth_refresh_tokens, oauth_auth_codes, oauth_clients, mcp_artifacts, mcp_tokens, account_sessions, accounts, tenants, licenses RESTART IDENTITY CASCADE"
       );
 
       for (const record of Object.values(state.licenses || {})) {
@@ -456,6 +492,26 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
             record.updatedAt || null,
             record.lastUsedAt || null,
             record.expiresAt || null,
+          ]
+        );
+      }
+
+      for (const record of Object.values(state.mcpArtifacts || {})) {
+        await client.query(
+          `INSERT INTO mcp_artifacts (tenant_id, artifact_id, type, status, parent_ids_json, payload_json, created_at, updated_at, last_accessed_at, expires_at, version)
+           VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,$10,$11)`,
+          [
+            record.tenantId,
+            record.artifactId,
+            record.type,
+            record.status,
+            JSON.stringify(Array.isArray(record.parentIds) ? record.parentIds : []),
+            JSON.stringify(record.payload || {}),
+            record.createdAt || null,
+            record.updatedAt || null,
+            record.lastAccessedAt || null,
+            record.expiresAt || null,
+            record.version || "section-workflow-v1",
           ]
         );
       }

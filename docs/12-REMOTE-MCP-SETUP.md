@@ -58,24 +58,27 @@ Voorbeeld (`mcp-remote`):
 3. token revoke -> nieuwe request faalt
 4. disallowed origin -> request faalt
 
-## Section workflow (ChatGPT-first, v3)
-Verplichte flow:
-1. Gebruik `replicate-section-from-reference` als enige section-tool.
-2. Input:
-   - `referenceUrl` (verplicht)
-   - `visionHints` (optioneel, voor niet-publieke chat-afbeeldingen)
-   - `imageUrls` (optioneel, alleen publieke image links)
-3. Output:
-   - `status=pass|fail`
-   - `archetype`, `confidence`
-   - `validation` en `visualGate` per desktop/mobile
-   - `policy` (`writesAllowed`, `manualFallbackAllowed`, `nextAction`)
-   - `writes` alleen bij `status=pass`
-4. Als `status=fail` of `policy.writesAllowed=false`: stop zonder handmatige section-import en rapporteer foutcode.
-5. Verifieer met `get-theme-file` op:
-   - `sections/<handle>.liquid`
-   - template JSON (`sections` + `order`)
-   - geschreven assets
+## Section workflow (staged orchestration)
+Aanbevolen flow:
+1. `inspect-reference-section`
+2. `generate-shopify-section-bundle`
+3. `validate-shopify-section-bundle`
+4. `import-shopify-section-bundle`
+
+Compat flow:
+- `replicate-section-from-reference` blijft beschikbaar als wrapper, maar geeft ook artifact IDs terug (`inspectionId`, `bundleId`, `validationId`, `importId`).
+
+Belangrijk:
+- Theme-targeting:
+  - expliciet `themeId` heeft prioriteit
+  - anders `themeRole`
+  - anders fallback naar live theme (`role=main`)
+- Import alleen uitvoeren wanneer validation `status=pass` en `importReadiness.ready=true`.
+- Verifieer na import met `get-theme-file` op:
+  - `sections/<handle>.liquid`
+  - template JSON (`sections` + `order`)
+  - aanvullende geschreven bestanden
+- Contractdetails: `docs/18-SECTION-TOOL-CONTRACTS.md`
 
 ## Clientselectie en hosting
 - ChatGPT productie: selecteer standaard alleen Hazify MCP voor section-taken.

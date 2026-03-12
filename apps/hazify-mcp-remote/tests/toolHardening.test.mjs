@@ -10,6 +10,8 @@ import { __setSectionReplicationV3RuntimeForTests } from "../src/lib/sectionRepl
 
 const originalLookup = dns.lookup;
 const originalFetch = global.fetch;
+const previousCompatMode = process.env.HAZIFY_SECTION_COMPAT_MODE;
+process.env.HAZIFY_SECTION_COMPAT_MODE = "legacy_v3";
 
 const sourceProductPayload = {
   title: "Source product",
@@ -955,4 +957,9 @@ try {
 } finally {
   dns.lookup = originalLookup;
   global.fetch = originalFetch;
+  if (previousCompatMode === undefined) {
+    delete process.env.HAZIFY_SECTION_COMPAT_MODE;
+  } else {
+    process.env.HAZIFY_SECTION_COMPAT_MODE = previousCompatMode;
+  }
 }

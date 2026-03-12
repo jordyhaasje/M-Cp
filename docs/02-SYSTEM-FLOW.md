@@ -29,3 +29,10 @@
 - OAuth-first: VS Code, Cursor, ChatGPT, Claude
 - API token fallback voor clients zonder OAuth-flow
 - legacy aliases (`/register`, `/authorize`, `/token`) blijven ondersteund
+
+## 5) Section orchestration flow (staged)
+1. `inspect-reference-section` analyseert referentie-URL (+ optionele image) via Chrome-inspector adapter
+2. `generate-shopify-section-bundle` maakt section bundle op basis van `inspectionId`
+3. `validate-shopify-section-bundle` draait schema/template + visual checks op `bundleId`
+4. `import-shopify-section-bundle` schrijft pas na readiness check en verifieert readback/render
+5. Compat-tool `replicate-section-from-reference` orkestreert dezelfde stages en behoudt legacy response shape

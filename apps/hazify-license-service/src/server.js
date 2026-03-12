@@ -79,6 +79,7 @@ import { createAccountHandlers } from "./routes/account.js";
 import { createLicenseBillingHandlers } from "./routes/license-billing.js";
 import { createAdminHandlers } from "./routes/admin.js";
 import { createOAuthHandlers } from "./routes/oauth.js";
+import { createMcpArtifactHandlers } from "./routes/mcp-artifacts.js";
 
 const RATE_BUCKETS = new Map();
 
@@ -149,6 +150,8 @@ async function loadDb() {
       parsed.oauthRefreshTokens && typeof parsed.oauthRefreshTokens === "object"
         ? parsed.oauthRefreshTokens
         : {},
+    mcpArtifacts:
+      parsed.mcpArtifacts && typeof parsed.mcpArtifacts === "object" ? parsed.mcpArtifacts : {},
     accounts: parsed.accounts && typeof parsed.accounts === "object" ? parsed.accounts : {},
     accountSessions:
       parsed.accountSessions && typeof parsed.accountSessions === "object"
@@ -174,6 +177,7 @@ function snapshotRecordCount(state = {}) {
     "oauthClients",
     "oauthAuthCodes",
     "oauthRefreshTokens",
+    "mcpArtifacts",
     "accounts",
     "accountSessions",
   ];
@@ -221,6 +225,10 @@ async function maybeBootstrapPostgresFromLegacyJson(currentState) {
     oauthRefreshTokens:
       legacyParsed.oauthRefreshTokens && typeof legacyParsed.oauthRefreshTokens === "object"
         ? legacyParsed.oauthRefreshTokens
+        : {},
+    mcpArtifacts:
+      legacyParsed.mcpArtifacts && typeof legacyParsed.mcpArtifacts === "object"
+        ? legacyParsed.mcpArtifacts
         : {},
     accounts: legacyParsed.accounts && typeof legacyParsed.accounts === "object" ? legacyParsed.accounts : {},
     accountSessions:
@@ -1123,6 +1131,17 @@ const oauthHandlers = createOAuthHandlers({
   normalizeShopDomain,
   logEvent,
 });
+const mcpArtifactHandlers = createMcpArtifactHandlers({
+  db,
+  json,
+  nowIso,
+  readBody,
+  persistDb,
+  requireMcpApiKey,
+  maxArtifactsPerTenant: Number(process.env.HAZIFY_MCP_ARTIFACTS_MAX_PER_TENANT || 2000) > 0
+    ? Number(process.env.HAZIFY_MCP_ARTIFACTS_MAX_PER_TENANT || 2000)
+    : 2000,
+});
 
 function ensureAccountLicenseRecord(account) {
   let license = db.licenses[account.licenseKey];
@@ -1270,6 +1289,18 @@ const server = http.createServer(async (req, res) => {
     }
     if (method === "POST" && url.pathname === "/v1/mcp/token/introspect") {
       return licenseBillingHandlers.handleMcpTokenIntrospect(req, res);
+    }
+    if (method === "POST" && url.pathname === "/v1/mcp/artifacts/upsert") {
+      return mcpArtifactHandlers.handleUpsert(req, res);
+    }
+    if (method === "POST" && url.pathname === "/v1/mcp/artifacts/get") {
+      return mcpArtifactHandlers.handleGet(req, res);
+    }
+    if (method === "POST" && url.pathname === "/v1/mcp/artifacts/delete") {
+      return mcpArtifactHandlers.handleDelete(req, res);
+    }
+    if (method === "POST" && url.pathname === "/v1/mcp/artifacts/purge-expired") {
+      return mcpArtifactHandlers.handlePurgeExpired(req, res);
     }
     if (method === "POST" && url.pathname === "/v1/onboarding/connect-shopify") {
       return accountHandlers.handleOnboardingConnectShopify(req, res);

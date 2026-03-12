@@ -186,6 +186,37 @@ try {
   const sessionId = allowedOriginResponse.headers.get("mcp-session-id");
   assert.ok(sessionId, "initialize should return mcp-session-id");
 
+  const toolsListResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      authorization: "Bearer valid-token",
+      origin: `http://127.0.0.1:${mcpPort}`,
+      "mcp-session-id": sessionId,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+      params: {},
+    }),
+  });
+  assert.equal(toolsListResponse.status, 200, "tools/list should succeed");
+  const toolsListBody = await toolsListResponse.json();
+  const toolNames = Array.isArray(toolsListBody?.result?.tools)
+    ? toolsListBody.result.tools.map((tool) => String(tool?.name || ""))
+    : [];
+  for (const expectedTool of [
+    "inspect-reference-section",
+    "generate-shopify-section-bundle",
+    "validate-shopify-section-bundle",
+    "import-shopify-section-bundle",
+    "replicate-section-from-reference",
+  ]) {
+    assert.equal(toolNames.includes(expectedTool), true, `tools/list should expose ${expectedTool}`);
+  }
+
   console.log("mcpHttpAuth.test.mjs passed");
 } finally {
   if (mcpServer && mcpServer.listening) {
