@@ -116,6 +116,7 @@ const chromeEnv = {
   HAZIFY_SECTION_CHROME_UPSTREAM_COMMAND: process.execPath,
   HAZIFY_SECTION_CHROME_UPSTREAM_ARGS: JSON.stringify([fakeChromeProvider]),
   HAZIFY_SECTION_CHROME_UPSTREAM_CWD: repoRoot,
+  FAKE_CHROME_SCREENSHOT_MODE: "image",
   FAKE_PROVIDER_LOG_FILE: chromeLogPath,
 };
 
@@ -187,6 +188,33 @@ assert.ok(
   chromeExecArgLog.includes(`--executable-path=${explicitExecutablePath}`),
   "chrome bridge should inject --executable-path when upstream is chrome-devtools-mcp"
 );
+
+const chromeFilePathScreenshotLogPath = path.join(tempDir, "fake-chrome-provider-filepath.log");
+await fs.writeFile(chromeFilePathScreenshotLogPath, "", "utf8");
+const filePathScreenshotEnv = {
+  HAZIFY_SECTION_CHROME_UPSTREAM_COMMAND: process.execPath,
+  HAZIFY_SECTION_CHROME_UPSTREAM_ARGS: JSON.stringify([fakeChromeProvider]),
+  HAZIFY_SECTION_CHROME_UPSTREAM_CWD: repoRoot,
+  FAKE_CHROME_SCREENSHOT_MODE: "filepath",
+  FAKE_PROVIDER_LOG_FILE: chromeFilePathScreenshotLogPath,
+};
+
+const inspectFromFilePathScreenshot = await runBridge({
+  scriptPath: chromeBridgeScript,
+  env: filePathScreenshotEnv,
+  requestPayload: {
+    toolName: "inspect-reference",
+    args: {
+      referenceUrl: "https://example.com",
+      targetHint: "hero",
+      viewports: ["desktop", "mobile"],
+      timeoutMs: 10000,
+    },
+  },
+});
+assert.equal(inspectFromFilePathScreenshot.structuredContent?.status, "pass");
+assert.ok(inspectFromFilePathScreenshot.structuredContent?.captures?.desktop?.screenshotBase64);
+assert.ok(inspectFromFilePathScreenshot.structuredContent?.captures?.mobile?.screenshotBase64);
 
 const renderResponse = await runBridge({
   scriptPath: chromeBridgeScript,

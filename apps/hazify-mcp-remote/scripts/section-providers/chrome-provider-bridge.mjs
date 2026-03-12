@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import pixelmatch from "pixelmatch";
@@ -146,6 +148,89 @@ const extractImageBase64 = (result) => {
     }
   }
   return null;
+};
+
+const extractFilePathFromScreenshotText = (textValue) => {
+  const text = String(textValue || "");
+  if (!text.trim()) {
+    return null;
+  }
+
+  const patterns = [
+    /(?:saved|written|path)\s*(?:to|:)\s*["']?([^"'\s]+?\.(?:png|jpg|jpeg|webp))/i,
+    /(\/[^\s"']+?\.(?:png|jpg|jpeg|webp))/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      return String(match[1]).trim();
+    }
+  }
+
+  return null;
+};
+
+const extractInlineBase64FromText = (textValue) => {
+  const text = String(textValue || "");
+  if (!text.trim()) {
+    return null;
+  }
+
+  const match = text.match(/data:image\/[a-z0-9.+-]+;base64,([a-z0-9+/=]+)/i);
+  return match?.[1] ? String(match[1]).trim() : null;
+};
+
+const readScreenshotFileAsBase64 = (filePath) => {
+  const normalizedPath = String(filePath || "").trim();
+  if (!normalizedPath || !fs.existsSync(normalizedPath)) {
+    return null;
+  }
+
+  try {
+    const raw = fs.readFileSync(normalizedPath);
+    return raw.length > 0 ? raw.toString("base64") : null;
+  } catch (_error) {
+    return null;
+  } finally {
+    try {
+      fs.rmSync(normalizedPath, { force: true });
+    } catch (_error) {
+      // Best effort cleanup only.
+    }
+  }
+};
+
+const makeScreenshotFilePath = (viewportId) =>
+  path.join(
+    os.tmpdir(),
+    `hazify-chrome-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}-${String(viewportId || "unknown")}.png`
+  );
+
+const captureScreenshotBase64 = async ({ client, timeoutMs, viewportId }) => {
+  const screenshotFilePath = makeScreenshotFilePath(viewportId);
+  let screenshot = null;
+  let screenshotError = null;
+
+  try {
+    screenshot = await callTool(client, "take_screenshot", { filePath: screenshotFilePath }, timeoutMs);
+  } catch (error) {
+    screenshotError = error;
+    screenshot = await callTool(client, "take_screenshot", {}, timeoutMs);
+  }
+
+  const textPayload = extractTextFromContent(screenshot);
+  const contentBase64 = extractImageBase64(screenshot);
+  const inlineBase64 = extractInlineBase64FromText(textPayload);
+  const responsePathBase64 = readScreenshotFileAsBase64(extractFilePathFromScreenshotText(textPayload));
+  const filePathBase64 = readScreenshotFileAsBase64(screenshotFilePath);
+
+  return {
+    screenshotBase64: contentBase64 || inlineBase64 || responsePathBase64 || filePathBase64 || "",
+    screenshotError,
+    attemptedFilePath: screenshotFilePath,
+    usedFallbackToolArgs: Boolean(screenshotError),
+  };
 };
 
 const sanitizeLiquidForPreview = (input) => {
@@ -555,12 +640,17 @@ const handleInspectReference = async (args) => {
 
       const captures = {};
       const viewports = [];
+      const captureDiagnostics = [];
 
       for (const viewportId of viewportIds) {
         const viewport = getViewportConfig(viewportId);
         await callTool(client, "emulate", { viewport: viewport.mcpViewport }, timeoutMs);
-        const screenshot = await callTool(client, "take_screenshot", {}, timeoutMs);
-        const screenshotBase64 = extractImageBase64(screenshot) || "";
+        const screenshotCapture = await captureScreenshotBase64({
+          client,
+          timeoutMs,
+          viewportId,
+        });
+        const screenshotBase64 = screenshotCapture.screenshotBase64;
 
         captures[viewportId] = {
           screenshotBase64,
@@ -577,6 +667,15 @@ const handleInspectReference = async (args) => {
             height: viewport.height,
           },
         });
+
+        if (!screenshotBase64) {
+          captureDiagnostics.push({
+            viewportId,
+            attemptedFilePath: screenshotCapture.attemptedFilePath,
+            usedFallbackToolArgs: screenshotCapture.usedFallbackToolArgs,
+            error: screenshotCapture.screenshotError ? String(screenshotCapture.screenshotError.message || "") : null,
+          });
+        }
       }
 
       const textCandidates = prioritizeValues(
@@ -630,6 +729,21 @@ const handleInspectReference = async (args) => {
             severity: "warn",
             blocking: false,
             message: "Expliciete targetSelector matchte niet; semantische target-detectie is gebruikt.",
+          })
+        );
+      }
+      if (captureDiagnostics.length > 0) {
+        issues.push(
+          issue({
+            code: "inspection_visual_unavailable",
+            stage: "inspection",
+            severity: "warn",
+            blocking: false,
+            message:
+              "Chrome provider leverde geen screenshot-binary voor een of meer viewports; inspectie gebruikt semantische extractie als fallback.",
+            details: {
+              captureDiagnostics,
+            },
           })
         );
       }
@@ -709,9 +823,13 @@ const handleRenderCandidate = async (args) => {
       for (const viewportId of viewportIds) {
         const viewport = getViewportConfig(viewportId);
         await callTool(client, "emulate", { viewport: viewport.mcpViewport }, timeoutMs);
-        const screenshot = await callTool(client, "take_screenshot", {}, timeoutMs);
+        const screenshot = await captureScreenshotBase64({
+          client,
+          timeoutMs,
+          viewportId,
+        });
         captures[viewportId] = {
-          screenshotBase64: extractImageBase64(screenshot) || "",
+          screenshotBase64: screenshot.screenshotBase64 || "",
           width: viewport.width,
           height: viewport.height,
         };

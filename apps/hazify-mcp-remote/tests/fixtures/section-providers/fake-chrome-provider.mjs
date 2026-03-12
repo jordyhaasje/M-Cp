@@ -18,6 +18,7 @@ if (logFile) {
 
 const SCREENSHOT_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=";
+const SCREENSHOT_MODE = String(process.env.FAKE_CHROME_SCREENSHOT_MODE || "image").trim().toLowerCase();
 
 const server = new McpServer({
   name: "fake-chrome-provider",
@@ -98,15 +99,34 @@ server.tool("take_snapshot", {}, async () => {
   };
 });
 
-server.tool("take_screenshot", {}, async () => {
-  logCall("take_screenshot");
-  return {
-    content: [
-      { type: "text", text: "Screenshot captured" },
-      { type: "image", data: SCREENSHOT_BASE64, mimeType: "image/png" },
-    ],
-  };
-});
+server.tool(
+  "take_screenshot",
+  {
+    filePath: z.string().optional(),
+  },
+  async ({ filePath }) => {
+    logCall("take_screenshot");
+
+    if (SCREENSHOT_MODE === "filepath" && filePath) {
+      fs.writeFileSync(filePath, Buffer.from(SCREENSHOT_BASE64, "base64"));
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Screenshot saved to ${filePath}`,
+          },
+        ],
+      };
+    }
+
+    return {
+      content: [
+        { type: "text", text: "Screenshot captured" },
+        { type: "image", data: SCREENSHOT_BASE64, mimeType: "image/png" },
+      ],
+    };
+  }
+);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

@@ -56,7 +56,10 @@ Section-replicatie via gefaseerde orchestration met expliciete artifacts en duid
 - **Visual validation**: blockt bij threshold-overschrijding.
   - desktop `<= 0.12`
   - mobile `<= 0.15`
-- **Inspection quality gating**: generatie blockt als captures/extracted/target-confirmatie onvoldoende zijn.
+- **Inspection quality gating**:
+  - inspect output bevat `quality.visualReady`, `quality.semanticReady`, `quality.generationReady`, `quality.mode`
+  - generatie mag door bij `quality.generationReady=true`, ook als `quality.visualReady=false` (semantic-only)
+  - generatie blockt alleen wanneer zowel visuele als semantische inspectie te zwak zijn (`quality.mode=blocked`)
 - **Import verification**:
   - section readback
   - template install readback

@@ -134,6 +134,82 @@ try {
   });
   assert.equal(inspectResult.status, "pass");
   assert.match(inspectResult.inspectionId || "", /^ins_/);
+  assert.equal(inspectResult.quality?.visualReady, true);
+  assert.equal(inspectResult.quality?.semanticReady, true);
+  assert.equal(inspectResult.quality?.generationReady, true);
+  assert.equal(inspectResult.quality?.mode, "full-visual-semantic");
+
+  const semanticOnlyInspect = await runInspectStage({
+    input: {
+      referenceUrl: "https://example.com/hero",
+      viewports: ["desktop", "mobile"],
+      targetHint: "hero section",
+    },
+    runtime: {
+      ...runtime,
+      chromeInspector: {
+        ...runtime.chromeInspector,
+        async inspectReference() {
+          return {
+            source: "chrome-mcp",
+            status: "pass",
+            target: {
+              selector: "section.hero",
+              reasoning: "semantic target match",
+              viewports: [
+                { id: "desktop", clip: { x: 0, y: 0, width: 1440, height: 900 } },
+                { id: "mobile", clip: { x: 0, y: 0, width: 390, height: 844 } },
+              ],
+            },
+            domSummary: { title: "Reference page" },
+            styleTokens: { colors: ["#111111"] },
+            captures: {
+              desktop: { screenshotBase64: "", width: 1440, height: 900 },
+              mobile: { screenshotBase64: "", width: 390, height: 844 },
+            },
+            extracted: {
+              textCandidates: ["Hero heading", "Hero body copy"],
+              imageCandidates: ["https://cdn.example.com/hero.jpg"],
+            },
+            issues: [],
+          };
+        },
+      },
+    },
+  });
+  assert.equal(semanticOnlyInspect.status, "pass");
+  assert.equal(semanticOnlyInspect.nextRecommendedTool, "generate-shopify-section-bundle");
+  assert.equal(semanticOnlyInspect.quality?.visualReady, false);
+  assert.equal(semanticOnlyInspect.quality?.semanticReady, true);
+  assert.equal(semanticOnlyInspect.quality?.generationReady, true);
+  assert.equal(semanticOnlyInspect.quality?.mode, "semantic-only");
+  assert.ok(
+    semanticOnlyInspect.warnings.some((entry) => entry.code === "inspection_visual_unavailable"),
+    "semantic-only inspect should warn about missing visual captures"
+  );
+
+  const semanticOnlyGenerate = await runGenerateStage({
+    input: {
+      inspectionId: semanticOnlyInspect.inspectionId,
+      sectionHandle: "semantic-only-section",
+      templateHint: "templates/index.json",
+    },
+    runtime,
+  });
+  assert.equal(semanticOnlyGenerate.status, "pass");
+  assert.equal(semanticOnlyGenerate.generationBasis?.mode, "semantic-only");
+  assert.equal(semanticOnlyGenerate.generationBasis?.semanticReady, true);
+  assert.equal(semanticOnlyGenerate.generationBasis?.visualReady, false);
+  assert.equal(semanticOnlyGenerate.generationBasis?.generationReady, true);
+  assert.ok(
+    semanticOnlyGenerate.warnings.some((entry) => entry.code === "inspection_visual_unavailable"),
+    "semantic-only generation should expose explicit fallback warning"
+  );
+
+  const semanticStored = await artifactStore.get(runtime.executionContext.tenantId, semanticOnlyInspect.inspectionId);
+  assert.equal(semanticStored?.payload?.quality?.mode, "semantic-only");
+  assert.equal(semanticStored?.payload?.quality?.semanticReady, true);
+  assert.equal(semanticStored?.payload?.quality?.generationReady, true);
 
   const degradedInspect = await runInspectStage({
     input: {
@@ -184,6 +260,8 @@ try {
     blockedGenerate.errors.some((entry) => entry.code === "inspection_quality_insufficient"),
     "generation should be blocked when inspection quality is insufficient"
   );
+  assert.equal(blockedGenerate.generationBasis?.mode, "blocked");
+  assert.equal(blockedGenerate.generationBasis?.generationReady, false);
 
   const oversizedInspect = await runInspectStage({
     input: {
@@ -212,6 +290,8 @@ try {
   assert.equal(generateResult.status, "pass");
   assert.match(generateResult.bundleId || "", /^bun_/);
   assert.equal(generateResult.bundle.sectionHandle, "hero-section");
+  assert.equal(generateResult.generationBasis?.mode, "full-visual-semantic");
+  assert.equal(generateResult.generationBasis?.generationReady, true);
 
   const validateResult = await runValidateStage({
     input: {

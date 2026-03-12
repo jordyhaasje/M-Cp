@@ -5,6 +5,9 @@ import { expiresAtIso } from "../artifacts/artifact-ttl.js";
 import { normalizeSectionHandle } from "../../lib/sectionReplicationV3.js";
 
 const isoNow = () => new Date().toISOString();
+const MIN_SEMANTIC_TEXT_CANDIDATES = 2;
+const MIN_SEMANTIC_IMAGE_CANDIDATES = 1;
+const MIN_FALLBACK_TEXT_CANDIDATES = 1;
 
 const slugifyFallback = (raw) =>
   String(raw || "")
@@ -29,25 +32,78 @@ const hasCaptureData = (capture) =>
       Number(capture.height) > 0
   );
 
-const hasInspectionQualityReady = (inspectionArtifact) => {
-  const qualityReady = inspectionArtifact?.payload?.quality?.ready;
-  if (typeof qualityReady === "boolean") {
-    return qualityReady;
+const modeFromFlags = ({ visualReady, semanticReady, fallbackReady }) => {
+  if (visualReady && semanticReady) {
+    return "full-visual-semantic";
+  }
+  if (semanticReady) {
+    return "semantic-only";
+  }
+  if (fallbackReady) {
+    return "low-confidence-fallback";
+  }
+  return "blocked";
+};
+
+const resolveInspectionGenerationBasis = (inspectionArtifact) => {
+  const quality = inspectionArtifact?.payload?.quality;
+
+  if (quality && typeof quality === "object") {
+    const visualReady = Boolean(quality.visualReady);
+    const semanticReady = Boolean(quality.semanticReady);
+    const fallbackReady = !semanticReady && visualReady;
+    const generationReady =
+      typeof quality.generationReady === "boolean"
+        ? quality.generationReady
+        : typeof quality.ready === "boolean"
+          ? quality.ready
+          : semanticReady || fallbackReady;
+
+    return {
+      mode: typeof quality.mode === "string" && quality.mode.trim().length > 0
+        ? quality.mode
+        : modeFromFlags({ visualReady, semanticReady, fallbackReady }),
+      visualReady,
+      semanticReady,
+      generationReady,
+      fallback: !visualReady || !semanticReady,
+    };
   }
 
   const extracted = inspectionArtifact?.payload?.extracted || {};
   const textCandidates = Array.isArray(extracted.textCandidates)
     ? extracted.textCandidates.filter((entry) => typeof entry === "string" && entry.trim().length > 0)
     : [];
+  const imageCandidates = Array.isArray(extracted.imageCandidates)
+    ? extracted.imageCandidates.filter((entry) => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+
   const captures = inspectionArtifact?.payload?.captures || {};
-  const desktopCaptureOk = hasCaptureData(captures.desktop);
-  const mobileCaptureOk = hasCaptureData(captures.mobile);
+  const visualReady = hasCaptureData(captures.desktop) && hasCaptureData(captures.mobile);
+
   const target = inspectionArtifact?.payload?.target || {};
-  const hasTargetHint =
+  const targetConfirmed =
     (typeof target.selector === "string" && target.selector.trim().length > 0) ||
     (typeof target.reasoning === "string" && target.reasoning.trim().length > 0);
 
-  return desktopCaptureOk && mobileCaptureOk && textCandidates.length >= 1 && hasTargetHint;
+  const semanticReady =
+    targetConfirmed &&
+    textCandidates.length >= MIN_SEMANTIC_TEXT_CANDIDATES &&
+    imageCandidates.length >= MIN_SEMANTIC_IMAGE_CANDIDATES;
+  const fallbackReady =
+    !semanticReady &&
+    targetConfirmed &&
+    visualReady &&
+    textCandidates.length >= MIN_FALLBACK_TEXT_CANDIDATES;
+  const generationReady = semanticReady || fallbackReady;
+
+  return {
+    mode: modeFromFlags({ visualReady, semanticReady, fallbackReady }),
+    visualReady,
+    semanticReady,
+    generationReady,
+    fallback: !visualReady || !semanticReady,
+  };
 };
 
 const buildSectionLiquid = ({ sectionHandle, sectionName, textCandidates, imageCandidates }) => {
@@ -117,6 +173,13 @@ export const runGenerateStage = async ({ input, runtime }) => {
       bundleId: null,
       inspectionId: String(input?.inspectionId || ""),
       bundle: null,
+      generationBasis: {
+        mode: "blocked",
+        visualReady: false,
+        semanticReady: false,
+        generationReady: false,
+        fallback: false,
+      },
       errors,
       warnings: [],
       nextRecommendedTool: "none",
@@ -137,6 +200,13 @@ export const runGenerateStage = async ({ input, runtime }) => {
         bundleId: null,
         inspectionId: normalizedInput.inspectionId,
         bundle: null,
+        generationBasis: {
+          mode: "blocked",
+          visualReady: false,
+          semanticReady: false,
+          generationReady: false,
+          fallback: false,
+        },
         errors: [
           createIssue({
             code: "artifact_not_found",
@@ -152,6 +222,8 @@ export const runGenerateStage = async ({ input, runtime }) => {
       };
     }
 
+    const generationBasis = resolveInspectionGenerationBasis(inspection);
+
     if (inspection.status !== "pass") {
       return {
         action: "generate_shopify_section_bundle",
@@ -161,6 +233,7 @@ export const runGenerateStage = async ({ input, runtime }) => {
         bundleId: null,
         inspectionId: normalizedInput.inspectionId,
         bundle: null,
+        generationBasis,
         errors: [
           createIssue({
             code: "inspection_quality_insufficient",
@@ -176,7 +249,7 @@ export const runGenerateStage = async ({ input, runtime }) => {
       };
     }
 
-    if (!hasInspectionQualityReady(inspection)) {
+    if (!generationBasis.generationReady) {
       return {
         action: "generate_shopify_section_bundle",
         stage: "generation",
@@ -185,6 +258,7 @@ export const runGenerateStage = async ({ input, runtime }) => {
         bundleId: null,
         inspectionId: normalizedInput.inspectionId,
         bundle: null,
+        generationBasis,
         errors: [
           createIssue({
             code: "inspection_quality_insufficient",
@@ -198,6 +272,33 @@ export const runGenerateStage = async ({ input, runtime }) => {
         warnings: [],
         nextRecommendedTool: "none",
       };
+    }
+
+    const warnings = [];
+    if (generationBasis.mode === "semantic-only") {
+      warnings.push(
+        createIssue({
+          code: "inspection_visual_unavailable",
+          stage: "generation",
+          severity: "warn",
+          blocking: false,
+          source: "hazify",
+          message: "Generatie draait in semantic-only modus omdat browser captures ontbreken of onvolledig zijn.",
+        })
+      );
+    }
+
+    if (generationBasis.mode === "low-confidence-fallback") {
+      warnings.push(
+        createIssue({
+          code: "generation_fallback_mode",
+          stage: "generation",
+          severity: "warn",
+          blocking: false,
+          source: "hazify",
+          message: "Generatie draait in low-confidence fallback modus; resultaat vereist extra handmatige review.",
+        })
+      );
     }
 
     const extracted = inspection.payload?.extracted || {};
@@ -250,12 +351,14 @@ export const runGenerateStage = async ({ input, runtime }) => {
       artifactId: bundleId,
       tenantId,
       type: "bundle",
-      status: "pass",
+      status: warnings.length ? "partial" : "pass",
       parentIds: [normalizedInput.inspectionId],
       payload: {
         inspectionId: normalizedInput.inspectionId,
         bundle,
         generationHints: normalizedInput.generationHints || {},
+        generationBasis,
+        issues: warnings,
       },
       createdAt: now,
       updatedAt: now,
@@ -274,8 +377,9 @@ export const runGenerateStage = async ({ input, runtime }) => {
       bundleId,
       inspectionId: normalizedInput.inspectionId,
       bundle,
+      generationBasis,
       errors: [],
-      warnings: [],
+      warnings,
       nextRecommendedTool: "validate-shopify-section-bundle",
     };
   } catch (error) {
@@ -299,6 +403,13 @@ export const runGenerateStage = async ({ input, runtime }) => {
       bundleId: null,
       inspectionId: normalizedInput.inspectionId,
       bundle: null,
+      generationBasis: {
+        mode: "blocked",
+        visualReady: false,
+        semanticReady: false,
+        generationReady: false,
+        fallback: false,
+      },
       errors,
       warnings,
       nextRecommendedTool: "none",

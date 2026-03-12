@@ -5,7 +5,9 @@ import { expiresAtIso } from "../artifacts/artifact-ttl.js";
 
 const isoNow = () => new Date().toISOString();
 const DEFAULT_REQUIRED_VIEWPORTS = Object.freeze(["desktop", "mobile"]);
-const MIN_TEXT_CANDIDATES = 1;
+const MIN_SEMANTIC_TEXT_CANDIDATES = 2;
+const MIN_SEMANTIC_IMAGE_CANDIDATES = 1;
+const MIN_FALLBACK_TEXT_CANDIDATES = 1;
 
 const toStringArray = (values) =>
   Array.isArray(values) ? values.filter((entry) => typeof entry === "string" && entry.trim().length > 0) : [];
@@ -27,6 +29,33 @@ const hasSharedImageInput = (input) =>
         (typeof input.sharedImage.imageBase64 === "string" && input.sharedImage.imageBase64.trim()))
   );
 
+const createEmptyQualityAssessment = (requestedViewports = [...DEFAULT_REQUIRED_VIEWPORTS]) => ({
+  ready: false,
+  visualReady: false,
+  semanticReady: false,
+  generationReady: false,
+  mode: "blocked",
+  checks: {
+    requestedViewports: Array.isArray(requestedViewports) ? requestedViewports : [...DEFAULT_REQUIRED_VIEWPORTS],
+    captureCoverage: false,
+    missingCaptureViewports: Array.isArray(requestedViewports)
+      ? requestedViewports
+      : [...DEFAULT_REQUIRED_VIEWPORTS],
+    textCandidatesCount: 0,
+    textCandidatesSemanticMinRequired: MIN_SEMANTIC_TEXT_CANDIDATES,
+    textCandidatesFallbackMinRequired: MIN_FALLBACK_TEXT_CANDIDATES,
+    imageCandidatesCount: 0,
+    imageCandidatesSemanticMinRequired: MIN_SEMANTIC_IMAGE_CANDIDATES,
+    targetConfirmed: false,
+    targetViewportCoverage: false,
+  },
+  failureReasons: [],
+  extracted: {
+    textCandidates: [],
+    imageCandidates: [],
+  },
+});
+
 const buildInspectionQuality = ({ input, inspected }) => {
   const requestedViewports =
     Array.isArray(input?.viewports) && input.viewports.length
@@ -39,7 +68,10 @@ const buildInspectionQuality = ({ input, inspected }) => {
   const target = inspected?.target && typeof inspected.target === "object" ? inspected.target : {};
   const targetViewports = Array.isArray(target.viewports) ? target.viewports : [];
 
-  const minImageCandidates = hasSharedImageInput(input) ? 1 : 0;
+  const minImageCandidates = Math.max(
+    hasSharedImageInput(input) ? 1 : 0,
+    MIN_SEMANTIC_IMAGE_CANDIDATES
+  );
   const missingCaptureViewports = requestedViewports.filter((viewportId) => !hasCaptureData(captures[viewportId]));
 
   const checks = {
@@ -47,9 +79,10 @@ const buildInspectionQuality = ({ input, inspected }) => {
     captureCoverage: missingCaptureViewports.length === 0,
     missingCaptureViewports,
     textCandidatesCount: extractedTextCandidates.length,
-    textCandidatesMinRequired: MIN_TEXT_CANDIDATES,
+    textCandidatesSemanticMinRequired: MIN_SEMANTIC_TEXT_CANDIDATES,
+    textCandidatesFallbackMinRequired: MIN_FALLBACK_TEXT_CANDIDATES,
     imageCandidatesCount: extractedImageCandidates.length,
-    imageCandidatesMinRequired: minImageCandidates,
+    imageCandidatesSemanticMinRequired: minImageCandidates,
     targetConfirmed:
       (typeof target.selector === "string" && target.selector.trim().length > 0) ||
       (typeof target.reasoning === "string" && target.reasoning.trim().length > 0),
@@ -60,28 +93,57 @@ const buildInspectionQuality = ({ input, inspected }) => {
       ),
   };
 
+  const visualReady = checks.captureCoverage && checks.targetViewportCoverage;
+  const semanticReady =
+    checks.targetConfirmed &&
+    checks.textCandidatesCount >= checks.textCandidatesSemanticMinRequired &&
+    checks.imageCandidatesCount >= checks.imageCandidatesSemanticMinRequired;
+  const lowConfidenceFallbackReady =
+    !semanticReady &&
+    checks.targetConfirmed &&
+    checks.targetViewportCoverage &&
+    checks.captureCoverage &&
+    checks.textCandidatesCount >= checks.textCandidatesFallbackMinRequired;
+  const generationReady = semanticReady || lowConfidenceFallbackReady;
+
+  const mode = visualReady && semanticReady
+    ? "full-visual-semantic"
+    : semanticReady
+      ? "semantic-only"
+      : lowConfidenceFallbackReady
+        ? "low-confidence-fallback"
+        : "blocked";
+
   const failureReasons = [];
-  if (!checks.captureCoverage) {
+  if (!generationReady && !checks.captureCoverage) {
     failureReasons.push(
       `Missing screenshot captures for required viewport(s): ${checks.missingCaptureViewports.join(", ")}.`
     );
   }
-  if (checks.textCandidatesCount < checks.textCandidatesMinRequired) {
+  if (!generationReady && checks.textCandidatesCount < checks.textCandidatesFallbackMinRequired) {
     failureReasons.push(
-      `Expected at least ${checks.textCandidatesMinRequired} extracted text candidate(s), got ${checks.textCandidatesCount}.`
+      `Expected at least ${checks.textCandidatesFallbackMinRequired} extracted text candidate(s), got ${checks.textCandidatesCount}.`
     );
   }
-  if (checks.imageCandidatesCount < checks.imageCandidatesMinRequired) {
+  if (
+    !generationReady &&
+    checks.imageCandidatesCount < checks.imageCandidatesSemanticMinRequired &&
+    checks.textCandidatesCount < checks.textCandidatesSemanticMinRequired
+  ) {
     failureReasons.push(
-      `Expected at least ${checks.imageCandidatesMinRequired} extracted image candidate(s), got ${checks.imageCandidatesCount}.`
+      `Expected at least ${checks.imageCandidatesSemanticMinRequired} extracted image candidate(s), got ${checks.imageCandidatesCount}.`
     );
   }
-  if (!checks.targetConfirmed || !checks.targetViewportCoverage) {
+  if (!checks.targetConfirmed || (!checks.targetViewportCoverage && !semanticReady)) {
     failureReasons.push("Target confirmation is insufficient for reliable section replication.");
   }
 
   return {
-    ready: failureReasons.length === 0,
+    ready: generationReady,
+    visualReady,
+    semanticReady,
+    generationReady,
+    mode,
     checks,
     failureReasons,
     extracted: {
@@ -118,6 +180,7 @@ export const runInspectStage = async ({ input, runtime }) => {
       target: { selector: null, reasoning: null, viewports: [] },
       extracted: { domSummary: {}, styleTokens: {}, textCandidates: [], imageCandidates: [] },
       captures: {},
+      quality: createEmptyQualityAssessment(),
       errors,
       warnings: [],
       nextRecommendedTool: "none",
@@ -146,7 +209,7 @@ export const runInspectStage = async ({ input, runtime }) => {
     }
 
     const quality = buildInspectionQuality({ input: normalizedInput, inspected });
-    if (!quality.ready) {
+    if (!quality.generationReady) {
       issues.push(
         createIssue({
           code: "inspection_quality_insufficient",
@@ -158,6 +221,40 @@ export const runInspectStage = async ({ input, runtime }) => {
           details: {
             checks: quality.checks,
             failureReasons: quality.failureReasons,
+            qualityMode: quality.mode,
+          },
+        })
+      );
+    }
+
+    if (!quality.visualReady && quality.semanticReady) {
+      issues.push(
+        createIssue({
+          code: "inspection_visual_unavailable",
+          stage: "inspection",
+          severity: "warn",
+          blocking: false,
+          source: "hazify",
+          message:
+            "Inspectie heeft onvoldoende screenshot-data voor visual-first verificatie; generatie mag doorgaan op semantische extractie.",
+          details: {
+            missingCaptureViewports: quality.checks.missingCaptureViewports,
+          },
+        })
+      );
+    }
+
+    if (quality.mode === "low-confidence-fallback") {
+      issues.push(
+        createIssue({
+          code: "generation_fallback_mode",
+          stage: "inspection",
+          severity: "warn",
+          blocking: false,
+          source: "hazify",
+          message: "Inspectie is bruikbaar via low-confidence fallback; output bevat beperkte semantische dekking.",
+          details: {
+            checks: quality.checks,
           },
         })
       );
@@ -196,6 +293,10 @@ export const runInspectStage = async ({ input, runtime }) => {
         captures: inspected?.captures || {},
         quality: {
           ready: quality.ready,
+          visualReady: quality.visualReady,
+          semanticReady: quality.semanticReady,
+          generationReady: quality.generationReady,
+          mode: quality.mode,
           checks: quality.checks,
           failureReasons: quality.failureReasons,
         },
@@ -227,7 +328,10 @@ export const runInspectStage = async ({ input, runtime }) => {
       quality: record.payload.quality,
       errors,
       warnings,
-      nextRecommendedTool: status === "pass" ? "generate-shopify-section-bundle" : "none",
+      nextRecommendedTool:
+        status === "pass" && record.payload.quality?.generationReady
+          ? "generate-shopify-section-bundle"
+          : "none",
     };
   } catch (error) {
     const normalizedCode =
@@ -254,6 +358,7 @@ export const runInspectStage = async ({ input, runtime }) => {
       target: { selector: null, reasoning: null, viewports: [] },
       extracted: { domSummary: {}, styleTokens: {}, textCandidates: [], imageCandidates: [] },
       captures: {},
+      quality: createEmptyQualityAssessment(),
       errors: [normalized],
       warnings: [],
       nextRecommendedTool: "none",

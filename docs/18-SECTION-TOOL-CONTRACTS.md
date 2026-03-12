@@ -12,9 +12,15 @@ Input:
 
 Output:
 - `status`, `inspectionId`, `reference`, `target`, `extracted`, `captures`
-- `quality.ready` + `quality.checks` (inspectie-kwaliteit voor generatie-gating)
+- `quality.visualReady`, `quality.semanticReady`, `quality.generationReady`
+- `quality.mode`:
+  - `full-visual-semantic`
+  - `semantic-only`
+  - `low-confidence-fallback`
+  - `blocked`
+- `quality.checks` (inspectie-kwaliteit voor generatie-gating)
 - `warnings[]`, `errors[]`
-- `nextRecommendedTool='generate-shopify-section-bundle'` alleen bij voldoende inspectie-kwaliteit
+- `nextRecommendedTool='generate-shopify-section-bundle'` alleen bij `quality.generationReady=true`
 
 ## 2) generate-shopify-section-bundle
 Input:
@@ -26,6 +32,8 @@ Output:
 - `bundle.sectionHandle`
 - `bundle.files[]` (minstens `sections/<handle>.liquid`)
 - `schemaSummary`, `suggestedTemplateKey`
+- `generationBasis.mode` (`full-visual-semantic|semantic-only|low-confidence-fallback|blocked`)
+- `generationBasis.visualReady|semanticReady|generationReady|fallback`
 
 ## 3) validate-shopify-section-bundle
 Input:
