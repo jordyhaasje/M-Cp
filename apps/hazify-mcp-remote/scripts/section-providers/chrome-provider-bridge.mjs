@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import pixelmatch from "pixelmatch";
@@ -222,18 +223,82 @@ const compareBase64Png = (leftBase64, rightBase64) => {
   };
 };
 
-const upstreamConfig = {
+const defaultUpstreamArgs = [
+  "-y",
+  "chrome-devtools-mcp",
+  "--headless",
+  "--isolated",
+  "--no-usage-statistics",
+  "--chromeArg=--no-sandbox",
+  "--chromeArg=--disable-setuid-sandbox",
+];
+
+const baseUpstreamConfig = {
   command: String(process.env.HAZIFY_SECTION_CHROME_UPSTREAM_COMMAND || "npx").trim(),
-  args: parseArgs(process.env.HAZIFY_SECTION_CHROME_UPSTREAM_ARGS, [
-    "-y",
-    "chrome-devtools-mcp",
-    "--headless",
-    "--isolated",
-    "--no-usage-statistics",
-    "--chromeArg=--no-sandbox",
-    "--chromeArg=--disable-setuid-sandbox",
-  ]),
+  args: parseArgs(process.env.HAZIFY_SECTION_CHROME_UPSTREAM_ARGS, defaultUpstreamArgs),
   cwd: String(process.env.HAZIFY_SECTION_CHROME_UPSTREAM_CWD || "").trim() || process.cwd(),
+};
+
+let cachedPlaywrightExecutablePath;
+let latestResolvedUpstreamConfig = null;
+
+const hasExecutablePathArg = (args) =>
+  Array.isArray(args) &&
+  args.some((entry) => /^--executable(?:-path|Path)(=|$)/.test(String(entry || "").trim()));
+
+const isChromeDevtoolsMcpArg = (arg) => /^chrome-devtools-mcp(?:@.+)?$/.test(String(arg || "").trim());
+
+const shouldResolveChromeExecutableForUpstream = (args) =>
+  Array.isArray(args) && args.some((entry) => isChromeDevtoolsMcpArg(entry));
+
+const resolvePlaywrightChromiumExecutablePath = async () => {
+  if (cachedPlaywrightExecutablePath !== undefined) {
+    return cachedPlaywrightExecutablePath;
+  }
+
+  try {
+    const { chromium } = await import("playwright");
+    const executablePath = String(chromium.executablePath() || "").trim();
+    cachedPlaywrightExecutablePath =
+      executablePath && fs.existsSync(executablePath) ? executablePath : null;
+  } catch (_error) {
+    cachedPlaywrightExecutablePath = null;
+  }
+
+  return cachedPlaywrightExecutablePath;
+};
+
+const resolveChromeExecutablePath = async () => {
+  const explicitPath = String(
+    process.env.HAZIFY_SECTION_CHROME_EXECUTABLE_PATH ||
+      process.env.HAZIFY_SECTION_CHROME_UPSTREAM_EXECUTABLE_PATH ||
+      ""
+  ).trim();
+
+  if (explicitPath && fs.existsSync(explicitPath)) {
+    return explicitPath;
+  }
+
+  return resolvePlaywrightChromiumExecutablePath();
+};
+
+const resolveUpstreamConfig = async () => {
+  const args = Array.isArray(baseUpstreamConfig.args) ? [...baseUpstreamConfig.args] : [];
+
+  if (!hasExecutablePathArg(args) && shouldResolveChromeExecutableForUpstream(args)) {
+    const executablePath = await resolveChromeExecutablePath();
+    if (executablePath) {
+      args.push(`--executable-path=${executablePath}`);
+    }
+  }
+
+  const resolved = {
+    command: baseUpstreamConfig.command,
+    args,
+    cwd: baseUpstreamConfig.cwd,
+  };
+  latestResolvedUpstreamConfig = resolved;
+  return resolved;
 };
 
 const callWithTimeout = async (promise, timeoutMs, label) => {
@@ -258,6 +323,7 @@ const callWithTimeout = async (promise, timeoutMs, label) => {
 };
 
 const withChromeClient = async (fn, timeoutMs = DEFAULT_TIMEOUT_MS) => {
+  const upstreamConfig = await resolveUpstreamConfig();
   const client = new Client({ name: "hazify-chrome-provider-bridge", version: "1.0.0" });
   const transport = new StdioClientTransport({
     command: upstreamConfig.command,
@@ -592,6 +658,12 @@ const handleInspectReference = async (args) => {
       };
     }, timeoutMs);
   } catch (error) {
+    const debugUpstream =
+      latestResolvedUpstreamConfig ||
+      {
+        command: baseUpstreamConfig.command,
+        args: baseUpstreamConfig.args,
+      };
     return {
       source: SOURCE,
       status: "fail",
@@ -606,8 +678,8 @@ const handleInspectReference = async (args) => {
           stage: "inspection",
           message: error instanceof Error ? error.message : String(error),
           details: {
-            upstreamCommand: upstreamConfig.command,
-            upstreamArgs: upstreamConfig.args,
+            upstreamCommand: debugUpstream.command,
+            upstreamArgs: debugUpstream.args,
           },
         }),
       ],

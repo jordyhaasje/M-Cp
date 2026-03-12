@@ -17,6 +17,9 @@ Section-replicatie via gefaseerde orchestration met expliciete artifacts en duid
   - Wrapper upstream providers:
     - Chrome: `chrome-devtools-mcp`
     - Shopify Dev: `@shopify/dev-mcp` (scoped package)
+  - Chrome executable resolution (v1):
+    - Optioneel expliciet: `HAZIFY_SECTION_CHROME_EXECUTABLE_PATH`
+    - Anders: bridge gebruikt automatisch Playwright Chromium (`playwright.chromium.executablePath()`) als `chrome-devtools-mcp` geen executable krijgt.
   - HTTP bridge is in v1 runtime expliciet uitgeschakeld
 - Artifact storage:
   - `HAZIFY_SECTION_ARTIFACT_MODE=hybrid` (aanbevolen)

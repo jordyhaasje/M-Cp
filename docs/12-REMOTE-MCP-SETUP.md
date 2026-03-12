@@ -88,6 +88,9 @@ Belangrijk:
   - provider packages:
     - Chrome: `chrome-devtools-mcp`
     - Shopify Dev: `@shopify/dev-mcp` (scoped)
+  - Chrome executable:
+    - optioneel expliciet via `HAZIFY_SECTION_CHROME_EXECUTABLE_PATH`
+    - anders auto-resolve naar Playwright Chromium executable in runtime
 
 ## Shopify referentie (voor reviewers)
 - Sections: https://shopify.dev/docs/storefronts/themes/architecture/sections

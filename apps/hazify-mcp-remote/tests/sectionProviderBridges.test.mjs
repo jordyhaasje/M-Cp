@@ -154,6 +154,40 @@ assert.ok(chromeLogAfterInspect.includes("take_screenshot"));
 assert.ok(chromeLogAfterInspect.includes("semanticHintTokens"));
 assert.equal(chromeLogAfterInspect.includes("querySelector(targetHint)"), false);
 
+const chromeExecArgLogPath = path.join(tempDir, "fake-chrome-provider-exec-arg.log");
+await fs.writeFile(chromeExecArgLogPath, "", "utf8");
+const explicitExecutablePath = path.join(tempDir, "fake-chrome-binary");
+await fs.writeFile(explicitExecutablePath, "#!/bin/sh\nexit 0\n", "utf8");
+await fs.chmod(explicitExecutablePath, 0o755);
+const explicitExecutableEnv = {
+  HAZIFY_SECTION_CHROME_UPSTREAM_COMMAND: process.execPath,
+  HAZIFY_SECTION_CHROME_UPSTREAM_ARGS: JSON.stringify([fakeChromeProvider, "chrome-devtools-mcp"]),
+  HAZIFY_SECTION_CHROME_UPSTREAM_CWD: repoRoot,
+  HAZIFY_SECTION_CHROME_EXECUTABLE_PATH: explicitExecutablePath,
+  FAKE_PROVIDER_LOG_FILE: chromeExecArgLogPath,
+};
+
+const inspectWithExecutableArgResponse = await runBridge({
+  scriptPath: chromeBridgeScript,
+  env: explicitExecutableEnv,
+  requestPayload: {
+    toolName: "inspect-reference",
+    args: {
+      referenceUrl: "https://example.com",
+      targetHint: "hero",
+      viewports: ["desktop", "mobile"],
+      timeoutMs: 10000,
+    },
+  },
+});
+assert.equal(inspectWithExecutableArgResponse.structuredContent?.status, "pass");
+
+const chromeExecArgLog = await fs.readFile(chromeExecArgLogPath, "utf8");
+assert.ok(
+  chromeExecArgLog.includes(`--executable-path=${explicitExecutablePath}`),
+  "chrome bridge should inject --executable-path when upstream is chrome-devtools-mcp"
+);
+
 const renderResponse = await runBridge({
   scriptPath: chromeBridgeScript,
   env: chromeEnv,

@@ -76,6 +76,7 @@
 - `HAZIFY_SECTION_CHROME_UPSTREAM_COMMAND` (aanbevolen `npx`)
 - `HAZIFY_SECTION_CHROME_UPSTREAM_ARGS` (aanbevolen `["-y","chrome-devtools-mcp","--headless","--isolated","--no-usage-statistics","--chromeArg=--no-sandbox","--chromeArg=--disable-setuid-sandbox"]`)
 - `HAZIFY_SECTION_CHROME_UPSTREAM_CWD` (optioneel)
+- `HAZIFY_SECTION_CHROME_EXECUTABLE_PATH` (optioneel expliciet pad; als leeg gebruikt bridge automatisch Playwright Chromium executable)
 - `HAZIFY_SECTION_SHOPIFY_DEV_UPSTREAM_COMMAND` (aanbevolen `npx`)
 - `HAZIFY_SECTION_SHOPIFY_DEV_UPSTREAM_ARGS` (aanbevolen `["-y","@shopify/dev-mcp"]`)
 - `HAZIFY_SECTION_SHOPIFY_DEV_UPSTREAM_CWD` (optioneel)

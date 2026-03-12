@@ -12,6 +12,10 @@ const logCall = (name) => {
   fs.appendFileSync(logFile, `${name}\n`);
 };
 
+if (logFile) {
+  fs.appendFileSync(logFile, `argv=${JSON.stringify(process.argv.slice(2))}\n`);
+}
+
 const SCREENSHOT_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=";
 
