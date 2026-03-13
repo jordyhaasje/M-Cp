@@ -419,6 +419,19 @@ try {
     "introspection should not expose Shopify client secrets"
   );
 
+  const exchangeMissingInternalAuth = await fetch(`${baseUrl}/v1/mcp/token/exchange`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ token: tokenBody.access_token }),
+  });
+  assert.equal(
+    exchangeMissingInternalAuth.status,
+    401,
+    "exchange endpoint should require internal x-mcp-api-key auth"
+  );
+
   const exchangeActive = await fetch(`${baseUrl}/v1/mcp/token/exchange`, {
     method: "POST",
     headers: {
@@ -434,6 +447,21 @@ try {
     typeof exchangeActiveBody?.shopify?.accessToken,
     "string",
     "exchange should provide Shopify access token for internal service usage"
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(exchangeActiveBody, "license"),
+    false,
+    "exchange should not include full license payload"
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(exchangeActiveBody?.shopify || {}, "clientSecret"),
+    false,
+    "exchange should never expose Shopify client secrets"
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(exchangeActiveBody?.shopify || {}, "clientId"),
+    false,
+    "exchange should not expose Shopify client id when returning access token"
   );
 
   const invalidRefreshClient = await fetch(`${baseUrl}/oauth/token`, {

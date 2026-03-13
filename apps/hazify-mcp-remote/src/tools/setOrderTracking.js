@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireShopifyClient } from "./_context.js";
 import { updateFulfillmentTracking } from "./updateFulfillmentTracking.js";
 import { getOrderById } from "./getOrderById.js";
 const SetOrderTrackingInputSchema = z.object({
@@ -14,9 +15,7 @@ const setOrderTracking = {
     description: "One-shot tracking update tool for LLMs: resolves order reference, updates fulfillment tracking, and returns verification-ready output.",
     schema: SetOrderTrackingInputSchema,
     execute: async (input, context = {}) => {
-        if (!context?.shopifyClient) {
-            throw new Error("Missing Shopify client in execution context");
-        }
+        requireShopifyClient(context);
         const result = await updateFulfillmentTracking.execute({
             orderId: input.order,
             trackingNumber: input.trackingCode,

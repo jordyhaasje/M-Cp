@@ -1,4 +1,5 @@
 import { gql } from "graphql-request";
+import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
 import { isSupportedTrackingCompany, assertSupportedTrackingCompany } from "../lib/trackingCompanies.js";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
@@ -532,10 +533,7 @@ const updateOrder = {
     schema: UpdateOrderInputSchema,
     // Add initialize method to set up the GraphQL client
     execute: async (input, context = {}) => {
-        const shopifyClient = context?.shopifyClient;
-        if (!shopifyClient) {
-            throw new Error("Missing Shopify client in execution context");
-        }
+      const shopifyClient = requireShopifyClient(context);
         try {
             const { id } = input;
             const resolvedOrder = await resolveOrderIdentifier(shopifyClient, id);

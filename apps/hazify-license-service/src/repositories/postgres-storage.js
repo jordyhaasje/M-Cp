@@ -84,10 +84,6 @@ function rowMap(rows, keyName, mapFn = (value) => value) {
   return Object.fromEntries(rows.map((row) => [row[keyName], mapFn(row)]));
 }
 
-function cloneState(state) {
-  return JSON.parse(JSON.stringify(state || createInitialState()));
-}
-
 function ensureBucketObject(value) {
   return value && typeof value === "object" ? value : {};
 }
@@ -113,19 +109,78 @@ export class PostgresStorage {
     dbPoolMax,
     dbStatementTimeoutMs,
     encryptionKey,
+    singleWriterEnforced = true,
+    singleWriterLockKey = 19450603,
+    pool = null,
   }) {
-    this.pool = new Pool({
-      connectionString: databaseUrl,
-      max: Number(dbPoolMax || 10),
-      statement_timeout: Number(dbStatementTimeoutMs || 5000),
-      ssl: isTruthy(databaseSsl, true) ? { rejectUnauthorized: false } : false,
-    });
+    this.pool =
+      pool ||
+      new Pool({
+        connectionString: databaseUrl,
+        max: Number(dbPoolMax || 10),
+        statement_timeout: Number(dbStatementTimeoutMs || 5000),
+        ssl: isTruthy(databaseSsl, true) ? { rejectUnauthorized: false } : false,
+      });
     this.crypto = createCryptoHelper(encryptionKey);
-    this.lastPersistedState = createInitialState();
+    this.singleWriterEnforced = Boolean(singleWriterEnforced);
+    this.singleWriterLockKey = Number(singleWriterLockKey);
+    this.writerLockClient = null;
+    this.closed = false;
   }
 
   async init() {
+    if (this.closed) {
+      throw new Error("Postgres storage is closed");
+    }
     await this.ensureSchema();
+    await this.acquireWriterLock();
+  }
+
+  async acquireWriterLock() {
+    if (!this.singleWriterEnforced) {
+      return;
+    }
+    if (!Number.isSafeInteger(this.singleWriterLockKey)) {
+      throw new Error("Invalid single-writer advisory lock key");
+    }
+    if (this.writerLockClient) {
+      return;
+    }
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query("SELECT pg_try_advisory_lock($1::bigint) AS acquired", [
+        String(this.singleWriterLockKey),
+      ]);
+      const acquired = Boolean(result.rows?.[0]?.acquired);
+      if (!acquired) {
+        throw new Error(
+          `Failed to acquire Postgres single-writer advisory lock (${this.singleWriterLockKey}). Another writer instance is active.`
+        );
+      }
+      this.writerLockClient = client;
+    } catch (error) {
+      client.release();
+      throw error;
+    }
+  }
+
+  async close() {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
+    if (this.writerLockClient) {
+      try {
+        await this.writerLockClient.query("SELECT pg_advisory_unlock($1::bigint)", [
+          String(this.singleWriterLockKey),
+        ]);
+      } catch {
+        // best effort unlock
+      }
+      this.writerLockClient.release();
+      this.writerLockClient = null;
+    }
+    await this.pool.end();
   }
 
   async ensureSchema() {
@@ -270,19 +325,8 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
     await this.pool.query(sql);
   }
 
-  async loadState() {
-    const state = createInitialState();
-
-    const [
-      licenses,
-      tenants,
-      mcpTokens,
-      oauthClients,
-      oauthAuthCodes,
-      oauthRefreshTokens,
-      accounts,
-      accountSessions,
-    ] = await Promise.all([
+  async loadRowsFromPool() {
+    return Promise.all([
       this.pool.query("SELECT * FROM licenses"),
       this.pool.query("SELECT * FROM tenants"),
       this.pool.query("SELECT * FROM mcp_tokens"),
@@ -292,6 +336,32 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
       this.pool.query("SELECT * FROM accounts"),
       this.pool.query("SELECT * FROM account_sessions"),
     ]);
+  }
+
+  async loadRowsFromClient(client) {
+    return {
+      licenses: await client.query("SELECT * FROM licenses"),
+      tenants: await client.query("SELECT * FROM tenants"),
+      mcpTokens: await client.query("SELECT * FROM mcp_tokens"),
+      oauthClients: await client.query("SELECT * FROM oauth_clients"),
+      oauthAuthCodes: await client.query("SELECT * FROM oauth_auth_codes"),
+      oauthRefreshTokens: await client.query("SELECT * FROM oauth_refresh_tokens"),
+      accounts: await client.query("SELECT * FROM accounts"),
+      accountSessions: await client.query("SELECT * FROM account_sessions"),
+    };
+  }
+
+  mapRowsToState({
+    licenses,
+    tenants,
+    mcpTokens,
+    oauthClients,
+    oauthAuthCodes,
+    oauthRefreshTokens,
+    accounts,
+    accountSessions,
+  }) {
+    const state = createInitialState();
 
     state.licenses = rowMap(licenses.rows, "license_key", (row) => ({
       licenseKey: row.license_key,
@@ -412,17 +482,39 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
       userAgent: row.user_agent,
       ipHash: row.ip_hash,
     }));
-
-    this.lastPersistedState = cloneState(normalizeStateShape(state));
     return state;
+  }
+
+  async loadState() {
+    const [
+      licenses,
+      tenants,
+      mcpTokens,
+      oauthClients,
+      oauthAuthCodes,
+      oauthRefreshTokens,
+      accounts,
+      accountSessions,
+    ] = await this.loadRowsFromPool();
+    return this.mapRowsToState({
+      licenses,
+      tenants,
+      mcpTokens,
+      oauthClients,
+      oauthAuthCodes,
+      oauthRefreshTokens,
+      accounts,
+      accountSessions,
+    });
   }
 
   async persistState(state) {
     const nextState = normalizeStateShape(state);
-    const prevState = normalizeStateShape(this.lastPersistedState);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      const baselineRows = await this.loadRowsFromClient(client);
+      const prevState = normalizeStateShape(this.mapRowsToState(baselineRows));
       const removedIds = (prevBucket, nextBucket) =>
         Object.keys(prevBucket).filter((id) => !Object.prototype.hasOwnProperty.call(nextBucket, id));
       const persistChanged = async (prevBucket, nextBucket, upsertFn) => {
@@ -437,7 +529,9 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
         if (!ids.length) {
           return;
         }
-        await client.query(`DELETE FROM ${tableName} WHERE ${columnName} = ANY($1::text[])`, [ids]);
+        for (const id of ids) {
+          await client.query(`DELETE FROM ${tableName} WHERE ${columnName} = $1`, [id]);
+        }
       };
 
       await deleteByIds(
@@ -678,18 +772,20 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
         );
       });
 
+      const changedRefreshRecords = [];
       await persistChanged(prevState.oauthRefreshTokens, nextState.oauthRefreshTokens, async (record) => {
+        changedRefreshRecords.push(record);
         await client.query(
           `INSERT INTO oauth_refresh_tokens (refresh_token_id, token_hash, client_id, tenant_id, license_key, family_id, parent_refresh_token_id, replaced_by_refresh_token_id, scope, status, revoked_at, replay_detected_at, created_at, updated_at, expires_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+           VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,$7,$8,$9,$10,$11,$12,$13)
            ON CONFLICT (refresh_token_id) DO UPDATE SET
              token_hash = EXCLUDED.token_hash,
              client_id = EXCLUDED.client_id,
              tenant_id = EXCLUDED.tenant_id,
              license_key = EXCLUDED.license_key,
              family_id = EXCLUDED.family_id,
-             parent_refresh_token_id = EXCLUDED.parent_refresh_token_id,
-             replaced_by_refresh_token_id = EXCLUDED.replaced_by_refresh_token_id,
+             parent_refresh_token_id = NULL,
+             replaced_by_refresh_token_id = NULL,
              scope = EXCLUDED.scope,
              status = EXCLUDED.status,
              revoked_at = EXCLUDED.revoked_at,
@@ -704,8 +800,6 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
             record.tenantId,
             record.licenseKey,
             record.familyId || null,
-            record.parentRefreshTokenId || null,
-            record.replacedByRefreshTokenId || null,
             record.scope || null,
             record.status,
             record.revokedAt || null,
@@ -716,9 +810,21 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
           ]
         );
       });
+      for (const record of changedRefreshRecords) {
+        await client.query(
+          `UPDATE oauth_refresh_tokens
+             SET parent_refresh_token_id = $2,
+                 replaced_by_refresh_token_id = $3
+           WHERE refresh_token_id = $1`,
+          [
+            record.refreshTokenId,
+            record.parentRefreshTokenId || null,
+            record.replacedByRefreshTokenId || null,
+          ]
+        );
+      }
 
       await client.query("COMMIT");
-      this.lastPersistedState = cloneState(nextState);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

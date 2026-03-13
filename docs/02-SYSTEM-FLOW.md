@@ -34,9 +34,10 @@
 
 ## 5) Externe theme import flow
 De remote Hazify MCP importeert geen sections.
+De remote Hazify MCP ondersteunt wel theme file CRUD (`get-theme-file`, `upsert-theme-file`, `delete-theme-file`).
 
 Externe flow:
-1. AI client bepaalt benodigde import-tool via `list_theme_import_tools`
+1. AI client bepaalt benodigde externe import/review tooling via `list_theme_import_tools` (metadata/advisering)
 2. AI client gebruikt lokale toolstack buiten Hazify:
    - Chrome MCP (optioneel voor visuele inspectie)
    - Shopify Dev MCP (voor section import in theme)

@@ -1,4 +1,5 @@
 import { gql } from "graphql-request";
+import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
 import { fetchWithSafeRedirects } from "../lib/urlSecurity.js";
 
@@ -127,10 +128,7 @@ const cloneProductFromUrl = {
     "Clone a public Shopify product URL into your connected store with options, variants, prices and media.",
   schema: CloneProductFromUrlInputSchema,
   execute: async (input, context = {}) => {
-        const shopifyClient = context?.shopifyClient;
-        if (!shopifyClient) {
-            throw new Error("Missing Shopify client in execution context");
-        }
+      const shopifyClient = requireShopifyClient(context);
     try {
       const source = await fetchSourceProduct(input.sourceUrl);
 

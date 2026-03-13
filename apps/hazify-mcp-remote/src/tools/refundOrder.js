@@ -1,4 +1,5 @@
 import { gql } from "graphql-request";
+import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
 
 const RefundLineItemSchema = z.object({
@@ -42,10 +43,7 @@ const refundOrder = {
   description: "Create a full or partial refund for an order using Shopify refundCreate.",
   schema: RefundOrderInputSchema,
   execute: async (input, context = {}) => {
-        const shopifyClient = context?.shopifyClient;
-        if (!shopifyClient) {
-            throw new Error("Missing Shopify client in execution context");
-        }
+      const shopifyClient = requireShopifyClient(context);
     try {
       const audit = input.audit;
       const auditNote = `[Refund audit] amount=${audit.amount}; scope=${audit.scope}; reason=${audit.reason}`;

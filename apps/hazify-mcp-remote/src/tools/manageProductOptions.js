@@ -1,4 +1,5 @@
 import { gql } from "graphql-request";
+import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
 // Input schema for manageProductOptions
 const ManageProductOptionsInputSchema = z.object({
@@ -69,10 +70,7 @@ const manageProductOptions = {
     description: "Create, update, or delete product options (e.g. Size, Color). Use action='create' to add options, 'update' to rename or add/remove values, 'delete' to remove options.",
     schema: ManageProductOptionsInputSchema,
     execute: async (input, context = {}) => {
-        const shopifyClient = context?.shopifyClient;
-        if (!shopifyClient) {
-            throw new Error("Missing Shopify client in execution context");
-        }
+      const shopifyClient = requireShopifyClient(context);
         try {
             const { productId, action } = input;
             if (action === "create") {

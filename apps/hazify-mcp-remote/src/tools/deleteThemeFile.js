@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireShopifyClient } from "./_context.js";
 import { deleteThemeFile } from "../lib/themeFiles.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
@@ -16,10 +17,7 @@ const deleteThemeFileTool = {
   description: "Delete a file from a Shopify theme (defaults to live theme role=main).",
   schema: DeleteThemeFileInputSchema,
   execute: async (input, context = {}) => {
-        const shopifyClient = context?.shopifyClient;
-        if (!shopifyClient) {
-            throw new Error("Missing Shopify client in execution context");
-        }
+      const shopifyClient = requireShopifyClient(context);
     try {
       const result = await deleteThemeFile(shopifyClient, API_VERSION, {
         themeId: input.themeId,

@@ -6,7 +6,7 @@ Runtime: Node.js `>=22.12.0`.
 
 ## Scope
 - Wel: producten, klanten, orders, tracking, refunds, theme file CRUD.
-- Wel: metadata discovery voor externe theme-import tooling via `list_theme_import_tools`.
+- Wel: metadata/advisering voor externe theme-import tooling via `list_theme_import_tools` (zoals lokale Chrome MCP en Shopify Dev MCP).
 - Niet: section generatie/import.
 - Niet: browser automation (Chrome/Playwright/headless runtime).
 
@@ -32,7 +32,7 @@ npm run --workspace @hazify/mcp-remote start:fallback:stdio
 ## Externe theme-workflow
 `AI Client -> Chrome MCP / Shopify Dev MCP -> Theme modifications`
 
-Deze service voert die workflow niet uit.
+Deze service voert die workflow niet uit en implementeert geen ingebouwde section-import pipeline.
 
 ## Tests
 ```bash

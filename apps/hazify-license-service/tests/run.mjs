@@ -6,4 +6,5 @@ await import("./account-sessions.test.mjs");
 await import("./billing-helpers.test.mjs");
 await import("./license-records.test.mjs");
 await import("./storage-safety.test.mjs");
+await import("./postgres-lock.test.mjs");
 console.log("All hazify-license-service tests passed");

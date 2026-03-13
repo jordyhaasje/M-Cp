@@ -50,6 +50,9 @@ const config = {
   dbPoolMax: Number(process.env.DB_POOL_MAX || 10),
   dbStatementTimeoutMs: Number(process.env.DB_STATEMENT_TIMEOUT_MS || 5000),
   dataEncryptionKey: process.env.DATA_ENCRYPTION_KEY || "",
+  dbSingleWriterEnforced:
+    String(process.env.DB_SINGLE_WRITER_ENFORCED || "true").trim().toLowerCase() !== "false",
+  dbSingleWriterLockKey: Number(process.env.DB_SINGLE_WRITER_LOCK_KEY || 19450603),
   backupExportKey: process.env.BACKUP_EXPORT_KEY || "",
 };
 
@@ -57,6 +60,10 @@ const VALID_LICENSE_STATUSES = new Set(["active", "past_due", "canceled", "inval
 const ACCOUNT_SESSION_COOKIE = "hz_user_session";
 const SHOPIFY_CREDENTIAL_VALIDATION_TIMEOUT_MS = 10000;
 const IS_PRODUCTION = String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
+
+if (!Number.isSafeInteger(config.dbSingleWriterLockKey)) {
+  throw new Error("DB_SINGLE_WRITER_LOCK_KEY moet een geldig integer lock-ID zijn.");
+}
 
 if (IS_PRODUCTION) {
   if (!config.databaseUrl) {
@@ -79,6 +86,9 @@ if (IS_PRODUCTION) {
   }
   if (!String(config.mcpPublicUrl || "").trim()) {
     throw new Error("MCP_PUBLIC_URL is verplicht in productie.");
+  }
+  if (!config.dbSingleWriterEnforced) {
+    throw new Error("DB_SINGLE_WRITER_ENFORCED=true is verplicht in productie.");
   }
 }
 

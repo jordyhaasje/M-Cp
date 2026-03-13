@@ -182,8 +182,18 @@ try {
 
   const registryResult = await listThemeImportTools.execute({});
   assert.ok(Array.isArray(registryResult.tools), "tool registry should return tools array");
-  assert.equal(registryResult.tools[0]?.name, "shopify_dev_import_section");
-  assert.equal(registryResult.tools[0]?.location, "local_shopify_dev_mcp");
+  const toolNames = registryResult.tools.map((tool) => tool.name);
+  assert.equal(
+    toolNames.includes("chrome_mcp_theme_review"),
+    true,
+    "registry should include Chrome MCP advisory metadata"
+  );
+  assert.equal(
+    toolNames.includes("shopify_dev_import_section"),
+    true,
+    "registry should include Shopify Dev MCP advisory metadata"
+  );
+  assert.equal(registryResult.policy?.remoteMcpExecutesImports, false);
 
   console.log("toolHardening.test.mjs passed");
 } finally {

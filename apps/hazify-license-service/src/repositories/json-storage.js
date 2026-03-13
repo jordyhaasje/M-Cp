@@ -47,6 +47,10 @@ export class JsonStorage {
   async exportSnapshot() {
     return this.loadState();
   }
+
+  async close() {
+    // noop
+  }
 }
 
 export function createInitialState() {

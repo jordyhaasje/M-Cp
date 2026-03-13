@@ -10,6 +10,8 @@ export function createStorageAdapter(config) {
       dbPoolMax: config.dbPoolMax,
       dbStatementTimeoutMs: config.dbStatementTimeoutMs,
       encryptionKey: config.dataEncryptionKey,
+      singleWriterEnforced: config.dbSingleWriterEnforced,
+      singleWriterLockKey: config.dbSingleWriterLockKey,
     });
   }
 

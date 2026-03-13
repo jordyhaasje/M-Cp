@@ -7,7 +7,7 @@ Deze repository bevat de productiecode voor:
 ## Verantwoordelijkheid van deze MCP
 - Interactie met Shopify stores via API-tools (producten, klanten, orders, tracking, refunds, theme files).
 - Expose van MCP tools voor storebeheer.
-- Expose van metadata-tooling voor externe theme-import workflows.
+- Expose van metadata/advisering voor externe theme-import workflows.
 
 ## Niet de verantwoordelijkheid van deze MCP
 - Genereren van Shopify theme sections.
@@ -17,7 +17,7 @@ Deze repository bevat de productiecode voor:
 ## Externe theme-workflow
 `AI Client -> Chrome MCP / Shopify Dev MCP -> Theme modifications`
 
-De remote Hazify MCP voert die importflow niet uit en levert alleen discovery metadata via `list_theme_import_tools`.
+De remote Hazify MCP voert die importflow niet uit en levert alleen metadata/advisering via `list_theme_import_tools` (bijv. voor lokale Chrome MCP en Shopify Dev MCP workflows).
 
 ## Snel starten
 ```bash

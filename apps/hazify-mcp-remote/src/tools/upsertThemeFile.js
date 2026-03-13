@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireShopifyClient } from "./_context.js";
 import { upsertThemeFile } from "../lib/themeFiles.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
@@ -35,13 +36,10 @@ const UpsertThemeFileInputSchema = z
 
 const upsertThemeFileTool = {
   name: "upsert-theme-file",
-  description: "Create or update a theme file in Shopify (supports live theme import).",
+  description: "Create or update a Shopify theme file (theme code CRUD only; no built-in section-import pipeline).",
   schema: UpsertThemeFileInputSchema,
   execute: async (input, context = {}) => {
-        const shopifyClient = context?.shopifyClient;
-        if (!shopifyClient) {
-            throw new Error("Missing Shopify client in execution context");
-        }
+      const shopifyClient = requireShopifyClient(context);
     try {
       const result = await upsertThemeFile(shopifyClient, API_VERSION, {
         themeId: input.themeId,

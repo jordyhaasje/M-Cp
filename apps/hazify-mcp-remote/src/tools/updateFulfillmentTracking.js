@@ -1,4 +1,5 @@
 import { gql } from "graphql-request";
+import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
 import { isSupportedTrackingCompany, assertSupportedTrackingCompany } from "../lib/trackingCompanies.js";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
@@ -218,10 +219,7 @@ const updateFulfillmentTracking = {
     description: "Update order shipment tracking in the actual fulfillment record (not custom attributes/metafields). fulfillmentId is optional; when omitted, the latest non-cancelled fulfillment is updated automatically.",
     schema: UpdateFulfillmentTrackingInputSchema,
     execute: async (input, context = {}) => {
-        const shopifyClient = context?.shopifyClient;
-        if (!shopifyClient) {
-            throw new Error("Missing Shopify client in execution context");
-        }
+      const shopifyClient = requireShopifyClient(context);
         try {
             const resolvedCompany = assertSupportedTrackingCompany(input.trackingCompany, "carrier");
             const resolvedOrder = await resolveOrderIdentifier(shopifyClient, input.orderId);

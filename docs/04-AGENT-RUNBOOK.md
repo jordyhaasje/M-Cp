@@ -23,6 +23,7 @@
 - Optioneel gericht:
   - `npm run --workspace @hazify/license-service test`
   - `npm run --workspace @hazify/mcp-remote test`
+  - `HAZIFY_TEST_POSTGRES_URL=... npm run --workspace @hazify/license-service test` voor echte advisory-lock validatie (zonder deze env draait locktest als expliciete skip)
 
 ## Archivering
 - Verplaats legacy alleen naar `docs/archive/`.

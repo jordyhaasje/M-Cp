@@ -56,6 +56,26 @@ const introspectionServer = http.createServer(async (req, res) => {
     }
     const payload = raw ? JSON.parse(raw) : {};
     const token = payload.token;
+    if (token === "mismatch-token") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          active: true,
+          tokenId: "mcp_test_token_mismatch",
+          tenantId: "tenant_alpha",
+          licenseKey: "HZY-TEST",
+          license: {
+            status: "active",
+            entitlements: { mutations: true, tools: {} },
+          },
+          shopify: {
+            domain: "unit-test-shop.myshopify.com",
+            authMode: "access_token",
+          },
+        })
+      );
+      return;
+    }
     if (token !== "valid-token") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ active: false }));
@@ -86,6 +106,23 @@ const introspectionServer = http.createServer(async (req, res) => {
       raw += chunk.toString();
     }
     const payload = raw ? JSON.parse(raw) : {};
+    if (payload.token === "mismatch-token") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          active: true,
+          tokenId: "mcp_test_token_mismatch",
+          tenantId: "tenant_beta",
+          shopify: {
+            domain: "unit-test-shop.myshopify.com",
+            authMode: "access_token",
+            accessToken: "shpat_test_mismatch",
+            expiresInSeconds: 3600,
+          },
+        })
+      );
+      return;
+    }
     if (payload.token !== "valid-token") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ active: false }));
@@ -211,6 +248,38 @@ try {
   assert.equal(allowedOriginResponse.status, 200, "matching origin should be accepted");
   const sessionId = allowedOriginResponse.headers.get("mcp-session-id");
   assert.equal(sessionId, null, "stateless mode should not return mcp-session-id");
+
+  const statelessSessionHeaderResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      authorization: "Bearer valid-token",
+      origin: `http://127.0.0.1:${mcpPort}`,
+      "mcp-session-id": "forbidden-in-stateless",
+    },
+    body: JSON.stringify(initializeBody),
+  });
+  assert.equal(statelessSessionHeaderResponse.status, 400, "stateless mode should reject mcp-session-id");
+  const statelessSessionHeaderBody = await statelessSessionHeaderResponse.json();
+  assert.match(
+    statelessSessionHeaderBody?.error?.message || "",
+    /stateless mode does not accept mcp-session-id/i
+  );
+
+  const mismatchTokenResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      authorization: "Bearer mismatch-token",
+      origin: `http://127.0.0.1:${mcpPort}`,
+    },
+    body: JSON.stringify(initializeBody),
+  });
+  assert.equal(mismatchTokenResponse.status, 401, "tenant/token mismatch should be rejected");
+  const mismatchAuthHeader = mismatchTokenResponse.headers.get("www-authenticate") || "";
+  assert.match(mismatchAuthHeader, /invalid_token/i);
 
   const toolsListResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
     method: "POST",

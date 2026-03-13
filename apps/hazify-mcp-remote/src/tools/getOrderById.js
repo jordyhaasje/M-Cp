@@ -1,4 +1,5 @@
 import { gql } from "graphql-request";
+import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
 // Input schema for getOrderById
@@ -226,10 +227,7 @@ const getOrderById = {
     schema: GetOrderByIdInputSchema,
     // Add initialize method to set up the GraphQL client
     execute: async (input, context = {}) => {
-        const shopifyClient = context?.shopifyClient;
-        if (!shopifyClient) {
-            throw new Error("Missing Shopify client in execution context");
-        }
+      const shopifyClient = requireShopifyClient(context);
         try {
             const { orderId } = input;
             const resolvedOrder = await resolveOrderIdentifier(shopifyClient, orderId);

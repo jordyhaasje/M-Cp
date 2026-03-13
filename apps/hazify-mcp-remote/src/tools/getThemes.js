@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireShopifyClient } from "./_context.js";
 import { listThemes } from "../lib/themeFiles.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
@@ -15,10 +16,7 @@ const getThemes = {
   description: "List available Shopify themes (including the live theme).",
   schema: GetThemesInputSchema,
   execute: async (input, context = {}) => {
-        const shopifyClient = context?.shopifyClient;
-        if (!shopifyClient) {
-            throw new Error("Missing Shopify client in execution context");
-        }
+      const shopifyClient = requireShopifyClient(context);
     try {
       const roleFilter = input.role ? String(input.role).toLowerCase() : null;
       const themes = await listThemes(shopifyClient, API_VERSION);

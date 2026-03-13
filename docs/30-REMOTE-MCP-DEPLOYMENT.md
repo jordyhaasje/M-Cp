@@ -12,6 +12,8 @@
 ### License service
 - `DATABASE_URL`
 - `DATA_ENCRYPTION_KEY`
+- `DB_SINGLE_WRITER_ENFORCED=true`
+- `DB_SINGLE_WRITER_LOCK_KEY` (optioneel; default lock key wordt gebruikt als niet gezet)
 - `ADMIN_API_KEY`
 - `MCP_API_KEY`
 - `HAZIFY_FREE_MODE=false`
@@ -49,7 +51,11 @@
 
 ## Persistence behavior (license service)
 - Postgres writes zijn transactioneel en per-entity (upsert/delete), zonder destructive `TRUNCATE + full reinsert`.
-- De applicatie houdt een in-memory werkset bij; voor maximale write-consistentie wordt momenteel een single-writer deployment voor de license service aanbevolen.
+- De license service forceert een Postgres advisory lock als single-writer strategy (fail-fast als lock niet verkregen wordt).
+- Consistency-garantie geldt voor exact **één actieve writer instance per database**.
+- Dit model claimt expliciet geen multi-writer of horizontale write-correctness.
+- De runtime gebruikt een process-memory working set als actieve state binnen die ene writer; directe externe writes naar dezelfde tabellen vallen buiten het consistency-contract.
+- `pg-mem` tests valideren repository/persistence gedrag, maar niet advisory-lock semantiek; lock-semantiek vereist een echte Postgres testomgeving.
 
 ## Theme section import (extern)
 De remote MCP doet geen section import. De importflow draait buiten deze repository:

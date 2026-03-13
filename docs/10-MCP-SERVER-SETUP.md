@@ -20,6 +20,7 @@
 
 ## Theme import tooling policy
 - Hazify MCP importeert geen generated sections.
-- Gebruik `list_theme_import_tools` om externe tooling metadata op te vragen.
+- Hazify MCP ondersteunt wel theme file read/update/delete via Shopify API.
+- Gebruik `list_theme_import_tools` uitsluitend om externe tooling metadata/advisering op te vragen.
 - Externe flow:
   - `AI Client -> Chrome MCP / Shopify Dev MCP -> Theme modifications`

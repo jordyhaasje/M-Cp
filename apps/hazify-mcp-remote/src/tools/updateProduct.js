@@ -1,4 +1,5 @@
 import { gql } from "graphql-request";
+import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
 // Input schema for updateProduct
 const UpdateProductInputSchema = z.object({
@@ -44,10 +45,7 @@ const updateProduct = {
     description: "Update an existing product's fields (title, description, status, tags, etc.)",
     schema: UpdateProductInputSchema,
     execute: async (input, context = {}) => {
-        const shopifyClient = context?.shopifyClient;
-        if (!shopifyClient) {
-            throw new Error("Missing Shopify client in execution context");
-        }
+      const shopifyClient = requireShopifyClient(context);
         try {
             const { id, media, ...productFields } = input;
             const query = gql `

@@ -26,8 +26,11 @@ Belangrijk:
 - Ondersteunt beide vormen: `shopAccessToken` en BYO `shopClientId` + `shopClientSecret`
 - Onboarding valideert verplichte Shopify scopes inclusief `read_themes` en `write_themes`
 - In productie zijn `DATABASE_URL`, `DATA_ENCRYPTION_KEY`, `MCP_API_KEY`, `ADMIN_API_KEY`, `PUBLIC_BASE_URL`, `MCP_PUBLIC_URL` verplicht
+- `DB_SINGLE_WRITER_ENFORCED=true` is de standaard en verplicht in productie
 - In productie moet `HAZIFY_FREE_MODE=false` staan
 - Postgres persistence gebruikt transactionele per-entity writes (upsert/delete), zonder `TRUNCATE + full reinsert`
+- Single-writer consistency wordt afgedwongen met een Postgres advisory lock; dit is expliciet geen multi-writer/horizontale write-correctness model
+- De service gebruikt nog een process-memory working set (`db`) per instance; externe DB-writers buiten deze service worden niet ondersteund als consistency-model
 
 ## MCP Remote Service
 Pad: `apps/hazify-mcp-remote/src/index.js`

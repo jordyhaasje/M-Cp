@@ -1,4 +1,5 @@
 import { gql } from "graphql-request";
+import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
 // Input schema for deleteProduct
 const DeleteProductInputSchema = z.object({
@@ -10,10 +11,7 @@ const deleteProduct = {
     description: "Delete a product",
     schema: DeleteProductInputSchema,
     execute: async (input, context = {}) => {
-        const shopifyClient = context?.shopifyClient;
-        if (!shopifyClient) {
-            throw new Error("Missing Shopify client in execution context");
-        }
+      const shopifyClient = requireShopifyClient(context);
         try {
             const query = gql `
         mutation productDelete($input: ProductDeleteInput!) {

@@ -400,6 +400,11 @@ const resolveRemoteContext = async (bearerToken) => {
     return context;
 };
 const tenantToolExecutionLocks = new Map();
+const CONTEXT_FREE_TOOLS = new Set([
+    "list_theme_import_tools",
+    "get-supported-tracking-companies",
+    "get-license-status",
+]);
 const runSerializedByKey = async (key, work) => {
     const lockKey = key || "__default__";
     const previous = tenantToolExecutionLocks.get(lockKey) || Promise.resolve();
@@ -423,11 +428,12 @@ const buildToolExecutionContext = (context = null) => freezeExecutionContext({
     shopifyDomain: context?.shopifyDomain || null,
     shopifyClient: context?.shopifyClient || localShopifyClient || null,
 });
+const toolRequiresShopifyClient = (toolName) => !CONTEXT_FREE_TOOLS.has(toolName);
 async function runLicensedTool(toolName, mutating, executor, args) {
     if (!IS_HTTP_TRANSPORT) {
         await licenseManager.assertToolAllowed(toolName, { mutating });
         const executionContext = buildToolExecutionContext();
-        if (!executionContext.shopifyClient && toolName !== "list_theme_import_tools" && toolName !== "get-supported-tracking-companies" && toolName !== "get-license-status") {
+        if (!executionContext.shopifyClient && toolRequiresShopifyClient(toolName)) {
             throw new Error("Missing Shopify client in stdio execution context");
         }
         const result = await executor(args, executionContext);
@@ -443,7 +449,7 @@ async function runLicensedTool(toolName, mutating, executor, args) {
     }
     return runSerializedByKey(context.tenantId || context.tokenHash, async () => {
         const executionContext = buildToolExecutionContext(context);
-        if (!executionContext.shopifyClient && toolName !== "list_theme_import_tools" && toolName !== "get-supported-tracking-companies" && toolName !== "get-license-status") {
+        if (!executionContext.shopifyClient && toolRequiresShopifyClient(toolName)) {
             throw new Error("Missing Shopify client in request execution context");
         }
         const result = await executor(args, executionContext);
@@ -503,7 +509,7 @@ const createHazifyServer = () => {
         "get-theme-file": "Read a specific file from a Shopify theme.",
         "upsert-theme-file": "Create or update a file in a Shopify theme.",
         "delete-theme-file": "Delete a specific file from a Shopify theme.",
-        "list_theme_import_tools": "List metadata for external tools that can import generated Shopify theme sections.",
+        "list_theme_import_tools": "List metadata/advice for external tooling that can review or import generated sections outside this remote MCP.",
         "get-license-status": "Return current license/access status and effective capabilities.",
     };
     const originalTool = server.tool.bind(server);

@@ -1,4 +1,5 @@
 import { gql } from "graphql-request";
+import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
 // Input schema for manageProductVariants
 const VariantOptionSchema = z.object({
@@ -29,10 +30,7 @@ const manageProductVariants = {
     description: "Create or update product variants. Omit variant id to create new, include id to update existing.",
     schema: ManageProductVariantsInputSchema,
     execute: async (input, context = {}) => {
-        const shopifyClient = context?.shopifyClient;
-        if (!shopifyClient) {
-            throw new Error("Missing Shopify client in execution context");
-        }
+      const shopifyClient = requireShopifyClient(context);
         try {
             const { productId, variants } = input;
             // Split into creates and updates

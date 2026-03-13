@@ -85,9 +85,22 @@ const RATE_BUCKETS = new Map();
 
 const storage = createStorageAdapter(config);
 await storage.init();
+// Process-memory working set remains the active state for this instance.
+// Correctness depends on single-writer enforcement at storage level.
 let db = await loadDb();
 db = await maybeBootstrapPostgresFromLegacyJson(db);
 let writeQueue = Promise.resolve();
+let storageClosed = false;
+
+async function closeStorage() {
+  if (storageClosed) {
+    return;
+  }
+  storageClosed = true;
+  if (typeof storage.close === "function") {
+    await storage.close();
+  }
+}
 
 function randomId(prefix) {
   return `${prefix}_${crypto.randomBytes(16).toString("hex")}`;
@@ -1329,6 +1342,12 @@ const server = http.createServer(async (req, res) => {
       message: error instanceof Error ? error.message : String(error),
     });
   }
+});
+
+server.on("close", () => {
+  closeStorage().catch((error) => {
+    console.error("Failed to close storage cleanly:", error);
+  });
 });
 
 server.listen(config.port, () => {
