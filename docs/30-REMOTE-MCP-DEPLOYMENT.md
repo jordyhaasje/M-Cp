@@ -8,30 +8,42 @@
 - License service: `https://hazify-license-service-production.up.railway.app`
 - MCP endpoint: `https://hazify-mcp-remote-production.up.railway.app/mcp`
 
-## Verplichte env vars in productie
+## Env vars in productie (actuele runtime)
 ### License service
+Runtime-verplicht (afgedwongen door `apps/hazify-license-service/src/config/runtime.js`):
 - `DATABASE_URL`
 - `DATA_ENCRYPTION_KEY`
 - `DB_SINGLE_WRITER_ENFORCED=true`
-- `DB_SINGLE_WRITER_LOCK_KEY` (optioneel; default lock key wordt gebruikt als niet gezet)
 - `ADMIN_API_KEY`
-- `MCP_API_KEY`
+- `MCP_API_KEY` (alias `HAZIFY_MCP_API_KEY` wordt ook geaccepteerd)
 - `HAZIFY_FREE_MODE=false`
-- `MAX_BODY_BYTES` (aanbevolen minimaal `1048576`; hoger bij grotere artifact payloads)
-- `HAZIFY_MCP_ARTIFACTS_MAX_PER_TENANT` (L2 artifact quota, default 2000)
 - `PUBLIC_BASE_URL`
 - `MCP_PUBLIC_URL`
-- `HAZIFY_SERVICE_MODE=license`
+
+Optioneel/aanbevolen:
+- `DB_SINGLE_WRITER_LOCK_KEY` (optioneel; default lock key wordt gebruikt als niet gezet)
+- `MAX_BODY_BYTES` (aanbevolen minimaal `1048576`; hoger bij grotere payloads)
 
 ### MCP remote
-- `HAZIFY_MCP_TRANSPORT=http`
+Runtime-verplicht voor remote HTTP transport:
 - `HAZIFY_MCP_INTROSPECTION_URL`
 - `HAZIFY_MCP_API_KEY`
-- `HAZIFY_MCP_PUBLIC_URL`
-- `HAZIFY_MCP_AUTH_SERVER_URL`
+
+Runtime-guards in productie:
+- `MCP_SESSION_MODE=stateful` vereist ook `MCP_STATEFUL_DEPLOYMENT_SAFE=true` (alleen gebruiken met sticky sessions of gedeelde session store)
+- `HAZIFY_MCP_API_KEY` moet in productie een sterke secret zijn (minimaal 16 tekens)
+
+Defaults/optioneel:
+- `HAZIFY_MCP_TRANSPORT=http` (default)
 - `MCP_SESSION_MODE=stateless` (default)
-- `MCP_STATEFUL_DEPLOYMENT_SAFE=true` alleen als `MCP_SESSION_MODE=stateful` met sticky sessions/gedeelde session store
-- `NIXPACKS_NODE_VERSION=22` (of hoger; `>=22.12.0` vereist)
+- `HAZIFY_MCP_PUBLIC_URL` (optioneel; fallback is request-based URL)
+- `HAZIFY_MCP_AUTH_SERVER_URL` (optioneel; fallback is introspection base URL)
+- `HAZIFY_MCP_ALLOWED_ORIGINS` (optioneel; default allowlist valt terug op request-origin)
+- `HAZIFY_MCP_HTTP_HOST` / `HAZIFY_MCP_HTTP_PORT` (optioneel)
+- `NIXPACKS_NODE_VERSION=22` is platform/build-config, geen runtime env var die door de Node-app wordt gelezen
+
+### Root launcher (niet runtime-verplicht voor license service)
+- `HAZIFY_SERVICE_MODE=license` is alleen relevant voor root startscript (`scripts/start-service.mjs`) dat kiest tussen `start:license` en `start:mcp`.
 
 ## Deploy checks
 1. `npm run check:docs`
