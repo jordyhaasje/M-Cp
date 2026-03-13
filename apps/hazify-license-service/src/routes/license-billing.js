@@ -28,7 +28,38 @@ export function createLicenseBillingHandlers({
   requireAdmin,
   billingReadiness,
   maskSecret,
+  exchangeShopifyClientCredentials,
 }) {
+  function resolveActiveMcpToken(rawToken) {
+    const tokenHash = hashToken(rawToken);
+    const tokenRecord = Object.values(db.mcpTokens).find((entry) => entry && entry.tokenHash === tokenHash);
+    if (!tokenRecord || tokenRecord.status !== "active") {
+      return { active: false, tokenRecord: null, tenant: null, license: null };
+    }
+    if (tokenRecord.expiresAt && Date.parse(tokenRecord.expiresAt) < Date.now()) {
+      tokenRecord.status = "expired";
+      tokenRecord.updatedAt = nowIso();
+      return { active: false, tokenRecord, tenant: null, license: null };
+    }
+    const tenant = db.tenants[tokenRecord.tenantId];
+    const licenseKey = tokenRecord.licenseKey || tenant?.licenseKey || null;
+    const license = licenseKey ? db.licenses[licenseKey] : null;
+    if (!tenant || !license) {
+      return { active: false, tokenRecord, tenant: null, license: null };
+    }
+    if (!tokenRecord.licenseKey && tenant?.licenseKey) {
+      tokenRecord.licenseKey = tenant.licenseKey;
+    }
+    return { active: true, tokenRecord, tenant, license };
+  }
+
+  function resolveTenantShopifyAuthMode(tenant) {
+    if (tenant?.shopify?.accessToken) {
+      return "access_token";
+    }
+    return "client_credentials";
+  }
+
   async function handleValidateOrHeartbeat(req, res, mode) {
     if (!applyRateLimit(req, res)) {
       return;
@@ -376,47 +407,114 @@ export function createLicenseBillingHandlers({
         throw new Error("token is required");
       }
 
-      const tokenHash = hashToken(payload.token);
-      const tokenRecord = Object.values(db.mcpTokens).find(
-        (entry) => entry && entry.tokenHash === tokenHash
-      );
+      const resolved = resolveActiveMcpToken(payload.token);
+      if (!resolved.active || !resolved.tokenRecord || !resolved.tenant || !resolved.license) {
+        if (resolved.tokenRecord?.status === "expired") {
+          await persistDb();
+        }
+        return json(res, 200, { active: false });
+      }
+      const { tokenRecord, tenant, license } = resolved;
+      tokenRecord.lastUsedAt = nowIso();
+      tokenRecord.updatedAt = nowIso();
+      await persistDb();
 
-      if (!tokenRecord || tokenRecord.status !== "active") {
+      const authMode = resolveTenantShopifyAuthMode(tenant);
+
+      return json(res, 200, {
+        active: true,
+        tokenId: tokenRecord.tokenId,
+        tenantId: tenant.tenantId,
+        licenseKey: tokenRecord.licenseKey || tenant.licenseKey,
+        license: canonicalLicense(license),
+        shopify: {
+          domain: tenant.shopify?.domain || null,
+          authMode,
+        },
+      });
+    } catch (error) {
+      return json(res, 400, {
+        error: "bad_request",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async function handleMcpTokenExchange(req, res) {
+    if (!requireMcpApiKey(req, res)) {
+      return;
+    }
+    if (!applyRateLimit(req, res)) {
+      return;
+    }
+    try {
+      const { json: payload } = await readBody(req);
+      if (typeof payload.token !== "string" || payload.token.length < 24) {
+        throw new Error("token is required");
+      }
+
+      const resolved = resolveActiveMcpToken(payload.token);
+      if (!resolved.active || !resolved.tokenRecord || !resolved.tenant) {
+        if (resolved.tokenRecord?.status === "expired") {
+          await persistDb();
+        }
         return json(res, 200, { active: false });
       }
 
-      if (tokenRecord.expiresAt && Date.parse(tokenRecord.expiresAt) < Date.now()) {
-        tokenRecord.status = "expired";
-        tokenRecord.updatedAt = nowIso();
-        await persistDb();
-        return json(res, 200, { active: false });
+      const { tokenRecord, tenant } = resolved;
+      const authMode = resolveTenantShopifyAuthMode(tenant);
+      let accessToken = null;
+      let expiresInSeconds = null;
+
+      if (authMode === "access_token") {
+        accessToken =
+          typeof tenant.shopify?.accessToken === "string" && tenant.shopify.accessToken.trim()
+            ? tenant.shopify.accessToken.trim()
+            : null;
+      } else {
+        const clientId =
+          typeof tenant.shopify?.clientId === "string" && tenant.shopify.clientId.trim()
+            ? tenant.shopify.clientId.trim()
+            : null;
+        const clientSecret =
+          typeof tenant.shopify?.clientSecret === "string" && tenant.shopify.clientSecret.trim()
+            ? tenant.shopify.clientSecret.trim()
+            : null;
+        if (!clientId || !clientSecret) {
+          return json(res, 502, {
+            error: "token_exchange_failed",
+            message: "Tenant Shopify client credentials ontbreken.",
+          });
+        }
+        const exchanged = await exchangeShopifyClientCredentials({
+          domain: tenant.shopify?.domain || "",
+          clientId,
+          clientSecret,
+        });
+        accessToken = exchanged.accessToken;
+        expiresInSeconds = Number(exchanged.expiresInSeconds || 0) || null;
       }
 
-      const tenant = db.tenants[tokenRecord.tenantId];
-      const license = db.licenses[tokenRecord.licenseKey];
-      if (!tenant || !license) {
-        return json(res, 200, { active: false });
+      if (!accessToken) {
+        return json(res, 502, {
+          error: "token_exchange_failed",
+          message: "Kon geen bruikbare Shopify access token verkrijgen.",
+        });
       }
 
       tokenRecord.lastUsedAt = nowIso();
       tokenRecord.updatedAt = nowIso();
       await persistDb();
 
-      const authMode = tenant.shopify?.accessToken ? "access_token" : "client_credentials";
-      const includesAccessToken = authMode === "access_token";
-
       return json(res, 200, {
         active: true,
         tokenId: tokenRecord.tokenId,
         tenantId: tenant.tenantId,
-        licenseKey: tokenRecord.licenseKey,
-        license: canonicalLicense(license),
         shopify: {
           domain: tenant.shopify?.domain || null,
           authMode,
-          accessToken: includesAccessToken ? tenant.shopify?.accessToken || null : null,
-          clientId: includesAccessToken ? null : tenant.shopify?.clientId || null,
-          clientSecret: includesAccessToken ? null : tenant.shopify?.clientSecret || null,
+          accessToken,
+          expiresInSeconds,
         },
       });
     } catch (error) {
@@ -462,6 +560,7 @@ export function createLicenseBillingHandlers({
     handleCreatePortalSession,
     handleStripeWebhook,
     handleMcpTokenIntrospect,
+    handleMcpTokenExchange,
     handleBillingReadiness,
     handleAdminReadiness,
   };

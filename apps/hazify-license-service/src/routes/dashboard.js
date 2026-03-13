@@ -144,6 +144,8 @@ export function createDashboardHandlers({
 
       const now = nowIso();
       const affectedClientIds = new Set();
+      const affectedFamilyIds = new Set();
+      const affectedRefreshTokenIds = new Set();
       if (connectionKey.startsWith("client:")) {
         const keyClientId = connectionKey.slice("client:".length).trim();
         if (keyClientId) {
@@ -159,37 +161,43 @@ export function createDashboardHandlers({
           continue;
         }
         refreshRecord.status = "revoked";
+        refreshRecord.revokedAt = now;
         refreshRecord.updatedAt = now;
         revokedRefreshTokenCount += 1;
+        if (typeof refreshRecord.refreshTokenId === "string" && refreshRecord.refreshTokenId.trim()) {
+          affectedRefreshTokenIds.add(refreshRecord.refreshTokenId.trim());
+        }
         if (typeof refreshRecord.clientId === "string" && refreshRecord.clientId.trim()) {
           affectedClientIds.add(refreshRecord.clientId.trim());
+        }
+        if (typeof refreshRecord.familyId === "string" && refreshRecord.familyId.trim()) {
+          affectedFamilyIds.add(refreshRecord.familyId.trim());
         }
       }
       if (!revokedRefreshTokenCount) {
         return json(res, 404, { error: "connection_not_found" });
       }
 
-      const candidateTokenNames = new Set();
-      for (const clientId of affectedClientIds) {
-        candidateTokenNames.add(`oauth:${clientId}`);
-        const oauthClient = db.oauthClients[clientId];
-        if (oauthClient?.clientName) {
-          candidateTokenNames.add(`oauth:${oauthClient.clientName}`);
-        }
-      }
       let revokedAccessTokenCount = 0;
-      if (candidateTokenNames.size > 0) {
-        for (const tokenRecord of Object.values(db.mcpTokens)) {
-          if (!tokenRecord || tokenRecord.tenantId !== tenant.tenantId || tokenRecord.status !== "active") {
-            continue;
-          }
-          if (!candidateTokenNames.has(tokenRecord.name || "")) {
-            continue;
-          }
-          tokenRecord.status = "revoked";
-          tokenRecord.updatedAt = now;
-          revokedAccessTokenCount += 1;
+      for (const tokenRecord of Object.values(db.mcpTokens)) {
+        if (!tokenRecord || tokenRecord.tenantId !== tenant.tenantId || tokenRecord.status !== "active") {
+          continue;
         }
+        const matchesClient =
+          typeof tokenRecord.oauthClientId === "string" &&
+          affectedClientIds.has(tokenRecord.oauthClientId.trim());
+        const matchesFamily =
+          typeof tokenRecord.oauthTokenFamilyId === "string" &&
+          affectedFamilyIds.has(tokenRecord.oauthTokenFamilyId.trim());
+        const matchesRefresh =
+          typeof tokenRecord.oauthRefreshTokenId === "string" &&
+          affectedRefreshTokenIds.has(tokenRecord.oauthRefreshTokenId.trim());
+        if (!matchesClient && !matchesFamily && !matchesRefresh) {
+          continue;
+        }
+        tokenRecord.status = "revoked";
+        tokenRecord.updatedAt = now;
+        revokedAccessTokenCount += 1;
       }
 
       await persistDb();

@@ -1,11 +1,13 @@
 # Hazify License Service
 
-Auth, onboarding, OAuth, token-introspectie, billing en admin operations voor Hazify MCP.
+Auth, onboarding, OAuth, token-introspectie, interne token-exchange, billing en admin operations voor Hazify MCP.
 
 ## Start
 ```bash
 npm run --workspace @hazify/license-service start
 ```
+
+Runtime: Node.js `>=22.12.0`.
 
 Repo-root variant:
 ```bash
@@ -19,6 +21,7 @@ HAZIFY_SERVICE_MODE=license npm start
 - `POST /v1/dashboard/mcp-token/create`
 - `POST /v1/dashboard/mcp-token/revoke`
 - `POST /v1/mcp/token/introspect`
+- `POST /v1/mcp/token/exchange`
 - `POST /oauth/register`
 - `GET|POST /oauth/authorize`
 - `POST /oauth/token`
@@ -33,9 +36,17 @@ HAZIFY_SERVICE_MODE=license npm start
 - `shopAccessToken`
 - `shopClientId` + `shopClientSecret`
 
+Introspection (`/v1/mcp/token/introspect`) geeft alleen minimale metadata terug en geen Shopify secrets.
+Interne service-to-service token exchange (`/v1/mcp/token/exchange`) levert de Shopify access token voor de remote MCP service.
+
 ## Productievereisten
 - `DATABASE_URL` verplicht
 - `DATA_ENCRYPTION_KEY` verplicht
+- `HAZIFY_FREE_MODE=false` verplicht
+- `MCP_API_KEY` verplicht
+- `ADMIN_API_KEY` verplicht
+- `PUBLIC_BASE_URL` verplicht
+- `MCP_PUBLIC_URL` verplicht
 - Stripe-variabelen zijn nodig wanneer billing actief moet zijn
 
 ## Interne structuur

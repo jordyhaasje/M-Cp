@@ -91,6 +91,12 @@ function verifyPkceCodeVerifier(codeVerifier, challenge, method) {
   if (!verifier) {
     return false;
   }
+  if (!/^[A-Za-z0-9._~-]{43,128}$/.test(verifier)) {
+    return false;
+  }
+  if (typeof challenge !== "string" || !/^[A-Za-z0-9_-]{43,128}$/.test(challenge)) {
+    return false;
+  }
   const normalizedMethod = typeof method === "string" && method.trim() ? method.trim() : "plain";
   if (normalizedMethod === "S256") {
     const digest = crypto.createHash("sha256").update(verifier, "utf8").digest();
@@ -160,7 +166,10 @@ function validateOAuthClientAuthentication({
       : "none";
   const creds = resolveClientCredentials(req, payload);
   if (method === "none") {
-    if (creds.clientId && creds.clientId !== client.clientId) {
+    if (!creds.clientId || creds.clientId !== client.clientId) {
+      throw new Error("invalid_client");
+    }
+    if (creds.clientSecret) {
       throw new Error("invalid_client");
     }
     return;

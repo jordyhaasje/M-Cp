@@ -8,9 +8,6 @@ const getSupportedTrackingCompanies = {
     name: "get-supported-tracking-companies",
     description: "Get Shopify-supported tracking carriers that can be selected in the order fulfillment tracking UI",
     schema: GetSupportedTrackingCompaniesInputSchema,
-    initialize() {
-        // No Shopify API client required: this list mirrors Shopify's tracking UI options.
-    },
     execute: async (input) => {
         const { search, limit } = input;
         const query = search?.trim().toLowerCase();

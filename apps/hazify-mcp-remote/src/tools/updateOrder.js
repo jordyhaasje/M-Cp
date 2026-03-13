@@ -3,7 +3,6 @@ import { z } from "zod";
 import { isSupportedTrackingCompany, assertSupportedTrackingCompany } from "../lib/trackingCompanies.js";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
 // Will be initialized in index.ts
-let shopifyClient;
 const TrackingInputSchema = z
     .object({
     fulfillmentId: z.string().optional(),
@@ -532,10 +531,11 @@ const updateOrder = {
     description: "Update an existing order with new information",
     schema: UpdateOrderInputSchema,
     // Add initialize method to set up the GraphQL client
-    initialize(client) {
-        shopifyClient = client;
-    },
-    execute: async (input) => {
+    execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
         try {
             const { id } = input;
             const resolvedOrder = await resolveOrderIdentifier(shopifyClient, id);

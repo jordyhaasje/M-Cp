@@ -10,16 +10,16 @@ const DeleteThemeFileInputSchema = z.object({
   key: z.string().min(1).describe("Theme file key to delete"),
 });
 
-let shopifyClient;
 
 const deleteThemeFileTool = {
   name: "delete-theme-file",
   description: "Delete a file from a Shopify theme (defaults to live theme role=main).",
   schema: DeleteThemeFileInputSchema,
-  initialize(client) {
-    shopifyClient = client;
-  },
-  execute: async (input) => {
+  execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
     try {
       const result = await deleteThemeFile(shopifyClient, API_VERSION, {
         themeId: input.themeId,

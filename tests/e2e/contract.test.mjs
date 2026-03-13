@@ -78,6 +78,7 @@ const previousEnv = {
   HAZIFY_MCP_PUBLIC_URL: process.env.HAZIFY_MCP_PUBLIC_URL,
   HAZIFY_MCP_AUTH_SERVER_URL: process.env.HAZIFY_MCP_AUTH_SERVER_URL,
   HAZIFY_MCP_ALLOWED_ORIGINS: process.env.HAZIFY_MCP_ALLOWED_ORIGINS,
+  MCP_SESSION_MODE: process.env.MCP_SESSION_MODE,
 };
 
 const originalFetch = global.fetch;
@@ -150,6 +151,7 @@ try {
   process.env.HAZIFY_MCP_PUBLIC_URL = `${mcpBaseUrl}/mcp`;
   process.env.HAZIFY_MCP_AUTH_SERVER_URL = licenseBaseUrl;
   process.env.HAZIFY_MCP_ALLOWED_ORIGINS = `${mcpBaseUrl}`;
+  process.env.MCP_SESSION_MODE = "stateless";
 
   const mcpModule = await import(`${pathToFileURL(mcpModulePath).href}?contract=${Date.now()}`);
   mcpServer = mcpModule.httpServer;
@@ -269,7 +271,7 @@ try {
   });
   assert.equal(initializeResponse.status, 200, "mcp initialize should succeed");
   const sessionId = initializeResponse.headers.get("mcp-session-id");
-  assert.ok(sessionId, "mcp initialize should return mcp-session-id");
+  assert.equal(sessionId, null, "stateless mode should not return mcp-session-id");
 
   const toolsListResponse = await fetch(`${mcpBaseUrl}/mcp`, {
     method: "POST",
@@ -278,7 +280,6 @@ try {
       accept: "application/json, text/event-stream",
       authorization: `Bearer ${accessToken}`,
       origin: mcpBaseUrl,
-      "mcp-session-id": sessionId,
     },
     body: JSON.stringify({
       jsonrpc: "2.0",

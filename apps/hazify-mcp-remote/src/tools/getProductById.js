@@ -5,16 +5,16 @@ const GetProductByIdInputSchema = z.object({
     productId: z.string().min(1)
 });
 // Will be initialized in index.ts
-let shopifyClient;
 const getProductById = {
     name: "get-product-by-id",
     description: "Get a specific product by ID",
     schema: GetProductByIdInputSchema,
     // Add initialize method to set up the GraphQL client
-    initialize(client) {
-        shopifyClient = client;
-    },
-    execute: async (input) => {
+    execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
         try {
             const { productId } = input;
             const query = gql `

@@ -23,16 +23,16 @@ const UpdateCustomerInputSchema = z.object({
         .optional()
 });
 // Will be initialized in index.ts
-let shopifyClient;
 const updateCustomer = {
     name: "update-customer",
     description: "Update a customer's information",
     schema: UpdateCustomerInputSchema,
     // Add initialize method to set up the GraphQL client
-    initialize(client) {
-        shopifyClient = client;
-    },
-    execute: async (input) => {
+    execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
         try {
             const { id, acceptsMarketing, ...customerFields } = input;
             // Convert numeric ID to GID format

@@ -75,9 +75,33 @@ const introspectionServer = http.createServer(async (req, res) => {
         shopify: {
           domain: "unit-test-shop.myshopify.com",
           authMode: "access_token",
+        },
+      })
+    );
+    return;
+  }
+  if (req.method === "POST" && req.url === "/v1/mcp/token/exchange") {
+    let raw = "";
+    for await (const chunk of req) {
+      raw += chunk.toString();
+    }
+    const payload = raw ? JSON.parse(raw) : {};
+    if (payload.token !== "valid-token") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ active: false }));
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        active: true,
+        tokenId: "mcp_test_token",
+        tenantId: "tenant_test",
+        shopify: {
+          domain: "unit-test-shop.myshopify.com",
+          authMode: "access_token",
           accessToken: "shpat_test",
-          clientId: null,
-          clientSecret: null,
+          expiresInSeconds: 3600,
         },
       })
     );
@@ -97,6 +121,7 @@ const previousEnv = {
   HAZIFY_MCP_INTROSPECTION_URL: process.env.HAZIFY_MCP_INTROSPECTION_URL,
   HAZIFY_MCP_API_KEY: process.env.HAZIFY_MCP_API_KEY,
   HAZIFY_MCP_PUBLIC_URL: process.env.HAZIFY_MCP_PUBLIC_URL,
+  MCP_SESSION_MODE: process.env.MCP_SESSION_MODE,
 };
 
 process.env.HAZIFY_MCP_TRANSPORT = "http";
@@ -105,6 +130,7 @@ process.env.PORT = String(mcpPort);
 process.env.HAZIFY_MCP_INTROSPECTION_URL = `http://127.0.0.1:${introspectionPort}`;
 process.env.HAZIFY_MCP_API_KEY = "mcp-test-key";
 process.env.HAZIFY_MCP_PUBLIC_URL = `http://127.0.0.1:${mcpPort}`;
+process.env.MCP_SESSION_MODE = "stateless";
 
 const mcpModuleUrl = `${pathToFileURL(path.resolve(testDir, "../src/index.js")).href}?test=${Date.now()}`;
 const mcpModule = await import(mcpModuleUrl);
@@ -184,7 +210,7 @@ try {
   });
   assert.equal(allowedOriginResponse.status, 200, "matching origin should be accepted");
   const sessionId = allowedOriginResponse.headers.get("mcp-session-id");
-  assert.ok(sessionId, "initialize should return mcp-session-id");
+  assert.equal(sessionId, null, "stateless mode should not return mcp-session-id");
 
   const toolsListResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
     method: "POST",
@@ -193,7 +219,6 @@ try {
       accept: "application/json, text/event-stream",
       authorization: "Bearer valid-token",
       origin: `http://127.0.0.1:${mcpPort}`,
-      "mcp-session-id": sessionId,
     },
     body: JSON.stringify({
       jsonrpc: "2.0",

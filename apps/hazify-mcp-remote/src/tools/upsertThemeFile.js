@@ -32,16 +32,16 @@ const UpsertThemeFileInputSchema = z
     }
   });
 
-let shopifyClient;
 
 const upsertThemeFileTool = {
   name: "upsert-theme-file",
   description: "Create or update a theme file in Shopify (supports live theme import).",
   schema: UpsertThemeFileInputSchema,
-  initialize(client) {
-    shopifyClient = client;
-  },
-  execute: async (input) => {
+  execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
     try {
       const result = await upsertThemeFile(shopifyClient, API_VERSION, {
         themeId: input.themeId,

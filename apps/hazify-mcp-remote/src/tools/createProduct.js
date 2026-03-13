@@ -48,16 +48,16 @@ const CreateProductInputSchema = z.object({
         .describe("Product media to create inline"),
 });
 // Will be initialized in index.ts
-let shopifyClient;
 const createProduct = {
     name: "create-product",
     description: "Create a new product. When using productOptions, Shopify registers all option values but only creates one default variant (first value of each option, price $0). Use manage-product-variants with strategy=REMOVE_STANDALONE_VARIANT afterward to create all real variants with prices.",
     schema: CreateProductInputSchema,
     // Add initialize method to set up the GraphQL client
-    initialize(client) {
-        shopifyClient = client;
-    },
-    execute: async (input) => {
+    execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
         try {
             const query = gql `
         mutation productCreate($product: ProductCreateInput!, $media: [CreateMediaInput!]) {

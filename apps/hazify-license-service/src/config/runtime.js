@@ -65,6 +65,21 @@ if (IS_PRODUCTION) {
   if (!String(config.dataEncryptionKey || "").trim()) {
     throw new Error("DATA_ENCRYPTION_KEY is verplicht in productie.");
   }
+  if (config.freeMode) {
+    throw new Error("HAZIFY_FREE_MODE=false is verplicht in productie.");
+  }
+  if (!String(config.mcpApiKey || "").trim()) {
+    throw new Error("MCP_API_KEY is verplicht in productie.");
+  }
+  if (!String(config.adminApiKey || "").trim()) {
+    throw new Error("ADMIN_API_KEY is verplicht in productie.");
+  }
+  if (!String(config.publicBaseUrl || "").trim()) {
+    throw new Error("PUBLIC_BASE_URL is verplicht in productie.");
+  }
+  if (!String(config.mcpPublicUrl || "").trim()) {
+    throw new Error("MCP_PUBLIC_URL is verplicht in productie.");
+  }
 }
 
 export {

@@ -35,7 +35,6 @@ const ManageProductOptionsInputSchema = z.object({
         .describe("Option GIDs to delete (action=delete)"),
 });
 // Will be initialized in index.ts
-let shopifyClient;
 const PRODUCT_OPTIONS_FRAGMENT = gql `
   fragment ProductOptionsFields on Product {
     id
@@ -69,10 +68,11 @@ const manageProductOptions = {
     name: "manage-product-options",
     description: "Create, update, or delete product options (e.g. Size, Color). Use action='create' to add options, 'update' to rename or add/remove values, 'delete' to remove options.",
     schema: ManageProductOptionsInputSchema,
-    initialize(client) {
-        shopifyClient = client;
-    },
-    execute: async (input) => {
+    execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
         try {
             const { productId, action } = input;
             if (action === "create") {

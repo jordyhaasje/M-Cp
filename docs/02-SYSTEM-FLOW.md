@@ -20,15 +20,17 @@
 ## 3) MCP request flow
 1. client roept `/mcp` aan met Bearer token of `x-api-key`
 2. MCP service valideert token via `/v1/mcp/token/introspect`
-3. MCP service valideert origin-allowlist indien `Origin` header aanwezig is
-4. tenant + Shopify auth wordt resolved
-5. tool draait binnen tenant-context
+3. MCP service haalt tenant-gebonden Shopify access token op via `/v1/mcp/token/exchange` (service-to-service)
+4. MCP service valideert origin-allowlist indien `Origin` header aanwezig is
+5. tool draait request-scoped binnen tenant-context (geen globale mutable Shopify state)
 6. response bevat MCP content + structuredContent
 
 ## 4) Compatibiliteit
 - OAuth-first: VS Code, Cursor, ChatGPT, Claude
 - API token fallback voor clients zonder OAuth-flow
 - legacy aliases (`/register`, `/authorize`, `/token`) blijven ondersteund
+- default MCP session mode: stateless (`MCP_SESSION_MODE=stateless`)
+- stateful mode alleen expliciet en met sticky sessions of gedeelde session store
 
 ## 5) Externe theme import flow
 De remote Hazify MCP importeert geen sections.

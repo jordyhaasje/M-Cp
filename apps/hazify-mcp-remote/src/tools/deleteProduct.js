@@ -5,15 +5,15 @@ const DeleteProductInputSchema = z.object({
     id: z.string().min(1).describe("Shopify product GID, e.g. gid://shopify/Product/123"),
 });
 // Will be initialized in index.ts
-let shopifyClient;
 const deleteProduct = {
     name: "delete-product",
     description: "Delete a product",
     schema: DeleteProductInputSchema,
-    initialize(client) {
-        shopifyClient = client;
-    },
-    execute: async (input) => {
+    execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
         try {
             const query = gql `
         mutation productDelete($input: ProductDeleteInput!) {

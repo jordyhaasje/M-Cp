@@ -6,16 +6,16 @@ const GetCustomersInputSchema = z.object({
     limit: z.number().default(10)
 });
 // Will be initialized in index.ts
-let shopifyClient;
 const getCustomers = {
     name: "get-customers",
     description: "Get customers or search by name/email",
     schema: GetCustomersInputSchema,
     // Add initialize method to set up the GraphQL client
-    initialize(client) {
-        shopifyClient = client;
-    },
-    execute: async (input) => {
+    execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
         try {
             const { searchQuery, limit } = input;
             const query = gql `

@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { isDeepStrictEqual } from "util";
 import { Pool } from "pg";
 import { createInitialState } from "./json-storage.js";
 
@@ -83,6 +84,28 @@ function rowMap(rows, keyName, mapFn = (value) => value) {
   return Object.fromEntries(rows.map((row) => [row[keyName], mapFn(row)]));
 }
 
+function cloneState(state) {
+  return JSON.parse(JSON.stringify(state || createInitialState()));
+}
+
+function ensureBucketObject(value) {
+  return value && typeof value === "object" ? value : {};
+}
+
+function normalizeStateShape(state) {
+  const source = state && typeof state === "object" ? state : {};
+  return {
+    licenses: ensureBucketObject(source.licenses),
+    tenants: ensureBucketObject(source.tenants),
+    mcpTokens: ensureBucketObject(source.mcpTokens),
+    oauthClients: ensureBucketObject(source.oauthClients),
+    oauthAuthCodes: ensureBucketObject(source.oauthAuthCodes),
+    oauthRefreshTokens: ensureBucketObject(source.oauthRefreshTokens),
+    accounts: ensureBucketObject(source.accounts),
+    accountSessions: ensureBucketObject(source.accountSessions),
+  };
+}
+
 export class PostgresStorage {
   constructor({
     databaseUrl,
@@ -98,6 +121,7 @@ export class PostgresStorage {
       ssl: isTruthy(databaseSsl, true) ? { rejectUnauthorized: false } : false,
     });
     this.crypto = createCryptoHelper(encryptionKey);
+    this.lastPersistedState = createInitialState();
   }
 
   async init() {
@@ -164,8 +188,12 @@ CREATE TABLE IF NOT EXISTS account_sessions (
 CREATE TABLE IF NOT EXISTS mcp_tokens (
   token_id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+  license_key TEXT REFERENCES licenses(license_key) ON DELETE CASCADE,
   token_hash TEXT NOT NULL,
   name TEXT,
+  oauth_client_id TEXT,
+  oauth_refresh_token_id TEXT,
+  oauth_token_family_id TEXT,
   status TEXT NOT NULL,
   created_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ,
@@ -208,12 +236,36 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
   tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
   license_key TEXT NOT NULL REFERENCES licenses(license_key) ON DELETE CASCADE,
+  family_id TEXT,
+  parent_refresh_token_id TEXT REFERENCES oauth_refresh_tokens(refresh_token_id) ON DELETE SET NULL,
+  replaced_by_refresh_token_id TEXT REFERENCES oauth_refresh_tokens(refresh_token_id) ON DELETE SET NULL,
   scope TEXT,
   status TEXT NOT NULL,
+  revoked_at TIMESTAMPTZ,
+  replay_detected_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ,
   expires_at TIMESTAMPTZ
 );
+
+ALTER TABLE mcp_tokens ADD COLUMN IF NOT EXISTS license_key TEXT REFERENCES licenses(license_key) ON DELETE CASCADE;
+ALTER TABLE mcp_tokens ADD COLUMN IF NOT EXISTS oauth_client_id TEXT;
+ALTER TABLE mcp_tokens ADD COLUMN IF NOT EXISTS oauth_refresh_token_id TEXT;
+ALTER TABLE mcp_tokens ADD COLUMN IF NOT EXISTS oauth_token_family_id TEXT;
+
+ALTER TABLE oauth_refresh_tokens ADD COLUMN IF NOT EXISTS family_id TEXT;
+ALTER TABLE oauth_refresh_tokens ADD COLUMN IF NOT EXISTS parent_refresh_token_id TEXT REFERENCES oauth_refresh_tokens(refresh_token_id) ON DELETE SET NULL;
+ALTER TABLE oauth_refresh_tokens ADD COLUMN IF NOT EXISTS replaced_by_refresh_token_id TEXT REFERENCES oauth_refresh_tokens(refresh_token_id) ON DELETE SET NULL;
+ALTER TABLE oauth_refresh_tokens ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
+ALTER TABLE oauth_refresh_tokens ADD COLUMN IF NOT EXISTS replay_detected_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_mcp_tokens_tenant ON mcp_tokens(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_mcp_tokens_hash ON mcp_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_mcp_tokens_oauth_client ON mcp_tokens(oauth_client_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_auth_codes_client ON oauth_auth_codes(client_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_auth_codes_tenant ON oauth_auth_codes(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_hash ON oauth_refresh_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_tokens(family_id);
 `;
     await this.pool.query(sql);
   }
@@ -275,8 +327,12 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
     state.mcpTokens = rowMap(mcpTokens.rows, "token_id", (row) => ({
       tokenId: row.token_id,
       tenantId: row.tenant_id,
+      licenseKey: row.license_key,
       tokenHash: row.token_hash,
       name: row.name,
+      oauthClientId: row.oauth_client_id,
+      oauthRefreshTokenId: row.oauth_refresh_token_id,
+      oauthTokenFamilyId: row.oauth_token_family_id,
       status: row.status,
       createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
       updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
@@ -319,8 +375,13 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
       clientId: row.client_id,
       tenantId: row.tenant_id,
       licenseKey: row.license_key,
+      familyId: row.family_id,
+      parentRefreshTokenId: row.parent_refresh_token_id,
+      replacedByRefreshTokenId: row.replaced_by_refresh_token_id,
       scope: row.scope,
       status: row.status,
+      revokedAt: row.revoked_at ? new Date(row.revoked_at).toISOString() : null,
+      replayDetectedAt: row.replay_detected_at ? new Date(row.replay_detected_at).toISOString() : null,
       createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
       updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
       expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
@@ -352,21 +413,67 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
       ipHash: row.ip_hash,
     }));
 
+    this.lastPersistedState = cloneState(normalizeStateShape(state));
     return state;
   }
 
   async persistState(state) {
+    const nextState = normalizeStateShape(state);
+    const prevState = normalizeStateShape(this.lastPersistedState);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query(
-        "TRUNCATE TABLE oauth_refresh_tokens, oauth_auth_codes, oauth_clients, mcp_tokens, account_sessions, accounts, tenants, licenses RESTART IDENTITY CASCADE"
-      );
+      const removedIds = (prevBucket, nextBucket) =>
+        Object.keys(prevBucket).filter((id) => !Object.prototype.hasOwnProperty.call(nextBucket, id));
+      const persistChanged = async (prevBucket, nextBucket, upsertFn) => {
+        for (const [recordId, record] of Object.entries(nextBucket)) {
+          const previous = prevBucket[recordId];
+          if (!previous || !isDeepStrictEqual(previous, record)) {
+            await upsertFn(record);
+          }
+        }
+      };
+      const deleteByIds = async (tableName, columnName, ids) => {
+        if (!ids.length) {
+          return;
+        }
+        await client.query(`DELETE FROM ${tableName} WHERE ${columnName} = ANY($1::text[])`, [ids]);
+      };
 
-      for (const record of Object.values(state.licenses || {})) {
+      await deleteByIds(
+        "oauth_refresh_tokens",
+        "refresh_token_id",
+        removedIds(prevState.oauthRefreshTokens, nextState.oauthRefreshTokens)
+      );
+      await deleteByIds("oauth_auth_codes", "code", removedIds(prevState.oauthAuthCodes, nextState.oauthAuthCodes));
+      await deleteByIds("mcp_tokens", "token_id", removedIds(prevState.mcpTokens, nextState.mcpTokens));
+      await deleteByIds(
+        "account_sessions",
+        "session_id",
+        removedIds(prevState.accountSessions, nextState.accountSessions)
+      );
+      await deleteByIds("accounts", "account_id", removedIds(prevState.accounts, nextState.accounts));
+      await deleteByIds("oauth_clients", "client_id", removedIds(prevState.oauthClients, nextState.oauthClients));
+      await deleteByIds("tenants", "tenant_id", removedIds(prevState.tenants, nextState.tenants));
+      await deleteByIds("licenses", "license_key", removedIds(prevState.licenses, nextState.licenses));
+
+      await persistChanged(prevState.licenses, nextState.licenses, async (record) => {
         await client.query(
           `INSERT INTO licenses (license_key, status, contact_email, entitlements_json, subscription_json, max_activations, bound_fingerprints_json, stripe_customer_id, stripe_subscription_id, created_at, updated_at, past_due_since, canceled_at)
-           VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7::jsonb,$8,$9,$10,$11,$12,$13)`,
+           VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7::jsonb,$8,$9,$10,$11,$12,$13)
+           ON CONFLICT (license_key) DO UPDATE SET
+             status = EXCLUDED.status,
+             contact_email = EXCLUDED.contact_email,
+             entitlements_json = EXCLUDED.entitlements_json,
+             subscription_json = EXCLUDED.subscription_json,
+             max_activations = EXCLUDED.max_activations,
+             bound_fingerprints_json = EXCLUDED.bound_fingerprints_json,
+             stripe_customer_id = EXCLUDED.stripe_customer_id,
+             stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+             created_at = EXCLUDED.created_at,
+             updated_at = EXCLUDED.updated_at,
+             past_due_since = EXCLUDED.past_due_since,
+             canceled_at = EXCLUDED.canceled_at`,
           [
             record.licenseKey,
             record.status,
@@ -383,12 +490,22 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
             record.canceledAt || null,
           ]
         );
-      }
+      });
 
-      for (const record of Object.values(state.tenants || {})) {
+      await persistChanged(prevState.tenants, nextState.tenants, async (record) => {
         await client.query(
           `INSERT INTO tenants (tenant_id, license_key, label, shop_domain, shop_access_token_enc, shop_client_id_enc, shop_client_secret_enc, subscription_json, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)
+           ON CONFLICT (tenant_id) DO UPDATE SET
+             license_key = EXCLUDED.license_key,
+             label = EXCLUDED.label,
+             shop_domain = EXCLUDED.shop_domain,
+             shop_access_token_enc = EXCLUDED.shop_access_token_enc,
+             shop_client_id_enc = EXCLUDED.shop_client_id_enc,
+             shop_client_secret_enc = EXCLUDED.shop_client_secret_enc,
+             subscription_json = EXCLUDED.subscription_json,
+             created_at = EXCLUDED.created_at,
+             updated_at = EXCLUDED.updated_at`,
           [
             record.tenantId,
             record.licenseKey,
@@ -402,12 +519,22 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
             record.updatedAt || null,
           ]
         );
-      }
+      });
 
-      for (const record of Object.values(state.accounts || {})) {
+      await persistChanged(prevState.accounts, nextState.accounts, async (record) => {
         await client.query(
           `INSERT INTO accounts (account_id, email, name, password_salt, password_hash, license_key, status, created_at, updated_at, last_login_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           ON CONFLICT (account_id) DO UPDATE SET
+             email = EXCLUDED.email,
+             name = EXCLUDED.name,
+             password_salt = EXCLUDED.password_salt,
+             password_hash = EXCLUDED.password_hash,
+             license_key = EXCLUDED.license_key,
+             status = EXCLUDED.status,
+             created_at = EXCLUDED.created_at,
+             updated_at = EXCLUDED.updated_at,
+             last_login_at = EXCLUDED.last_login_at`,
           [
             record.accountId,
             record.email,
@@ -421,12 +548,22 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
             record.lastLoginAt || null,
           ]
         );
-      }
+      });
 
-      for (const record of Object.values(state.accountSessions || {})) {
+      await persistChanged(prevState.accountSessions, nextState.accountSessions, async (record) => {
         await client.query(
           `INSERT INTO account_sessions (session_id, account_id, token_hash, status, created_at, updated_at, expires_at, last_used_at, user_agent, ip_hash)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           ON CONFLICT (session_id) DO UPDATE SET
+             account_id = EXCLUDED.account_id,
+             token_hash = EXCLUDED.token_hash,
+             status = EXCLUDED.status,
+             created_at = EXCLUDED.created_at,
+             updated_at = EXCLUDED.updated_at,
+             expires_at = EXCLUDED.expires_at,
+             last_used_at = EXCLUDED.last_used_at,
+             user_agent = EXCLUDED.user_agent,
+             ip_hash = EXCLUDED.ip_hash`,
           [
             record.sessionId,
             record.accountId,
@@ -440,30 +577,23 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
             record.ipHash || null,
           ]
         );
-      }
+      });
 
-      for (const record of Object.values(state.mcpTokens || {})) {
-        await client.query(
-          `INSERT INTO mcp_tokens (token_id, tenant_id, token_hash, name, status, created_at, updated_at, last_used_at, expires_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [
-            record.tokenId,
-            record.tenantId,
-            record.tokenHash,
-            record.name || null,
-            record.status,
-            record.createdAt || null,
-            record.updatedAt || null,
-            record.lastUsedAt || null,
-            record.expiresAt || null,
-          ]
-        );
-      }
-
-      for (const record of Object.values(state.oauthClients || {})) {
+      await persistChanged(prevState.oauthClients, nextState.oauthClients, async (record) => {
         await client.query(
           `INSERT INTO oauth_clients (client_id, client_name, redirect_uris_json, grant_types_json, response_types_json, token_endpoint_auth_method, scope, client_secret_hash, status, created_at, updated_at)
-           VALUES ($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6,$7,$8,$9,$10,$11)`,
+           VALUES ($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6,$7,$8,$9,$10,$11)
+           ON CONFLICT (client_id) DO UPDATE SET
+             client_name = EXCLUDED.client_name,
+             redirect_uris_json = EXCLUDED.redirect_uris_json,
+             grant_types_json = EXCLUDED.grant_types_json,
+             response_types_json = EXCLUDED.response_types_json,
+             token_endpoint_auth_method = EXCLUDED.token_endpoint_auth_method,
+             scope = EXCLUDED.scope,
+             client_secret_hash = EXCLUDED.client_secret_hash,
+             status = EXCLUDED.status,
+             created_at = EXCLUDED.created_at,
+             updated_at = EXCLUDED.updated_at`,
           [
             record.clientId,
             record.clientName,
@@ -478,12 +608,24 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
             record.updatedAt || null,
           ]
         );
-      }
+      });
 
-      for (const record of Object.values(state.oauthAuthCodes || {})) {
+      await persistChanged(prevState.oauthAuthCodes, nextState.oauthAuthCodes, async (record) => {
         await client.query(
           `INSERT INTO oauth_auth_codes (code, client_id, tenant_id, license_key, redirect_uri, scope, code_challenge, code_challenge_method, status, created_at, expires_at, used_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           ON CONFLICT (code) DO UPDATE SET
+             client_id = EXCLUDED.client_id,
+             tenant_id = EXCLUDED.tenant_id,
+             license_key = EXCLUDED.license_key,
+             redirect_uri = EXCLUDED.redirect_uri,
+             scope = EXCLUDED.scope,
+             code_challenge = EXCLUDED.code_challenge,
+             code_challenge_method = EXCLUDED.code_challenge_method,
+             status = EXCLUDED.status,
+             created_at = EXCLUDED.created_at,
+             expires_at = EXCLUDED.expires_at,
+             used_at = EXCLUDED.used_at`,
           [
             record.code,
             record.clientId,
@@ -499,28 +641,84 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
             record.usedAt || null,
           ]
         );
-      }
+      });
 
-      for (const record of Object.values(state.oauthRefreshTokens || {})) {
+      await persistChanged(prevState.mcpTokens, nextState.mcpTokens, async (record) => {
         await client.query(
-          `INSERT INTO oauth_refresh_tokens (refresh_token_id, token_hash, client_id, tenant_id, license_key, scope, status, created_at, updated_at, expires_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          `INSERT INTO mcp_tokens (token_id, tenant_id, license_key, token_hash, name, oauth_client_id, oauth_refresh_token_id, oauth_token_family_id, status, created_at, updated_at, last_used_at, expires_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           ON CONFLICT (token_id) DO UPDATE SET
+             tenant_id = EXCLUDED.tenant_id,
+             license_key = EXCLUDED.license_key,
+             token_hash = EXCLUDED.token_hash,
+             name = EXCLUDED.name,
+             oauth_client_id = EXCLUDED.oauth_client_id,
+             oauth_refresh_token_id = EXCLUDED.oauth_refresh_token_id,
+             oauth_token_family_id = EXCLUDED.oauth_token_family_id,
+             status = EXCLUDED.status,
+             created_at = EXCLUDED.created_at,
+             updated_at = EXCLUDED.updated_at,
+             last_used_at = EXCLUDED.last_used_at,
+             expires_at = EXCLUDED.expires_at`,
+          [
+            record.tokenId,
+            record.tenantId,
+            record.licenseKey || null,
+            record.tokenHash,
+            record.name || null,
+            record.oauthClientId || null,
+            record.oauthRefreshTokenId || null,
+            record.oauthTokenFamilyId || null,
+            record.status,
+            record.createdAt || null,
+            record.updatedAt || null,
+            record.lastUsedAt || null,
+            record.expiresAt || null,
+          ]
+        );
+      });
+
+      await persistChanged(prevState.oauthRefreshTokens, nextState.oauthRefreshTokens, async (record) => {
+        await client.query(
+          `INSERT INTO oauth_refresh_tokens (refresh_token_id, token_hash, client_id, tenant_id, license_key, family_id, parent_refresh_token_id, replaced_by_refresh_token_id, scope, status, revoked_at, replay_detected_at, created_at, updated_at, expires_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+           ON CONFLICT (refresh_token_id) DO UPDATE SET
+             token_hash = EXCLUDED.token_hash,
+             client_id = EXCLUDED.client_id,
+             tenant_id = EXCLUDED.tenant_id,
+             license_key = EXCLUDED.license_key,
+             family_id = EXCLUDED.family_id,
+             parent_refresh_token_id = EXCLUDED.parent_refresh_token_id,
+             replaced_by_refresh_token_id = EXCLUDED.replaced_by_refresh_token_id,
+             scope = EXCLUDED.scope,
+             status = EXCLUDED.status,
+             revoked_at = EXCLUDED.revoked_at,
+             replay_detected_at = EXCLUDED.replay_detected_at,
+             created_at = EXCLUDED.created_at,
+             updated_at = EXCLUDED.updated_at,
+             expires_at = EXCLUDED.expires_at`,
           [
             record.refreshTokenId,
             record.tokenHash,
             record.clientId,
             record.tenantId,
             record.licenseKey,
+            record.familyId || null,
+            record.parentRefreshTokenId || null,
+            record.replacedByRefreshTokenId || null,
             record.scope || null,
             record.status,
+            record.revokedAt || null,
+            record.replayDetectedAt || null,
             record.createdAt || null,
             record.updatedAt || null,
             record.expiresAt || null,
           ]
         );
-      }
+      });
 
       await client.query("COMMIT");
+      this.lastPersistedState = cloneState(nextState);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

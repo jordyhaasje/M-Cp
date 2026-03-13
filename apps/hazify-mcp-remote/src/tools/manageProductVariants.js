@@ -24,15 +24,15 @@ const ManageProductVariantsInputSchema = z.object({
         .describe("Strategy for handling the standalone 'Default Title' variant when creating. DEFAULT removes it automatically."),
 });
 // Will be initialized in index.ts
-let shopifyClient;
 const manageProductVariants = {
     name: "manage-product-variants",
     description: "Create or update product variants. Omit variant id to create new, include id to update existing.",
     schema: ManageProductVariantsInputSchema,
-    initialize(client) {
-        shopifyClient = client;
-    },
-    execute: async (input) => {
+    execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
         try {
             const { productId, variants } = input;
             // Split into creates and updates

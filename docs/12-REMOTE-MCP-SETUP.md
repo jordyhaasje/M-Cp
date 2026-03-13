@@ -25,6 +25,8 @@ read_products,write_products,read_customers,write_customers,read_orders,write_or
 - discovery via `/.well-known/oauth-protected-resource`
 - authorize/token met PKCE `S256`
 - scope: `mcp:tools`
+- server-side tokenvalidatie via `/v1/mcp/token/introspect`
+- interne Shopify token-exchange via `/v1/mcp/token/exchange` (geen Shopify secrets in introspection payload)
 
 ### API token (fallback)
 Gebruik alleen als OAuth niet beschikbaar is in de client.
@@ -34,6 +36,7 @@ Gebruik alleen als OAuth niet beschikbaar is in de client.
 2. `tools/list` werkt
 3. token revoke -> nieuwe request faalt
 4. disallowed origin -> request faalt
+5. stateless mode (`MCP_SESSION_MODE=stateless`) werkt zonder `mcp-session-id`
 
 ## Theme import policy
 - Hazify MCP genereert of importeert geen sections.

@@ -13,11 +13,10 @@ const setOrderTracking = {
     name: "set-order-tracking",
     description: "One-shot tracking update tool for LLMs: resolves order reference, updates fulfillment tracking, and returns verification-ready output.",
     schema: SetOrderTrackingInputSchema,
-    initialize(client) {
-        updateFulfillmentTracking.initialize(client);
-        getOrderById.initialize(client);
-    },
-    execute: async (input) => {
+    execute: async (input, context = {}) => {
+        if (!context?.shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
         const result = await updateFulfillmentTracking.execute({
             orderId: input.order,
             trackingNumber: input.trackingCode,
@@ -25,8 +24,8 @@ const setOrderTracking = {
             trackingUrl: input.trackingUrl,
             notifyCustomer: input.notifyCustomer,
             fulfillmentId: input.fulfillmentId
-        });
-        const verificationOrder = await getOrderById.execute({ orderId: result.order.id });
+        }, context);
+        const verificationOrder = await getOrderById.execute({ orderId: result.order.id }, context);
         const shipments = verificationOrder.order?.tracking?.shipments || [];
         const normalizedTrackingCode = input.trackingCode.trim();
         const verificationMatch = shipments.find((shipment) => shipment.number === normalizedTrackingCode);

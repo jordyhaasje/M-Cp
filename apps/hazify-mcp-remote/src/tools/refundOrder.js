@@ -36,16 +36,16 @@ const RefundOrderInputSchema = z.object({
   transactions: z.array(RefundTransactionSchema).optional(),
 });
 
-let shopifyClient;
 
 const refundOrder = {
   name: "refund-order",
   description: "Create a full or partial refund for an order using Shopify refundCreate.",
   schema: RefundOrderInputSchema,
-  initialize(client) {
-    shopifyClient = client;
-  },
-  execute: async (input) => {
+  execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
     try {
       const audit = input.audit;
       const auditNote = `[Refund audit] amount=${audit.amount}; scope=${audit.scope}; reason=${audit.reason}`;

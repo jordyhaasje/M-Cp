@@ -1,7 +1,7 @@
 # Hazify Monorepo
 
 Deze repository bevat de productiecode voor:
-- `apps/hazify-license-service` (accounts, onboarding, OAuth, token-introspectie, billing)
+- `apps/hazify-license-service` (accounts, onboarding, OAuth, token-introspectie + interne token-exchange, billing)
 - `apps/hazify-mcp-remote` (remote MCP op `/mcp` voor Shopify store-operaties)
 
 ## Verantwoordelijkheid van deze MCP
@@ -25,6 +25,9 @@ npm ci
 npm run build
 npm test
 ```
+
+## Runtime baseline
+- Node.js `>=22.12.0` voor alle workspaces.
 
 ## Belangrijke checks
 ```bash

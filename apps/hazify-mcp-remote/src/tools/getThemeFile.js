@@ -11,16 +11,16 @@ const GetThemeFileInputSchema = z.object({
   includeContent: z.boolean().default(true).describe("Include file content (value/attachment) in response"),
 });
 
-let shopifyClient;
 
 const getThemeFileTool = {
   name: "get-theme-file",
   description: "Read a file from a Shopify theme (defaults to live theme role=main).",
   schema: GetThemeFileInputSchema,
-  initialize(client) {
-    shopifyClient = client;
-  },
-  execute: async (input) => {
+  execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
     try {
       const result = await getThemeFile(shopifyClient, API_VERSION, {
         themeId: input.themeId,

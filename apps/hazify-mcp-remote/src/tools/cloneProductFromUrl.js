@@ -14,7 +14,6 @@ const CloneProductFromUrlInputSchema = z.object({
   tracked: z.boolean().default(true),
 });
 
-let shopifyClient;
 
 function toAbsoluteUrl(url) {
   if (!url) return url;
@@ -127,10 +126,11 @@ const cloneProductFromUrl = {
   description:
     "Clone a public Shopify product URL into your connected store with options, variants, prices and media.",
   schema: CloneProductFromUrlInputSchema,
-  initialize(client) {
-    shopifyClient = client;
-  },
-  execute: async (input) => {
+  execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
     try {
       const source = await fetchSourceProduct(input.sourceUrl);
 

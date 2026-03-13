@@ -6,16 +6,16 @@ const GetProductsInputSchema = z.object({
     limit: z.number().default(10)
 });
 // Will be initialized in index.ts
-let shopifyClient;
 const getProducts = {
     name: "get-products",
     description: "Get all products or search by title",
     schema: GetProductsInputSchema,
     // Add initialize method to set up the GraphQL client
-    initialize(client) {
-        shopifyClient = client;
-    },
-    execute: async (input) => {
+    execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
         try {
             const { searchTitle, limit } = input;
             // Create query based on whether we're searching by title or not

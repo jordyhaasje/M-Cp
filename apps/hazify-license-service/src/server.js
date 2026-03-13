@@ -5,6 +5,7 @@ import path from "path";
 import { URL } from "url";
 import { sha256Hex, normalizeBaseUrl } from "@hazify/mcp-common";
 import {
+  exchangeShopifyClientCredentials,
   normalizeShopDomain,
   REQUIRED_SHOPIFY_ADMIN_SCOPES,
   validateShopifyCredentialsLive as validateShopifyCredentialsLiveCore,
@@ -523,6 +524,7 @@ function revokeTenantAuthArtifacts(tenantId) {
       continue;
     }
     refreshRecord.status = "revoked";
+    refreshRecord.revokedAt = nowIso();
     refreshRecord.updatedAt = nowIso();
     revokedRefreshTokens += 1;
   }
@@ -614,6 +616,18 @@ function createMcpTokenForTenant(tenantId, options = {}) {
     tenantId,
     licenseKey: tenant.licenseKey,
     name: typeof options.name === "string" && options.name.trim() ? options.name.trim() : null,
+    oauthClientId:
+      typeof options.oauthClientId === "string" && options.oauthClientId.trim()
+        ? options.oauthClientId.trim()
+        : null,
+    oauthRefreshTokenId:
+      typeof options.oauthRefreshTokenId === "string" && options.oauthRefreshTokenId.trim()
+        ? options.oauthRefreshTokenId.trim()
+        : null,
+    oauthTokenFamilyId:
+      typeof options.oauthTokenFamilyId === "string" && options.oauthTokenFamilyId.trim()
+        ? options.oauthTokenFamilyId.trim()
+        : null,
     status: "active",
     createdAt: nowIso(),
     updatedAt: nowIso(),
@@ -1059,6 +1073,7 @@ const licenseBillingHandlers = createLicenseBillingHandlers({
   requireAdmin,
   billingReadiness,
   maskSecret,
+  exchangeShopifyClientCredentials,
 });
 
 const adminHandlers = createAdminHandlers({
@@ -1270,6 +1285,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (method === "POST" && url.pathname === "/v1/mcp/token/introspect") {
       return licenseBillingHandlers.handleMcpTokenIntrospect(req, res);
+    }
+    if (method === "POST" && url.pathname === "/v1/mcp/token/exchange") {
+      return licenseBillingHandlers.handleMcpTokenExchange(req, res);
     }
     if (method === "POST" && url.pathname === "/v1/onboarding/connect-shopify") {
       return accountHandlers.handleOnboardingConnectShopify(req, res);

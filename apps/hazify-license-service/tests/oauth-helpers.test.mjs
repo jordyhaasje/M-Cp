@@ -34,7 +34,7 @@ assert.equal(
   "unsafe scheme should be rejected"
 );
 
-const verifier = "verifier-123456789";
+const verifier = "verifier-123456789-verifier-123456789-verifier-123";
 const challenge = Buffer.from(crypto.createHash("sha256").update(verifier, "utf8").digest())
   .toString("base64")
   .replace(/\+/g, "-")
@@ -42,6 +42,39 @@ const challenge = Buffer.from(crypto.createHash("sha256").update(verifier, "utf8
   .replace(/=+$/g, "");
 assert.equal(verifyPkceCodeVerifier(verifier, challenge, "S256"), true, "S256 PKCE should validate");
 assert.equal(verifyPkceCodeVerifier("wrong", challenge, "S256"), false, "wrong verifier should fail");
+
+validateOAuthClientAuthentication({
+  req: {
+    headers: {},
+  },
+  payload: {
+    client_id: "public_client",
+  },
+  client: {
+    clientId: "public_client",
+    tokenEndpointAuthMethod: "none",
+  },
+  hashToken,
+  safeTimingEqual,
+});
+
+assert.throws(
+  () =>
+    validateOAuthClientAuthentication({
+      req: {
+        headers: {},
+      },
+      payload: {},
+      client: {
+        clientId: "public_client",
+        tokenEndpointAuthMethod: "none",
+      },
+      hashToken,
+      safeTimingEqual,
+    }),
+  /invalid_client/,
+  "public client auth should require client_id"
+);
 
 const metadata = buildOauthMetadata({
   issuer: "https://issuer.example",

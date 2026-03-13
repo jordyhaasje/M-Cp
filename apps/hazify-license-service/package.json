@@ -15,5 +15,8 @@
     "@hazify/mcp-common": "file:../../packages/mcp-common",
     "@hazify/shopify-core": "file:../../packages/shopify-core",
     "pg": "^8.19.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

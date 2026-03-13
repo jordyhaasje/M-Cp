@@ -316,7 +316,29 @@ try {
   const plainLocation = plainAuthorize.headers.get("location") || "";
   assert.match(plainLocation, /error=invalid_request/, "plain PKCE should be rejected");
 
-  const verifier = "pkce-verifier-test-1234567890";
+  const malformedPkceAuthorize = await fetch(`${baseUrl}/oauth/authorize`, {
+    method: "POST",
+    redirect: "manual",
+    headers: {
+      "content-type": "application/json",
+      Cookie: `hz_user_session=${sessionToken}`,
+    },
+    body: JSON.stringify({
+      client_id: client.client_id,
+      redirect_uri: client.redirect_uris[0],
+      response_type: "code",
+      state: "bad-pkce-format",
+      decision: "allow",
+      shopDomain: "unit-test-shop.myshopify.com",
+      code_challenge: "short",
+      code_challenge_method: "S256",
+    }),
+  });
+  assert.equal(malformedPkceAuthorize.status, 302, "malformed PKCE challenge should fail");
+  const malformedPkceLocation = malformedPkceAuthorize.headers.get("location") || "";
+  assert.match(malformedPkceLocation, /error=invalid_request/, "malformed PKCE should be rejected");
+
+  const verifier = "pkce-verifier-test-1234567890-pkce-verifier-test-1234567890";
   const challenge = pkceChallenge(verifier);
   const allowAuthorize = await fetch(`${baseUrl}/oauth/authorize`, {
     method: "POST",
@@ -375,6 +397,45 @@ try {
   assert.equal(typeof tokenBody.access_token, "string");
   assert.equal(typeof tokenBody.refresh_token, "string");
 
+  const introspectActive = await fetch(`${baseUrl}/v1/mcp/token/introspect`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-mcp-api-key": "mcp-test-key",
+    },
+    body: JSON.stringify({ token: tokenBody.access_token }),
+  });
+  assert.equal(introspectActive.status, 200, "introspect should respond");
+  const introspectActiveBody = await introspectActive.json();
+  assert.equal(introspectActiveBody.active, true, "OAuth access token should be active");
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(introspectActiveBody?.shopify || {}, "accessToken"),
+    false,
+    "introspection should not expose raw Shopify access tokens"
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(introspectActiveBody?.shopify || {}, "clientSecret"),
+    false,
+    "introspection should not expose Shopify client secrets"
+  );
+
+  const exchangeActive = await fetch(`${baseUrl}/v1/mcp/token/exchange`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-mcp-api-key": "mcp-test-key",
+    },
+    body: JSON.stringify({ token: tokenBody.access_token }),
+  });
+  assert.equal(exchangeActive.status, 200, "exchange endpoint should respond");
+  const exchangeActiveBody = await exchangeActive.json();
+  assert.equal(exchangeActiveBody.active, true, "exchange should return active token");
+  assert.equal(
+    typeof exchangeActiveBody?.shopify?.accessToken,
+    "string",
+    "exchange should provide Shopify access token for internal service usage"
+  );
+
   const invalidRefreshClient = await fetch(`${baseUrl}/oauth/token`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -403,6 +464,38 @@ try {
   const validRefreshBody = await validRefresh.json();
   assert.equal(validRefreshBody.scope, "mcp:tools");
   assert.equal(typeof validRefreshBody.access_token, "string");
+
+  const replayRefresh = await fetch(`${baseUrl}/oauth/token`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      refresh_token: tokenBody.refresh_token,
+      client_id: client.client_id,
+      client_secret: client.client_secret,
+    }),
+  });
+  assert.equal(replayRefresh.status, 400, "reusing old refresh token should fail");
+  const replayRefreshBody = await replayRefresh.json();
+  assert.equal(replayRefreshBody.error, "invalid_grant");
+
+  const rotatedAfterReplay = await fetch(`${baseUrl}/oauth/token`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      refresh_token: validRefreshBody.refresh_token,
+      client_id: client.client_id,
+      client_secret: client.client_secret,
+    }),
+  });
+  assert.equal(
+    rotatedAfterReplay.status,
+    400,
+    "refresh token family should be revoked after replay detection"
+  );
+  const rotatedAfterReplayBody = await rotatedAfterReplay.json();
+  assert.equal(rotatedAfterReplayBody.error, "invalid_grant");
 
   console.log("oauth-security.test.mjs passed");
 } finally {

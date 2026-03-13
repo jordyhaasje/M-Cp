@@ -106,9 +106,67 @@ export function createOAuthHandlers({
 
   function findOAuthRefreshTokenRecord(rawRefreshToken) {
     const tokenHash = hashToken(rawRefreshToken);
-    return Object.values(db.oauthRefreshTokens).find(
-      (record) => record && record.status === "active" && record.tokenHash === tokenHash
+    return Object.values(db.oauthRefreshTokens).find((record) => record && record.tokenHash === tokenHash);
+  }
+
+  async function revokeRefreshTokenFamily(familyId, reason = "manual") {
+    if (!familyId) {
+      return { revokedRefreshTokens: 0, revokedAccessTokens: 0 };
+    }
+    const now = nowIso();
+    let revokedRefreshTokens = 0;
+    let revokedAccessTokens = 0;
+    for (const record of Object.values(db.oauthRefreshTokens)) {
+      if (!record || record.familyId !== familyId) {
+        continue;
+      }
+      if (record.status === "revoked" || record.status === "expired") {
+        continue;
+      }
+      record.status = "revoked";
+      record.revokedAt = now;
+      if (reason === "replay") {
+        record.replayDetectedAt = now;
+      }
+      record.updatedAt = now;
+      revokedRefreshTokens += 1;
+    }
+    for (const tokenRecord of Object.values(db.mcpTokens)) {
+      if (!tokenRecord || tokenRecord.oauthTokenFamilyId !== familyId) {
+        continue;
+      }
+      if (tokenRecord.status !== "active") {
+        continue;
+      }
+      tokenRecord.status = "revoked";
+      tokenRecord.updatedAt = now;
+      revokedAccessTokens += 1;
+    }
+    await persistDb();
+    return { revokedRefreshTokens, revokedAccessTokens };
+  }
+
+  const flowLocks = new Map();
+  async function runSerializedByKey(key, work) {
+    const lockKey = key || "__default__";
+    const previous = flowLocks.get(lockKey) || Promise.resolve();
+    const next = previous.then(work, work);
+    const settled = next.then(
+      () => undefined,
+      () => undefined
     );
+    flowLocks.set(lockKey, settled);
+    try {
+      return await next;
+    } finally {
+      if (flowLocks.get(lockKey) === settled) {
+        flowLocks.delete(lockKey);
+      }
+    }
+  }
+
+  function isValidPkceChallenge(challenge) {
+    return typeof challenge === "string" && /^[A-Za-z0-9_-]{43,128}$/.test(challenge);
   }
 
   function redirectWithOAuthResult(res, redirectUri, params) {
@@ -172,11 +230,30 @@ export function createOAuthHandlers({
           : "client_secret_post";
       const grantTypes = normalizeStringArray(payload.grant_types);
       const responseTypes = normalizeStringArray(payload.response_types);
+      if (grantTypes.length && !grantTypes.every((value) => value === "authorization_code" || value === "refresh_token")) {
+        return oauthJsonError(
+          res,
+          400,
+          "invalid_client_metadata",
+          "grant_types must contain only authorization_code and refresh_token",
+          json
+        );
+      }
+      if (responseTypes.length && !responseTypes.every((value) => value === "code")) {
+        return oauthJsonError(
+          res,
+          400,
+          "invalid_client_metadata",
+          "response_types must contain only code",
+          json
+        );
+      }
       const scope = "mcp:tools";
 
       const clientId = randomId("oauthcli");
       const issuedAtSeconds = Math.floor(Date.now() / 1000);
-      const clientSecret = `hzcsec_${crypto.randomBytes(24).toString("hex")}`;
+      const isPublicClient = tokenEndpointAuthMethod === "none";
+      const clientSecret = isPublicClient ? null : `hzcsec_${crypto.randomBytes(24).toString("hex")}`;
       db.oauthClients[clientId] = {
         clientId,
         clientName:
@@ -188,25 +265,28 @@ export function createOAuthHandlers({
         responseTypes: responseTypes.length ? responseTypes : ["code"],
         tokenEndpointAuthMethod,
         scope,
-        clientSecretHash: hashToken(clientSecret),
+        clientSecretHash: clientSecret ? hashToken(clientSecret) : null,
         createdAt: nowIso(),
         updatedAt: nowIso(),
         status: "active",
       };
       await persistDb();
 
-      return json(res, 201, {
+      const responsePayload = {
         client_id: clientId,
         client_id_issued_at: issuedAtSeconds,
-        client_secret: clientSecret,
-        client_secret_expires_at: 0,
         client_name: db.oauthClients[clientId].clientName,
         redirect_uris: redirectUris,
         grant_types: db.oauthClients[clientId].grantTypes,
         response_types: db.oauthClients[clientId].responseTypes,
         token_endpoint_auth_method: tokenEndpointAuthMethod,
         scope,
-      });
+      };
+      if (clientSecret) {
+        responsePayload.client_secret = clientSecret;
+        responsePayload.client_secret_expires_at = 0;
+      }
+      return json(res, 201, responsePayload);
     } catch (error) {
       return oauthJsonError(
         res,
@@ -392,6 +472,14 @@ export function createOAuthHandlers({
         });
         return;
       }
+      if (!isValidPkceChallenge(codeChallenge)) {
+        redirectWithOAuthResult(res, redirectUri, {
+          error: "invalid_request",
+          error_description: "Invalid PKCE code_challenge format",
+          state,
+        });
+        return;
+      }
       if (codeChallengeMethod !== "S256") {
         redirectWithOAuthResult(res, redirectUri, {
           error: "invalid_request",
@@ -529,6 +617,14 @@ export function createOAuthHandlers({
         });
         return;
       }
+      if (!isValidPkceChallenge(codeChallenge)) {
+        redirectWithOAuthResult(res, redirectUri, {
+          error: "invalid_request",
+          error_description: "Invalid PKCE code_challenge format",
+          state,
+        });
+        return;
+      }
       if (codeChallengeMethod !== "S256") {
         redirectWithOAuthResult(res, redirectUri, {
           error: "invalid_request",
@@ -598,28 +694,137 @@ export function createOAuthHandlers({
         if (!code) {
           return oauthJsonError(res, 400, "invalid_request", "code is required", json);
         }
-        const codeRecord = db.oauthAuthCodes[code];
-        if (!codeRecord || codeRecord.status !== "active" || codeRecord.usedAt) {
-          return oauthJsonError(
-            res,
-            400,
-            "invalid_grant",
-            "Authorization code is invalid or already used",
-            json
-          );
-        }
-        if (Date.parse(codeRecord.expiresAt) < Date.now()) {
-          codeRecord.status = "expired";
+        return await runSerializedByKey(`oauth:code:${code}`, async () => {
+          const codeRecord = db.oauthAuthCodes[code];
+          if (!codeRecord || codeRecord.status !== "active" || codeRecord.usedAt) {
+            return oauthJsonError(
+              res,
+              400,
+              "invalid_grant",
+              "Authorization code is invalid or already used",
+              json
+            );
+          }
+          if (Date.parse(codeRecord.expiresAt) < Date.now()) {
+            codeRecord.status = "expired";
+            codeRecord.usedAt = nowIso();
+            await persistDb();
+            return oauthJsonError(res, 400, "invalid_grant", "Authorization code has expired", json);
+          }
+
+          const client = getOAuthClient(codeRecord.clientId);
+          if (!client) {
+            return oauthJsonError(res, 401, "invalid_client", "OAuth client is invalid", json);
+          }
+
+          try {
+            validateOAuthClientAuthentication({ req, payload, client, hashToken, safeTimingEqual });
+          } catch (error) {
+            if (error instanceof Error && error.message === "invalid_client") {
+              return oauthJsonError(res, 401, "invalid_client", "Client authentication failed", json);
+            }
+            return oauthJsonError(
+              res,
+              400,
+              "invalid_request",
+              error instanceof Error ? error.message : String(error),
+              json
+            );
+          }
+
+          const redirectUri = typeof payload.redirect_uri === "string" ? payload.redirect_uri.trim() : "";
+          if (!redirectUri || redirectUri !== codeRecord.redirectUri) {
+            return oauthJsonError(res, 400, "invalid_grant", "redirect_uri mismatch", json);
+          }
+          if (
+            !codeRecord.codeChallenge ||
+            !isValidPkceChallenge(codeRecord.codeChallenge) ||
+            codeRecord.codeChallengeMethod !== "S256"
+          ) {
+            return oauthJsonError(
+              res,
+              400,
+              "invalid_grant",
+              "Authorization code is missing PKCE requirements",
+              json
+            );
+          }
+          const verifier = typeof payload.code_verifier === "string" ? payload.code_verifier : "";
+          if (!verifyPkceCodeVerifier(verifier, codeRecord.codeChallenge, "S256")) {
+            return oauthJsonError(res, 400, "invalid_grant", "Invalid code_verifier", json);
+          }
+
+          const accessTokenTtlSeconds = Math.max(300, Number(config.oauthAccessTokenTtlSeconds || 3600));
+          const refreshTokenTtlDays = positiveNumber(config.oauthRefreshTokenTtlDays || 30, 30);
+          const refreshToken = `hzrft_${crypto.randomBytes(28).toString("hex")}`;
+          const refreshTokenId = randomId("oauthrt");
+          const refreshFamilyId = randomId("oauthfam");
+          const accessToken = createMcpTokenForTenant(codeRecord.tenantId, {
+            name: `oauth:${client.clientName || client.clientId}`,
+            expiresInSeconds: accessTokenTtlSeconds,
+            oauthClientId: client.clientId,
+            oauthRefreshTokenId: refreshTokenId,
+            oauthTokenFamilyId: refreshFamilyId,
+          });
+
+          db.oauthRefreshTokens[refreshTokenId] = {
+            refreshTokenId,
+            tokenHash: hashToken(refreshToken),
+            clientId: client.clientId,
+            tenantId: codeRecord.tenantId,
+            licenseKey: codeRecord.licenseKey,
+            familyId: refreshFamilyId,
+            parentRefreshTokenId: null,
+            replacedByRefreshTokenId: null,
+            scope: codeRecord.scope || "mcp:tools",
+            status: "active",
+            revokedAt: null,
+            replayDetectedAt: null,
+            createdAt: nowIso(),
+            updatedAt: nowIso(),
+            expiresAt: addDays(nowIso(), refreshTokenTtlDays),
+          };
+          codeRecord.status = "used";
           codeRecord.usedAt = nowIso();
           await persistDb();
-          return oauthJsonError(res, 400, "invalid_grant", "Authorization code has expired", json);
+
+          return sendOAuthTokenResponse(res, {
+            access_token: accessToken.accessToken,
+            token_type: "Bearer",
+            expires_in: accessTokenTtlSeconds,
+            refresh_token: refreshToken,
+            scope: codeRecord.scope || "mcp:tools",
+          });
+        });
+      }
+
+      const rawRefreshToken = typeof payload.refresh_token === "string" ? payload.refresh_token.trim() : "";
+      if (!rawRefreshToken) {
+        return oauthJsonError(res, 400, "invalid_request", "refresh_token is required", json);
+      }
+      const refreshTokenHash = hashToken(rawRefreshToken);
+      return await runSerializedByKey(`oauth:refresh:${refreshTokenHash}`, async () => {
+        const refreshRecord = findOAuthRefreshTokenRecord(rawRefreshToken);
+        if (!refreshRecord) {
+          return oauthJsonError(res, 400, "invalid_grant", "Refresh token is invalid", json);
+        }
+        if (Date.parse(refreshRecord.expiresAt) < Date.now()) {
+          refreshRecord.status = "expired";
+          refreshRecord.updatedAt = nowIso();
+          await persistDb();
+          return oauthJsonError(res, 400, "invalid_grant", "Refresh token has expired", json);
+        }
+        if (refreshRecord.status !== "active") {
+          if (refreshRecord.status === "rotated") {
+            await revokeRefreshTokenFamily(refreshRecord.familyId || refreshRecord.refreshTokenId, "replay");
+          }
+          return oauthJsonError(res, 400, "invalid_grant", "Refresh token is invalid", json);
         }
 
-        const client = getOAuthClient(codeRecord.clientId);
+        const client = getOAuthClient(refreshRecord.clientId);
         if (!client) {
           return oauthJsonError(res, 401, "invalid_client", "OAuth client is invalid", json);
         }
-
         try {
           validateOAuthClientAuthentication({ req, payload, client, hashToken, safeTimingEqual });
         } catch (error) {
@@ -635,122 +840,61 @@ export function createOAuthHandlers({
           );
         }
 
-        const redirectUri = typeof payload.redirect_uri === "string" ? payload.redirect_uri.trim() : "";
-        if (!redirectUri || redirectUri !== codeRecord.redirectUri) {
-          return oauthJsonError(res, 400, "invalid_grant", "redirect_uri mismatch", json);
-        }
-        if (!codeRecord.codeChallenge || codeRecord.codeChallengeMethod !== "S256") {
+        const requestedScope =
+          typeof payload.scope === "string" && payload.scope.trim() ? payload.scope.trim() : null;
+        const effectiveScope = refreshRecord.scope || "mcp:tools";
+        if (requestedScope && requestedScope !== effectiveScope) {
           return oauthJsonError(
             res,
             400,
-            "invalid_grant",
-            "Authorization code is missing PKCE requirements",
+            "invalid_scope",
+            "scope must match the previously granted scope",
             json
           );
-        }
-        const verifier = typeof payload.code_verifier === "string" ? payload.code_verifier : "";
-        if (!verifyPkceCodeVerifier(verifier, codeRecord.codeChallenge, "S256")) {
-          return oauthJsonError(res, 400, "invalid_grant", "Invalid code_verifier", json);
         }
 
         const accessTokenTtlSeconds = Math.max(300, Number(config.oauthAccessTokenTtlSeconds || 3600));
         const refreshTokenTtlDays = positiveNumber(config.oauthRefreshTokenTtlDays || 30, 30);
-        const accessToken = createMcpTokenForTenant(codeRecord.tenantId, {
+        const rotatedRefreshToken = `hzrft_${crypto.randomBytes(28).toString("hex")}`;
+        const nextRefreshTokenId = randomId("oauthrt");
+        const familyId = refreshRecord.familyId || refreshRecord.refreshTokenId;
+        const accessToken = createMcpTokenForTenant(refreshRecord.tenantId, {
           name: `oauth:${client.clientName || client.clientId}`,
           expiresInSeconds: accessTokenTtlSeconds,
+          oauthClientId: refreshRecord.clientId,
+          oauthRefreshTokenId: nextRefreshTokenId,
+          oauthTokenFamilyId: familyId,
         });
-        const refreshToken = `hzrft_${crypto.randomBytes(28).toString("hex")}`;
-        const refreshTokenId = randomId("oauthrt");
 
-        db.oauthRefreshTokens[refreshTokenId] = {
-          refreshTokenId,
-          tokenHash: hashToken(refreshToken),
-          clientId: client.clientId,
-          tenantId: codeRecord.tenantId,
-          licenseKey: codeRecord.licenseKey,
-          scope: codeRecord.scope || "mcp:tools",
+        refreshRecord.status = "rotated";
+        refreshRecord.updatedAt = nowIso();
+        refreshRecord.replacedByRefreshTokenId = nextRefreshTokenId;
+        db.oauthRefreshTokens[nextRefreshTokenId] = {
+          refreshTokenId: nextRefreshTokenId,
+          tokenHash: hashToken(rotatedRefreshToken),
+          clientId: refreshRecord.clientId,
+          tenantId: refreshRecord.tenantId,
+          licenseKey: refreshRecord.licenseKey,
+          familyId,
+          parentRefreshTokenId: refreshRecord.refreshTokenId,
+          replacedByRefreshTokenId: null,
+          scope: effectiveScope,
           status: "active",
+          revokedAt: null,
+          replayDetectedAt: null,
           createdAt: nowIso(),
           updatedAt: nowIso(),
           expiresAt: addDays(nowIso(), refreshTokenTtlDays),
         };
-        codeRecord.status = "used";
-        codeRecord.usedAt = nowIso();
         await persistDb();
 
         return sendOAuthTokenResponse(res, {
           access_token: accessToken.accessToken,
           token_type: "Bearer",
           expires_in: accessTokenTtlSeconds,
-          refresh_token: refreshToken,
-          scope: codeRecord.scope || "mcp:tools",
+          refresh_token: rotatedRefreshToken,
+          scope: effectiveScope,
         });
-      }
-
-      const rawRefreshToken = typeof payload.refresh_token === "string" ? payload.refresh_token.trim() : "";
-      if (!rawRefreshToken) {
-        return oauthJsonError(res, 400, "invalid_request", "refresh_token is required", json);
-      }
-      const refreshRecord = findOAuthRefreshTokenRecord(rawRefreshToken);
-      if (!refreshRecord) {
-        return oauthJsonError(res, 400, "invalid_grant", "Refresh token is invalid", json);
-      }
-      if (Date.parse(refreshRecord.expiresAt) < Date.now()) {
-        refreshRecord.status = "expired";
-        refreshRecord.updatedAt = nowIso();
-        await persistDb();
-        return oauthJsonError(res, 400, "invalid_grant", "Refresh token has expired", json);
-      }
-      const client = getOAuthClient(refreshRecord.clientId);
-      if (!client) {
-        return oauthJsonError(res, 401, "invalid_client", "OAuth client is invalid", json);
-      }
-      try {
-        validateOAuthClientAuthentication({ req, payload, client, hashToken, safeTimingEqual });
-      } catch (error) {
-        if (error instanceof Error && error.message === "invalid_client") {
-          return oauthJsonError(res, 401, "invalid_client", "Client authentication failed", json);
-        }
-        return oauthJsonError(
-          res,
-          400,
-          "invalid_request",
-          error instanceof Error ? error.message : String(error),
-          json
-        );
-      }
-
-      const accessTokenTtlSeconds = Math.max(300, Number(config.oauthAccessTokenTtlSeconds || 3600));
-      const refreshTokenTtlDays = positiveNumber(config.oauthRefreshTokenTtlDays || 30, 30);
-      const accessToken = createMcpTokenForTenant(refreshRecord.tenantId, {
-        name: `oauth:${client.clientName || client.clientId}`,
-        expiresInSeconds: accessTokenTtlSeconds,
-      });
-      const rotatedRefreshToken = `hzrft_${crypto.randomBytes(28).toString("hex")}`;
-      const nextRefreshTokenId = randomId("oauthrt");
-
-      refreshRecord.status = "rotated";
-      refreshRecord.updatedAt = nowIso();
-      db.oauthRefreshTokens[nextRefreshTokenId] = {
-        refreshTokenId: nextRefreshTokenId,
-        tokenHash: hashToken(rotatedRefreshToken),
-        clientId: refreshRecord.clientId,
-        tenantId: refreshRecord.tenantId,
-        licenseKey: refreshRecord.licenseKey,
-        scope: refreshRecord.scope || "mcp:tools",
-        status: "active",
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-        expiresAt: addDays(nowIso(), refreshTokenTtlDays),
-      };
-      await persistDb();
-
-      return sendOAuthTokenResponse(res, {
-        access_token: accessToken.accessToken,
-        token_type: "Bearer",
-        expires_in: accessTokenTtlSeconds,
-        refresh_token: rotatedRefreshToken,
-        scope: refreshRecord.scope || "mcp:tools",
       });
     } catch (error) {
       return oauthJsonError(

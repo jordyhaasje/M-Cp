@@ -47,7 +47,7 @@ try {
     });
 
   const cloneRequests = [];
-  cloneProductFromUrl.initialize({
+  const mockShopifyClient = {
     request: async (query, variables) => {
       const queryText = String(query);
       cloneRequests.push({ queryText, variables });
@@ -93,12 +93,13 @@ try {
 
       throw new Error(`Unexpected clone request: ${queryText.slice(0, 80)}`);
     },
-  });
+  };
 
   const cloneResult = await cloneProductFromUrl.execute(
     cloneProductFromUrl.schema.parse({
       sourceUrl: "https://store.example/products/source-product",
-    })
+    }),
+    { shopifyClient: mockShopifyClient }
   );
   const createRequest = cloneRequests.find((entry) => entry.queryText.includes("productCreate("));
   assert.ok(createRequest, "clone-product-from-url should call productCreate");
@@ -121,29 +122,6 @@ try {
   });
   assert.equal(validThemePayload.success, true, "upsert-theme-file should accept textual value");
 
-  refundOrder.initialize({
-    request: async (_query, variables) => {
-      return {
-        refundCreate: {
-          refund: {
-            id: "gid://shopify/Refund/1",
-            createdAt: "2026-03-13T12:00:00Z",
-            note: variables.input.note,
-            totalRefundedSet: {
-              shopMoney: { amount: "19.95", currencyCode: "EUR" },
-              presentmentMoney: { amount: "19.95", currencyCode: "EUR" },
-            },
-          },
-          order: {
-            id: "gid://shopify/Order/1",
-            name: "#1001",
-          },
-          userErrors: [],
-        },
-      };
-    },
-  });
-
   const refundResult = await refundOrder.execute(
     refundOrder.schema.parse({
       orderId: "gid://shopify/Order/1",
@@ -154,16 +132,34 @@ try {
       },
       note: "Customer requested refund",
       notify: false,
-    })
+    }),
+    {
+      shopifyClient: {
+        request: async (_query, variables) => {
+          return {
+            refundCreate: {
+              refund: {
+                id: "gid://shopify/Refund/1",
+                createdAt: "2026-03-13T12:00:00Z",
+                note: variables.input.note,
+                totalRefundedSet: {
+                  shopMoney: { amount: "19.95", currencyCode: "EUR" },
+                  presentmentMoney: { amount: "19.95", currencyCode: "EUR" },
+                },
+              },
+              order: {
+                id: "gid://shopify/Order/1",
+                name: "#1001",
+              },
+              userErrors: [],
+            },
+          };
+        },
+      },
+    }
   );
   assert.match(refundResult.refund.note, /\[Refund audit\]/, "refund note should include audit trace");
   assert.equal(refundResult.audit.scope, "partial");
-
-  updateFulfillmentTracking.initialize({
-    request: async () => {
-      throw new Error("request should not run for invalid carrier");
-    },
-  });
 
   await assert.rejects(
     () =>
@@ -172,7 +168,14 @@ try {
           orderId: "gid://shopify/Order/1",
           trackingNumber: "TRACK-123",
           trackingCompany: "Invalid Carrier",
-        })
+        }),
+        {
+          shopifyClient: {
+            request: async () => {
+              throw new Error("request should not run for invalid carrier");
+            },
+          },
+        }
       ),
     /Unsupported carrier 'Invalid Carrier'/
   );

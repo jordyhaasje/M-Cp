@@ -39,15 +39,15 @@ const UpdateProductInputSchema = z.object({
         .describe("New media to add to the product"),
 });
 // Will be initialized in index.ts
-let shopifyClient;
 const updateProduct = {
     name: "update-product",
     description: "Update an existing product's fields (title, description, status, tags, etc.)",
     schema: UpdateProductInputSchema,
-    initialize(client) {
-        shopifyClient = client;
-    },
-    execute: async (input) => {
+    execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
         try {
             const { id, media, ...productFields } = input;
             const query = gql `

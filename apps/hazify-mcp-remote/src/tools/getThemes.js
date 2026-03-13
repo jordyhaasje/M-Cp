@@ -9,16 +9,16 @@ const GetThemesInputSchema = z.object({
   limit: z.number().int().positive().max(250).default(100),
 });
 
-let shopifyClient;
 
 const getThemes = {
   name: "get-themes",
   description: "List available Shopify themes (including the live theme).",
   schema: GetThemesInputSchema,
-  initialize(client) {
-    shopifyClient = client;
-  },
-  execute: async (input) => {
+  execute: async (input, context = {}) => {
+        const shopifyClient = context?.shopifyClient;
+        if (!shopifyClient) {
+            throw new Error("Missing Shopify client in execution context");
+        }
     try {
       const roleFilter = input.role ? String(input.role).toLowerCase() : null;
       const themes = await listThemes(shopifyClient, API_VERSION);

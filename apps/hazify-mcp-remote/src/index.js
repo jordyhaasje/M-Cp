@@ -13,7 +13,6 @@ import {
     sha256Hex
 } from "@hazify/mcp-common";
 import {
-    exchangeShopifyClientCredentials,
     normalizeShopDomain
 } from "@hazify/shopify-core";
 import dotenv from "dotenv";
@@ -71,12 +70,20 @@ const HAZIFY_MCP_CONTEXT_TTL_MS = Number(argv.mcpContextTtlMs || process.env.HAZ
 const HAZIFY_MCP_PUBLIC_URL = argv.mcpPublicUrl || process.env.HAZIFY_MCP_PUBLIC_URL || "";
 const HAZIFY_MCP_AUTH_SERVER_URL = argv.oauthAuthServerUrl || process.env.HAZIFY_MCP_AUTH_SERVER_URL || "";
 const HAZIFY_MCP_ALLOWED_ORIGINS = parseCommaSeparatedList(argv.allowedOrigins || process.env.HAZIFY_MCP_ALLOWED_ORIGINS || "");
+const MCP_SESSION_MODE = String(argv.sessionMode || process.env.MCP_SESSION_MODE || "stateless").trim().toLowerCase();
+const MCP_STATEFUL_DEPLOYMENT_SAFE = String(argv.statefulDeploymentSafe || process.env.MCP_STATEFUL_DEPLOYMENT_SAFE || "")
+    .trim()
+    .toLowerCase() === "true";
 const useClientCredentials = !!(SHOPIFY_CLIENT_ID && SHOPIFY_CLIENT_SECRET);
 const SERVER_VERSION = "1.1.0";
 const API_VERSION = argv.apiVersion || process.env.SHOPIFY_API_VERSION || "2026-01";
 const requestContextStore = new AsyncLocalStorage();
 const remoteContextCache = new Map();
 const remoteShopifyClientCache = new Map();
+if (!["stateless", "stateful"].includes(MCP_SESSION_MODE)) {
+    console.error("Error: MCP_SESSION_MODE must be 'stateless' or 'stateful'.");
+    process.exit(1);
+}
 if (!IS_HTTP_TRANSPORT) {
     // Store in process.env for backwards compatibility
     process.env.MYSHOPIFY_DOMAIN = MYSHOPIFY_DOMAIN;
@@ -87,6 +94,15 @@ if (IS_HTTP_TRANSPORT) {
         console.error("Provide:");
         console.error("  --mcpIntrospectionUrl=https://... or HAZIFY_MCP_INTROSPECTION_URL");
         console.error("  --mcpApiKey=... or HAZIFY_MCP_API_KEY");
+        process.exit(1);
+    }
+    if (MCP_SESSION_MODE === "stateful" && String(process.env.NODE_ENV || "").toLowerCase() === "production" && !MCP_STATEFUL_DEPLOYMENT_SAFE) {
+        console.error("Error: stateful MCP session mode in production requires explicit confirmation.");
+        console.error("Set MCP_STATEFUL_DEPLOYMENT_SAFE=true only when sticky sessions or shared session store are guaranteed.");
+        process.exit(1);
+    }
+    if (String(process.env.NODE_ENV || "").toLowerCase() === "production" && String(HAZIFY_MCP_API_KEY || "").trim().length < 16) {
+        console.error("Error: HAZIFY_MCP_API_KEY must be set to a strong secret in production.");
         process.exit(1);
     }
 }
@@ -117,32 +133,6 @@ else {
     }
 }
 let localShopifyClient = null;
-const initializeTools = (shopifyClient) => {
-    localShopifyClient = shopifyClient || localShopifyClient;
-    getProducts.initialize(shopifyClient);
-    getProductById.initialize(shopifyClient);
-    getCustomers.initialize(shopifyClient);
-    getOrders.initialize(shopifyClient);
-    getOrderById.initialize(shopifyClient);
-    updateOrder.initialize(shopifyClient);
-    getCustomerOrders.initialize(shopifyClient);
-    updateCustomer.initialize(shopifyClient);
-    createProduct.initialize(shopifyClient);
-    updateProduct.initialize(shopifyClient);
-    manageProductVariants.initialize(shopifyClient);
-    deleteProductVariants.initialize(shopifyClient);
-    deleteProduct.initialize(shopifyClient);
-    manageProductOptions.initialize(shopifyClient);
-    refundOrder.initialize(shopifyClient);
-    cloneProductFromUrl.initialize(shopifyClient);
-    getSupportedTrackingCompanies.initialize(shopifyClient);
-    updateFulfillmentTracking.initialize(shopifyClient);
-    setOrderTracking.initialize(shopifyClient);
-    getThemes.initialize(shopifyClient);
-    getThemeFileTool.initialize(shopifyClient);
-    upsertThemeFileTool.initialize(shopifyClient);
-    deleteThemeFileTool.initialize(shopifyClient);
-};
 let licenseManager = null;
 let auth = null;
 if (!IS_HTTP_TRANSPORT) {
@@ -187,7 +177,7 @@ if (!IS_HTTP_TRANSPORT) {
     if (auth) {
         auth.setGraphQLClient(shopifyClient);
     }
-    initializeTools(shopifyClient);
+    localShopifyClient = shopifyClient;
 }
 // Set up MCP server
 const createServerInstance = () => new McpServer({
@@ -245,17 +235,68 @@ const evaluateRemoteLicenseAccess = (license, { toolName, mutating }) => {
     }
     return { allowed: false, reason: "invalid license status" };
 };
-const resolveShopifyAccessTokenFromClientCredentials = async (domain, clientId, clientSecret) => {
-    const tokenData = await exchangeShopifyClientCredentials({
-        domain,
-        clientId,
-        clientSecret
+const freezeExecutionContext = (context) => {
+    const safeLicense = context?.license && typeof context.license === "object"
+        ? Object.freeze({ ...context.license })
+        : Object.freeze({});
+    return Object.freeze({
+        tokenHash: context?.tokenHash || null,
+        tenantId: String(context?.tenantId || "unknown"),
+        licenseKey: context?.licenseKey || null,
+        license: safeLicense,
+        shopifyDomain: context?.shopifyDomain || null,
+        shopifyClient: context?.shopifyClient || null,
     });
-    const expiresInMs = Number(tokenData.expiresInSeconds || 3600) * 1000;
-    return {
-        accessToken: tokenData.accessToken,
-        expiresAtMs: Date.now() + Math.max(expiresInMs - 5 * 60 * 1000, 60 * 1000),
-    };
+};
+const resolveRemoteShopifyAccessToken = async (bearerToken) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+        const response = await fetch(`${HAZIFY_MCP_INTROSPECTION_URL.replace(/\/+$/, "")}/v1/mcp/token/exchange`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "x-mcp-api-key": HAZIFY_MCP_API_KEY,
+            },
+            body: JSON.stringify({
+                token: bearerToken,
+                timestamp: new Date().toISOString(),
+            }),
+            signal: controller.signal,
+        });
+        const text = await response.text();
+        const payload = text ? JSON.parse(text) : {};
+        if (!response.ok) {
+            throw new Error(typeof payload.message === "string" ? payload.message : `HTTP ${response.status}`);
+        }
+        if (!payload?.active) {
+            throw new Error("Token exchange rejected inactive token");
+        }
+        const domain = normalizeShopDomain(payload?.shopify?.domain || "");
+        if (!domain || !domain.endsWith(".myshopify.com")) {
+            throw new Error("Token exchange response missing valid shopify domain");
+        }
+        const accessToken = typeof payload?.shopify?.accessToken === "string" && payload.shopify.accessToken.trim()
+            ? payload.shopify.accessToken.trim()
+            : null;
+        if (!accessToken) {
+            throw new Error("Token exchange response missing Shopify access token");
+        }
+        const expiresInSeconds = Number(payload?.shopify?.expiresInSeconds || 0);
+        return {
+            tokenId: payload?.tokenId || null,
+            tenantId: payload?.tenantId || null,
+            domain,
+            accessToken,
+            expiresAtMs: Number.isFinite(expiresInSeconds) && expiresInSeconds > 0
+                ? Date.now() + Math.max(expiresInSeconds * 1000 - 5 * 60 * 1000, 60 * 1000)
+                : Date.now() + 10 * 60 * 1000,
+        };
+    }
+    finally {
+        clearTimeout(timeout);
+    }
 };
 const resolveRemoteContext = async (bearerToken) => {
     const tokenHash = sha256Hex(bearerToken);
@@ -296,30 +337,32 @@ const resolveRemoteContext = async (bearerToken) => {
     if (!domain || !domain.endsWith(".myshopify.com")) {
         throw new Error("Introspection response missing valid shopify domain");
     }
-    const rawAccessToken = introspection?.shopify?.accessToken;
-    const rawClientId = introspection?.shopify?.clientId;
-    const rawClientSecret = introspection?.shopify?.clientSecret;
-    const accessTokenFromIntrospection = typeof rawAccessToken === "string" && rawAccessToken.trim() ? rawAccessToken.trim() : null;
-    const clientId = typeof rawClientId === "string" && rawClientId.trim() ? rawClientId.trim() : null;
-    const clientSecret = typeof rawClientSecret === "string" && rawClientSecret.trim() ? rawClientSecret.trim() : null;
-    if (!accessTokenFromIntrospection && !(clientId && clientSecret)) {
-        throw new Error("Introspection response has no usable Shopify credentials");
-    }
     const tenantId = String(introspection.tenantId || "unknown");
+    const tokenId = typeof introspection.tokenId === "string" ? introspection.tokenId : null;
+    const exchange = await resolveRemoteShopifyAccessToken(bearerToken);
+    if (exchange.tenantId && String(exchange.tenantId) !== tenantId) {
+        throw new Error("Token exchange tenant mismatch");
+    }
+    if (exchange.tokenId && tokenId && exchange.tokenId !== tokenId) {
+        throw new Error("Token exchange token mismatch");
+    }
+    if (exchange.domain !== domain) {
+        throw new Error("Token exchange domain mismatch");
+    }
     const cacheKey = `${tenantId}:${domain}`;
-    const credentialFingerprint = sha256Hex(accessTokenFromIntrospection || `${clientId}:${clientSecret}`);
+    const credentialFingerprint = sha256Hex(exchange.accessToken);
     let cachedShopifyClient = remoteShopifyClientCache.get(cacheKey);
     if (cachedShopifyClient &&
         cachedShopifyClient.credentialFingerprint === credentialFingerprint &&
         cachedShopifyClient.expiresAtMs > Date.now()) {
-        const context = {
+        const context = freezeExecutionContext({
             tokenHash,
             tenantId,
             licenseKey: introspection.licenseKey || null,
             license: introspection.license || {},
             shopifyDomain: domain,
             shopifyClient: cachedShopifyClient.client,
-        };
+        });
         if (HAZIFY_MCP_CONTEXT_TTL_MS > 0) {
             remoteContextCache.set(tokenHash, {
                 context,
@@ -328,33 +371,26 @@ const resolveRemoteContext = async (bearerToken) => {
         }
         return context;
     }
-    let accessToken = accessTokenFromIntrospection;
-    let expiresAtMs = Date.now() + 5 * 60 * 1000;
-    if (!accessToken && clientId && clientSecret) {
-        const token = await resolveShopifyAccessTokenFromClientCredentials(domain, clientId, clientSecret);
-        accessToken = token.accessToken;
-        expiresAtMs = token.expiresAtMs;
-    }
     const shopifyClient = new GraphQLClient(`https://${domain}/admin/api/${API_VERSION}/graphql.json`, {
         headers: {
-            "X-Shopify-Access-Token": accessToken,
+            "X-Shopify-Access-Token": exchange.accessToken,
             "Content-Type": "application/json"
         }
     });
     cachedShopifyClient = {
         client: shopifyClient,
         credentialFingerprint,
-        expiresAtMs,
+        expiresAtMs: exchange.expiresAtMs,
     };
     remoteShopifyClientCache.set(cacheKey, cachedShopifyClient);
-    const context = {
+    const context = freezeExecutionContext({
         tokenHash,
         tenantId,
         licenseKey: introspection.licenseKey || null,
         license: introspection.license || {},
         shopifyDomain: domain,
         shopifyClient: cachedShopifyClient.client,
-    };
+    });
     if (HAZIFY_MCP_CONTEXT_TTL_MS > 0) {
         remoteContextCache.set(tokenHash, {
             context,
@@ -379,16 +415,22 @@ const runSerializedByKey = async (key, work) => {
         }
     }
 };
-const buildToolExecutionContext = (context = null) => ({
+const buildToolExecutionContext = (context = null) => freezeExecutionContext({
     tenantId: String(context?.tenantId || "stdio-local"),
     tokenHash: context?.tokenHash || null,
-    license: context?.license || null,
+    licenseKey: context?.licenseKey || null,
+    license: context?.license || {},
+    shopifyDomain: context?.shopifyDomain || null,
     shopifyClient: context?.shopifyClient || localShopifyClient || null,
 });
 async function runLicensedTool(toolName, mutating, executor, args) {
     if (!IS_HTTP_TRANSPORT) {
         await licenseManager.assertToolAllowed(toolName, { mutating });
-        const result = await executor(args, buildToolExecutionContext());
+        const executionContext = buildToolExecutionContext();
+        if (!executionContext.shopifyClient && toolName !== "list_theme_import_tools" && toolName !== "get-supported-tracking-companies" && toolName !== "get-license-status") {
+            throw new Error("Missing Shopify client in stdio execution context");
+        }
+        const result = await executor(args, executionContext);
         return toMcpResponse(result);
     }
     const context = requestContextStore.getStore();
@@ -400,8 +442,11 @@ async function runLicensedTool(toolName, mutating, executor, args) {
         throw new Error(`License gate blocked '${toolName}': ${decision.reason}`);
     }
     return runSerializedByKey(context.tenantId || context.tokenHash, async () => {
-        initializeTools(context.shopifyClient);
-        const result = await executor(args, buildToolExecutionContext(context));
+        const executionContext = buildToolExecutionContext(context);
+        if (!executionContext.shopifyClient && toolName !== "list_theme_import_tools" && toolName !== "get-supported-tracking-companies" && toolName !== "get-license-status") {
+            throw new Error("Missing Shopify client in request execution context");
+        }
+        const result = await executor(args, executionContext);
         return toMcpResponse(result);
     });
 }
@@ -918,6 +963,7 @@ server.tool("get-license-status", {}, async () => {
             name: "Hazify MCP",
             version: SERVER_VERSION,
             transport: "http",
+            sessionMode: MCP_SESSION_MODE,
         },
     });
 });
@@ -1065,6 +1111,7 @@ else {
         res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
         next();
     });
+    const useStatefulSessions = MCP_SESSION_MODE === "stateful";
     const sessions = new Map();
     const respondJsonRpcError = (res, statusCode, message, code = -32000) => {
         res.status(statusCode).json({
@@ -1139,6 +1186,29 @@ else {
         if (!context) {
             return;
         }
+        if (!useStatefulSessions) {
+            if (typeof req.headers["mcp-session-id"] === "string") {
+                respondJsonRpcError(res, 400, "Bad Request: stateless mode does not accept mcp-session-id");
+                return;
+            }
+            const statelessServer = createHazifyServer();
+            const transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                enableJsonResponse: true,
+            });
+            try {
+                await statelessServer.connect(transport);
+                await requestContextStore.run(context, async () => {
+                    await transport.handleRequest(req, res, req.body);
+                });
+            }
+            catch (error) {
+                if (!res.headersSent) {
+                    respondJsonRpcError(res, 500, error instanceof Error ? error.message : String(error), -32603);
+                }
+            }
+            return;
+        }
         const sessionIdHeader = req.headers["mcp-session-id"];
         const sessionId = typeof sessionIdHeader === "string" ? sessionIdHeader : null;
         if (sessionId) {
@@ -1203,6 +1273,10 @@ else {
         if (!assertAllowedOrigin(req, res)) {
             return;
         }
+        if (!useStatefulSessions) {
+            respondJsonRpcError(res, 400, "Bad Request: stateless mode only supports POST /mcp");
+            return;
+        }
         const context = await resolveRequestAuthContext(req, res);
         if (!context) {
             return;
@@ -1238,6 +1312,10 @@ else {
         if (!assertAllowedOrigin(req, res)) {
             return;
         }
+        if (!useStatefulSessions) {
+            respondJsonRpcError(res, 400, "Bad Request: stateless mode does not use DELETE /mcp sessions");
+            return;
+        }
         const context = await resolveRequestAuthContext(req, res);
         if (!context) {
             return;
@@ -1270,7 +1348,7 @@ else {
         }
     });
     httpServer = app.listen(HTTP_PORT, HTTP_HOST, () => {
-        console.log(`Hazify MCP HTTP server listening on ${HTTP_HOST}:${HTTP_PORT}`);
+        console.log(`Hazify MCP HTTP server listening on ${HTTP_HOST}:${HTTP_PORT} (session mode: ${MCP_SESSION_MODE})`);
     });
 }
 export { httpServer };

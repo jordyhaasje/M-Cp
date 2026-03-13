@@ -12,6 +12,7 @@
 5. `/mcp` accepteert alleen Bearer of `x-api-key`.
 6. Origin-validatie blijft actief op browser-origin requests.
 7. Productie draait standaard op HTTP transport; gebruik `stdio` alleen nog expliciet als legacy/local fallback.
+8. Session mode default is `stateless`; `stateful` alleen met sticky sessions of gedeelde session store.
 
 ## Aanbevolen checks na wijzigingen
 1. `npm run build`
