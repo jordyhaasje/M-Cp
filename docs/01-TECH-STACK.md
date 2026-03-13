@@ -16,7 +16,6 @@ Verantwoordelijkheden:
 - account signup/login/logout en dashboard sessies
 - onboarding (`/v1/onboarding/connect-shopify`)
 - MCP token create/revoke + introspectie (`/v1/mcp/token/introspect`)
-- interne artifact persistence API voor section orchestration (`/v1/mcp/artifacts/*`)
 - OAuth authorization server (`/oauth/register`, `/oauth/authorize`, `/oauth/token`)
 - billing/Stripe checkout, portal en webhook verwerking
 - admin/readiness/export routes voor operations
@@ -35,14 +34,8 @@ Verantwoordelijkheden:
 - token introspectie bij license service
 - OAuth discovery metadata
 - tool-executie binnen tenant context
-- staged section orchestration tools:
-  - `inspect-reference-section`
-  - `generate-shopify-section-bundle`
-  - `validate-shopify-section-bundle`
-  - `import-shopify-section-bundle`
-  - compat wrapper `replicate-section-from-reference`
-- artifact lifecycle met hybrid store (L1 memory + L2 license-service)
 - theme-bestanden via Admin GraphQL theme management; REST Asset API blijft alleen als compat-fallback voor shops waar theme GraphQL nog niet beschikbaar is
+- metadata discovery tool voor externe section-import workflows: `list_theme_import_tools`
 
 Belangrijk:
 - Remote `/mcp` over Streamable HTTP is leidend
@@ -50,6 +43,7 @@ Belangrijk:
 - `/mcp` accepteert alleen `Authorization: Bearer` of `x-api-key`
 - Origin allowlist check is actief bij requests met `Origin` header
 - per-tenant serialisatie voor muterende tools
+- Geen browser runtime of section import/generatie in deze service
 
 ## Runtime/Platform
 - Node.js 20+ aanbevolen; CI draait op Node 22

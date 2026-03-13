@@ -208,11 +208,9 @@ try {
     ? toolsListBody.result.tools.map((tool) => String(tool?.name || ""))
     : [];
   for (const expectedTool of [
-    "inspect-reference-section",
-    "generate-shopify-section-bundle",
-    "validate-shopify-section-bundle",
-    "import-shopify-section-bundle",
-    "replicate-section-from-reference",
+    "get-products",
+    "refund-order",
+    "list_theme_import_tools",
   ]) {
     assert.equal(toolNames.includes(expectedTool), true, `tools/list should expose ${expectedTool}`);
   }

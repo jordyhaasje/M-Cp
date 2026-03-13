@@ -5,24 +5,16 @@ Dit document bevat operationele regels voor ChatGPT connector-gebruik.
 ## Doel
 - Geen vaste system-prompt templates onderhouden in docs.
 - Gedrag afdwingen via MCP toolcontracten en runbooks.
-- Voor sections altijd de staged orchestration flow gebruiken.
+- Focus op Shopify store-operaties via de Hazify MCP.
 
-## Section policy
-1. Gebruik bij voorkeur staged tools:
-   - `inspect-reference-section`
-   - `generate-shopify-section-bundle`
-   - `validate-shopify-section-bundle`
-   - `import-shopify-section-bundle`
-2. Compat-tool `replicate-section-from-reference` mag als wrapper gebruikt worden wanneer de client nog op legacy shape rekent.
-3. Geef minimaal `referenceUrl` mee.
-4. Geef `visionHints` mee als de gebruiker een niet-publieke afbeelding in de chat uploadt.
-5. Voer alleen imports/writes uit na succesvolle validatie (`status=pass`).
-6. Verifieer writes met `get-theme-file` zodra import succesvol is afgerond.
-7. Als output fouten of blocking issues bevat: stop direct en rapporteer de fout, zonder handmatige replica/import.
+## Theme import policy
+1. Gebruik in Hazify MCP alleen `list_theme_import_tools` voor capability discovery.
+2. Laat section generatie/import uitvoeren door externe tooling buiten deze repository.
+3. Externe keten:
+   `AI Client -> Chrome MCP / Shopify Dev MCP -> Theme modifications`
+4. Hazify MCP blijft verantwoordelijk voor store API-operaties (producten, orders, refunds, tracking, theme files).
 
 ## Referenties
-- Contract runbook: `docs/16-SECTION-REPLICA-RUNBOOK.md`
-- Sections: https://shopify.dev/docs/storefronts/themes/architecture/sections
-- Section schema: https://shopify.dev/docs/storefronts/themes/architecture/sections/section-schema
-- JSON templates: https://shopify.dev/docs/storefronts/themes/architecture/templates/json-templates
-- Liquid reference: https://shopify.dev/docs/api/liquid
+- `docs/12-REMOTE-MCP-SETUP.md`
+- `docs/20-TRACKING-WORKFLOW.md`
+- `docs/30-REMOTE-MCP-DEPLOYMENT.md`

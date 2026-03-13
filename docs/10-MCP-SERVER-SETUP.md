@@ -17,16 +17,8 @@
 1. `npm run build`
 2. `npm test`
 
-## Tooling-richtlijn sections (staged orchestration)
-- Publieke staged tools:
-  - `inspect-reference-section`
-  - `generate-shopify-section-bundle`
-  - `validate-shopify-section-bundle`
-  - `import-shopify-section-bundle`
-- Compat tool:
-  - `replicate-section-from-reference` (wrapper over staged flow met legacy outputvelden)
-- Interne adapters:
-  - Chrome/browser inspectie via `chrome-mcp` bridge (`chrome-provider-bridge.mjs` -> `chrome-devtools-mcp`)
-  - Schema/template validatie via `shopify-dev-mcp` bridge (`shopify-dev-provider-bridge.mjs` -> `@shopify/dev-mcp`)
-  - Theme import/verificatie via Shopify Admin in Hazify
-- Contractdetails: `docs/18-SECTION-TOOL-CONTRACTS.md`
+## Theme import tooling policy
+- Hazify MCP importeert geen generated sections.
+- Gebruik `list_theme_import_tools` om externe tooling metadata op te vragen.
+- Externe flow:
+  - `AI Client -> Chrome MCP / Shopify Dev MCP -> Theme modifications`

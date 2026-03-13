@@ -30,9 +30,14 @@
 - API token fallback voor clients zonder OAuth-flow
 - legacy aliases (`/register`, `/authorize`, `/token`) blijven ondersteund
 
-## 5) Section orchestration flow (staged)
-1. `inspect-reference-section` analyseert referentie-URL (+ optionele image) via Chrome-inspector adapter
-2. `generate-shopify-section-bundle` maakt section bundle op basis van `inspectionId`
-3. `validate-shopify-section-bundle` draait schema/template + visual checks op `bundleId`
-4. `import-shopify-section-bundle` schrijft pas na readiness check en verifieert readback/render
-5. Compat-tool `replicate-section-from-reference` orkestreert dezelfde stages en behoudt legacy response shape
+## 5) Externe theme import flow
+De remote Hazify MCP importeert geen sections.
+
+Externe flow:
+1. AI client bepaalt benodigde import-tool via `list_theme_import_tools`
+2. AI client gebruikt lokale toolstack buiten Hazify:
+   - Chrome MCP (optioneel voor visuele inspectie)
+   - Shopify Dev MCP (voor section import in theme)
+3. Theme-wijzigingen gebeuren buiten deze repository
+
+Kort model: `AI Client -> Chrome MCP / Shopify Dev MCP -> Theme modifications`

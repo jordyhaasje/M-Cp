@@ -9,7 +9,6 @@ function initialState() {
     oauthClients: {},
     oauthAuthCodes: {},
     oauthRefreshTokens: {},
-    mcpArtifacts: {},
     accounts: {},
     accountSessions: {},
   };

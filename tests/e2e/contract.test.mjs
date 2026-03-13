@@ -292,35 +292,17 @@ try {
   assert.ok(Array.isArray(toolsListBody?.result?.tools), "tools/list should return tool array");
   assert.ok(toolsListBody.result.tools.length > 0, "tools/list should include tools");
   const toolNames = toolsListBody.result.tools.map((tool) => String(tool?.name || ""));
-  assert.ok(
-    toolNames.includes("replicate-section-from-reference"),
-    "tools/list should expose replicate-section-from-reference"
-  );
   for (const expectedTool of [
-    "inspect-reference-section",
-    "generate-shopify-section-bundle",
-    "validate-shopify-section-bundle",
-    "import-shopify-section-bundle",
+    "get-products",
+    "refund-order",
+    "list_theme_import_tools",
   ]) {
     assert.equal(
       toolNames.includes(expectedTool),
       true,
-      `tools/list should expose staged tool '${expectedTool}'`
+      `tools/list should expose '${expectedTool}'`
     );
   }
-  for (const removedTool of [
-    "prepare-section-replica",
-    "apply-section-replica",
-    "build-theme-section-bundle",
-    "import-section-to-live-theme",
-  ]) {
-    assert.equal(
-      toolNames.includes(removedTool),
-      false,
-      `tools/list should not expose removed tool '${removedTool}'`
-    );
-  }
-
   const disallowedOriginResponse = await fetch(`${mcpBaseUrl}/mcp`, {
     method: "POST",
     headers: {

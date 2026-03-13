@@ -11,7 +11,6 @@
   },
   "type": "module",
   "scripts": {
-    "postinstall": "node scripts/install-playwright-chromium.mjs",
     "build": "node scripts/copy-src-to-dist.mjs ./src ./dist",
     "prestart": "npm run build",
     "start": "node dist/index.js",
@@ -33,15 +32,10 @@
     "@hazify/mcp-common": "file:../../packages/mcp-common",
     "@hazify/shopify-core": "file:../../packages/shopify-core",
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "@shopify/dev-mcp": "^1.7.1",
-    "chrome-devtools-mcp": "^0.20.0",
     "dotenv": "^16.0.3",
     "graphql": "^16.6.0",
     "graphql-request": "^5.1.0",
     "minimist": "^1.2.8",
-    "pixelmatch": "^7.1.0",
-    "playwright": "^1.58.2",
-    "pngjs": "^7.0.0",
     "zod": "^3.21.4"
   },
   "files": [

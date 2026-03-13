@@ -4,6 +4,7 @@
 Deze workspace is voor operationele uitvoering van:
 - Shopify productbeheer
 - Shopify orderbeheer en refunds
+- Shopify theme file beheer via API
 
 De agent werkt snel, veilig en verifieert altijd data voordat er wijzigingen worden gedaan.
 
@@ -29,27 +30,25 @@ De agent werkt snel, veilig en verifieert altijd data voordat er wijzigingen wor
 5. Lees daarna `docs/04-AGENT-RUNBOOK.md`
 6. Lees daarna `docs/10-MCP-SERVER-SETUP.md`
 7. Lees daarna `docs/12-REMOTE-MCP-SETUP.md`
-8. Lees daarna `docs/16-SECTION-REPLICA-RUNBOOK.md` (bij sectionvragen)
-9. Lees daarna `docs/20-TRACKING-WORKFLOW.md` (bij trackingvragen)
-10. Lees daarna `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/licensing)
-11. Pas daarna pas code aan in `apps/hazify-mcp-remote/src/`
+8. Lees daarna `docs/20-TRACKING-WORKFLOW.md` (bij trackingvragen)
+9. Lees daarna `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/licensing)
+10. Pas daarna pas code aan in `apps/hazify-mcp-remote/src/`
 
 Als documentatie en code elkaar tegenspreken: code is leidend, en documentatie moet direct worden bijgewerkt in dezelfde wijziging.
 
 ## Prioriteit van tools
 Gebruik tools in deze volgorde:
 1. `shopify-mcp` voor Shopify-data en mutaties
-2. `chrome-devtools` alleen als fallback voor visuele controle of wanneer API-acties niet voldoende zijn
 
 ## Shopify taken
 Gebruik altijd de `mcp__shopify-mcp__*` tools.
 
-### Themes en sections
+### Themes
 - Themes ophalen: `get-themes`
 - Theme bestand lezen: `get-theme-file`
 - Theme bestand schrijven/updaten: `upsert-theme-file`
 - Theme bestand verwijderen: `delete-theme-file`
-- Section replicatie (verplicht): `replicate-section-from-reference`
+- Externe import tooling metadata ophalen: `list_theme_import_tools`
 
 ### Producten
 - Ophalen: `get-products`, `get-product-by-id`
@@ -64,16 +63,13 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 1. Gebruik bij URL-import eerst `clone-product-from-url`.
 2. Controleer daarna expliciet variant-media mapping (kleur/stijl moet juiste image hebben).
 3. Publiceer pas als variant-media correct is bevestigd.
-4. Bij twijfel of ontbrekende API-zichtbaarheid: visuele check via `chrome-devtools`.
+4. Bij twijfel of ontbrekende API-zichtbaarheid: verifieer via Shopify Admin readback voordat je publiceert.
 
-### Theme/section workflow (verplicht)
+### Theme workflow (verplicht)
 1. Haal themes op met `get-themes` en bevestig live theme (`role=main`) of gebruik expliciet `themeId`.
-2. Voor sections: gebruik altijd `replicate-section-from-reference` met `referenceUrl`.
-3. Geef `visionHints` mee wanneer de gebruiker een niet-publieke afbeelding in ChatGPT uploadt.
-4. Gebruik optioneel `imageUrls` voor publieke afbeeldingen.
-5. Pas alleen toe bij `status=pass`; bij `status=fail` niets schrijven en foutcode teruggeven.
-6. Verifieer met `get-theme-file` dat `sections/<handle>.liquid`, template JSON (`sections` + `order`) en assets kloppen.
-7. Alleen bij visuele twijfel of rendering issues: check via `chrome-devtools`.
+2. Gebruik `upsert-theme-file`/`delete-theme-file` alleen na expliciete validatie van target-bestand.
+3. Verifieer writes altijd met `get-theme-file`.
+4. Voor section-imports: Hazify MCP voert geen import uit; gebruik alleen `list_theme_import_tools` voor discovery van externe tooling.
 
 ### Orders
 - Ophalen: `get-orders`, `get-order-by-id`
@@ -114,6 +110,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 - Nooit refunds doen zonder expliciete validatie van bedrag en scope.
 - Productimport is niet klaar zonder gecontroleerde variant-media.
 - Trackingnummer/vervoerder nooit via `customAttributes` of losse metafields bijwerken; altijd fulfillment-tracking gebruiken.
+- Geen section-generatie of section-import uitvoeren via deze MCP.
 - Deel geen gevoelige data buiten Shopify-context.
 
 ## Snelheidsmodus (als snelheid belangrijk is)

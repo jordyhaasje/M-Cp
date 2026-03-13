@@ -44,31 +44,14 @@ import { getThemes } from "./tools/getThemes.js";
 import { getThemeFileTool } from "./tools/getThemeFile.js";
 import { upsertThemeFileTool } from "./tools/upsertThemeFile.js";
 import { deleteThemeFileTool } from "./tools/deleteThemeFile.js";
-import { inspectReferenceSection } from "./tools/inspectReferenceSection.js";
-import { generateShopifySectionBundle } from "./tools/generateShopifySectionBundle.js";
-import { validateShopifySectionBundle } from "./tools/validateShopifySectionBundle.js";
-import { importShopifySectionBundle } from "./tools/importShopifySectionBundle.js";
+import { listThemeImportTools } from "./tools/listThemeImportTools.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
 import { LicenseManager } from "./lib/licenseManager.js";
 import { createMachineFingerprint } from "./lib/machineFingerprint.js";
-import { SectionWorkflowOrchestrator, setSectionWorkflowOrchestrator } from "./section-workflow/orchestrator.js";
-import { SHARED_IMAGE_BASE64_MAX_CHARS } from "./section-workflow/contracts.js";
-import { resolveArtifactTtlConfig } from "./section-workflow/artifacts/artifact-ttl.js";
-import { MemoryArtifactStore } from "./section-workflow/artifacts/memory-artifact-store.js";
-import { PersistentArtifactStore } from "./section-workflow/artifacts/persistent-artifact-store.js";
-import { HybridArtifactStore } from "./section-workflow/artifacts/hybrid-artifact-store.js";
-import { McpClientBridge, buildBridgeProviderConfigFromEnv } from "./section-workflow/adapters/mcp-client-bridge.js";
-import { ChromeInspectorAdapter } from "./section-workflow/adapters/chrome-inspector-adapter.js";
-import { ShopifyDevValidatorAdapter } from "./section-workflow/adapters/shopify-dev-validator-adapter.js";
-import { ThemeImportAdapter } from "./section-workflow/adapters/theme-import-adapter.js";
 // Parse command line arguments
 const argv = minimist(process.argv.slice(2));
 // Load environment variables from .env file (if it exists)
 dotenv.config();
-if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
-    process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
-}
-const { replicateSectionFromReference } = await import("./tools/replicateSectionFromReference.js");
 const TRANSPORT = String(argv.transport || process.env.HAZIFY_MCP_TRANSPORT || "http").toLowerCase();
 const IS_HTTP_TRANSPORT = TRANSPORT === "http" || TRANSPORT === "streamable-http";
 const HTTP_HOST = argv.host || process.env.HAZIFY_MCP_HTTP_HOST || "0.0.0.0";
@@ -88,79 +71,12 @@ const HAZIFY_MCP_CONTEXT_TTL_MS = Number(argv.mcpContextTtlMs || process.env.HAZ
 const HAZIFY_MCP_PUBLIC_URL = argv.mcpPublicUrl || process.env.HAZIFY_MCP_PUBLIC_URL || "";
 const HAZIFY_MCP_AUTH_SERVER_URL = argv.oauthAuthServerUrl || process.env.HAZIFY_MCP_AUTH_SERVER_URL || "";
 const HAZIFY_MCP_ALLOWED_ORIGINS = parseCommaSeparatedList(argv.allowedOrigins || process.env.HAZIFY_MCP_ALLOWED_ORIGINS || "");
-const HAZIFY_SECTION_ARTIFACT_MODE = String(
-    process.env.HAZIFY_SECTION_ARTIFACT_MODE || "hybrid"
-).trim().toLowerCase();
-const HAZIFY_SECTION_ARTIFACT_MAX_PER_TENANT = Number(
-    process.env.HAZIFY_SECTION_ARTIFACT_MAX_PER_TENANT || 200
-);
-const HAZIFY_SECTION_ARTIFACT_SWEEP_INTERVAL_MS = Number(
-    process.env.HAZIFY_SECTION_ARTIFACT_SWEEP_INTERVAL_MS || 10 * 60 * 1000
-);
-const HAZIFY_SECTION_ARTIFACT_PURGE_INTERVAL_MS = Number(
-    process.env.HAZIFY_SECTION_ARTIFACT_PURGE_INTERVAL_MS || 60 * 60 * 1000
-);
-const HAZIFY_SECTION_ARTIFACT_PERSIST_URL = String(
-    process.env.HAZIFY_SECTION_ARTIFACT_PERSIST_URL || HAZIFY_MCP_INTROSPECTION_URL || ""
-).trim();
-const HAZIFY_SECTION_ARTIFACT_PERSIST_API_KEY = String(
-    process.env.HAZIFY_SECTION_ARTIFACT_PERSIST_API_KEY || HAZIFY_MCP_API_KEY || ""
-).trim();
-const HAZIFY_SECTION_ARTIFACT_PERSIST_TIMEOUT_MS = Number(
-    process.env.HAZIFY_SECTION_ARTIFACT_PERSIST_TIMEOUT_MS || 8000
-);
 const useClientCredentials = !!(SHOPIFY_CLIENT_ID && SHOPIFY_CLIENT_SECRET);
 const SERVER_VERSION = "1.1.0";
 const API_VERSION = argv.apiVersion || process.env.SHOPIFY_API_VERSION || "2026-01";
 const requestContextStore = new AsyncLocalStorage();
 const remoteContextCache = new Map();
 const remoteShopifyClientCache = new Map();
-const sectionArtifactTtlConfig = resolveArtifactTtlConfig(process.env);
-const sectionMemoryArtifactStore = new MemoryArtifactStore({
-    maxPerTenant: HAZIFY_SECTION_ARTIFACT_MAX_PER_TENANT,
-    sweepIntervalMs: HAZIFY_SECTION_ARTIFACT_SWEEP_INTERVAL_MS,
-});
-const sectionPersistentArtifactStore = new PersistentArtifactStore({
-    baseUrl: HAZIFY_SECTION_ARTIFACT_PERSIST_URL,
-    apiKey: HAZIFY_SECTION_ARTIFACT_PERSIST_API_KEY,
-    timeoutMs: HAZIFY_SECTION_ARTIFACT_PERSIST_TIMEOUT_MS,
-});
-const sectionArtifactStore = (() => {
-    if (HAZIFY_SECTION_ARTIFACT_MODE === "memory") {
-        return sectionMemoryArtifactStore;
-    }
-    if (HAZIFY_SECTION_ARTIFACT_MODE === "persistent") {
-        return sectionPersistentArtifactStore.enabled
-            ? sectionPersistentArtifactStore
-            : sectionMemoryArtifactStore;
-    }
-    const hybridStore = new HybridArtifactStore({
-        memoryStore: sectionMemoryArtifactStore,
-        persistentStore: sectionPersistentArtifactStore,
-    });
-    hybridStore.startPersistentPurgeLoop(HAZIFY_SECTION_ARTIFACT_PURGE_INTERVAL_MS);
-    return hybridStore;
-})();
-const sectionBridgeProviders = buildBridgeProviderConfigFromEnv(process.env);
-const sectionBridge = new McpClientBridge({
-    providers: sectionBridgeProviders,
-});
-const sectionWorkflowOrchestrator = new SectionWorkflowOrchestrator({
-    artifactStore: sectionArtifactStore,
-    chromeInspector: new ChromeInspectorAdapter({
-        bridge: sectionBridge,
-        provider: "chrome-mcp",
-    }),
-    shopifyDevValidator: new ShopifyDevValidatorAdapter({
-        bridge: sectionBridge,
-        provider: "shopify-dev-mcp",
-    }),
-    themeImportAdapter: new ThemeImportAdapter({
-        apiVersion: API_VERSION,
-    }),
-    ttlConfig: sectionArtifactTtlConfig,
-});
-setSectionWorkflowOrchestrator(sectionWorkflowOrchestrator);
 if (!IS_HTTP_TRANSPORT) {
     // Store in process.env for backwards compatibility
     process.env.MYSHOPIFY_DOMAIN = MYSHOPIFY_DOMAIN;
@@ -226,11 +142,6 @@ const initializeTools = (shopifyClient) => {
     getThemeFileTool.initialize(shopifyClient);
     upsertThemeFileTool.initialize(shopifyClient);
     deleteThemeFileTool.initialize(shopifyClient);
-    inspectReferenceSection.initialize();
-    generateShopifySectionBundle.initialize();
-    validateShopifySectionBundle.initialize();
-    importShopifySectionBundle.initialize();
-    replicateSectionFromReference.initialize(shopifyClient);
 };
 let licenseManager = null;
 let auth = null;
@@ -514,8 +425,6 @@ const createHazifyServer = () => {
         "clone-product-from-url",
         "upsert-theme-file",
         "delete-theme-file",
-        "import-shopify-section-bundle",
-        "replicate-section-from-reference",
     ]);
     const destructiveTools = new Set([
         "delete-product",
@@ -549,11 +458,7 @@ const createHazifyServer = () => {
         "get-theme-file": "Read a specific file from a Shopify theme.",
         "upsert-theme-file": "Create or update a file in a Shopify theme.",
         "delete-theme-file": "Delete a specific file from a Shopify theme.",
-        "inspect-reference-section": "Inspect a reference URL (and optional image) with Chrome/browser capabilities.",
-        "generate-shopify-section-bundle": "Generate a Shopify section bundle from a prior inspection artifact.",
-        "validate-shopify-section-bundle": "Run schema and visual validation for a generated section bundle.",
-        "import-shopify-section-bundle": "Import a validated section bundle into a target Shopify theme.",
-        "replicate-section-from-reference": "Compatibility wrapper for staged section orchestration (inspect -> generate -> validate -> import).",
+        "list_theme_import_tools": "List metadata for external tools that can import generated Shopify theme sections.",
         "get-license-status": "Return current license/access status and effective capabilities.",
     };
     const originalTool = server.tool.bind(server);
@@ -962,84 +867,8 @@ server.tool("delete-theme-file", {
     const parsedArgs = deleteThemeFileTool.schema.parse(args);
     return runLicensedTool("delete-theme-file", true, deleteThemeFileTool.execute, parsedArgs);
 });
-server.tool("inspect-reference-section", {
-    referenceUrl: z.string().url().describe("Reference URL that contains the section to inspect"),
-    sharedImage: z
-        .object({
-        imageUrl: z.string().url().optional(),
-        imageBase64: z.string().min(1).max(SHARED_IMAGE_BASE64_MAX_CHARS).optional(),
-        mimeType: z.enum(["image/png", "image/jpeg", "image/webp"]).optional(),
-    })
-        .optional(),
-    visionHints: z.string().max(12000).optional(),
-    targetHint: z.string().max(400).optional(),
-    targetSelector: z.string().max(400).optional(),
-    viewports: z.array(z.enum(["desktop", "mobile"])).min(1).max(2).default(["desktop", "mobile"]),
-    timeoutMs: z.number().int().min(5000).max(60000).default(30000),
-}, async (args) => {
-    return runLicensedTool("inspect-reference-section", false, inspectReferenceSection.execute, args);
-});
-server.tool("generate-shopify-section-bundle", {
-    inspectionId: z.string().min(1),
-    sectionHandle: z.string().min(1).optional(),
-    sectionName: z.string().min(1).optional(),
-    templateHint: z.string().default("templates/index.json"),
-    generationHints: z.record(z.unknown()).optional(),
-    maxBlocks: z.number().int().min(1).max(24).default(12),
-}, async (args) => {
-    return runLicensedTool("generate-shopify-section-bundle", false, generateShopifySectionBundle.execute, args);
-});
-server.tool("validate-shopify-section-bundle", {
-    bundleId: z.string().min(1),
-    themeId: z.coerce.number().int().positive().optional(),
-    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
-    templateKey: z.string().default("templates/index.json"),
-    visualMode: z.enum(["reference-only", "theme-preview"]).default("reference-only"),
-    strict: z.boolean().default(true),
-    thresholds: z
-        .object({
-        desktopMismatch: z.number().min(0).max(1).default(0.12),
-        mobileMismatch: z.number().min(0).max(1).default(0.15),
-    })
-        .default({ desktopMismatch: 0.12, mobileMismatch: 0.15 }),
-}, async (args) => {
-    return runLicensedTool("validate-shopify-section-bundle", false, validateShopifySectionBundle.execute, args);
-});
-server.tool("import-shopify-section-bundle", {
-    validationId: z.string().min(1).optional(),
-    bundleId: z.string().min(1).optional(),
-    themeId: z.coerce.number().int().positive().optional(),
-    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
-    templateKey: z.string().default("templates/index.json"),
-    insertPosition: z.enum(["start", "end", "before", "after"]).default("end"),
-    referenceSectionId: z.string().optional(),
-    sectionInstanceId: z.string().optional(),
-    sectionSettings: z.record(z.unknown()).optional(),
-    overwriteSection: z.boolean().default(false),
-    verify: z.boolean().default(true),
-    rollbackOnFailure: z.boolean().default(true),
-}, async (args) => {
-    return runLicensedTool("import-shopify-section-bundle", true, importShopifySectionBundle.execute, args);
-});
-server.tool("replicate-section-from-reference", {
-    referenceUrl: z.string().url().describe("Reference URL that contains the section to replicate"),
-    visionHints: z.string().max(12000).optional().describe("Optional visual guidance extracted by ChatGPT from non-public uploaded images"),
-    imageUrls: z.array(z.string().url()).max(10).default([]).describe("Optional public image URLs"),
-    themeId: z.coerce.number().int().positive().optional(),
-    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
-    sectionHandle: z.string().min(1).optional(),
-    overwriteSection: z.boolean().default(false),
-    addToTemplate: z.boolean().default(true),
-    templateKey: z.string().default("templates/index.json"),
-    sectionInstanceId: z.string().optional(),
-    insertPosition: z.enum(["start", "end", "before", "after"]).default("end"),
-    referenceSectionId: z.string().optional(),
-    sectionSettings: z.record(z.unknown()).optional(),
-    maxAttempts: z.number().int().min(1).max(4).default(3),
-    verify: z.boolean().default(true),
-}, async (args) => {
-    const parsedArgs = replicateSectionFromReference.schema.parse(args);
-    return runLicensedTool("replicate-section-from-reference", true, replicateSectionFromReference.execute, parsedArgs);
+server.tool("list_theme_import_tools", {}, async (args) => {
+    return runLicensedTool("list_theme_import_tools", false, listThemeImportTools.execute, args);
 });
 server.tool("get-license-status", {}, async () => {
     if (!IS_HTTP_TRANSPORT) {
@@ -1105,9 +934,6 @@ const shutdown = async () => {
     try {
         if (auth) {
             auth.destroy();
-        }
-        if (sectionArtifactStore?.destroy) {
-            await sectionArtifactStore.destroy();
         }
         if (licenseManager) {
             await licenseManager.destroy();
