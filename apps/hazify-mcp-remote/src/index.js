@@ -1356,5 +1356,9 @@ else {
     httpServer = app.listen(HTTP_PORT, HTTP_HOST, () => {
         console.log(`Hazify MCP HTTP server listening on ${HTTP_HOST}:${HTTP_PORT} (session mode: ${MCP_SESSION_MODE})`);
     });
+    if (httpServer && typeof httpServer.ref === "function") {
+        // Some runtimes expose unref'd servers; keep the process alive in remote HTTP mode.
+        httpServer.ref();
+    }
 }
 export { httpServer };
