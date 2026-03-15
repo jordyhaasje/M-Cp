@@ -202,6 +202,21 @@ try {
   const missingTokenAuthHeader = missingTokenResponse.headers.get("www-authenticate") || "";
   assert.match(missingTokenAuthHeader, /resource_metadata=/, "WWW-Authenticate should expose resource metadata");
 
+  const compatibilityMetadataResponse = await fetch(
+    `http://127.0.0.1:${mcpPort}/mcp/.well-known/oauth-protected-resource`
+  );
+  assert.equal(
+    compatibilityMetadataResponse.status,
+    200,
+    "path-compatible /mcp/.well-known/oauth-protected-resource should be available"
+  );
+  const compatibilityMetadataBody = await compatibilityMetadataResponse.json();
+  assert.equal(
+    compatibilityMetadataBody?.resource,
+    `http://127.0.0.1:${mcpPort}/mcp`,
+    "compatibility metadata should point to /mcp resource URL"
+  );
+
   const rawAuthResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
     method: "POST",
     headers: {

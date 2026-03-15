@@ -1095,7 +1095,10 @@ const resolveRequestBaseUrl = (req) => {
 const resolvePublicMcpUrl = (req) => {
     const explicit = normalizeBaseUrl(HAZIFY_MCP_PUBLIC_URL);
     if (explicit) {
-        return explicit;
+        if (explicit.endsWith("/mcp")) {
+            return explicit;
+        }
+        return explicit.endsWith("/") ? `${explicit}mcp` : `${explicit}/mcp`;
     }
     return `${resolveRequestBaseUrl(req)}/mcp`;
 };
@@ -1223,6 +1226,11 @@ else {
         res.setHeader("Cache-Control", "no-store");
         res.json(buildAuthorizationServerMetadata(req));
     });
+    // Compatibility route for clients that resolve metadata under /mcp/.well-known/*
+    app.get("/mcp/.well-known/oauth-authorization-server", (req, res) => {
+        res.setHeader("Cache-Control", "no-store");
+        res.json(buildAuthorizationServerMetadata(req));
+    });
     app.get("/.well-known/openid-configuration", (req, res) => {
         res.setHeader("Cache-Control", "no-store");
         res.json({
@@ -1232,7 +1240,22 @@ else {
             claims_supported: [],
         });
     });
+    // Compatibility route for clients that resolve metadata under /mcp/.well-known/*
+    app.get("/mcp/.well-known/openid-configuration", (req, res) => {
+        res.setHeader("Cache-Control", "no-store");
+        res.json({
+            ...buildAuthorizationServerMetadata(req),
+            subject_types_supported: ["public"],
+            id_token_signing_alg_values_supported: ["none"],
+            claims_supported: [],
+        });
+    });
     app.get(/^\/\.well-known\/oauth-protected-resource(\/.*)?$/, (req, res) => {
+        res.setHeader("Cache-Control", "no-store");
+        res.json(buildProtectedResourceMetadata(req));
+    });
+    // Compatibility route for clients that resolve metadata under /mcp/.well-known/*
+    app.get(/^\/mcp\/\.well-known\/oauth-protected-resource(\/.*)?$/, (req, res) => {
         res.setHeader("Cache-Control", "no-store");
         res.json(buildProtectedResourceMetadata(req));
     });
