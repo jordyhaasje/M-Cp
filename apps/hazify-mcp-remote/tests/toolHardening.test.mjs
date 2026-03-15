@@ -4,6 +4,9 @@ import { cloneProductFromUrl } from "../src/tools/cloneProductFromUrl.js";
 import { refundOrder } from "../src/tools/refundOrder.js";
 import { updateFulfillmentTracking } from "../src/tools/updateFulfillmentTracking.js";
 import { upsertThemeFileTool } from "../src/tools/upsertThemeFile.js";
+import { upsertThemeFilesTool } from "../src/tools/upsertThemeFiles.js";
+import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
+import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
 import { listThemeImportTools } from "../src/tools/listThemeImportTools.js";
 
 const originalLookup = dns.lookup;
@@ -121,6 +124,25 @@ try {
     value: "<div>ok</div>",
   });
   assert.equal(validThemePayload.success, true, "upsert-theme-file should accept textual value");
+
+  const duplicateBatchThemePayload = upsertThemeFilesTool.schema.safeParse({
+    files: [
+      { key: "sections/test.liquid", value: "<div>1</div>" },
+      { key: "sections/test.liquid", value: "<div>2</div>" },
+    ],
+  });
+  assert.equal(duplicateBatchThemePayload.success, false, "upsert-theme-files should reject duplicate keys");
+
+  const metadataBatchReadPayload = getThemeFilesTool.schema.safeParse({
+    keys: ["sections/test.liquid"],
+  });
+  assert.equal(metadataBatchReadPayload.success, true, "get-theme-files should accept key arrays");
+  assert.equal(metadataBatchReadPayload.data.includeContent, false, "get-theme-files default includeContent=false");
+
+  const verifyBatchPayload = verifyThemeFilesTool.schema.safeParse({
+    expected: [{ key: "sections/test.liquid" }],
+  });
+  assert.equal(verifyBatchPayload.success, true, "verify-theme-files should accept expected metadata");
 
   const refundResult = await refundOrder.execute(
     refundOrder.schema.parse({

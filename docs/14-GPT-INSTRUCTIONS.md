@@ -11,8 +11,8 @@ Dit document bevat operationele regels voor ChatGPT connector-gebruik.
 1. Gebruik in Hazify MCP alleen `list_theme_import_tools` voor capability discovery.
 2. Laat section generatie/import uitvoeren door externe tooling buiten deze repository.
 3. Externe keten:
-   `AI Client -> Chrome MCP / Shopify Dev MCP -> Theme modifications`
-4. Hazify MCP blijft verantwoordelijk voor store API-operaties (producten, orders, refunds, tracking, theme files).
+   `AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`
+4. Hazify MCP blijft verantwoordelijk voor store API-operaties (producten, orders, refunds, tracking, theme files), inclusief batch theme file deploy/verificatie.
 
 ## Referenties
 - `docs/12-REMOTE-MCP-SETUP.md`

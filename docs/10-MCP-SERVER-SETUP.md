@@ -20,7 +20,9 @@
 
 ## Theme import tooling policy
 - Hazify MCP importeert geen generated sections.
-- Hazify MCP ondersteunt wel theme file read/update/delete via Shopify API.
+- Hazify MCP ondersteunt wel theme file deploy/verificatie via Shopify API.
+  - single-file: `get-theme-file`, `upsert-theme-file`, `delete-theme-file`
+  - batch v2: `get-theme-files`, `upsert-theme-files`, `verify-theme-files`
 - Gebruik `list_theme_import_tools` uitsluitend om externe tooling metadata/advisering op te vragen.
 - Externe flow:
-  - `AI Client -> Chrome MCP / Shopify Dev MCP -> Theme modifications`
+  - `AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`

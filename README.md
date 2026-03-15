@@ -7,6 +7,7 @@ Deze repository bevat de productiecode voor:
 ## Verantwoordelijkheid van deze MCP
 - Interactie met Shopify stores via API-tools (producten, klanten, orders, tracking, refunds, theme files).
 - Expose van MCP tools voor storebeheer.
+- Remote deploy/verificatie van voorbereide theme files (`upsert-theme-files`, `get-theme-files`, `verify-theme-files`).
 - Expose van metadata/advisering voor externe theme-import workflows.
 
 ## Niet de verantwoordelijkheid van deze MCP
@@ -15,9 +16,9 @@ Deze repository bevat de productiecode voor:
 - Browser automation (Chrome/Playwright/headless tooling).
 
 ## Externe theme-workflow
-`AI Client -> Chrome MCP / Shopify Dev MCP -> Theme modifications`
+`AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`
 
-De remote Hazify MCP voert die importflow niet uit en levert alleen metadata/advisering via `list_theme_import_tools` (bijv. voor lokale Chrome MCP en Shopify Dev MCP workflows).
+De remote Hazify MCP voert geen browserinspectie, section-generatie of section-import uit en levert metadata/advisering via `list_theme_import_tools`.
 
 ## Snel starten
 ```bash

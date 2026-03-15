@@ -3,6 +3,8 @@ await import("./urlSecurity.test.mjs");
 await import("./statefulProductionGuard.test.mjs");
 await import("./mcpHttpAuth.test.mjs");
 await import("./toolHardening.test.mjs");
+await import("./themeFilesBatch.test.mjs");
+await import("./runtimeExecutionBehavior.test.mjs");
 await import("./tenantIsolation.test.mjs");
 await import("./tenantIsolationAllTools.test.mjs");
 console.log("All hazify tests passed");

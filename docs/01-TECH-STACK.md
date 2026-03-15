@@ -41,6 +41,7 @@ Verantwoordelijkheden:
 - OAuth discovery metadata
 - tool-executie binnen tenant context
 - theme-bestanden via Admin GraphQL theme management; REST Asset API blijft alleen als compat-fallback voor shops waar theme GraphQL nog niet beschikbaar is
+- theme file batch data-plane voor remote deploy/verificatie (`upsert-theme-files`, `get-theme-files`, `verify-theme-files`)
 - metadata discovery tool voor externe section-import workflows: `list_theme_import_tools`
 
 Belangrijk:
@@ -49,6 +50,7 @@ Belangrijk:
 - `/mcp` accepteert alleen `Authorization: Bearer` of `x-api-key`
 - Origin allowlist check is actief bij requests met `Origin` header
 - default session mode is stateless (`MCP_SESSION_MODE=stateless`)
+- default context cache TTL in remote HTTP mode is 120s (`HAZIFY_MCP_CONTEXT_TTL_MS=120000`)
 - `stateful` mode is opt-in en vereist sticky sessions of gedeelde session store
 - Geen browser runtime of section import/generatie in deze service
 

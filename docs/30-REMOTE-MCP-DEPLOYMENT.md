@@ -36,6 +36,7 @@ Runtime-guards in productie:
 Defaults/optioneel:
 - `HAZIFY_MCP_TRANSPORT=http` (default)
 - `MCP_SESSION_MODE=stateless` (default)
+- `HAZIFY_MCP_CONTEXT_TTL_MS=120000` (default in remote HTTP mode)
 - `HAZIFY_MCP_PUBLIC_URL` (optioneel; fallback is request-based URL)
 - `HAZIFY_MCP_AUTH_SERVER_URL` (optioneel; fallback is introspection base URL)
 - `HAZIFY_MCP_ALLOWED_ORIGINS` (optioneel; default allowlist valt terug op request-origin)
@@ -72,4 +73,4 @@ Defaults/optioneel:
 ## Theme section import (extern)
 De remote MCP doet geen section import. De importflow draait buiten deze repository:
 
-`AI Client -> Chrome MCP / Shopify Dev MCP -> Theme modifications`
+`AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`

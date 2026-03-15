@@ -296,6 +296,9 @@ try {
   for (const expectedTool of [
     "get-products",
     "refund-order",
+    "get-theme-files",
+    "upsert-theme-files",
+    "verify-theme-files",
     "list_theme_import_tools",
   ]) {
     assert.equal(

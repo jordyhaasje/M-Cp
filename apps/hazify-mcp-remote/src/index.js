@@ -41,8 +41,11 @@ import { updateFulfillmentTracking } from "./tools/updateFulfillmentTracking.js"
 import { setOrderTracking } from "./tools/setOrderTracking.js";
 import { getThemes } from "./tools/getThemes.js";
 import { getThemeFileTool } from "./tools/getThemeFile.js";
+import { getThemeFilesTool } from "./tools/getThemeFiles.js";
 import { upsertThemeFileTool } from "./tools/upsertThemeFile.js";
+import { upsertThemeFilesTool } from "./tools/upsertThemeFiles.js";
 import { deleteThemeFileTool } from "./tools/deleteThemeFile.js";
+import { verifyThemeFilesTool } from "./tools/verifyThemeFiles.js";
 import { listThemeImportTools } from "./tools/listThemeImportTools.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
 import { LicenseManager } from "./lib/licenseManager.js";
@@ -66,7 +69,10 @@ const HAZIFY_LICENSE_GRACE_HOURS = Number(argv.licenseGraceHours || process.env.
 const HAZIFY_LICENSE_HEARTBEAT_HOURS = Number(argv.licenseHeartbeatHours || process.env.HAZIFY_LICENSE_HEARTBEAT_HOURS || 6);
 const HAZIFY_MCP_INTROSPECTION_URL = argv.mcpIntrospectionUrl || process.env.HAZIFY_MCP_INTROSPECTION_URL;
 const HAZIFY_MCP_API_KEY = argv.mcpApiKey || process.env.HAZIFY_MCP_API_KEY;
-const HAZIFY_MCP_CONTEXT_TTL_MS = Number(argv.mcpContextTtlMs || process.env.HAZIFY_MCP_CONTEXT_TTL_MS || 0);
+const DEFAULT_CONTEXT_TTL_MS = IS_HTTP_TRANSPORT ? 120000 : 0;
+const HAZIFY_MCP_CONTEXT_TTL_MS = Number(
+    argv.mcpContextTtlMs || process.env.HAZIFY_MCP_CONTEXT_TTL_MS || DEFAULT_CONTEXT_TTL_MS
+);
 const HAZIFY_MCP_PUBLIC_URL = argv.mcpPublicUrl || process.env.HAZIFY_MCP_PUBLIC_URL || "";
 const HAZIFY_MCP_AUTH_SERVER_URL = argv.oauthAuthServerUrl || process.env.HAZIFY_MCP_AUTH_SERVER_URL || "";
 const HAZIFY_MCP_ALLOWED_ORIGINS = parseCommaSeparatedList(argv.allowedOrigins || process.env.HAZIFY_MCP_ALLOWED_ORIGINS || "");
@@ -241,6 +247,7 @@ const freezeExecutionContext = (context) => {
         : Object.freeze({});
     return Object.freeze({
         tokenHash: context?.tokenHash || null,
+        tokenId: context?.tokenId || null,
         tenantId: String(context?.tenantId || "unknown"),
         licenseKey: context?.licenseKey || null,
         license: safeLicense,
@@ -301,9 +308,6 @@ const resolveRemoteShopifyAccessToken = async (bearerToken) => {
 const resolveRemoteContext = async (bearerToken) => {
     const tokenHash = sha256Hex(bearerToken);
     const cachedContext = remoteContextCache.get(tokenHash);
-    if (HAZIFY_MCP_CONTEXT_TTL_MS > 0 && cachedContext && cachedContext.expiresAtMs > Date.now()) {
-        return cachedContext.context;
-    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     let introspection;
@@ -339,6 +343,26 @@ const resolveRemoteContext = async (bearerToken) => {
     }
     const tenantId = String(introspection.tenantId || "unknown");
     const tokenId = typeof introspection.tokenId === "string" ? introspection.tokenId : null;
+    if (HAZIFY_MCP_CONTEXT_TTL_MS > 0 && cachedContext && cachedContext.expiresAtMs > Date.now()) {
+        const cached = cachedContext.context;
+        const tokenMatches = !tokenId || !cached?.tokenId || cached.tokenId === tokenId;
+        if (cached?.shopifyClient && cached.tenantId === tenantId && cached.shopifyDomain === domain && tokenMatches) {
+            const context = freezeExecutionContext({
+                tokenHash,
+                tokenId,
+                tenantId,
+                licenseKey: introspection.licenseKey || null,
+                license: introspection.license || {},
+                shopifyDomain: domain,
+                shopifyClient: cached.shopifyClient,
+            });
+            remoteContextCache.set(tokenHash, {
+                context,
+                expiresAtMs: Date.now() + Math.max(HAZIFY_MCP_CONTEXT_TTL_MS, 1000),
+            });
+            return context;
+        }
+    }
     const exchange = await resolveRemoteShopifyAccessToken(bearerToken);
     if (exchange.tenantId && String(exchange.tenantId) !== tenantId) {
         throw new Error("Token exchange tenant mismatch");
@@ -357,6 +381,7 @@ const resolveRemoteContext = async (bearerToken) => {
         cachedShopifyClient.expiresAtMs > Date.now()) {
         const context = freezeExecutionContext({
             tokenHash,
+            tokenId,
             tenantId,
             licenseKey: introspection.licenseKey || null,
             license: introspection.license || {},
@@ -385,6 +410,7 @@ const resolveRemoteContext = async (bearerToken) => {
     remoteShopifyClientCache.set(cacheKey, cachedShopifyClient);
     const context = freezeExecutionContext({
         tokenHash,
+        tokenId,
         tenantId,
         licenseKey: introspection.licenseKey || null,
         license: introspection.license || {},
@@ -423,6 +449,7 @@ const runSerializedByKey = async (key, work) => {
 const buildToolExecutionContext = (context = null) => freezeExecutionContext({
     tenantId: String(context?.tenantId || "stdio-local"),
     tokenHash: context?.tokenHash || null,
+    tokenId: context?.tokenId || null,
     licenseKey: context?.licenseKey || null,
     license: context?.license || {},
     shopifyDomain: context?.shopifyDomain || null,
@@ -447,14 +474,18 @@ async function runLicensedTool(toolName, mutating, executor, args) {
     if (!decision.allowed) {
         throw new Error(`License gate blocked '${toolName}': ${decision.reason}`);
     }
-    return runSerializedByKey(context.tenantId || context.tokenHash, async () => {
+    const executeTool = async () => {
         const executionContext = buildToolExecutionContext(context);
         if (!executionContext.shopifyClient && toolRequiresShopifyClient(toolName)) {
             throw new Error("Missing Shopify client in request execution context");
         }
         const result = await executor(args, executionContext);
         return toMcpResponse(result);
-    });
+    };
+    if (!mutating) {
+        return executeTool();
+    }
+    return runSerializedByKey(context.tenantId || context.tokenHash, executeTool);
 }
 // Add tools individually, using their schemas directly
 const createHazifyServer = () => {
@@ -475,6 +506,7 @@ const createHazifyServer = () => {
         "refund-order",
         "clone-product-from-url",
         "upsert-theme-file",
+        "upsert-theme-files",
         "delete-theme-file",
     ]);
     const destructiveTools = new Set([
@@ -507,8 +539,11 @@ const createHazifyServer = () => {
         "clone-product-from-url": "Import a product from a public Shopify product URL.",
         "get-themes": "List Shopify themes and identify the live theme.",
         "get-theme-file": "Read a specific file from a Shopify theme.",
+        "get-theme-files": "Read multiple files from a Shopify theme.",
         "upsert-theme-file": "Create or update a file in a Shopify theme.",
+        "upsert-theme-files": "Create or update multiple files in a Shopify theme.",
         "delete-theme-file": "Delete a specific file from a Shopify theme.",
+        "verify-theme-files": "Verify multiple theme files by expected metadata.",
         "list_theme_import_tools": "List metadata/advice for external tooling that can review or import generated sections outside this remote MCP.",
         "get-license-status": "Return current license/access status and effective capabilities.",
     };
@@ -899,6 +934,15 @@ server.tool("get-theme-file", {
     const parsedArgs = getThemeFileTool.schema.parse(args);
     return runLicensedTool("get-theme-file", false, getThemeFileTool.execute, parsedArgs);
 });
+server.tool("get-theme-files", {
+    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
+    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
+    keys: z.array(z.string().min(1)).min(1).max(200).describe("Theme file keys"),
+    includeContent: z.boolean().default(false).describe("Include file content (value/attachment) in response"),
+}, async (args) => {
+    const parsedArgs = getThemeFilesTool.schema.parse(args);
+    return runLicensedTool("get-theme-files", false, getThemeFilesTool.execute, parsedArgs);
+});
 server.tool("upsert-theme-file", {
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
@@ -910,6 +954,20 @@ server.tool("upsert-theme-file", {
     const parsedArgs = upsertThemeFileTool.schema.parse(args);
     return runLicensedTool("upsert-theme-file", true, upsertThemeFileTool.execute, parsedArgs);
 });
+server.tool("upsert-theme-files", {
+    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
+    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
+    files: z.array(z.object({
+        key: z.string().min(1),
+        value: z.string().optional(),
+        attachment: z.string().optional(),
+        checksum: z.string().optional(),
+    })).min(1).max(200).describe("Batch of theme files to upsert"),
+    verifyAfterWrite: z.boolean().default(false),
+}, async (args) => {
+    const parsedArgs = upsertThemeFilesTool.schema.parse(args);
+    return runLicensedTool("upsert-theme-files", true, upsertThemeFilesTool.execute, parsedArgs);
+});
 server.tool("delete-theme-file", {
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
@@ -917,6 +975,18 @@ server.tool("delete-theme-file", {
 }, async (args) => {
     const parsedArgs = deleteThemeFileTool.schema.parse(args);
     return runLicensedTool("delete-theme-file", true, deleteThemeFileTool.execute, parsedArgs);
+});
+server.tool("verify-theme-files", {
+    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
+    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
+    expected: z.array(z.object({
+        key: z.string().min(1),
+        size: z.number().int().nonnegative().optional(),
+        checksumMd5: z.string().optional(),
+    })).min(1).max(200).describe("Expected metadata per file"),
+}, async (args) => {
+    const parsedArgs = verifyThemeFilesTool.schema.parse(args);
+    return runLicensedTool("verify-theme-files", false, verifyThemeFilesTool.execute, parsedArgs);
 });
 server.tool("list_theme_import_tools", {}, async (args) => {
     return runLicensedTool("list_theme_import_tools", false, listThemeImportTools.execute, args);

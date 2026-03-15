@@ -15,6 +15,7 @@ import { getProductById } from "../src/tools/getProductById.js";
 import { getProducts } from "../src/tools/getProducts.js";
 import { getSupportedTrackingCompanies } from "../src/tools/getSupportedTrackingCompanies.js";
 import { getThemeFileTool } from "../src/tools/getThemeFile.js";
+import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import { getThemes } from "../src/tools/getThemes.js";
 import { listThemeImportTools } from "../src/tools/listThemeImportTools.js";
 import { manageProductOptions } from "../src/tools/manageProductOptions.js";
@@ -26,6 +27,8 @@ import { updateFulfillmentTracking } from "../src/tools/updateFulfillmentTrackin
 import { updateOrder } from "../src/tools/updateOrder.js";
 import { updateProduct } from "../src/tools/updateProduct.js";
 import { upsertThemeFileTool } from "../src/tools/upsertThemeFile.js";
+import { upsertThemeFilesTool } from "../src/tools/upsertThemeFiles.js";
+import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
 
 const shopifyScopedTools = [
   { name: "clone-product-from-url", tool: cloneProductFromUrl, input: { sourceUrl: "https://example.com/products/demo" } },
@@ -44,6 +47,7 @@ const shopifyScopedTools = [
   { name: "get-product-by-id", tool: getProductById, input: { productId: "gid://shopify/Product/1" } },
   { name: "get-products", tool: getProducts, input: {} },
   { name: "get-theme-file", tool: getThemeFileTool, input: { key: "sections/demo.liquid" } },
+  { name: "get-theme-files", tool: getThemeFilesTool, input: { keys: ["sections/demo.liquid"] } },
   { name: "get-themes", tool: getThemes, input: {} },
   {
     name: "manage-product-options",
@@ -73,6 +77,16 @@ const shopifyScopedTools = [
   { name: "update-order", tool: updateOrder, input: { id: "gid://shopify/Order/1" } },
   { name: "update-product", tool: updateProduct, input: { id: "gid://shopify/Product/1" } },
   { name: "upsert-theme-file", tool: upsertThemeFileTool, input: { key: "sections/demo.liquid", value: "<div/>" } },
+  {
+    name: "upsert-theme-files",
+    tool: upsertThemeFilesTool,
+    input: { files: [{ key: "sections/demo.liquid", value: "<div/>" }] },
+  },
+  {
+    name: "verify-theme-files",
+    tool: verifyThemeFilesTool,
+    input: { expected: [{ key: "sections/demo.liquid" }] },
+  },
 ];
 
 for (const entry of shopifyScopedTools) {

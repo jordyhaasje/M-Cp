@@ -40,8 +40,10 @@ Gebruik alleen als OAuth niet beschikbaar is in de client.
 
 ## Theme import policy
 - Hazify MCP genereert of importeert geen sections.
-- Hazify MCP blijft wel theme file CRUD ondersteunen (`get-theme-file`, `upsert-theme-file`, `delete-theme-file`).
+- Hazify MCP ondersteunt wel remote theme file deploy/verificatie:
+  - single-file: `get-theme-file`, `upsert-theme-file`, `delete-theme-file`
+  - batch v2: `get-theme-files`, `upsert-theme-files`, `verify-theme-files`
 - Gebruik `list_theme_import_tools` alleen voor metadata/advisering over externe tooling (bijv. lokale Chrome MCP en Shopify Dev MCP).
 
 Externe workflow:
-`AI Client -> Chrome MCP / Shopify Dev MCP -> Theme modifications`
+`AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`
