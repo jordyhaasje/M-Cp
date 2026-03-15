@@ -304,6 +304,38 @@ try {
   const sessionId = allowedOriginResponse.headers.get("mcp-session-id");
   assert.equal(sessionId, null, "stateless mode should not return mcp-session-id");
 
+  const jsonOnlyAcceptResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+      authorization: "Bearer valid-token",
+      origin: `http://127.0.0.1:${mcpPort}`,
+    },
+    body: JSON.stringify(initializeBody),
+  });
+  assert.equal(
+    jsonOnlyAcceptResponse.status,
+    200,
+    "JSON-only Accept header should be normalized for client compatibility"
+  );
+
+  const wildcardAcceptResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "*/*",
+      authorization: "Bearer valid-token",
+      origin: `http://127.0.0.1:${mcpPort}`,
+    },
+    body: JSON.stringify(initializeBody),
+  });
+  assert.equal(
+    wildcardAcceptResponse.status,
+    200,
+    "Wildcard Accept header should be normalized for Streamable HTTP requirements"
+  );
+
   const statelessSessionHeaderResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
     method: "POST",
     headers: {

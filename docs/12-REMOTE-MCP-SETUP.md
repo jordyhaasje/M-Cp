@@ -30,6 +30,7 @@ read_products,write_products,read_customers,write_customers,read_orders,write_or
 - server-side tokenvalidatie via `/v1/mcp/token/introspect`
 - interne Shopify token-exchange via `/v1/mcp/token/exchange` (geen Shopify secrets in introspection payload)
 - Voor native/desktop clients met opaque origin (bijv. `vscode-webview://...`): voeg `null` toe aan `HAZIFY_MCP_ALLOWED_ORIGINS`.
+- De server normaliseert `Accept` voor `POST /mcp` compatibel (bijv. `application/json` of `*/*`), zodat clients die geen expliciete `text/event-stream` sturen nog steeds kunnen initialiseren.
 
 ### API token (fallback)
 Gebruik alleen als OAuth niet beschikbaar is in de client.

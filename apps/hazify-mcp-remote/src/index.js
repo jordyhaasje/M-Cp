@@ -1164,6 +1164,54 @@ const resolveRequestToken = (req) => {
     }
     return null;
 };
+const ensureCompatibleStreamableAcceptHeader = (req) => {
+    const headerValue = Array.isArray(req.headers.accept)
+        ? req.headers.accept.join(", ")
+        : typeof req.headers.accept === "string"
+            ? req.headers.accept
+            : "";
+    const applyHeader = (nextValue) => {
+        req.headers.accept = nextValue;
+        if (Array.isArray(req.rawHeaders)) {
+            let replaced = false;
+            for (let index = 0; index < req.rawHeaders.length - 1; index += 2) {
+                const key = String(req.rawHeaders[index] || "").toLowerCase();
+                if (key === "accept") {
+                    req.rawHeaders[index + 1] = nextValue;
+                    replaced = true;
+                    break;
+                }
+            }
+            if (!replaced) {
+                req.rawHeaders.push("accept", nextValue);
+            }
+        }
+    };
+    const normalized = headerValue.toLowerCase();
+    const hasWildcard = normalized.includes("*/*");
+    if (hasWildcard) {
+        applyHeader("application/json, text/event-stream");
+        return;
+    }
+    const hasJson = hasWildcard || normalized.includes("application/json");
+    const hasSse = hasWildcard || normalized.includes("text/event-stream");
+    if (hasJson && hasSse) {
+        return;
+    }
+    if (hasJson && !hasSse) {
+        applyHeader(headerValue
+            ? `${headerValue}, text/event-stream`
+            : "application/json, text/event-stream");
+        return;
+    }
+    if (!hasJson && hasSse) {
+        applyHeader(headerValue
+            ? `${headerValue}, application/json`
+            : "application/json, text/event-stream");
+        return;
+    }
+    applyHeader("application/json, text/event-stream");
+};
 const isRequestOriginAllowed = (req) => {
     return isOriginAllowed({
         originHeader: req.headers.origin,
@@ -1287,6 +1335,9 @@ else {
         if (!assertAllowedOrigin(req, res)) {
             return;
         }
+        // Some clients send narrow Accept headers (e.g. application/json only).
+        // Streamable HTTP transport validation expects both JSON and SSE tokens.
+        ensureCompatibleStreamableAcceptHeader(req);
         const context = await resolveRequestAuthContext(req, res);
         if (!context) {
             return;
