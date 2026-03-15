@@ -284,6 +284,71 @@ try {
   assert.equal(typeof publicTokenBody.access_token, "string");
   assert.equal(typeof publicTokenBody.refresh_token, "string");
 
+  const publicWithSecretVerifier =
+    "pkce-verifier-public-with-secret-1234567890-pkce-verifier-public-with-secret-1234567890";
+  const publicWithSecretChallenge = pkceChallenge(publicWithSecretVerifier);
+  const publicWithSecretAuthorize = await fetch(`${baseUrl}/oauth/authorize`, {
+    method: "POST",
+    redirect: "manual",
+    headers: {
+      "content-type": "application/json",
+      Cookie: `hz_user_session=${sessionToken}`,
+    },
+    body: JSON.stringify({
+      client_id: publicClient.client_id,
+      redirect_uri: publicClient.redirect_uris[0],
+      response_type: "code",
+      state: "public-default-with-secret-ok",
+      decision: "allow",
+      shopDomain: "unit-test-shop.myshopify.com",
+      code_challenge: publicWithSecretChallenge,
+      code_challenge_method: "S256",
+    }),
+  });
+  assert.equal(publicWithSecretAuthorize.status, 302, "public authorize for legacy secret test should succeed");
+  const publicWithSecretLocation = publicWithSecretAuthorize.headers.get("location") || "";
+  const publicWithSecretAuthCode = new URL(publicWithSecretLocation).searchParams.get("code");
+  assert.ok(publicWithSecretAuthCode, "public authorization code should be issued for legacy secret test");
+
+  const publicTokenWithLegacySecret = await fetch(`${baseUrl}/oauth/token`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "authorization_code",
+      code: publicWithSecretAuthCode,
+      redirect_uri: publicClient.redirect_uris[0],
+      code_verifier: publicWithSecretVerifier,
+      client_id: publicClient.client_id,
+      client_secret: "legacy-stored-secret-from-client-cache",
+    }),
+  });
+  assert.equal(
+    publicTokenWithLegacySecret.status,
+    200,
+    "public/native token exchange should stay compatible when client_secret is still sent"
+  );
+  const publicTokenWithLegacySecretBody = await publicTokenWithLegacySecret.json();
+  assert.equal(typeof publicTokenWithLegacySecretBody.access_token, "string");
+  assert.equal(typeof publicTokenWithLegacySecretBody.refresh_token, "string");
+
+  const publicRefreshWithLegacySecret = await fetch(`${baseUrl}/oauth/token`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      refresh_token: publicTokenWithLegacySecretBody.refresh_token,
+      client_id: publicClient.client_id,
+      client_secret: "legacy-stored-secret-from-client-cache",
+    }),
+  });
+  assert.equal(
+    publicRefreshWithLegacySecret.status,
+    200,
+    "public/native refresh should stay compatible when client_secret is still sent"
+  );
+  const publicRefreshWithLegacySecretBody = await publicRefreshWithLegacySecret.json();
+  assert.equal(typeof publicRefreshWithLegacySecretBody.access_token, "string");
+
   const registerResponse = await fetch(`${baseUrl}/oauth/register`, {
     method: "POST",
     headers: { "content-type": "application/json" },

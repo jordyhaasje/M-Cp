@@ -179,6 +179,17 @@ export function createOAuthHandlers({
     return grantType === "authorization_code" || grantType === "refresh_token";
   }
 
+  function logOAuthTokenFailure(reason, details = {}) {
+    try {
+      logEvent("oauth_token_failed", {
+        reason,
+        ...details,
+      });
+    } catch {
+      // Logging should never block token responses.
+    }
+  }
+
   async function handleOAuthAuthorizationServerMetadata(req, res) {
     res.writeHead(200, {
       "Content-Type": "application/json",
@@ -686,17 +697,20 @@ export function createOAuthHandlers({
       const payload = await readJsonOrFormBody(req, readBody);
       const grantType = typeof payload.grant_type === "string" ? payload.grant_type.trim() : "";
       if (!validateOAuthGrantType(grantType)) {
+        logOAuthTokenFailure("unsupported_grant_type", { grantType });
         return oauthJsonError(res, 400, "unsupported_grant_type", "Unsupported grant_type", json);
       }
 
       if (grantType === "authorization_code") {
         const code = typeof payload.code === "string" ? payload.code.trim() : "";
         if (!code) {
+          logOAuthTokenFailure("missing_code", { grantType });
           return oauthJsonError(res, 400, "invalid_request", "code is required", json);
         }
         return await runSerializedByKey(`oauth:code:${code}`, async () => {
           const codeRecord = db.oauthAuthCodes[code];
           if (!codeRecord || codeRecord.status !== "active" || codeRecord.usedAt) {
+            logOAuthTokenFailure("invalid_code", { grantType });
             return oauthJsonError(
               res,
               400,
@@ -709,11 +723,19 @@ export function createOAuthHandlers({
             codeRecord.status = "expired";
             codeRecord.usedAt = nowIso();
             await persistDb();
+            logOAuthTokenFailure("expired_code", {
+              grantType,
+              clientId: codeRecord.clientId,
+            });
             return oauthJsonError(res, 400, "invalid_grant", "Authorization code has expired", json);
           }
 
           const client = getOAuthClient(codeRecord.clientId);
           if (!client) {
+            logOAuthTokenFailure("missing_client", {
+              grantType,
+              clientId: codeRecord.clientId,
+            });
             return oauthJsonError(res, 401, "invalid_client", "OAuth client is invalid", json);
           }
 
@@ -728,8 +750,18 @@ export function createOAuthHandlers({
             });
           } catch (error) {
             if (error instanceof Error && error.message === "invalid_client") {
+              logOAuthTokenFailure("invalid_client_auth", {
+                grantType,
+                clientId: client.clientId,
+                authMethod: client.tokenEndpointAuthMethod || "none",
+              });
               return oauthJsonError(res, 401, "invalid_client", "Client authentication failed", json);
             }
+            logOAuthTokenFailure("invalid_auth_request", {
+              grantType,
+              clientId: client.clientId,
+              authMethod: client.tokenEndpointAuthMethod || "none",
+            });
             return oauthJsonError(
               res,
               400,
@@ -741,6 +773,10 @@ export function createOAuthHandlers({
 
           const redirectUri = typeof payload.redirect_uri === "string" ? payload.redirect_uri.trim() : "";
           if (!redirectUri || redirectUri !== codeRecord.redirectUri) {
+            logOAuthTokenFailure("redirect_uri_mismatch", {
+              grantType,
+              clientId: client.clientId,
+            });
             return oauthJsonError(res, 400, "invalid_grant", "redirect_uri mismatch", json);
           }
           if (
@@ -748,6 +784,10 @@ export function createOAuthHandlers({
             !isValidPkceChallenge(codeRecord.codeChallenge) ||
             codeRecord.codeChallengeMethod !== "S256"
           ) {
+            logOAuthTokenFailure("missing_pkce_requirements", {
+              grantType,
+              clientId: client.clientId,
+            });
             return oauthJsonError(
               res,
               400,
@@ -758,6 +798,10 @@ export function createOAuthHandlers({
           }
           const verifier = typeof payload.code_verifier === "string" ? payload.code_verifier : "";
           if (!verifyPkceCodeVerifier(verifier, codeRecord.codeChallenge, "S256")) {
+            logOAuthTokenFailure("invalid_code_verifier", {
+              grantType,
+              clientId: client.clientId,
+            });
             return oauthJsonError(res, 400, "invalid_grant", "Invalid code_verifier", json);
           }
 
@@ -807,29 +851,44 @@ export function createOAuthHandlers({
 
       const rawRefreshToken = typeof payload.refresh_token === "string" ? payload.refresh_token.trim() : "";
       if (!rawRefreshToken) {
+        logOAuthTokenFailure("missing_refresh_token", { grantType });
         return oauthJsonError(res, 400, "invalid_request", "refresh_token is required", json);
       }
       const refreshTokenHash = hashToken(rawRefreshToken);
       return await runSerializedByKey(`oauth:refresh:${refreshTokenHash}`, async () => {
         const refreshRecord = findOAuthRefreshTokenRecord(rawRefreshToken);
         if (!refreshRecord) {
+          logOAuthTokenFailure("invalid_refresh_token", { grantType });
           return oauthJsonError(res, 400, "invalid_grant", "Refresh token is invalid", json);
         }
         if (Date.parse(refreshRecord.expiresAt) < Date.now()) {
           refreshRecord.status = "expired";
           refreshRecord.updatedAt = nowIso();
           await persistDb();
+          logOAuthTokenFailure("expired_refresh_token", {
+            grantType,
+            clientId: refreshRecord.clientId,
+          });
           return oauthJsonError(res, 400, "invalid_grant", "Refresh token has expired", json);
         }
         if (refreshRecord.status !== "active") {
           if (refreshRecord.status === "rotated") {
             await revokeRefreshTokenFamily(refreshRecord.familyId || refreshRecord.refreshTokenId, "replay");
           }
+          logOAuthTokenFailure("inactive_refresh_token", {
+            grantType,
+            clientId: refreshRecord.clientId,
+            refreshStatus: refreshRecord.status,
+          });
           return oauthJsonError(res, 400, "invalid_grant", "Refresh token is invalid", json);
         }
 
         const client = getOAuthClient(refreshRecord.clientId);
         if (!client) {
+          logOAuthTokenFailure("missing_client", {
+            grantType,
+            clientId: refreshRecord.clientId,
+          });
           return oauthJsonError(res, 401, "invalid_client", "OAuth client is invalid", json);
         }
         try {
@@ -843,8 +902,18 @@ export function createOAuthHandlers({
           });
         } catch (error) {
           if (error instanceof Error && error.message === "invalid_client") {
+            logOAuthTokenFailure("invalid_client_auth", {
+              grantType,
+              clientId: client.clientId,
+              authMethod: client.tokenEndpointAuthMethod || "none",
+            });
             return oauthJsonError(res, 401, "invalid_client", "Client authentication failed", json);
           }
+          logOAuthTokenFailure("invalid_auth_request", {
+            grantType,
+            clientId: client.clientId,
+            authMethod: client.tokenEndpointAuthMethod || "none",
+          });
           return oauthJsonError(
             res,
             400,
@@ -858,6 +927,10 @@ export function createOAuthHandlers({
           typeof payload.scope === "string" && payload.scope.trim() ? payload.scope.trim() : null;
         const effectiveScope = refreshRecord.scope || "mcp:tools";
         if (requestedScope && requestedScope !== effectiveScope) {
+          logOAuthTokenFailure("invalid_scope", {
+            grantType,
+            clientId: client.clientId,
+          });
           return oauthJsonError(
             res,
             400,

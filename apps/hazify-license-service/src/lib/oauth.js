@@ -187,9 +187,9 @@ function validateOAuthClientAuthentication({
     if (!creds.clientId || creds.clientId !== client.clientId) {
       throw new Error("invalid_client");
     }
-    if (creds.clientSecret) {
-      throw new Error("invalid_client");
-    }
+    // Compatibility: legacy native/public clients may still send a stored
+    // client_secret even when token_endpoint_auth_method=none. Public clients
+    // are authenticated via client_id + PKCE, so ignore any provided secret.
     return;
   }
 
