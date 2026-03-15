@@ -227,7 +227,7 @@ export function createOAuthHandlers({
         typeof payload.token_endpoint_auth_method === "string" &&
         ["none", "client_secret_post", "client_secret_basic"].includes(payload.token_endpoint_auth_method)
           ? payload.token_endpoint_auth_method
-          : "client_secret_post";
+          : "none";
       const grantTypes = normalizeStringArray(payload.grant_types);
       const responseTypes = normalizeStringArray(payload.response_types);
       if (grantTypes.length && !grantTypes.every((value) => value === "authorization_code" || value === "refresh_token")) {

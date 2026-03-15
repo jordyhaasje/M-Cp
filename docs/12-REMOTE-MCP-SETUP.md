@@ -24,6 +24,7 @@ read_products,write_products,read_customers,write_customers,read_orders,write_or
 ### OAuth (voorkeur)
 - discovery via `/.well-known/oauth-protected-resource`
 - authorize/token met PKCE `S256`
+- Dynamic client registration zonder `token_endpoint_auth_method` valt terug op public client (`none`)
 - scope: `mcp:tools`
 - server-side tokenvalidatie via `/v1/mcp/token/introspect`
 - interne Shopify token-exchange via `/v1/mcp/token/exchange` (geen Shopify secrets in introspection payload)

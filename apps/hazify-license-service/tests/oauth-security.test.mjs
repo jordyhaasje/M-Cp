@@ -218,6 +218,72 @@ try {
     "oauth authorize pages should explicitly allow trusted LLM hosts as frame ancestors"
   );
 
+  const publicRegisterResponse = await fetch(`${baseUrl}/oauth/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_name: "OAuth Public Default Client",
+      redirect_uris: ["http://127.0.0.1:4460/callback"],
+      scope: "mcp:tools offline_access",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+    }),
+  });
+  assert.equal(publicRegisterResponse.status, 201, "public DCR registration should succeed");
+  const publicClient = await publicRegisterResponse.json();
+  assert.equal(
+    publicClient.token_endpoint_auth_method,
+    "none",
+    "DCR should default to public client auth when token_endpoint_auth_method is omitted"
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(publicClient, "client_secret"),
+    false,
+    "public DCR clients should not receive a client_secret"
+  );
+
+  const publicVerifier = "pkce-verifier-public-default-1234567890-pkce-verifier-public-default-1234567890";
+  const publicChallenge = pkceChallenge(publicVerifier);
+  const publicAuthorize = await fetch(`${baseUrl}/oauth/authorize`, {
+    method: "POST",
+    redirect: "manual",
+    headers: {
+      "content-type": "application/json",
+      Cookie: `hz_user_session=${sessionToken}`,
+    },
+    body: JSON.stringify({
+      client_id: publicClient.client_id,
+      redirect_uri: publicClient.redirect_uris[0],
+      response_type: "code",
+      state: "public-default-ok",
+      decision: "allow",
+      shopDomain: "unit-test-shop.myshopify.com",
+      code_challenge: publicChallenge,
+      code_challenge_method: "S256",
+    }),
+  });
+  assert.equal(publicAuthorize.status, 302, "public authorize with S256 PKCE should succeed");
+  const publicLocation = publicAuthorize.headers.get("location") || "";
+  const publicLocationUrl = new URL(publicLocation);
+  const publicAuthCode = publicLocationUrl.searchParams.get("code");
+  assert.ok(publicAuthCode, "public authorization code should be issued");
+
+  const publicToken = await fetch(`${baseUrl}/oauth/token`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "authorization_code",
+      code: publicAuthCode,
+      redirect_uri: publicClient.redirect_uris[0],
+      code_verifier: publicVerifier,
+      client_id: publicClient.client_id,
+    }),
+  });
+  assert.equal(publicToken.status, 200, "public token exchange without client_secret should succeed");
+  const publicTokenBody = await publicToken.json();
+  assert.equal(typeof publicTokenBody.access_token, "string");
+  assert.equal(typeof publicTokenBody.refresh_token, "string");
+
   const registerResponse = await fetch(`${baseUrl}/oauth/register`, {
     method: "POST",
     headers: { "content-type": "application/json" },
