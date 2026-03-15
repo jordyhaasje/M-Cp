@@ -250,6 +250,32 @@ try {
   });
   assert.equal(disallowedOriginResponse.status, 403, "disallowed origin should be blocked");
 
+  const statelessGetResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+    method: "GET",
+    headers: {
+      authorization: "Bearer valid-token",
+      origin: `http://127.0.0.1:${mcpPort}`,
+    },
+  });
+  assert.equal(statelessGetResponse.status, 405, "stateless mode should advertise GET /mcp as unsupported");
+  const statelessGetAllow = statelessGetResponse.headers.get("allow") || "";
+  assert.equal(statelessGetAllow, "POST", "stateless mode should publish Allow: POST");
+  const statelessGetBody = await statelessGetResponse.json();
+  assert.match(statelessGetBody?.error?.message || "", /method not allowed/i);
+
+  const statelessDeleteResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+    method: "DELETE",
+    headers: {
+      authorization: "Bearer valid-token",
+      origin: `http://127.0.0.1:${mcpPort}`,
+    },
+  });
+  assert.equal(statelessDeleteResponse.status, 405, "stateless mode should advertise DELETE /mcp as unsupported");
+  const statelessDeleteAllow = statelessDeleteResponse.headers.get("allow") || "";
+  assert.equal(statelessDeleteAllow, "POST", "stateless mode should publish Allow: POST for DELETE");
+  const statelessDeleteBody = await statelessDeleteResponse.json();
+  assert.match(statelessDeleteBody?.error?.message || "", /method not allowed/i);
+
   const allowedOriginResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
     method: "POST",
     headers: {

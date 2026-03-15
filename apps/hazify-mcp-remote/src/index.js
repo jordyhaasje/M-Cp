@@ -1203,6 +1203,12 @@ else {
         res.setHeader("WWW-Authenticate", buildWwwAuthenticateHeader(req, "invalid_token", message));
         respondJsonRpcError(res, 401, message, -32001);
     };
+    const respondMethodNotAllowed = (res, message, allowedMethods = []) => {
+        if (Array.isArray(allowedMethods) && allowedMethods.length) {
+            res.setHeader("Allow", allowedMethods.join(", "));
+        }
+        respondJsonRpcError(res, 405, message, -32000);
+    };
     const assertAllowedOrigin = (req, res) => {
         const decision = isRequestOriginAllowed(req);
         if (!decision.allowed) {
@@ -1373,7 +1379,7 @@ else {
             return;
         }
         if (!useStatefulSessions) {
-            respondJsonRpcError(res, 400, "Bad Request: stateless mode only supports POST /mcp");
+            respondMethodNotAllowed(res, "Method Not Allowed: stateless mode only supports POST /mcp", ["POST"]);
             return;
         }
         const context = await resolveRequestAuthContext(req, res);
@@ -1412,7 +1418,7 @@ else {
             return;
         }
         if (!useStatefulSessions) {
-            respondJsonRpcError(res, 400, "Bad Request: stateless mode does not use DELETE /mcp sessions");
+            respondMethodNotAllowed(res, "Method Not Allowed: stateless mode does not use DELETE /mcp sessions", ["POST"]);
             return;
         }
         const context = await resolveRequestAuthContext(req, res);
