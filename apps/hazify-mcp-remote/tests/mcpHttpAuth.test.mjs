@@ -158,6 +158,7 @@ const previousEnv = {
   HAZIFY_MCP_INTROSPECTION_URL: process.env.HAZIFY_MCP_INTROSPECTION_URL,
   HAZIFY_MCP_API_KEY: process.env.HAZIFY_MCP_API_KEY,
   HAZIFY_MCP_PUBLIC_URL: process.env.HAZIFY_MCP_PUBLIC_URL,
+  HAZIFY_MCP_ALLOWED_ORIGINS: process.env.HAZIFY_MCP_ALLOWED_ORIGINS,
   MCP_SESSION_MODE: process.env.MCP_SESSION_MODE,
 };
 
@@ -167,6 +168,7 @@ process.env.PORT = String(mcpPort);
 process.env.HAZIFY_MCP_INTROSPECTION_URL = `http://127.0.0.1:${introspectionPort}`;
 process.env.HAZIFY_MCP_API_KEY = "mcp-test-key";
 process.env.HAZIFY_MCP_PUBLIC_URL = `http://127.0.0.1:${mcpPort}`;
+process.env.HAZIFY_MCP_ALLOWED_ORIGINS = `http://127.0.0.1:${mcpPort},null`;
 process.env.MCP_SESSION_MODE = "stateless";
 
 const mcpModuleUrl = `${pathToFileURL(path.resolve(testDir, "../src/index.js")).href}?test=${Date.now()}`;
@@ -249,6 +251,18 @@ try {
     body: JSON.stringify(initializeBody),
   });
   assert.equal(disallowedOriginResponse.status, 403, "disallowed origin should be blocked");
+
+  const opaqueOriginResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      authorization: "Bearer valid-token",
+      origin: "vscode-webview://12345",
+    },
+    body: JSON.stringify(initializeBody),
+  });
+  assert.equal(opaqueOriginResponse.status, 200, "allowlist marker 'null' should allow opaque/native origins");
 
   const statelessGetResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
     method: "GET",

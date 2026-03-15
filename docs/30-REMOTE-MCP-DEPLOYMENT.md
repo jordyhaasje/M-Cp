@@ -40,6 +40,7 @@ Defaults/optioneel:
 - `HAZIFY_MCP_PUBLIC_URL` (optioneel; fallback is request-based URL)
 - `HAZIFY_MCP_AUTH_SERVER_URL` (optioneel; fallback is introspection base URL)
 - `HAZIFY_MCP_ALLOWED_ORIGINS` (optioneel; default allowlist valt terug op request-origin)
+  - Voeg `null` toe wanneer native/desktop clients (bijv. VS Code desktop/webview) een opaque `Origin` sturen.
 - `HAZIFY_MCP_HTTP_HOST` / `HAZIFY_MCP_HTTP_PORT` (optioneel)
 - `NIXPACKS_NODE_VERSION=22` is platform/build-config, geen runtime env var die door de Node-app wordt gelezen
 

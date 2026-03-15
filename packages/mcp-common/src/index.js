@@ -23,6 +23,10 @@ export function normalizeOrigin(value) {
   if (typeof value !== "string" || !value.trim()) {
     return "";
   }
+  if (value.trim().toLowerCase() === "null") {
+    // Explicit allowlist marker for opaque/native origins (e.g. vscode-webview://, file://).
+    return "null";
+  }
   try {
     return new URL(value.trim()).origin;
   } catch {
