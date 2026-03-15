@@ -153,12 +153,30 @@ function resolveClientCredentials(req, payload) {
   };
 }
 
+function isPublicRedirectUriValue(uriValue, allowedCustomRedirectSchemes = []) {
+  try {
+    const url = new URL(String(uriValue || ""));
+    const protocol = String(url.protocol || "").toLowerCase();
+    if (protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1")) {
+      return true;
+    }
+    const customScheme = protocol.endsWith(":") ? protocol.slice(0, -1) : "";
+    if (customScheme && allowedCustomRedirectSchemes.includes(customScheme)) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function validateOAuthClientAuthentication({
   req,
   payload,
   client,
   hashToken,
   safeTimingEqual,
+  allowedCustomRedirectSchemes = [],
 }) {
   const method =
     typeof client.tokenEndpointAuthMethod === "string" && client.tokenEndpointAuthMethod
@@ -174,6 +192,21 @@ function validateOAuthClientAuthentication({
     }
     return;
   }
+
+  // Backward compatibility: older DCR records could default native/public clients to
+  // client_secret_* unexpectedly. Allow secretless auth for those native redirect clients.
+  const redirectUris = Array.isArray(client.redirectUris) ? client.redirectUris : [];
+  const canUseLegacyPublicFallback =
+    creds.clientId === client.clientId &&
+    !creds.clientSecret &&
+    redirectUris.length > 0 &&
+    redirectUris.every((uri) =>
+      isPublicRedirectUriValue(uri, allowedCustomRedirectSchemes)
+    );
+  if (canUseLegacyPublicFallback) {
+    return;
+  }
+
   if (!creds.clientId || !creds.clientSecret) {
     throw new Error("invalid_client");
   }

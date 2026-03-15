@@ -718,7 +718,14 @@ export function createOAuthHandlers({
           }
 
           try {
-            validateOAuthClientAuthentication({ req, payload, client, hashToken, safeTimingEqual });
+            validateOAuthClientAuthentication({
+              req,
+              payload,
+              client,
+              hashToken,
+              safeTimingEqual,
+              allowedCustomRedirectSchemes: config.oauthAllowedCustomRedirectSchemes,
+            });
           } catch (error) {
             if (error instanceof Error && error.message === "invalid_client") {
               return oauthJsonError(res, 401, "invalid_client", "Client authentication failed", json);
@@ -826,7 +833,14 @@ export function createOAuthHandlers({
           return oauthJsonError(res, 401, "invalid_client", "OAuth client is invalid", json);
         }
         try {
-          validateOAuthClientAuthentication({ req, payload, client, hashToken, safeTimingEqual });
+          validateOAuthClientAuthentication({
+            req,
+            payload,
+            client,
+            hashToken,
+            safeTimingEqual,
+            allowedCustomRedirectSchemes: config.oauthAllowedCustomRedirectSchemes,
+          });
         } catch (error) {
           if (error instanceof Error && error.message === "invalid_client") {
             return oauthJsonError(res, 401, "invalid_client", "Client authentication failed", json);

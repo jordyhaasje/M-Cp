@@ -25,6 +25,7 @@ read_products,write_products,read_customers,write_customers,read_orders,write_or
 - discovery via `/.well-known/oauth-protected-resource`
 - authorize/token met PKCE `S256`
 - Dynamic client registration zonder `token_endpoint_auth_method` valt terug op public client (`none`)
+- Legacy DCR-clients die eerder foutief als `client_secret_*` zijn opgeslagen, mogen zonder secret verder voor native/public redirect URI's (loopback/custom scheme) om VS Code/Codex reconnects compatibel te houden.
 - scope: `mcp:tools`
 - server-side tokenvalidatie via `/v1/mcp/token/introspect`
 - interne Shopify token-exchange via `/v1/mcp/token/exchange` (geen Shopify secrets in introspection payload)

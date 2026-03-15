@@ -463,6 +463,130 @@ try {
   assert.equal(typeof tokenBody.access_token, "string");
   assert.equal(typeof tokenBody.refresh_token, "string");
 
+  const legacyVerifier =
+    "pkce-verifier-legacy-secretless-1234567890-pkce-verifier-legacy-secretless-1234567890";
+  const legacyChallenge = pkceChallenge(legacyVerifier);
+  const legacyAuthorize = await fetch(`${baseUrl}/oauth/authorize`, {
+    method: "POST",
+    redirect: "manual",
+    headers: {
+      "content-type": "application/json",
+      Cookie: `hz_user_session=${sessionToken}`,
+    },
+    body: JSON.stringify({
+      client_id: client.client_id,
+      redirect_uri: client.redirect_uris[0],
+      response_type: "code",
+      state: "legacy-secretless",
+      decision: "allow",
+      shopDomain: "unit-test-shop.myshopify.com",
+      code_challenge: legacyChallenge,
+      code_challenge_method: "S256",
+    }),
+  });
+  assert.equal(legacyAuthorize.status, 302, "legacy authorize with S256 PKCE should succeed");
+  const legacyLocation = legacyAuthorize.headers.get("location") || "";
+  const legacyLocationUrl = new URL(legacyLocation);
+  const legacyAuthCode = legacyLocationUrl.searchParams.get("code");
+  assert.ok(legacyAuthCode, "legacy authorization code should be issued");
+
+  const legacySecretlessToken = await fetch(`${baseUrl}/oauth/token`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "authorization_code",
+      code: legacyAuthCode,
+      redirect_uri: client.redirect_uris[0],
+      code_verifier: legacyVerifier,
+      client_id: client.client_id,
+    }),
+  });
+  assert.equal(
+    legacySecretlessToken.status,
+    200,
+    "legacy public/native clients should work without client_secret"
+  );
+  const legacySecretlessTokenBody = await legacySecretlessToken.json();
+  assert.equal(typeof legacySecretlessTokenBody.access_token, "string");
+  assert.equal(typeof legacySecretlessTokenBody.refresh_token, "string");
+
+  const legacySecretlessRefresh = await fetch(`${baseUrl}/oauth/token`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      refresh_token: legacySecretlessTokenBody.refresh_token,
+      client_id: client.client_id,
+    }),
+  });
+  assert.equal(
+    legacySecretlessRefresh.status,
+    200,
+    "legacy public/native refresh should succeed without client_secret"
+  );
+  const legacySecretlessRefreshBody = await legacySecretlessRefresh.json();
+  assert.equal(typeof legacySecretlessRefreshBody.access_token, "string");
+
+  const confidentialRegister = await fetch(`${baseUrl}/oauth/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_name: "OAuth Confidential Web Client",
+      redirect_uris: ["https://example.com/callback"],
+      scope: "mcp:tools offline_access",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "client_secret_post",
+    }),
+  });
+  assert.equal(confidentialRegister.status, 201, "confidential web client registration should succeed");
+  const confidentialClient = await confidentialRegister.json();
+
+  const confidentialVerifier =
+    "pkce-verifier-confidential-1234567890-pkce-verifier-confidential-1234567890";
+  const confidentialChallenge = pkceChallenge(confidentialVerifier);
+  const confidentialAuthorize = await fetch(`${baseUrl}/oauth/authorize`, {
+    method: "POST",
+    redirect: "manual",
+    headers: {
+      "content-type": "application/json",
+      Cookie: `hz_user_session=${sessionToken}`,
+    },
+    body: JSON.stringify({
+      client_id: confidentialClient.client_id,
+      redirect_uri: confidentialClient.redirect_uris[0],
+      response_type: "code",
+      state: "confidential-needs-secret",
+      decision: "allow",
+      shopDomain: "unit-test-shop.myshopify.com",
+      code_challenge: confidentialChallenge,
+      code_challenge_method: "S256",
+    }),
+  });
+  assert.equal(confidentialAuthorize.status, 302, "confidential authorize should succeed");
+  const confidentialLocation = confidentialAuthorize.headers.get("location") || "";
+  const confidentialCode = new URL(confidentialLocation).searchParams.get("code");
+  assert.ok(confidentialCode, "confidential authorization code should be issued");
+
+  const confidentialSecretlessToken = await fetch(`${baseUrl}/oauth/token`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "authorization_code",
+      code: confidentialCode,
+      redirect_uri: confidentialClient.redirect_uris[0],
+      code_verifier: confidentialVerifier,
+      client_id: confidentialClient.client_id,
+    }),
+  });
+  assert.equal(
+    confidentialSecretlessToken.status,
+    401,
+    "confidential HTTPS clients must still provide client_secret"
+  );
+  const confidentialSecretlessTokenBody = await confidentialSecretlessToken.json();
+  assert.equal(confidentialSecretlessTokenBody.error, "invalid_client");
+
   const introspectActive = await fetch(`${baseUrl}/v1/mcp/token/introspect`, {
     method: "POST",
     headers: {
