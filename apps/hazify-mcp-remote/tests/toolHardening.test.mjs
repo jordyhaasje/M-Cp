@@ -1,8 +1,11 @@
 import assert from "assert";
 import dns from "dns/promises";
 import { cloneProductFromUrl } from "../src/tools/cloneProductFromUrl.js";
+import { getCustomerOrders } from "../src/tools/getCustomerOrders.js";
 import { refundOrder } from "../src/tools/refundOrder.js";
+import { updateCustomer } from "../src/tools/updateCustomer.js";
 import { updateFulfillmentTracking } from "../src/tools/updateFulfillmentTracking.js";
+import { updateOrder } from "../src/tools/updateOrder.js";
 import { upsertThemeFileTool } from "../src/tools/upsertThemeFile.js";
 import { upsertThemeFilesTool } from "../src/tools/upsertThemeFiles.js";
 import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
@@ -182,6 +185,234 @@ try {
   );
   assert.match(refundResult.refund.note, /\[Refund audit\]/, "refund note should include audit trace");
   assert.equal(refundResult.audit.scope, "partial");
+
+  const customerOrderQueries = [];
+  const customerOrderClient = {
+    request: async (_query, variables) => {
+      customerOrderQueries.push(variables?.query);
+      return {
+        orders: {
+          edges: [],
+        },
+      };
+    },
+  };
+  await getCustomerOrders.execute(
+    getCustomerOrders.schema.parse({ customerId: "123", limit: 5 }),
+    { shopifyClient: customerOrderClient }
+  );
+  await getCustomerOrders.execute(
+    getCustomerOrders.schema.parse({ customerId: "gid://shopify/Customer/123", limit: 5 }),
+    { shopifyClient: customerOrderClient }
+  );
+  assert.deepEqual(
+    customerOrderQueries,
+    ["customer_id:123", "customer_id:123"],
+    "get-customer-orders should normalize numeric and GID input to the same query path"
+  );
+
+  const updateCustomerIds = [];
+  const updateCustomerClient = {
+    request: async (_query, variables) => {
+      updateCustomerIds.push(variables?.input?.id);
+      return {
+        customerUpdate: {
+          customer: {
+            id: variables?.input?.id,
+            firstName: "Test",
+            lastName: "Customer",
+            email: "test@example.com",
+            phone: null,
+            tags: [],
+            note: null,
+            taxExempt: false,
+            metafields: { edges: [] },
+          },
+          userErrors: [],
+        },
+      };
+    },
+  };
+  await updateCustomer.execute(updateCustomer.schema.parse({ id: "123", firstName: "Test" }), {
+    shopifyClient: updateCustomerClient,
+  });
+  await updateCustomer.execute(
+    updateCustomer.schema.parse({ id: "gid://shopify/Customer/123", firstName: "Test" }),
+    { shopifyClient: updateCustomerClient }
+  );
+  assert.deepEqual(
+    updateCustomerIds,
+    ["gid://shopify/Customer/123", "gid://shopify/Customer/123"],
+    "update-customer should normalize numeric and GID input to canonical customer GID"
+  );
+
+  const resolvedRefundOrderIds = [];
+  const refundIdentifierClient = {
+    request: async (query, variables) => {
+      const queryText = String(query);
+      if (queryText.includes("query lookupOrderByReference")) {
+        return {
+          orders: {
+            edges: [
+              {
+                node: {
+                  id: "gid://shopify/Order/1",
+                  name: "#1001",
+                  createdAt: "2026-03-13T12:00:00Z",
+                },
+              },
+            ],
+          },
+        };
+      }
+      if (queryText.includes("mutation RefundOrder")) {
+        resolvedRefundOrderIds.push({
+          orderId: variables?.input?.orderId,
+          transactionOrderId: variables?.input?.transactions?.[0]?.orderId || null,
+        });
+        return {
+          refundCreate: {
+            refund: {
+              id: "gid://shopify/Refund/2",
+              createdAt: "2026-03-13T12:00:00Z",
+              note: variables?.input?.note,
+              totalRefundedSet: {
+                shopMoney: { amount: "10.00", currencyCode: "EUR" },
+                presentmentMoney: { amount: "10.00", currencyCode: "EUR" },
+              },
+            },
+            order: {
+              id: "gid://shopify/Order/1",
+              name: "#1001",
+            },
+            userErrors: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected refund request: ${queryText.slice(0, 80)}`);
+    },
+  };
+
+  for (const orderInput of ["#1001", "1001", "gid://shopify/Order/1"]) {
+    await refundOrder.execute(
+      refundOrder.schema.parse({
+        orderId: orderInput,
+        audit: {
+          amount: "10.00",
+          reason: "Test matrix",
+          scope: "partial",
+        },
+        transactions: [
+          {
+            amount: "10.00",
+            gateway: "manual",
+          },
+        ],
+      }),
+      { shopifyClient: refundIdentifierClient }
+    );
+  }
+  assert.deepEqual(
+    resolvedRefundOrderIds,
+    [
+      { orderId: "gid://shopify/Order/1", transactionOrderId: "gid://shopify/Order/1" },
+      { orderId: "gid://shopify/Order/1", transactionOrderId: "gid://shopify/Order/1" },
+      { orderId: "gid://shopify/Order/1", transactionOrderId: "gid://shopify/Order/1" },
+    ],
+    "refund-order should resolve order references to a single canonical order GID before mutation"
+  );
+
+  const trackingContextCalls = [];
+  const trackingContextClient = {
+    request: async (query, variables) => {
+      const queryText = String(query);
+      if (queryText.includes("query getOrderTrackingContext")) {
+        trackingContextCalls.push("context");
+        return {
+          order: {
+            id: "gid://shopify/Order/1",
+            name: "#1001",
+            customAttributes: [],
+            fulfillments: {
+              nodes: [
+                {
+                  id: "gid://shopify/Fulfillment/1",
+                  status: "SUCCESS",
+                  createdAt: "2026-03-13T12:00:00Z",
+                  trackingInfo: [],
+                },
+              ],
+            },
+            fulfillmentOrders: {
+              nodes: [],
+            },
+          },
+        };
+      }
+      if (queryText.includes("mutation fulfillmentTrackingInfoUpdate")) {
+        return {
+          fulfillmentTrackingInfoUpdate: {
+            fulfillment: {
+              id: "gid://shopify/Fulfillment/1",
+              status: "SUCCESS",
+              trackingInfo: [
+                {
+                  company: "UPS",
+                  number: variables?.trackingInfoInput?.number,
+                  url: variables?.trackingInfoInput?.url || null,
+                },
+              ],
+            },
+            userErrors: [],
+          },
+        };
+      }
+      if (queryText.includes("mutation orderUpdate")) {
+        return {
+          orderUpdate: {
+            order: {
+              id: "gid://shopify/Order/1",
+              name: "#1001",
+              email: null,
+              note: null,
+              tags: [],
+              customAttributes: [],
+              metafields: { edges: [] },
+              shippingAddress: null,
+            },
+            userErrors: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected tracking request: ${queryText.slice(0, 80)}`);
+    },
+  };
+
+  await updateFulfillmentTracking.execute(
+    updateFulfillmentTracking.schema.parse({
+      orderId: "gid://shopify/Order/1",
+      trackingNumber: "TRACK-CONTEXT-1",
+      trackingCompany: "UPS",
+    }),
+    { shopifyClient: trackingContextClient }
+  );
+
+  await updateOrder.execute(
+    updateOrder.schema.parse({
+      id: "gid://shopify/Order/1",
+      tracking: {
+        number: "TRACK-CONTEXT-2",
+        company: "UPS",
+      },
+    }),
+    { shopifyClient: trackingContextClient }
+  );
+
+  assert.equal(
+    trackingContextCalls.length >= 2,
+    true,
+    "tracking update tools should execute order tracking context fetch in both execution paths"
+  );
 
   await assert.rejects(
     () =>

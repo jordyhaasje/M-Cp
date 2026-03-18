@@ -1,6 +1,7 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
+import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
 
 const RefundLineItemSchema = z.object({
   lineItemId: z.string().min(1),
@@ -17,7 +18,7 @@ const RefundTransactionSchema = z.object({
 });
 
 const RefundOrderInputSchema = z.object({
-  orderId: z.string().min(1).describe("Shopify order GID, e.g. gid://shopify/Order/123"),
+  orderId: z.string().min(1).describe("Accepts Shopify GID, numeric order id, or order number like 1004/#1004"),
   note: z.string().optional(),
   audit: z.object({
     amount: z.string().min(1).describe("Refund amount for audit trail, e.g. '19.95'"),
@@ -45,6 +46,8 @@ const refundOrder = {
   execute: async (input, context = {}) => {
       const shopifyClient = requireShopifyClient(context);
     try {
+      const resolvedOrder = await resolveOrderIdentifier(shopifyClient, input.orderId);
+      const resolvedOrderId = resolvedOrder.id;
       const audit = input.audit;
       const auditNote = `[Refund audit] amount=${audit.amount}; scope=${audit.scope}; reason=${audit.reason}`;
       const finalNote =
@@ -83,7 +86,7 @@ const refundOrder = {
       `;
 
       const refundInput = {
-        orderId: input.orderId,
+        orderId: resolvedOrderId,
         note: finalNote,
         notify: input.notify,
         currency: input.currency,
@@ -91,7 +94,7 @@ const refundOrder = {
         refundLineItems: input.refundLineItems,
         shipping: input.shipping,
         transactions: input.transactions?.map((t) => ({
-          orderId: input.orderId,
+          orderId: resolvedOrderId,
           amount: t.amount,
           gateway: t.gateway,
           kind: t.kind,
@@ -121,6 +124,12 @@ const refundOrder = {
               name: payload.order.name,
             }
           : null,
+        resolvedOrder: {
+          input: input.orderId,
+          resolvedId: resolvedOrderId,
+          source: resolvedOrder.source,
+          matchedByQuery: resolvedOrder.matchedByQuery || null,
+        },
         audit: input.audit,
       };
     } catch (error) {

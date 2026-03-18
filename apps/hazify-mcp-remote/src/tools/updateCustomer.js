@@ -1,9 +1,10 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
+import { normalizeCustomerIdentifier } from "../lib/customerIdentifier.js";
 // Input schema for updating a customer
 const UpdateCustomerInputSchema = z.object({
-    id: z.string().regex(/^\d+$/, "Customer ID must be numeric"),
+    id: z.string().min(1),
     firstName: z.string().optional(),
     lastName: z.string().optional(),
     email: z.string().email().optional(),
@@ -33,8 +34,7 @@ const updateCustomer = {
       const shopifyClient = requireShopifyClient(context);
         try {
             const { id, acceptsMarketing, ...customerFields } = input;
-            // Convert numeric ID to GID format
-            const customerGid = `gid://shopify/Customer/${id}`;
+            const resolvedCustomer = normalizeCustomerIdentifier(id);
             // Log a warning if acceptsMarketing was provided
             if (acceptsMarketing !== undefined) {
                 console.warn("The acceptsMarketing field is not supported by the Shopify API and will be ignored");
@@ -71,7 +71,7 @@ const updateCustomer = {
       `;
             const variables = {
                 input: {
-                    id: customerGid,
+                    id: resolvedCustomer.gid,
                     ...customerFields
                 }
             };

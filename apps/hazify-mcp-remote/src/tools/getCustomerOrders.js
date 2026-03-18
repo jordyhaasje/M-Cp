@@ -1,9 +1,10 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
+import { normalizeCustomerIdentifier } from "../lib/customerIdentifier.js";
 // Input schema for getting customer orders
 const GetCustomerOrdersInputSchema = z.object({
-    customerId: z.string().regex(/^\d+$/, "Customer ID must be numeric"),
+    customerId: z.string().min(1),
     limit: z.number().default(10)
 });
 // Will be initialized in index.ts
@@ -16,8 +17,7 @@ const getCustomerOrders = {
       const shopifyClient = requireShopifyClient(context);
         try {
             const { customerId, limit } = input;
-            // Convert the numeric customer ID to the GID format
-            const customerGid = `gid://shopify/Customer/${customerId}`;
+            const resolvedCustomer = normalizeCustomerIdentifier(customerId);
             // Query to get orders for a specific customer
             const query = gql `
         query GetCustomerOrders($query: String!, $first: Int!) {
@@ -88,7 +88,7 @@ const getCustomerOrders = {
       `;
             // We use the query parameter to filter orders by customer ID
             const variables = {
-                query: `customer_id:${customerId}`,
+                query: `customer_id:${resolvedCustomer.numericId}`,
                 first: limit
             };
             const data = (await shopifyClient.request(query, variables));
