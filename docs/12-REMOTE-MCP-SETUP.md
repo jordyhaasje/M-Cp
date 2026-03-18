@@ -24,10 +24,15 @@ read_products,write_products,read_customers,write_customers,read_orders,write_or
 ### OAuth (voorkeur)
 - discovery via `/.well-known/oauth-protected-resource`
 - authorize/token met PKCE `S256`
+- `GET /oauth/authorize` rendert alleen de toestemmingpagina; allow/deny gebeurt via `POST /oauth/authorize`
+- De authorize submit bewaart de volledige originele OAuth-context, inclusief `resource`; bodyvelden winnen, querystring dient alleen als continuity fallback
+- Als body en query conflicteren op gevoelige velden (`client_id`, `redirect_uri`, `state`, `response_type`, `code_challenge*`, `scope`, `resource`) weigert de server de request met `invalid_request`
+- Interactieve OAuth-routes nemen de `redirect_uri`-origin op in CSP `form-action`, zodat connector returns naar `https://chatgpt.com` of andere geregistreerde HTTPS callbacks niet door de browser worden geblokkeerd
 - Dynamic client registration zonder `token_endpoint_auth_method` valt terug op public client (`none`)
 - Legacy DCR-clients die eerder foutief als `client_secret_*` zijn opgeslagen, mogen zonder secret verder voor native/public redirect URI's (loopback/custom scheme) om VS Code/Codex reconnects compatibel te houden.
 - Legacy public/native clients met `token_endpoint_auth_method=none` mogen tijdens token/refresh ook een meegezonden `client_secret` hebben; de server negeert die secret en valideert op `client_id` + PKCE.
 - scope: `mcp:tools`
+- `resource` moet overeenkomen met de remote MCP URL van deze authorization server
 - server-side tokenvalidatie via `/v1/mcp/token/introspect`
 - interne Shopify token-exchange via `/v1/mcp/token/exchange` gebeurt lazy:
   - geen exchange bij `initialize` of `tools/list`

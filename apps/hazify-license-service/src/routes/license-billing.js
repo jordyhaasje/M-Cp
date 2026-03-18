@@ -29,7 +29,49 @@ export function createLicenseBillingHandlers({
   billingReadiness,
   maskSecret,
   exchangeShopifyClientCredentials,
+  logEvent,
 }) {
+  function logMcpAuthEvent(event, details = {}) {
+    try {
+      logEvent(event, details);
+    } catch {
+      // Logging should never block MCP auth responses.
+    }
+  }
+
+  function tokenHashPrefix(rawToken) {
+    if (typeof rawToken !== "string" || !rawToken.trim()) {
+      return null;
+    }
+    try {
+      return hashToken(rawToken).slice(0, 12);
+    } catch {
+      return null;
+    }
+  }
+
+  function tokenLogContext(tokenRecord, tenant = null) {
+    if (!tokenRecord || typeof tokenRecord !== "object") {
+      return {};
+    }
+    return {
+      tokenId: tokenRecord.tokenId || null,
+      tenantId: tenant?.tenantId || tokenRecord.tenantId || null,
+      oauthClientId: tokenRecord.oauthClientId || null,
+      oauthRefreshTokenId: tokenRecord.oauthRefreshTokenId || null,
+      oauthTokenFamilyId: tokenRecord.oauthTokenFamilyId || null,
+      tokenStatus: tokenRecord.status || null,
+      expiresAt: tokenRecord.expiresAt || null,
+    };
+  }
+
+  function inactiveTokenReason(resolved) {
+    if (!resolved?.tokenRecord) {
+      return "not_found";
+    }
+    return resolved.tokenRecord.status || "inactive";
+  }
+
   function resolveActiveMcpToken(rawToken) {
     const tokenHash = hashToken(rawToken);
     const tokenRecord = Object.values(db.mcpTokens).find((entry) => entry && entry.tokenHash === tokenHash);
@@ -446,12 +488,18 @@ export function createLicenseBillingHandlers({
       if (typeof payload.token !== "string" || payload.token.length < 24) {
         throw new Error("token is required");
       }
+      const hashedTokenPrefix = tokenHashPrefix(payload.token);
 
       const resolved = resolveActiveMcpToken(payload.token);
       if (!resolved.active || !resolved.tokenRecord || !resolved.tenant || !resolved.license) {
         if (resolved.tokenRecord?.status === "expired") {
           await persistDb();
         }
+        logMcpAuthEvent("mcp_token_introspect_inactive", {
+          reason: inactiveTokenReason(resolved),
+          tokenHashPrefix: hashedTokenPrefix,
+          ...tokenLogContext(resolved.tokenRecord),
+        });
         return json(res, 200, { active: false });
       }
       const { tokenRecord, tenant, license } = resolved;
@@ -460,6 +508,13 @@ export function createLicenseBillingHandlers({
       await persistDb();
 
       const authMode = resolveTenantShopifyAuthMode(tenant);
+      logMcpAuthEvent("mcp_token_introspect_ok", {
+        tokenHashPrefix: hashedTokenPrefix,
+        ...tokenLogContext(tokenRecord, tenant),
+        shopifyDomain: tenant.shopify?.domain || null,
+        authMode,
+        licenseStatus: canonicalLicense(license).status,
+      });
 
       return json(res, 200, {
         active: true,
@@ -473,6 +528,9 @@ export function createLicenseBillingHandlers({
         },
       });
     } catch (error) {
+      logMcpAuthEvent("mcp_token_introspect_bad_request", {
+        message: error instanceof Error ? error.message : String(error),
+      });
       return json(res, 400, {
         error: "bad_request",
         message: error instanceof Error ? error.message : String(error),
@@ -492,18 +550,30 @@ export function createLicenseBillingHandlers({
       if (typeof payload.token !== "string" || payload.token.length < 24) {
         throw new Error("token is required");
       }
+      const hashedTokenPrefix = tokenHashPrefix(payload.token);
 
       const resolved = resolveActiveMcpToken(payload.token);
       if (!resolved.active || !resolved.tokenRecord || !resolved.tenant) {
         if (resolved.tokenRecord?.status === "expired") {
           await persistDb();
         }
+        logMcpAuthEvent("mcp_token_exchange_inactive", {
+          reason: inactiveTokenReason(resolved),
+          tokenHashPrefix: hashedTokenPrefix,
+          ...tokenLogContext(resolved.tokenRecord),
+        });
         return json(res, 200, { active: false });
       }
 
       const { tokenRecord, tenant, license } = resolved;
       const readDecision = evaluateMcpReadAccess(license);
       if (!readDecision.allowed) {
+        logMcpAuthEvent("mcp_token_exchange_denied", {
+          tokenHashPrefix: hashedTokenPrefix,
+          ...tokenLogContext(tokenRecord, tenant),
+          licenseStatus: canonicalLicense(license).status,
+          reason: readDecision.reason,
+        });
         return json(res, 403, {
           error: "license_inactive",
           reason: readDecision.reason,
@@ -543,6 +613,11 @@ export function createLicenseBillingHandlers({
       }
 
       if (!accessToken) {
+        logMcpAuthEvent("mcp_token_exchange_failed", {
+          tokenHashPrefix: hashedTokenPrefix,
+          ...tokenLogContext(tokenRecord, tenant),
+          reason: "missing_shopify_access_token",
+        });
         return json(res, 502, {
           error: "token_exchange_failed",
           message: "Kon geen bruikbare Shopify access token verkrijgen.",
@@ -552,6 +627,14 @@ export function createLicenseBillingHandlers({
       tokenRecord.lastUsedAt = nowIso();
       tokenRecord.updatedAt = nowIso();
       await persistDb();
+      logMcpAuthEvent("mcp_token_exchange_ok", {
+        tokenHashPrefix: hashedTokenPrefix,
+        ...tokenLogContext(tokenRecord, tenant),
+        shopifyDomain: tenant.shopify?.domain || null,
+        authMode,
+        licenseStatus: canonicalLicense(license).status,
+        expiresInSeconds,
+      });
 
       return json(res, 200, {
         active: true,
@@ -565,6 +648,9 @@ export function createLicenseBillingHandlers({
         },
       });
     } catch (error) {
+      logMcpAuthEvent("mcp_token_exchange_bad_request", {
+        message: error instanceof Error ? error.message : String(error),
+      });
       return json(res, 400, {
         error: "bad_request",
         message: error instanceof Error ? error.message : String(error),

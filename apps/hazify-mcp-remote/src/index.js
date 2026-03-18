@@ -1162,6 +1162,24 @@ const buildWwwAuthenticateHeader = (req, errorCode, description) => {
     const safeDescription = String(description || "").replace(/"/g, "'");
     return `Bearer realm="Hazify MCP", resource_metadata="${metadataUrl}", scope="mcp:tools", error="${errorCode}", error_description="${safeDescription}"`;
 };
+const logHttpEvent = (event, details = {}) => {
+    try {
+        console.log(JSON.stringify({
+            ts: new Date().toISOString(),
+            event,
+            ...details,
+        }));
+    }
+    catch {
+        // Logging should never break MCP responses.
+    }
+};
+const requestLogContext = (req) => ({
+    method: req.method || null,
+    path: req.originalUrl || req.url || null,
+    origin: typeof req.headers.origin === "string" ? req.headers.origin : null,
+    userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : null,
+});
 const parseBearerToken = (authorizationHeader) => {
     if (typeof authorizationHeader !== "string") {
         return null;
@@ -1278,6 +1296,10 @@ else {
         });
     };
     const respondUnauthorized = (req, res, message) => {
+        logHttpEvent("mcp_http_unauthorized", {
+            ...requestLogContext(req),
+            reason: message,
+        });
         res.setHeader("WWW-Authenticate", buildWwwAuthenticateHeader(req, "invalid_token", message));
         respondJsonRpcError(res, 401, message, -32001);
     };
@@ -1290,6 +1312,10 @@ else {
     const assertAllowedOrigin = (req, res) => {
         const decision = isRequestOriginAllowed(req);
         if (!decision.allowed) {
+            logHttpEvent("mcp_http_origin_rejected", {
+                ...requestLogContext(req),
+                reason: decision.reason,
+            });
             respondJsonRpcError(res, 403, `Forbidden: ${decision.reason}`);
             return false;
         }
@@ -1371,6 +1397,15 @@ else {
         const context = await resolveRequestAuthContext(req, res);
         if (!context) {
             return;
+        }
+        if (isInitializeRequest(req.body)) {
+            logHttpEvent("mcp_http_initialize", {
+                ...requestLogContext(req),
+                sessionMode: MCP_SESSION_MODE,
+                tokenId: context.tokenId || null,
+                tenantId: context.tenantId || null,
+                shopifyDomain: context.shopifyDomain || null,
+            });
         }
         if (!useStatefulSessions) {
             if (typeof req.headers["mcp-session-id"] === "string") {

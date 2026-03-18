@@ -13,9 +13,13 @@
 1. client leest `/.well-known/oauth-protected-resource`
 2. client ontdekt auth server metadata
 3. dynamic client registration via `/oauth/register`
-4. authorize via `/oauth/authorize` met PKCE `S256`
-5. token exchange via `/oauth/token`
-6. access token wordt gebruikt op `/mcp`
+4. authorize via `GET /oauth/authorize` met PKCE `S256`
+5. authorize UI rendert alleen; toestaan/weigeren loopt via `POST /oauth/authorize`
+6. authorize POST bewaart de originele OAuth-context (`response_type`, `client_id`, `redirect_uri`, `state`, `scope`, `code_challenge`, `code_challenge_method`, `resource`)
+7. submit-regel: form body wint, querystring is alleen fallback/continuity; mismatch op gevoelige velden resulteert in `invalid_request`
+8. interactieve OAuth CSP laat de `redirect_uri`-origin toe in `form-action` zodat browserredirects naar connector-clients (bijv. ChatGPT) niet geblokkeerd worden
+9. token exchange via `/oauth/token`
+10. access token wordt gebruikt op `/mcp`
 
 ## 3) MCP request flow
 1. client roept `/mcp` aan met Bearer token of `x-api-key`

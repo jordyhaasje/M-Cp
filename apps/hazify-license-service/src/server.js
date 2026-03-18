@@ -1100,6 +1100,7 @@ const licenseBillingHandlers = createLicenseBillingHandlers({
   billingReadiness,
   maskSecret,
   exchangeShopifyClientCredentials,
+  logEvent,
 });
 
 const adminHandlers = createAdminHandlers({

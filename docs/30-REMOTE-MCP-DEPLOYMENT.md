@@ -23,6 +23,8 @@ Runtime-verplicht (afgedwongen door `apps/hazify-license-service/src/config/runt
 Optioneel/aanbevolen:
 - `DB_SINGLE_WRITER_LOCK_KEY` (optioneel; default lock key wordt gebruikt als niet gezet)
 - `MAX_BODY_BYTES` (aanbevolen minimaal `1048576`; hoger bij grotere payloads)
+- `OAUTH_ACCESS_TOKEN_TTL_SECONDS` (default `3600`; verhoog dit voor browserconnectoren zoals ChatGPT als de client refresh-tokens niet stabiel hergebruikt en onnodig opnieuw autoriseert)
+- `OAUTH_REFRESH_TOKEN_TTL_DAYS` (default `30`)
 
 ### MCP remote
 Runtime-verplicht voor remote HTTP transport:
@@ -54,7 +56,10 @@ Defaults/optioneel:
 4. `npm test`
 5. `npm run smoke:prod`
 6. MCP `initialize` + `tools/list` contracttest in `tests/e2e/contract.test.mjs`
-7. OAuth flow (`/oauth/register` -> `/oauth/authorize` -> `/oauth/token`)
+7. OAuth flow (`/oauth/register` -> `GET /oauth/authorize` -> `POST /oauth/authorize` -> `/oauth/token`)
+8. Verifieer bij browser/OAuth-clients dat:
+   - authorize submit de originele OAuth-parameters behoudt, inclusief `resource`
+   - CSP `form-action` de `redirect_uri`-origin toelaat voor HTTPS callbacks (bijv. `https://chatgpt.com`)
 
 ## Session behavior
 - Standaard draait `/mcp` in stateless mode zonder `mcp-session-id`.

@@ -7,6 +7,9 @@ Dit document bevat operationele regels voor ChatGPT connector-gebruik.
 - Gedrag afdwingen via MCP toolcontracten en runbooks.
 - Focus op Shopify store-operaties via de Hazify MCP.
 - OAuth autorisatiebesluit loopt via `POST /oauth/authorize` (niet via query-based GET decision).
+- `GET /oauth/authorize` rendert alleen de authorize UI; de oorspronkelijke OAuth-parameters moeten intact blijven tot aan de POST-submit.
+- ChatGPT connector-flows vertrouwen op behoud van `resource=https://.../mcp` en een geldige `redirect_uri`-return naar `https://chatgpt.com`.
+- De interactive authorize-pagina moet daarom CSP `form-action` uitbreiden met de callback-origin uit `redirect_uri`.
 - Remote MCP gebruikt lazy Shopify token exchange: pas bij tools die Shopify-auth echt nodig hebben.
 
 ## Theme import policy
