@@ -297,6 +297,15 @@ function requestPathname(req) {
   }
 }
 
+function requestSearchParam(req, key) {
+  try {
+    const parsed = new URL(req.url || "/", "http://localhost");
+    return parsed.searchParams.get(key) || "";
+  } catch {
+    return "";
+  }
+}
+
 function applySecurityHeaders(req, res) {
   const secure = isRequestSecure(req);
   const formActionSources = new Set(["'self'"]);
@@ -319,6 +328,10 @@ function applySecurityHeaders(req, res) {
     connectSources.add(oauthOrigin);
   }
   if (isInteractiveOAuthRoute) {
+    const redirectUriOrigin = normalizeCspOrigin(requestSearchParam(req, "redirect_uri"));
+    if (redirectUriOrigin) {
+      interactiveFormActionSources.add(redirectUriOrigin);
+    }
     // Native OAuth clients often use loopback redirect URIs on random local ports.
     interactiveFormActionSources.add("http://127.0.0.1:*");
     interactiveFormActionSources.add("http://localhost:*");

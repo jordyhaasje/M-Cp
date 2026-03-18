@@ -218,6 +218,11 @@ try {
   );
   assert.match(
     authorizeCsp,
+    /form-action[^;]*https:\/\/chatgpt\.com/,
+    "oauth authorize pages should allow the current https redirect_uri origin for ChatGPT callback redirects"
+  );
+  assert.match(
+    authorizeCsp,
     /frame-ancestors 'self' https:\/\/chatgpt\.com/,
     "oauth authorize pages should explicitly allow trusted LLM hosts as frame ancestors"
   );
