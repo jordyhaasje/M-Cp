@@ -72,6 +72,9 @@ global.fetch = async (url, options = {}) => {
 
   if (stringUrl === `${introspectionBase}/v1/mcp/token/introspect`) {
     counters.introspectCalls += 1;
+    const payload = JSON.parse(options.body || "{}");
+    const token = String(payload.token || "");
+    const mutationsAllowed = token !== "readonly-token";
     return new Response(
       JSON.stringify({
         active: true,
@@ -80,7 +83,7 @@ global.fetch = async (url, options = {}) => {
         licenseKey: "HZY-TEST",
         license: {
           status: "active",
-          entitlements: { mutations: true, tools: {} },
+          entitlements: { mutations: mutationsAllowed, tools: {} },
         },
         shopify: {
           domain: "unit-test-shop.myshopify.com",
@@ -240,12 +243,22 @@ const authHeaders = {
   origin: mcpBaseUrl,
 };
 
-const postMcp = async (body) => {
+const readonlyAuthHeaders = {
+  ...authHeaders,
+  authorization: "Bearer readonly-token",
+};
+
+const postMcpRaw = async (body, headers = authHeaders) => {
   const response = await fetch(`${mcpBaseUrl}/mcp`, {
     method: "POST",
-    headers: authHeaders,
+    headers,
     body: JSON.stringify(body),
   });
+  return response;
+};
+
+const postMcp = async (body, headers = authHeaders) => {
+  const response = await postMcpRaw(body, headers);
   assert.equal(response.status, 200, `Expected 200 for method ${body.method}`);
   const payload = await response.json();
   assert.equal(payload.error, undefined, `Unexpected JSON-RPC error for method ${body.method}`);
@@ -274,7 +287,53 @@ try {
   });
 
   assert.ok(counters.introspectCalls >= 2, "introspection should still run per request for revocation safety");
-  assert.equal(counters.exchangeCalls, 1, "context TTL default should cache token exchange for repeated calls");
+  assert.equal(counters.exchangeCalls, 0, "initialize/tools/list must not trigger eager token exchange");
+
+  await postMcp({
+    jsonrpc: "2.0",
+    id: 21,
+    method: "tools/call",
+    params: {
+      name: "list_theme_import_tools",
+      arguments: {},
+    },
+  });
+  assert.equal(counters.exchangeCalls, 0, "context-free tools should not trigger token exchange");
+
+  const blockedMutationResponse = await postMcpRaw(
+    {
+      jsonrpc: "2.0",
+      id: 22,
+      method: "tools/call",
+      params: {
+        name: "upsert-theme-file",
+        arguments: { themeId: 123, key: "sections/blocked.liquid", value: "<div>blocked</div>" },
+      },
+    },
+    readonlyAuthHeaders
+  );
+  const blockedMutationBody = await blockedMutationResponse.json();
+  const blockedMessage =
+    blockedMutationBody?.error?.message ||
+    blockedMutationBody?.result?.content?.map?.((entry) => entry?.text).join(" ") ||
+    "";
+  assert.match(
+    blockedMessage,
+    /License gate blocked/i,
+    "blocked mutating call should fail license gate before token exchange"
+  );
+  assert.equal(counters.exchangeCalls, 0, "blocked mutating call should not trigger token exchange");
+
+  await postMcp({
+    jsonrpc: "2.0",
+    id: 23,
+    method: "tools/call",
+    params: {
+      name: "get-theme-file",
+      arguments: { themeId: 123, key: "sections/demo.liquid", includeContent: false },
+    },
+  });
+  assert.equal(counters.exchangeCalls, 1, "first Shopify-scoped tool call should lazily trigger exchange once");
 
   await Promise.all([
     postMcp({

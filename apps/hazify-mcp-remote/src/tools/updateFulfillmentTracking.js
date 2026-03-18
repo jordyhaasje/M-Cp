@@ -194,7 +194,7 @@ const buildFulfillmentCreateLineItems = (fulfillmentOrders) => {
         fulfillmentOrderId: fulfillmentOrder.id
     }));
 };
-const fetchOrderTrackingContext = async (orderId) => {
+const fetchOrderTrackingContext = async (shopifyClient, orderId) => {
     const variables = { id: orderId };
     try {
         return await shopifyClient.request(ORDER_TRACKING_CONTEXT_QUERY_CONNECTION, variables);
@@ -223,7 +223,7 @@ const updateFulfillmentTracking = {
         try {
             const resolvedCompany = assertSupportedTrackingCompany(input.trackingCompany, "carrier");
             const resolvedOrder = await resolveOrderIdentifier(shopifyClient, input.orderId);
-            const contextResponse = (await fetchOrderTrackingContext(resolvedOrder.id));
+            const contextResponse = (await fetchOrderTrackingContext(shopifyClient, resolvedOrder.id));
             const orderContext = contextResponse.order;
             if (!orderContext) {
                 throw new Error(`Order ${input.orderId} not found.`);

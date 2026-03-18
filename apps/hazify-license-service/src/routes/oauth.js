@@ -440,10 +440,6 @@ export function createOAuthHandlers({
     const responseType = url.searchParams.get("response_type") || "code";
     const codeChallenge = url.searchParams.get("code_challenge") || "";
     const codeChallengeMethod = url.searchParams.get("code_challenge_method") || "S256";
-    const decision =
-      typeof url.searchParams.get("decision") === "string"
-        ? String(url.searchParams.get("decision")).trim()
-        : "";
     const requestedShopDomain =
       typeof url.searchParams.get("shopDomain") === "string"
         ? String(url.searchParams.get("shopDomain")).trim()
@@ -524,24 +520,6 @@ export function createOAuthHandlers({
       return redirectTo(res, `/login?next=${encodeURIComponent(next)}`);
     }
 
-    if (decision) {
-      return completeOAuthAuthorizeDecision({
-        res,
-        client,
-        clientId,
-        redirectUri,
-        state,
-        responseType,
-        codeChallenge,
-        codeChallengeMethod,
-        scope,
-        decision,
-        licenseKey: accountSession.account.licenseKey,
-        shopDomain: requestedShopDomain,
-        authorizePath: url.pathname || "/oauth/authorize",
-      });
-    }
-
     const shopOptions = getTenantsByLicenseKey(accountSession.account.licenseKey)
       .map((tenant) => tenant?.shopify?.domain)
       .filter(Boolean);
@@ -558,6 +536,7 @@ export function createOAuthHandlers({
         codeChallenge,
         codeChallengeMethod,
         scope,
+        shopDomain: requestedShopDomain,
         shopOptions,
       })
     );

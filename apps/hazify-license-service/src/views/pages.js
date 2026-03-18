@@ -2844,20 +2844,20 @@ export function renderOAuthAuthorizePage({
           <div class="content">
             ${error ? `<p class="notice err">${escapeHtml(error)}</p>` : ""}
             <article class="panel">
-              <div
+              <form
                 id="oauth-authorize-root"
                 class="grid-2"
                 style="display:grid;"
-                data-authorize-path="${escapeHtml(authorizeAction || "/oauth/authorize")}"
-                data-client-id="${escapeHtml(clientId)}"
-                data-redirect-uri="${escapeHtml(redirectUri)}"
-                data-state="${escapeHtml(state)}"
-                data-response-type="${escapeHtml(responseType || "code")}"
-                data-code-challenge="${escapeHtml(codeChallenge)}"
-                data-code-challenge-method="${escapeHtml(codeChallengeMethod || "S256")}"
-                data-scope="${escapeHtml(scope || "")}"
-                data-default-shop-domain="${escapeHtml(shopOptions.length === 1 ? shopOptions[0] : "")}"
+                method="post"
+                action="${escapeHtml(authorizeAction || "/oauth/authorize")}"
               >
+                <input type="hidden" name="client_id" value="${escapeHtml(clientId)}" />
+                <input type="hidden" name="redirect_uri" value="${escapeHtml(redirectUri)}" />
+                <input type="hidden" name="state" value="${escapeHtml(state)}" />
+                <input type="hidden" name="response_type" value="${escapeHtml(responseType || "code")}" />
+                <input type="hidden" name="code_challenge" value="${escapeHtml(codeChallenge)}" />
+                <input type="hidden" name="code_challenge_method" value="${escapeHtml(codeChallengeMethod || "S256")}" />
+                <input type="hidden" name="scope" value="${escapeHtml(scope || "mcp:tools")}" />
                 ${
                   hasMultipleShops
                     ? `
@@ -2868,53 +2868,23 @@ export function renderOAuthAuthorizePage({
                 `
                     : ""
                 }
+                ${
+                  hasMultipleShops
+                    ? ""
+                    : `<input type="hidden" name="shopDomain" value="${escapeHtml(
+                        shopDomain || (shopOptions.length === 1 ? shopOptions[0] : "")
+                      )}" />`
+                }
 
                 <div class="btn-row">
-                  <button class="btn primary" type="button" data-decision="allow">Verbinden</button>
-                  <button class="btn" type="button" data-decision="deny">Niet nu</button>
+                  <button class="btn primary" type="submit" name="decision" value="allow">Verbinden</button>
+                  <button class="btn" type="submit" name="decision" value="deny">Niet nu</button>
                 </div>
-              </div>
+              </form>
             </article>
           </div>
         </section>
       </div>
-      <script>
-        (() => {
-          const root = document.getElementById('oauth-authorize-root');
-          if (!root) return;
-
-          const buildDecisionUrl = (decision) => {
-            const params = new URLSearchParams();
-            params.set('client_id', root.dataset.clientId || '');
-            params.set('redirect_uri', root.dataset.redirectUri || '');
-            params.set('state', root.dataset.state || '');
-            params.set('response_type', root.dataset.responseType || 'code');
-            params.set('code_challenge', root.dataset.codeChallenge || '');
-            params.set('code_challenge_method', root.dataset.codeChallengeMethod || 'S256');
-            params.set('scope', root.dataset.scope || 'mcp:tools');
-            params.set('decision', decision);
-
-            const shopSelect = document.getElementById('shopDomain');
-            const selectedShop = shopSelect
-              ? String(shopSelect.value || '').trim()
-              : String(root.dataset.defaultShopDomain || '').trim();
-            if (selectedShop) {
-              params.set('shopDomain', selectedShop);
-            }
-
-            const basePath = root.dataset.authorizePath || '/oauth/authorize';
-            const separator = basePath.includes('?') ? '&' : '?';
-            return \`\${basePath}\${separator}\${params.toString()}\`;
-          };
-
-          root.querySelectorAll('[data-decision]').forEach((button) => {
-            button.addEventListener('click', () => {
-              const decision = button.dataset.decision === 'allow' ? 'allow' : 'deny';
-              window.location.assign(buildDecisionUrl(decision));
-            });
-          });
-        })();
-      </script>
     `,
   });
 }

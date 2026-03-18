@@ -155,6 +155,8 @@ const previousEnv = {
   PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL,
   MCP_PUBLIC_URL: process.env.MCP_PUBLIC_URL,
   MAX_BODY_BYTES: process.env.MAX_BODY_BYTES,
+  LICENSE_GRACE_HOURS: process.env.LICENSE_GRACE_HOURS,
+  READ_ONLY_GRACE_DAYS: process.env.READ_ONLY_GRACE_DAYS,
 };
 
 let serverInstance = null;
@@ -168,6 +170,8 @@ try {
   process.env.PUBLIC_BASE_URL = baseUrl;
   process.env.MCP_PUBLIC_URL = `${baseUrl}/mcp`;
   process.env.MAX_BODY_BYTES = "1048576";
+  process.env.LICENSE_GRACE_HOURS = "0.00003";
+  process.env.READ_ONLY_GRACE_DAYS = "0.000002";
 
   const serverModuleUrl = `${pathToFileURL(path.join(serviceCwd, "src", "server.js")).href}?test=${Date.now()}`;
   const serverModule = await import(serverModuleUrl);
@@ -402,13 +406,13 @@ try {
   const invalidRedirectAuthorizeHtml = await invalidRedirectAuthorizePage.text();
   assert.match(
     invalidRedirectAuthorizeHtml,
-    /id="oauth-authorize-root"/,
-    "authorize page should render decision container for CSP-safe OAuth confirmation"
+    /<form[^>]+id="oauth-authorize-root"[^>]+method="post"/,
+    "authorize page should render a POST form for OAuth confirmation"
   );
   assert.match(
     invalidRedirectAuthorizeHtml,
-    /data-authorize-path="\/oauth\/authorize"/,
-    "authorize decision target should stay same-origin for proxied OAuth clients"
+    /action="\/oauth\/authorize"/,
+    "authorize form action should stay same-origin for proxied OAuth clients"
   );
 
   const noPkceAuthorize = await fetch(
@@ -424,6 +428,35 @@ try {
   assert.equal(noPkceAuthorize.status, 302, "authorize without PKCE should redirect with error");
   const noPkceLocation = noPkceAuthorize.headers.get("location") || "";
   assert.match(noPkceLocation, /error=invalid_request/, "missing PKCE should return invalid_request");
+
+  const getDecisionVerifier =
+    "pkce-verifier-get-decision-1234567890-pkce-verifier-get-decision-1234567890";
+  const getDecisionChallenge = pkceChallenge(getDecisionVerifier);
+  const getDecisionAttempt = await fetch(
+    `${baseUrl}/oauth/authorize?client_id=${encodeURIComponent(client.client_id)}&redirect_uri=${encodeURIComponent(
+      client.redirect_uris[0]
+    )}&response_type=code&state=get-decision-ignored&code_challenge=${encodeURIComponent(
+      getDecisionChallenge
+    )}&code_challenge_method=S256&decision=allow&shopDomain=${encodeURIComponent(
+      "unit-test-shop.myshopify.com"
+    )}`,
+    {
+      method: "GET",
+      redirect: "manual",
+      headers: {
+        Cookie: `hz_user_session=${sessionToken}`,
+      },
+    }
+  );
+  assert.equal(getDecisionAttempt.status, 200, "GET decision parameter must not complete authorization");
+  assert.equal(getDecisionAttempt.headers.get("location"), null, "GET decision should not redirect with auth code");
+  const getDecisionHtml = await getDecisionAttempt.text();
+  assert.match(getDecisionHtml, /method="post"/, "authorize page should require POST submission");
+  assert.match(
+    getDecisionHtml,
+    /name="decision" value="allow"/,
+    "authorize page should present allow decision as POST form control"
+  );
 
   const plainAuthorize = await fetch(`${baseUrl}/oauth/authorize`, {
     method: "POST",
@@ -718,6 +751,123 @@ try {
     false,
     "exchange should not expose Shopify client id when returning access token"
   );
+
+  const updateLicenseStatus = async (status) => {
+    const response = await fetch(`${baseUrl}/v1/admin/license/update-status`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-admin-api-key": "admin-test-key",
+      },
+      body: JSON.stringify({
+        licenseKey,
+        status,
+      }),
+    });
+    assert.equal(response.status, 200, `admin status update should succeed for ${status}`);
+  };
+
+  await updateLicenseStatus("past_due");
+  const exchangePastDueWithinGrace = await fetch(`${baseUrl}/v1/mcp/token/exchange`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-mcp-api-key": "mcp-test-key",
+    },
+    body: JSON.stringify({ token: tokenBody.access_token }),
+  });
+  assert.equal(exchangePastDueWithinGrace.status, 200, "past_due within grace should allow read token exchange");
+
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  const exchangePastDueAfterGrace = await fetch(`${baseUrl}/v1/mcp/token/exchange`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-mcp-api-key": "mcp-test-key",
+    },
+    body: JSON.stringify({ token: tokenBody.access_token }),
+  });
+  assert.equal(exchangePastDueAfterGrace.status, 200, "past_due after grace should still allow read token exchange");
+
+  await updateLicenseStatus("active");
+  await updateLicenseStatus("canceled");
+  const exchangeCanceledWithinGrace = await fetch(`${baseUrl}/v1/mcp/token/exchange`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-mcp-api-key": "mcp-test-key",
+    },
+    body: JSON.stringify({ token: tokenBody.access_token }),
+  });
+  assert.equal(
+    exchangeCanceledWithinGrace.status,
+    200,
+    "canceled within read-only grace should allow read token exchange"
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 260));
+  const exchangeCanceledAfterGrace = await fetch(`${baseUrl}/v1/mcp/token/exchange`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-mcp-api-key": "mcp-test-key",
+    },
+    body: JSON.stringify({ token: tokenBody.access_token }),
+  });
+  assert.equal(exchangeCanceledAfterGrace.status, 403, "canceled after read-only grace should be blocked");
+  const exchangeCanceledAfterGraceBody = await exchangeCanceledAfterGrace.json();
+  assert.equal(exchangeCanceledAfterGraceBody.error, "license_inactive");
+  assert.match(
+    exchangeCanceledAfterGraceBody.reason || "",
+    /canceled\/unpaid license blocks this operation/,
+    "denied canceled exchange should expose machine-readable reason"
+  );
+
+  await updateLicenseStatus("active");
+  await updateLicenseStatus("unpaid");
+  const exchangeUnpaidWithinGrace = await fetch(`${baseUrl}/v1/mcp/token/exchange`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-mcp-api-key": "mcp-test-key",
+    },
+    body: JSON.stringify({ token: tokenBody.access_token }),
+  });
+  assert.equal(exchangeUnpaidWithinGrace.status, 200, "unpaid within read-only grace should allow read token exchange");
+
+  await new Promise((resolve) => setTimeout(resolve, 260));
+  const exchangeUnpaidAfterGrace = await fetch(`${baseUrl}/v1/mcp/token/exchange`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-mcp-api-key": "mcp-test-key",
+    },
+    body: JSON.stringify({ token: tokenBody.access_token }),
+  });
+  assert.equal(exchangeUnpaidAfterGrace.status, 403, "unpaid after read-only grace should be blocked");
+  const exchangeUnpaidAfterGraceBody = await exchangeUnpaidAfterGrace.json();
+  assert.equal(exchangeUnpaidAfterGraceBody.error, "license_inactive");
+  assert.match(
+    exchangeUnpaidAfterGraceBody.reason || "",
+    /canceled\/unpaid license blocks this operation/,
+    "denied unpaid exchange should expose machine-readable reason"
+  );
+
+  await updateLicenseStatus("invalid");
+  const exchangeInvalid = await fetch(`${baseUrl}/v1/mcp/token/exchange`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-mcp-api-key": "mcp-test-key",
+    },
+    body: JSON.stringify({ token: tokenBody.access_token }),
+  });
+  assert.equal(exchangeInvalid.status, 403, "invalid license should block token exchange");
+  const exchangeInvalidBody = await exchangeInvalid.json();
+  assert.equal(exchangeInvalidBody.error, "license_inactive");
+  assert.match(exchangeInvalidBody.reason || "", /invalid license status/);
+
+  await updateLicenseStatus("active");
 
   const invalidRefreshClient = await fetch(`${baseUrl}/oauth/token`, {
     method: "POST",

@@ -354,7 +354,7 @@ try {
     /stateless mode does not accept mcp-session-id/i
   );
 
-  const mismatchTokenResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+  const mismatchInitializeResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -364,9 +364,36 @@ try {
     },
     body: JSON.stringify(initializeBody),
   });
-  assert.equal(mismatchTokenResponse.status, 401, "tenant/token mismatch should be rejected");
-  const mismatchAuthHeader = mismatchTokenResponse.headers.get("www-authenticate") || "";
-  assert.match(mismatchAuthHeader, /invalid_token/i);
+  assert.equal(
+    mismatchInitializeResponse.status,
+    200,
+    "initialize should remain exchange-lazy and not fail before a Shopify-scoped tool call"
+  );
+
+  const mismatchToolResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      authorization: "Bearer mismatch-token",
+      origin: `http://127.0.0.1:${mcpPort}`,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 90,
+      method: "tools/call",
+      params: {
+        name: "get-theme-file",
+        arguments: { themeId: 123, key: "sections/demo.liquid", includeContent: false },
+      },
+    }),
+  });
+  const mismatchToolBody = await mismatchToolResponse.json();
+  const mismatchMessage =
+    mismatchToolBody?.error?.message ||
+    mismatchToolBody?.result?.content?.map?.((entry) => entry?.text).join(" ") ||
+    "";
+  assert.match(mismatchMessage, /Token exchange tenant mismatch/i);
 
   const toolsListResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
     method: "POST",

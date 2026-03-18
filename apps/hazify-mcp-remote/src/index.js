@@ -246,6 +246,7 @@ const freezeExecutionContext = (context) => {
         ? Object.freeze({ ...context.license })
         : Object.freeze({});
     return Object.freeze({
+        mcpToken: context?.mcpToken || null,
         tokenHash: context?.tokenHash || null,
         tokenId: context?.tokenId || null,
         tenantId: String(context?.tenantId || "unknown"),
@@ -253,6 +254,15 @@ const freezeExecutionContext = (context) => {
         license: safeLicense,
         shopifyDomain: context?.shopifyDomain || null,
         shopifyClient: context?.shopifyClient || null,
+    });
+};
+const cacheRemoteContext = (tokenHash, context) => {
+    if (!tokenHash || HAZIFY_MCP_CONTEXT_TTL_MS <= 0) {
+        return;
+    }
+    remoteContextCache.set(tokenHash, {
+        context,
+        expiresAtMs: Date.now() + Math.max(HAZIFY_MCP_CONTEXT_TTL_MS, 1000),
     });
 };
 const resolveRemoteShopifyAccessToken = async (bearerToken) => {
@@ -275,7 +285,10 @@ const resolveRemoteShopifyAccessToken = async (bearerToken) => {
         const text = await response.text();
         const payload = text ? JSON.parse(text) : {};
         if (!response.ok) {
-            throw new Error(typeof payload.message === "string" ? payload.message : `HTTP ${response.status}`);
+            const reason = typeof payload.reason === "string" ? payload.reason : null;
+            const message = typeof payload.message === "string" ? payload.message : null;
+            const code = typeof payload.error === "string" ? payload.error : null;
+            throw new Error(reason || message || code || `HTTP ${response.status}`);
         }
         if (!payload?.active) {
             throw new Error("Token exchange rejected inactive token");
@@ -343,27 +356,67 @@ const resolveRemoteContext = async (bearerToken) => {
     }
     const tenantId = String(introspection.tenantId || "unknown");
     const tokenId = typeof introspection.tokenId === "string" ? introspection.tokenId : null;
+    let cachedShopifyClient = null;
     if (HAZIFY_MCP_CONTEXT_TTL_MS > 0 && cachedContext && cachedContext.expiresAtMs > Date.now()) {
         const cached = cachedContext.context;
         const tokenMatches = !tokenId || !cached?.tokenId || cached.tokenId === tokenId;
-        if (cached?.shopifyClient && cached.tenantId === tenantId && cached.shopifyDomain === domain && tokenMatches) {
-            const context = freezeExecutionContext({
-                tokenHash,
-                tokenId,
-                tenantId,
-                licenseKey: introspection.licenseKey || null,
-                license: introspection.license || {},
-                shopifyDomain: domain,
-                shopifyClient: cached.shopifyClient,
-            });
-            remoteContextCache.set(tokenHash, {
-                context,
-                expiresAtMs: Date.now() + Math.max(HAZIFY_MCP_CONTEXT_TTL_MS, 1000),
-            });
-            return context;
+        if (cached?.tenantId === tenantId && cached?.shopifyDomain === domain && tokenMatches && cached?.shopifyClient) {
+            cachedShopifyClient = cached.shopifyClient;
         }
     }
-    const exchange = await resolveRemoteShopifyAccessToken(bearerToken);
+    const context = freezeExecutionContext({
+        mcpToken: bearerToken,
+        tokenHash,
+        tokenId,
+        tenantId,
+        licenseKey: introspection.licenseKey || null,
+        license: introspection.license || {},
+        shopifyDomain: domain,
+        shopifyClient: cachedShopifyClient,
+    });
+    cacheRemoteContext(tokenHash, context);
+    return context;
+};
+const ensureRemoteShopifyClient = async (context) => {
+    if (context?.shopifyClient) {
+        return context;
+    }
+    const tokenHash = context?.tokenHash || null;
+    const domain = normalizeShopDomain(context?.shopifyDomain || "");
+    if (!domain || !domain.endsWith(".myshopify.com")) {
+        throw new Error("Request context missing valid shopify domain");
+    }
+    const tenantId = String(context?.tenantId || "unknown");
+    const tokenId = typeof context?.tokenId === "string" ? context.tokenId : null;
+    if (tokenHash && HAZIFY_MCP_CONTEXT_TTL_MS > 0) {
+        const cachedContext = remoteContextCache.get(tokenHash);
+        if (cachedContext && cachedContext.expiresAtMs > Date.now()) {
+            const cached = cachedContext.context;
+            const tokenMatches = !tokenId || !cached?.tokenId || cached.tokenId === tokenId;
+            if (cached?.shopifyClient && cached?.tenantId === tenantId && cached?.shopifyDomain === domain && tokenMatches) {
+                const hydratedContext = freezeExecutionContext({
+                    ...context,
+                    shopifyClient: cached.shopifyClient,
+                });
+                cacheRemoteContext(tokenHash, hydratedContext);
+                return hydratedContext;
+            }
+        }
+    }
+    const cacheKey = `${tenantId}:${domain}`;
+    let cachedShopifyClient = remoteShopifyClientCache.get(cacheKey);
+    if (cachedShopifyClient && cachedShopifyClient.expiresAtMs > Date.now()) {
+        const hydratedContext = freezeExecutionContext({
+            ...context,
+            shopifyClient: cachedShopifyClient.client,
+        });
+        cacheRemoteContext(tokenHash, hydratedContext);
+        return hydratedContext;
+    }
+    if (!context?.mcpToken) {
+        throw new Error("Missing MCP token in request context");
+    }
+    const exchange = await resolveRemoteShopifyAccessToken(context.mcpToken);
     if (exchange.tenantId && String(exchange.tenantId) !== tenantId) {
         throw new Error("Token exchange tenant mismatch");
     }
@@ -373,57 +426,30 @@ const resolveRemoteContext = async (bearerToken) => {
     if (exchange.domain !== domain) {
         throw new Error("Token exchange domain mismatch");
     }
-    const cacheKey = `${tenantId}:${domain}`;
     const credentialFingerprint = sha256Hex(exchange.accessToken);
-    let cachedShopifyClient = remoteShopifyClientCache.get(cacheKey);
-    if (cachedShopifyClient &&
-        cachedShopifyClient.credentialFingerprint === credentialFingerprint &&
-        cachedShopifyClient.expiresAtMs > Date.now()) {
-        const context = freezeExecutionContext({
-            tokenHash,
-            tokenId,
-            tenantId,
-            licenseKey: introspection.licenseKey || null,
-            license: introspection.license || {},
-            shopifyDomain: domain,
-            shopifyClient: cachedShopifyClient.client,
+    cachedShopifyClient = remoteShopifyClientCache.get(cacheKey);
+    if (!cachedShopifyClient ||
+        cachedShopifyClient.credentialFingerprint !== credentialFingerprint ||
+        cachedShopifyClient.expiresAtMs <= Date.now()) {
+        const shopifyClient = new GraphQLClient(`https://${domain}/admin/api/${API_VERSION}/graphql.json`, {
+            headers: {
+                "X-Shopify-Access-Token": exchange.accessToken,
+                "Content-Type": "application/json"
+            }
         });
-        if (HAZIFY_MCP_CONTEXT_TTL_MS > 0) {
-            remoteContextCache.set(tokenHash, {
-                context,
-                expiresAtMs: Date.now() + Math.max(HAZIFY_MCP_CONTEXT_TTL_MS, 1000),
-            });
-        }
-        return context;
+        cachedShopifyClient = {
+            client: shopifyClient,
+            credentialFingerprint,
+            expiresAtMs: exchange.expiresAtMs,
+        };
+        remoteShopifyClientCache.set(cacheKey, cachedShopifyClient);
     }
-    const shopifyClient = new GraphQLClient(`https://${domain}/admin/api/${API_VERSION}/graphql.json`, {
-        headers: {
-            "X-Shopify-Access-Token": exchange.accessToken,
-            "Content-Type": "application/json"
-        }
-    });
-    cachedShopifyClient = {
-        client: shopifyClient,
-        credentialFingerprint,
-        expiresAtMs: exchange.expiresAtMs,
-    };
-    remoteShopifyClientCache.set(cacheKey, cachedShopifyClient);
-    const context = freezeExecutionContext({
-        tokenHash,
-        tokenId,
-        tenantId,
-        licenseKey: introspection.licenseKey || null,
-        license: introspection.license || {},
-        shopifyDomain: domain,
+    const hydratedContext = freezeExecutionContext({
+        ...context,
         shopifyClient: cachedShopifyClient.client,
     });
-    if (HAZIFY_MCP_CONTEXT_TTL_MS > 0) {
-        remoteContextCache.set(tokenHash, {
-            context,
-            expiresAtMs: Date.now() + Math.max(HAZIFY_MCP_CONTEXT_TTL_MS, 1000),
-        });
-    }
-    return context;
+    cacheRemoteContext(tokenHash, hydratedContext);
+    return hydratedContext;
 };
 const tenantToolExecutionLocks = new Map();
 const CONTEXT_FREE_TOOLS = new Set([
@@ -475,7 +501,11 @@ async function runLicensedTool(toolName, mutating, executor, args) {
         throw new Error(`License gate blocked '${toolName}': ${decision.reason}`);
     }
     const executeTool = async () => {
-        const executionContext = buildToolExecutionContext(context);
+        let effectiveContext = context;
+        if (toolRequiresShopifyClient(toolName) && !effectiveContext.shopifyClient) {
+            effectiveContext = await ensureRemoteShopifyClient(effectiveContext);
+        }
+        const executionContext = buildToolExecutionContext(effectiveContext);
         if (!executionContext.shopifyClient && toolRequiresShopifyClient(toolName)) {
             throw new Error("Missing Shopify client in request execution context");
         }
@@ -693,8 +723,8 @@ server.tool("get-supported-tracking-companies", {
 server.tool("get-customer-orders", {
     customerId: z
         .string()
-        .regex(/^\d+$/, "Customer ID must be numeric")
-        .describe("Shopify customer ID, numeric excluding gid prefix"),
+        .min(1)
+        .describe("Accepts Shopify customer numeric id or gid://shopify/Customer/<id>"),
     limit: z.number().default(10)
 }, async (args) => {
     return runLicensedTool("get-customer-orders", false, getCustomerOrders.execute, args);
@@ -703,8 +733,8 @@ server.tool("get-customer-orders", {
 server.tool("update-customer", {
     id: z
         .string()
-        .regex(/^\d+$/, "Customer ID must be numeric")
-        .describe("Shopify customer ID, numeric excluding gid prefix"),
+        .min(1)
+        .describe("Accepts Shopify customer numeric id or gid://shopify/Customer/<id>"),
     firstName: z.string().optional(),
     lastName: z.string().optional(),
     email: z.string().email().optional(),
@@ -870,7 +900,7 @@ server.tool("delete-product-variants", {
     return runLicensedTool("delete-product-variants", true, deleteProductVariants.execute, args);
 });
 server.tool("refund-order", {
-    orderId: z.string().min(1).describe("Shopify order GID, e.g. gid://shopify/Order/123"),
+    orderId: z.string().min(1).describe("Accepts Shopify GID, numeric order id, or order number like 1004/#1004"),
     note: z.string().optional(),
     audit: z.object({
         amount: z.string().min(1).describe("Refund amount for audit trail, e.g. 19.95"),

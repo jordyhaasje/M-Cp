@@ -60,6 +60,46 @@ export function createLicenseBillingHandlers({
     return "client_credentials";
   }
 
+  function evaluateMcpReadAccess(licenseRecord) {
+    const normalized = canonicalLicense(licenseRecord || {});
+    const status = typeof normalized?.status === "string" ? normalized.status : "invalid";
+    const entitlements =
+      normalized?.entitlements && typeof normalized.entitlements === "object"
+        ? normalized.entitlements
+        : {};
+
+    if (
+      entitlements.tools &&
+      typeof entitlements.tools === "object" &&
+      entitlements.tools["token-exchange"] === false
+    ) {
+      return { allowed: false, reason: "Tool 'token-exchange' is disabled by license entitlements" };
+    }
+
+    if (status === "active") {
+      return { allowed: true, reason: "active" };
+    }
+
+    const now = Date.now();
+    if (status === "past_due") {
+      const graceUntilMs = Date.parse(normalized?.graceUntil || "");
+      if (!Number.isNaN(graceUntilMs) && now <= graceUntilMs) {
+        return { allowed: true, reason: "past_due within grace window" };
+      }
+      return { allowed: true, reason: "past_due grace expired; read-only access retained" };
+    }
+
+    if (status === "canceled" || status === "unpaid") {
+      const readOnlyGraceUntilMs = Date.parse(normalized?.readOnlyGraceUntil || "");
+      if (!Number.isNaN(readOnlyGraceUntilMs) && now <= readOnlyGraceUntilMs) {
+        return { allowed: true, reason: "canceled/unpaid read-only grace active" };
+      }
+      return { allowed: false, reason: "canceled/unpaid license blocks this operation" };
+    }
+
+    return { allowed: false, reason: "invalid license status" };
+  }
+
   async function handleValidateOrHeartbeat(req, res, mode) {
     if (!applyRateLimit(req, res)) {
       return;
@@ -461,7 +501,14 @@ export function createLicenseBillingHandlers({
         return json(res, 200, { active: false });
       }
 
-      const { tokenRecord, tenant } = resolved;
+      const { tokenRecord, tenant, license } = resolved;
+      const readDecision = evaluateMcpReadAccess(license);
+      if (!readDecision.allowed) {
+        return json(res, 403, {
+          error: "license_inactive",
+          reason: readDecision.reason,
+        });
+      }
       const authMode = resolveTenantShopifyAuthMode(tenant);
       let accessToken = null;
       let expiresInSeconds = null;

@@ -294,7 +294,7 @@ const FULFILLMENT_CREATE_MUTATION = gql `
     }
   }
 `;
-const fetchOrderTrackingContext = async (orderId) => {
+const fetchOrderTrackingContext = async (shopifyClient, orderId) => {
     const variables = { id: orderId };
     try {
         return await shopifyClient.request(ORDER_TRACKING_CONTEXT_QUERY_CONNECTION, variables);
@@ -562,7 +562,7 @@ const updateOrder = {
                 if (!hasTrackingPayload(trackingRequest.trackingInfoInput)) {
                     throw new Error("Tracking update requested, but no tracking number, URL or carrier was provided.");
                 }
-                const contextResponse = (await fetchOrderTrackingContext(resolvedOrderId));
+                const contextResponse = (await fetchOrderTrackingContext(shopifyClient, resolvedOrderId));
                 const orderContext = contextResponse.order;
                 if (!orderContext) {
                     throw new Error(`Order with ID ${resolvedOrderId} not found.`);
