@@ -2820,6 +2820,7 @@ export function renderOAuthAuthorizePage({
   codeChallenge = "",
   codeChallengeMethod = "S256",
   scope = "",
+  resource = "",
   shopDomain = "",
   shopOptions = [],
   error = "",
@@ -2858,6 +2859,7 @@ export function renderOAuthAuthorizePage({
                 <input type="hidden" name="code_challenge" value="${escapeHtml(codeChallenge)}" />
                 <input type="hidden" name="code_challenge_method" value="${escapeHtml(codeChallengeMethod || "S256")}" />
                 <input type="hidden" name="scope" value="${escapeHtml(scope || "mcp:tools")}" />
+                <input type="hidden" name="resource" value="${escapeHtml(resource)}" />
                 ${
                   hasMultipleShops
                     ? `

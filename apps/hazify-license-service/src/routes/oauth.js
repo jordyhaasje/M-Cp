@@ -175,6 +175,25 @@ export function createOAuthHandlers({
     res.end();
   }
 
+  function resolveExpectedOauthResource(req) {
+    if (config.mcpPublicUrl) {
+      return normalizeBaseUrl(config.mcpPublicUrl);
+    }
+    return normalizeBaseUrl(`${requestBaseUrl(req)}/mcp`);
+  }
+
+  function assertSupportedOauthResource(req, resource) {
+    const normalizedResource = normalizeBaseUrl(resource || "");
+    if (!normalizedResource) {
+      return "";
+    }
+    const expectedResource = resolveExpectedOauthResource(req);
+    if (normalizedResource !== expectedResource) {
+      throw new Error("Unsupported resource for this authorization server");
+    }
+    return normalizedResource;
+  }
+
   function validateOAuthGrantType(grantType) {
     return grantType === "authorization_code" || grantType === "refresh_token";
   }
@@ -440,11 +459,19 @@ export function createOAuthHandlers({
     const responseType = url.searchParams.get("response_type") || "code";
     const codeChallenge = url.searchParams.get("code_challenge") || "";
     const codeChallengeMethod = url.searchParams.get("code_challenge_method") || "S256";
+    const scope =
+      typeof url.searchParams.get("scope") === "string" && url.searchParams.get("scope").trim()
+        ? String(url.searchParams.get("scope")).trim()
+        : "mcp:tools";
+    const resource =
+      typeof url.searchParams.get("resource") === "string" && url.searchParams.get("resource").trim()
+        ? String(url.searchParams.get("resource")).trim()
+        : "";
     const requestedShopDomain =
       typeof url.searchParams.get("shopDomain") === "string"
         ? String(url.searchParams.get("shopDomain")).trim()
         : "";
-    const scope = "mcp:tools";
+    const authorizeAction = `${url.pathname || "/oauth/authorize"}${url.search || ""}`;
 
     const client = getOAuthClient(clientId);
     if (!client) {
@@ -495,20 +522,38 @@ export function createOAuthHandlers({
         });
         return;
       }
+      const normalizedResource = assertSupportedOauthResource(req, resource);
+      if (resource && !normalizedResource) {
+        redirectWithOAuthResult(res, redirectUri, {
+          error: "invalid_target",
+          error_description: "Unsupported resource",
+          state,
+        });
+        return;
+      }
     } catch (error) {
+      if (error instanceof Error && error.message === "Unsupported resource for this authorization server") {
+        redirectWithOAuthResult(res, redirectUri, {
+          error: "invalid_target",
+          error_description: "Unsupported resource",
+          state,
+        });
+        return;
+      }
       res.writeHead(400, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
       res.end(
         renderOAuthAuthorizePage({
           error: error instanceof Error ? error.message : String(error),
           clientName: client.clientName,
           clientId,
-          authorizeAction: url.pathname || "/oauth/authorize",
+          authorizeAction,
           redirectUri,
           state,
           responseType,
           codeChallenge,
           codeChallengeMethod,
           scope,
+          resource,
         })
       );
       return;
@@ -529,13 +574,14 @@ export function createOAuthHandlers({
       renderOAuthAuthorizePage({
         clientName: client.clientName,
         clientId,
-        authorizeAction: url.pathname || "/oauth/authorize",
+        authorizeAction,
         redirectUri,
         state,
         responseType,
         codeChallenge,
         codeChallengeMethod,
         scope,
+        resource,
         shopDomain: requestedShopDomain,
         shopOptions,
       })
@@ -547,33 +593,47 @@ export function createOAuthHandlers({
       return;
     }
     try {
+      const requestUrl = new URL(req.url || "/oauth/authorize", "http://localhost");
+      const queryParams = requestUrl.searchParams;
       const payload = await readJsonOrFormBody(req, readBody);
-      const clientId = typeof payload.client_id === "string" ? payload.client_id.trim() : "";
-      const redirectUri = typeof payload.redirect_uri === "string" ? payload.redirect_uri.trim() : "";
-      const state = typeof payload.state === "string" ? payload.state : "";
-      const responseType =
-        typeof payload.response_type === "string" && payload.response_type.trim()
-          ? payload.response_type.trim()
-          : "code";
-      const codeChallenge =
-        typeof payload.code_challenge === "string" && payload.code_challenge.trim()
-          ? payload.code_challenge.trim()
-          : "";
-      const codeChallengeMethod =
-        typeof payload.code_challenge_method === "string" && payload.code_challenge_method.trim()
-          ? payload.code_challenge_method.trim()
-          : "S256";
-      const scope = "mcp:tools";
-      const decision =
-        typeof payload.decision === "string" && payload.decision.trim() ? payload.decision.trim() : "deny";
-      const authorizePath = (() => {
-        try {
-          const parsed = new URL(req.url || "/oauth/authorize", "http://localhost");
-          return parsed.pathname || "/oauth/authorize";
-        } catch {
-          return "/oauth/authorize";
+      const readBodyParam = (field) =>
+        typeof payload[field] === "string" && payload[field].trim() ? payload[field].trim() : "";
+      const readQueryParam = (field) => {
+        const value = queryParams.get(field);
+        return typeof value === "string" && value.trim() ? value.trim() : "";
+      };
+      const readRequestParam = (field, fallback = "", { enforceMatch = false } = {}) => {
+        const bodyValue = readBodyParam(field);
+        const queryValue = readQueryParam(field);
+        if (enforceMatch && bodyValue && queryValue && bodyValue !== queryValue) {
+          throw new Error(`${field} mismatch between authorize query and form body`);
         }
-      })();
+        if (bodyValue) {
+          return bodyValue;
+        }
+        if (queryValue) {
+          return queryValue;
+        }
+        return fallback;
+      };
+      const clientId = readRequestParam("client_id", "", { enforceMatch: true });
+      const redirectUri = readRequestParam("redirect_uri", "", { enforceMatch: true });
+      const state = readRequestParam("state", "", { enforceMatch: true });
+      const responseType =
+        readRequestParam("response_type", "code", { enforceMatch: true }) || "code";
+      const codeChallenge = readRequestParam("code_challenge", "", { enforceMatch: true });
+      const codeChallengeMethod = readRequestParam("code_challenge_method", "S256", { enforceMatch: true }) || "S256";
+      const scope = readRequestParam("scope", "mcp:tools", { enforceMatch: true }) || "mcp:tools";
+      const resource = readRequestParam("resource", "", { enforceMatch: true });
+      const decision =
+        typeof payload.decision === "string" && payload.decision.trim()
+          ? payload.decision.trim()
+          : typeof queryParams.get("decision") === "string" && queryParams.get("decision").trim()
+          ? queryParams.get("decision").trim()
+          : "deny";
+      const authorizePath = requestUrl.pathname || "/oauth/authorize";
+      const authorizeAction = `${authorizePath}${requestUrl.search || ""}`;
+      const requestedShopDomain = readRequestParam("shopDomain");
 
       const client = getOAuthClient(clientId);
       if (!client) {
@@ -623,19 +683,34 @@ export function createOAuthHandlers({
         });
         return;
       }
+      const normalizedResource = assertSupportedOauthResource(req, resource);
+      if (resource && !normalizedResource) {
+        redirectWithOAuthResult(res, redirectUri, {
+          error: "invalid_target",
+          error_description: "Unsupported resource",
+          state,
+        });
+        return;
+      }
 
       const accountSession = resolveAccountSession(req);
       if (!accountSession.account) {
+        const nextParams = new URLSearchParams();
+        nextParams.set("client_id", clientId);
+        nextParams.set("redirect_uri", redirectUri);
+        nextParams.set("state", state);
+        nextParams.set("response_type", responseType);
+        nextParams.set("code_challenge", codeChallenge);
+        nextParams.set("code_challenge_method", codeChallengeMethod);
+        nextParams.set("scope", scope);
+        if (resource) {
+          nextParams.set("resource", resource);
+        }
+        if (requestedShopDomain) {
+          nextParams.set("shopDomain", requestedShopDomain);
+        }
         const next = safeRedirectPath(
-          `/oauth/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(
-            redirectUri
-          )}&state=${encodeURIComponent(state)}&response_type=${encodeURIComponent(
-            responseType
-          )}&code_challenge=${encodeURIComponent(
-            codeChallenge
-          )}&code_challenge_method=${encodeURIComponent(codeChallengeMethod)}&scope=${encodeURIComponent(
-            scope
-          )}`,
+          `${authorizePath}?${nextParams.toString()}`,
           "/onboarding"
         );
         return redirectTo(res, `/login?next=${encodeURIComponent(next)}`);
@@ -654,10 +729,13 @@ export function createOAuthHandlers({
         scope,
         decision,
         licenseKey,
-        shopDomain: typeof payload.shopDomain === "string" ? payload.shopDomain.trim() : "",
-        authorizePath,
+        shopDomain: requestedShopDomain,
+        authorizePath: authorizeAction,
       });
     } catch (error) {
+      if (error instanceof Error && error.message === "Unsupported resource for this authorization server") {
+        return oauthJsonError(res, 400, "invalid_target", "Unsupported resource", json);
+      }
       return oauthJsonError(
         res,
         400,

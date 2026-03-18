@@ -411,8 +411,8 @@ try {
   );
   assert.match(
     invalidRedirectAuthorizeHtml,
-    /action="\/oauth\/authorize"/,
-    "authorize form action should stay same-origin for proxied OAuth clients"
+    /action="\/oauth\/authorize\?client_id=/,
+    "authorize form action should preserve the original same-origin OAuth request"
   );
 
   const noPkceAuthorize = await fetch(
@@ -456,6 +456,100 @@ try {
     getDecisionHtml,
     /name="decision" value="allow"/,
     "authorize page should present allow decision as POST form control"
+  );
+
+  const resourcefulAuthorizePage = await fetch(
+    `${baseUrl}/oauth/authorize?client_id=${encodeURIComponent(client.client_id)}&redirect_uri=${encodeURIComponent(
+      client.redirect_uris[0]
+    )}&response_type=code&state=resourceful-render&code_challenge=${encodeURIComponent(
+      getDecisionChallenge
+    )}&code_challenge_method=S256&scope=${encodeURIComponent(
+      "mcp:tools"
+    )}&resource=${encodeURIComponent(`${baseUrl}/mcp`)}`,
+    {
+      method: "GET",
+      headers: {
+        Cookie: `hz_user_session=${sessionToken}`,
+      },
+    }
+  );
+  assert.equal(resourcefulAuthorizePage.status, 200, "authorize page with resource should render");
+  const resourcefulAuthorizeHtml = await resourcefulAuthorizePage.text();
+  assert.match(
+    resourcefulAuthorizeHtml,
+    /name="resource" value="http:\/\/127\.0\.0\.1:\d+\/mcp"/,
+    "authorize page should preserve resource as a hidden field"
+  );
+  assert.match(
+    resourcefulAuthorizeHtml,
+    /action="\/oauth\/authorize\?client_id=[^"]+&amp;redirect_uri=[^"]+&amp;response_type=code[^"]*&amp;resource=/,
+    "authorize form action should preserve the original query parameters for proxied clients"
+  );
+
+  const queryBackedAuthorize = await fetch(
+    `${baseUrl}/oauth/authorize?client_id=${encodeURIComponent(client.client_id)}&redirect_uri=${encodeURIComponent(
+      client.redirect_uris[0]
+    )}&response_type=code&state=query-backed-post&code_challenge=${encodeURIComponent(
+      getDecisionChallenge
+    )}&code_challenge_method=S256&scope=${encodeURIComponent(
+      "mcp:tools"
+    )}&resource=${encodeURIComponent(`${baseUrl}/mcp`)}`,
+    {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        Cookie: `hz_user_session=${sessionToken}`,
+      },
+      body: `decision=allow&shopDomain=${encodeURIComponent("unit-test-shop.myshopify.com")}`,
+    }
+  );
+  assert.equal(queryBackedAuthorize.status, 302, "query-preserved authorize POST should succeed");
+  const queryBackedLocation = queryBackedAuthorize.headers.get("location") || "";
+  const queryBackedLocationUrl = new URL(queryBackedLocation);
+  assert.ok(queryBackedLocationUrl.searchParams.get("code"), "query-preserved authorize should issue an auth code");
+  assert.equal(
+    queryBackedLocationUrl.searchParams.get("state"),
+    "query-backed-post",
+    "query-preserved authorize should keep the original state"
+  );
+
+  const mismatchedQueryAuthorize = await fetch(
+    `${baseUrl}/oauth/authorize?client_id=${encodeURIComponent(client.client_id)}&redirect_uri=${encodeURIComponent(
+      client.redirect_uris[0]
+    )}&response_type=code&state=query-body-mismatch&code_challenge=${encodeURIComponent(
+      getDecisionChallenge
+    )}&code_challenge_method=S256&scope=${encodeURIComponent(
+      "mcp:tools"
+    )}&resource=${encodeURIComponent(`${baseUrl}/mcp`)}`,
+    {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        "content-type": "application/json",
+        Cookie: `hz_user_session=${sessionToken}`,
+      },
+      body: JSON.stringify({
+        client_id: client.client_id,
+        redirect_uri: client.redirect_uris[0],
+        response_type: "code",
+        state: "query-body-mismatch",
+        decision: "allow",
+        shopDomain: "unit-test-shop.myshopify.com",
+        code_challenge: getDecisionChallenge,
+        code_challenge_method: "S256",
+        scope: "mcp:tools",
+        resource: `${baseUrl}/mcp/other`,
+      }),
+    }
+  );
+  assert.equal(mismatchedQueryAuthorize.status, 400, "mismatched query/body security fields should be rejected");
+  const mismatchedQueryAuthorizeBody = await mismatchedQueryAuthorize.json();
+  assert.equal(mismatchedQueryAuthorizeBody.error, "invalid_request");
+  assert.match(
+    mismatchedQueryAuthorizeBody.error_description || "",
+    /resource mismatch between authorize query and form body/,
+    "mismatched query/body resource should fail explicitly"
   );
 
   const plainAuthorize = await fetch(`${baseUrl}/oauth/authorize`, {
