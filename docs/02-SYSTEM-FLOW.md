@@ -20,10 +20,12 @@
 ## 3) MCP request flow
 1. client roept `/mcp` aan met Bearer token of `x-api-key`
 2. MCP service valideert token via `/v1/mcp/token/introspect`
-3. MCP service haalt tenant-gebonden Shopify access token op via `/v1/mcp/token/exchange` (service-to-service)
+3. MCP service evalueert request context + licentiebeleid
 4. MCP service valideert origin-allowlist indien `Origin` header aanwezig is
-5. tool draait request-scoped binnen tenant-context (geen globale mutable Shopify state)
-6. response bevat MCP content + structuredContent
+5. Shopify token exchange gebeurt lazy via `/v1/mcp/token/exchange` alleen als de gekozen tool Shopify-auth nodig heeft
+6. `initialize`, `tools/list` en context-free tools triggeren geen Shopify exchange
+7. tool draait request-scoped binnen tenant-context (geen globale mutable Shopify state)
+8. response bevat MCP content + structuredContent
 
 ## 4) Compatibiliteit
 - OAuth-first: VS Code, Cursor, ChatGPT, Claude

@@ -46,8 +46,11 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 ### Themes
 - Themes ophalen: `get-themes`
 - Theme bestand lezen: `get-theme-file`
+- Theme bestanden batch lezen: `get-theme-files`
 - Theme bestand schrijven/updaten: `upsert-theme-file`
+- Theme bestanden batch schrijven/updaten: `upsert-theme-files`
 - Theme bestand verwijderen: `delete-theme-file`
+- Theme bestanden verifiëren: `verify-theme-files`
 - Externe import tooling metadata ophalen: `list_theme_import_tools`
 
 ### Producten
@@ -78,10 +81,17 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 - Tracking (one-shot): `set-order-tracking` (voorkeur voor LLMs)
 - Tracking (voorkeur): `update-fulfillment-tracking` (altijd voor trackingnummer/vervoerder)
 
+### Klanten
+- Ophalen: `get-customers`
+- Bijwerken: `update-customer`
+
+### Licentie
+- Status opvragen: `get-license-status`
+
 ### Tracking workflow (verplicht)
 1. Lees order met `get-order-by-id` en gebruik `order.tracking.shipments` als bron.
 2. Vraag vervoerders op met `get-supported-tracking-companies` en kies exact uit de lijst.
-3. Werk tracking bij met `set-order-tracking` (of alias `update-order-tracking` / `add-tracking-to-order`; fallback: `update-fulfillment-tracking` / `update-order.tracking`).
+3. Werk tracking bij met `set-order-tracking` (of alias `update-order-tracking` / `add-tracking-to-order`; fallback: `update-fulfillment-tracking`).
 4. Verifieer direct met `get-order-by-id` dat `order.tracking.shipments` is aangepast.
 5. Als `legacyCustomAttributes` of `legacyMetafields` zichtbaar zijn: niet gebruiken als bron, alleen fulfillment-tracking aanhouden.
 

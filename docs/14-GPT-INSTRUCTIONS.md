@@ -6,6 +6,8 @@ Dit document bevat operationele regels voor ChatGPT connector-gebruik.
 - Geen vaste system-prompt templates onderhouden in docs.
 - Gedrag afdwingen via MCP toolcontracten en runbooks.
 - Focus op Shopify store-operaties via de Hazify MCP.
+- OAuth autorisatiebesluit loopt via `POST /oauth/authorize` (niet via query-based GET decision).
+- Remote MCP gebruikt lazy Shopify token exchange: pas bij tools die Shopify-auth echt nodig hebben.
 
 ## Theme import policy
 1. Gebruik in Hazify MCP alleen `list_theme_import_tools` voor capability discovery.

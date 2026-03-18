@@ -9,6 +9,14 @@ Deze repository bevat de productiecode voor:
 - Expose van MCP tools voor storebeheer.
 - Remote deploy/verificatie van voorbereide theme files (`upsert-theme-files`, `get-theme-files`, `verify-theme-files`).
 - Expose van metadata/advisering voor externe theme-import workflows.
+- Diagnose van effectieve licentiestatus via `get-license-status`.
+
+## Runtime gedrag (remote)
+- Requests worden altijd gevalideerd via `/v1/mcp/token/introspect`.
+- Shopify token exchange (`/v1/mcp/token/exchange`) is lazy:
+  - niet bij `initialize` of `tools/list`
+  - niet bij context-free tools
+  - wel bij tools die Shopify-auth nodig hebben
 
 ## Niet de verantwoordelijkheid van deze MCP
 - Genereren van Shopify theme sections.

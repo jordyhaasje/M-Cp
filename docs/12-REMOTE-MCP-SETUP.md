@@ -29,7 +29,11 @@ read_products,write_products,read_customers,write_customers,read_orders,write_or
 - Legacy public/native clients met `token_endpoint_auth_method=none` mogen tijdens token/refresh ook een meegezonden `client_secret` hebben; de server negeert die secret en valideert op `client_id` + PKCE.
 - scope: `mcp:tools`
 - server-side tokenvalidatie via `/v1/mcp/token/introspect`
-- interne Shopify token-exchange via `/v1/mcp/token/exchange` (geen Shopify secrets in introspection payload)
+- interne Shopify token-exchange via `/v1/mcp/token/exchange` gebeurt lazy:
+  - geen exchange bij `initialize` of `tools/list`
+  - geen exchange bij context-free tools
+  - exchange pas bij tools die Shopify-auth echt nodig hebben
+- `/v1/mcp/token/exchange` volgt license read-policy vóór token-return (403 `license_inactive` bij denied)
 - Voor native/desktop clients met opaque origin (bijv. `vscode-webview://...`): voeg `null` toe aan `HAZIFY_MCP_ALLOWED_ORIGINS`.
 - De server normaliseert `Accept` voor `POST /mcp` compatibel (bijv. `application/json` of `*/*`), zodat clients die geen expliciete `text/event-stream` sturen nog steeds kunnen initialiseren.
 

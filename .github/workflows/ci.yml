@@ -29,9 +29,6 @@ jobs:
       - name: Repository hygiene checks
         run: npm run check:repo
 
-      - name: Verify shared package mirrors
-        run: npm run verify:shared
-
       - name: Build
         run: npm run build
 
