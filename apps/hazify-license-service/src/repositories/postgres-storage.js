@@ -249,6 +249,8 @@ CREATE TABLE IF NOT EXISTS mcp_tokens (
   oauth_client_id TEXT,
   oauth_refresh_token_id TEXT,
   oauth_token_family_id TEXT,
+  scope TEXT,
+  target_resource TEXT,
   status TEXT NOT NULL,
   created_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ,
@@ -277,6 +279,7 @@ CREATE TABLE IF NOT EXISTS oauth_auth_codes (
   license_key TEXT NOT NULL REFERENCES licenses(license_key) ON DELETE CASCADE,
   redirect_uri TEXT NOT NULL,
   scope TEXT,
+  target_resource TEXT,
   code_challenge TEXT,
   code_challenge_method TEXT,
   status TEXT NOT NULL,
@@ -295,6 +298,7 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   parent_refresh_token_id TEXT REFERENCES oauth_refresh_tokens(refresh_token_id) ON DELETE SET NULL,
   replaced_by_refresh_token_id TEXT REFERENCES oauth_refresh_tokens(refresh_token_id) ON DELETE SET NULL,
   scope TEXT,
+  target_resource TEXT,
   status TEXT NOT NULL,
   revoked_at TIMESTAMPTZ,
   replay_detected_at TIMESTAMPTZ,
@@ -307,12 +311,17 @@ ALTER TABLE mcp_tokens ADD COLUMN IF NOT EXISTS license_key TEXT REFERENCES lice
 ALTER TABLE mcp_tokens ADD COLUMN IF NOT EXISTS oauth_client_id TEXT;
 ALTER TABLE mcp_tokens ADD COLUMN IF NOT EXISTS oauth_refresh_token_id TEXT;
 ALTER TABLE mcp_tokens ADD COLUMN IF NOT EXISTS oauth_token_family_id TEXT;
+ALTER TABLE mcp_tokens ADD COLUMN IF NOT EXISTS scope TEXT;
+ALTER TABLE mcp_tokens ADD COLUMN IF NOT EXISTS target_resource TEXT;
 
 ALTER TABLE oauth_refresh_tokens ADD COLUMN IF NOT EXISTS family_id TEXT;
 ALTER TABLE oauth_refresh_tokens ADD COLUMN IF NOT EXISTS parent_refresh_token_id TEXT REFERENCES oauth_refresh_tokens(refresh_token_id) ON DELETE SET NULL;
 ALTER TABLE oauth_refresh_tokens ADD COLUMN IF NOT EXISTS replaced_by_refresh_token_id TEXT REFERENCES oauth_refresh_tokens(refresh_token_id) ON DELETE SET NULL;
+ALTER TABLE oauth_refresh_tokens ADD COLUMN IF NOT EXISTS target_resource TEXT;
 ALTER TABLE oauth_refresh_tokens ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
 ALTER TABLE oauth_refresh_tokens ADD COLUMN IF NOT EXISTS replay_detected_at TIMESTAMPTZ;
+
+ALTER TABLE oauth_auth_codes ADD COLUMN IF NOT EXISTS target_resource TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_mcp_tokens_tenant ON mcp_tokens(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_mcp_tokens_hash ON mcp_tokens(token_hash);
@@ -403,6 +412,8 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
       oauthClientId: row.oauth_client_id,
       oauthRefreshTokenId: row.oauth_refresh_token_id,
       oauthTokenFamilyId: row.oauth_token_family_id,
+      scope: row.scope,
+      targetResource: row.target_resource,
       status: row.status,
       createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
       updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
@@ -431,6 +442,7 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
       licenseKey: row.license_key,
       redirectUri: row.redirect_uri,
       scope: row.scope,
+      targetResource: row.target_resource,
       codeChallenge: row.code_challenge,
       codeChallengeMethod: row.code_challenge_method,
       status: row.status,
@@ -449,6 +461,7 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
       parentRefreshTokenId: row.parent_refresh_token_id,
       replacedByRefreshTokenId: row.replaced_by_refresh_token_id,
       scope: row.scope,
+      targetResource: row.target_resource,
       status: row.status,
       revokedAt: row.revoked_at ? new Date(row.revoked_at).toISOString() : null,
       replayDetectedAt: row.replay_detected_at ? new Date(row.replay_detected_at).toISOString() : null,
@@ -706,14 +719,15 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
 
       await persistChanged(prevState.oauthAuthCodes, nextState.oauthAuthCodes, async (record) => {
         await client.query(
-          `INSERT INTO oauth_auth_codes (code, client_id, tenant_id, license_key, redirect_uri, scope, code_challenge, code_challenge_method, status, created_at, expires_at, used_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          `INSERT INTO oauth_auth_codes (code, client_id, tenant_id, license_key, redirect_uri, scope, target_resource, code_challenge, code_challenge_method, status, created_at, expires_at, used_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
            ON CONFLICT (code) DO UPDATE SET
              client_id = EXCLUDED.client_id,
              tenant_id = EXCLUDED.tenant_id,
              license_key = EXCLUDED.license_key,
              redirect_uri = EXCLUDED.redirect_uri,
              scope = EXCLUDED.scope,
+             target_resource = EXCLUDED.target_resource,
              code_challenge = EXCLUDED.code_challenge,
              code_challenge_method = EXCLUDED.code_challenge_method,
              status = EXCLUDED.status,
@@ -727,6 +741,7 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
             record.licenseKey,
             record.redirectUri,
             record.scope || null,
+            record.targetResource || null,
             record.codeChallenge || null,
             record.codeChallengeMethod || null,
             record.status,
@@ -739,8 +754,8 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
 
       await persistChanged(prevState.mcpTokens, nextState.mcpTokens, async (record) => {
         await client.query(
-          `INSERT INTO mcp_tokens (token_id, tenant_id, license_key, token_hash, name, oauth_client_id, oauth_refresh_token_id, oauth_token_family_id, status, created_at, updated_at, last_used_at, expires_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          `INSERT INTO mcp_tokens (token_id, tenant_id, license_key, token_hash, name, oauth_client_id, oauth_refresh_token_id, oauth_token_family_id, scope, target_resource, status, created_at, updated_at, last_used_at, expires_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
            ON CONFLICT (token_id) DO UPDATE SET
              tenant_id = EXCLUDED.tenant_id,
              license_key = EXCLUDED.license_key,
@@ -749,6 +764,8 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
              oauth_client_id = EXCLUDED.oauth_client_id,
              oauth_refresh_token_id = EXCLUDED.oauth_refresh_token_id,
              oauth_token_family_id = EXCLUDED.oauth_token_family_id,
+             scope = EXCLUDED.scope,
+             target_resource = EXCLUDED.target_resource,
              status = EXCLUDED.status,
              created_at = EXCLUDED.created_at,
              updated_at = EXCLUDED.updated_at,
@@ -763,6 +780,8 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
             record.oauthClientId || null,
             record.oauthRefreshTokenId || null,
             record.oauthTokenFamilyId || null,
+            record.scope || null,
+            record.targetResource || null,
             record.status,
             record.createdAt || null,
             record.updatedAt || null,
@@ -776,8 +795,8 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
       await persistChanged(prevState.oauthRefreshTokens, nextState.oauthRefreshTokens, async (record) => {
         changedRefreshRecords.push(record);
         await client.query(
-          `INSERT INTO oauth_refresh_tokens (refresh_token_id, token_hash, client_id, tenant_id, license_key, family_id, parent_refresh_token_id, replaced_by_refresh_token_id, scope, status, revoked_at, replay_detected_at, created_at, updated_at, expires_at)
-           VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,$7,$8,$9,$10,$11,$12,$13)
+          `INSERT INTO oauth_refresh_tokens (refresh_token_id, token_hash, client_id, tenant_id, license_key, family_id, parent_refresh_token_id, replaced_by_refresh_token_id, scope, target_resource, status, revoked_at, replay_detected_at, created_at, updated_at, expires_at)
+           VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,$7,$8,$9,$10,$11,$12,$13,$14)
            ON CONFLICT (refresh_token_id) DO UPDATE SET
              token_hash = EXCLUDED.token_hash,
              client_id = EXCLUDED.client_id,
@@ -787,6 +806,7 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
              parent_refresh_token_id = NULL,
              replaced_by_refresh_token_id = NULL,
              scope = EXCLUDED.scope,
+             target_resource = EXCLUDED.target_resource,
              status = EXCLUDED.status,
              revoked_at = EXCLUDED.revoked_at,
              replay_detected_at = EXCLUDED.replay_detected_at,
@@ -801,6 +821,7 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_toke
             record.licenseKey,
             record.familyId || null,
             record.scope || null,
+            record.targetResource || null,
             record.status,
             record.revokedAt || null,
             record.replayDetectedAt || null,

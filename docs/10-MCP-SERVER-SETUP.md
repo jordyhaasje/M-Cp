@@ -1,4 +1,5 @@
 # MCP Server Setup (Index)
+Doelgroep: repo maintainers en coding agents / Codex.
 
 ## Routes
 1. Remote (standaard): `docs/12-REMOTE-MCP-SETUP.md`

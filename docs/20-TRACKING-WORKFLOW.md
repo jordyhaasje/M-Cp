@@ -1,4 +1,5 @@
 # Tracking Workflow (Verplicht)
+Doelgroep: coding agents / Codex.
 
 ## Doel
 Trackingnummer en vervoerder moeten in Shopify fulfillment-tracking worden gezet, nooit als aanvullende gegevens.

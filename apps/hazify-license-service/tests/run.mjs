@@ -1,4 +1,5 @@
 await import("./oauth-security.test.mjs");
+await import("./oauthIssuerPath.test.mjs");
 await import("./oauth-helpers.test.mjs");
 await import("./http-helpers.test.mjs");
 await import("./account-helpers.test.mjs");

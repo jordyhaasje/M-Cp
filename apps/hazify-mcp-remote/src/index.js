@@ -7,8 +7,13 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import {
+    MCP_SCOPE_TOOLS,
+    MCP_SCOPE_TOOLS_WRITE,
+    getDefaultMcpScopesSupported,
+    getMcpScopeCapabilities,
     isOriginAllowed,
     normalizeBaseUrl,
+    normalizeMcpScopeString,
     parseCommaSeparatedList,
     sha256Hex
 } from "@hazify/mcp-common";
@@ -18,35 +23,7 @@ import {
 import dotenv from "dotenv";
 import { GraphQLClient } from "graphql-request";
 import minimist from "minimist";
-import { z } from "zod";
-// Import tools
-import { getCustomerOrders } from "./tools/getCustomerOrders.js";
-import { getCustomers } from "./tools/getCustomers.js";
-import { getOrderById } from "./tools/getOrderById.js";
-import { getOrders } from "./tools/getOrders.js";
-import { getProductById } from "./tools/getProductById.js";
-import { getProducts } from "./tools/getProducts.js";
-import { updateCustomer } from "./tools/updateCustomer.js";
-import { updateOrder } from "./tools/updateOrder.js";
-import { createProduct } from "./tools/createProduct.js";
-import { updateProduct } from "./tools/updateProduct.js";
-import { manageProductVariants } from "./tools/manageProductVariants.js";
-import { deleteProductVariants } from "./tools/deleteProductVariants.js";
-import { deleteProduct } from "./tools/deleteProduct.js";
-import { manageProductOptions } from "./tools/manageProductOptions.js";
-import { refundOrder } from "./tools/refundOrder.js";
-import { cloneProductFromUrl } from "./tools/cloneProductFromUrl.js";
-import { getSupportedTrackingCompanies } from "./tools/getSupportedTrackingCompanies.js";
-import { updateFulfillmentTracking } from "./tools/updateFulfillmentTracking.js";
-import { setOrderTracking } from "./tools/setOrderTracking.js";
-import { getThemes } from "./tools/getThemes.js";
-import { getThemeFileTool } from "./tools/getThemeFile.js";
-import { getThemeFilesTool } from "./tools/getThemeFiles.js";
-import { upsertThemeFileTool } from "./tools/upsertThemeFile.js";
-import { upsertThemeFilesTool } from "./tools/upsertThemeFiles.js";
-import { deleteThemeFileTool } from "./tools/deleteThemeFile.js";
-import { verifyThemeFilesTool } from "./tools/verifyThemeFiles.js";
-import { listThemeImportTools } from "./tools/listThemeImportTools.js";
+import { createHazifyToolRegistry, registerHazifyTools } from "./tools/registry.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
 import { LicenseManager } from "./lib/licenseManager.js";
 import { createMachineFingerprint } from "./lib/machineFingerprint.js";
@@ -206,6 +183,7 @@ const normalizeIsoDate = (value) => {
     const ms = Date.parse(value);
     return Number.isNaN(ms) ? null : new Date(ms).toISOString();
 };
+const defaultMcpScopeCapabilities = Object.freeze(getMcpScopeCapabilities(MCP_SCOPE_TOOLS));
 const evaluateRemoteLicenseAccess = (license, { toolName, mutating }) => {
     if (toolName === "get-license-status") {
         return { allowed: true, reason: "diagnostic tool always allowed" };
@@ -245,6 +223,16 @@ const freezeExecutionContext = (context) => {
     const safeLicense = context?.license && typeof context.license === "object"
         ? Object.freeze({ ...context.license })
         : Object.freeze({});
+    const grantedScope = typeof context?.grantedScope === "string" && context.grantedScope.trim()
+        ? context.grantedScope.trim()
+        : null;
+    const scopeCapabilities = context?.scopeCapabilities && typeof context.scopeCapabilities === "object"
+        ? Object.freeze({
+            read: Boolean(context.scopeCapabilities.read),
+            write: Boolean(context.scopeCapabilities.write),
+            legacyFullAccess: Boolean(context.scopeCapabilities.legacyFullAccess),
+        })
+        : defaultMcpScopeCapabilities;
     return Object.freeze({
         mcpToken: context?.mcpToken || null,
         tokenHash: context?.tokenHash || null,
@@ -254,6 +242,9 @@ const freezeExecutionContext = (context) => {
         license: safeLicense,
         shopifyDomain: context?.shopifyDomain || null,
         shopifyClient: context?.shopifyClient || null,
+        grantedScope,
+        scopeCapabilities,
+        targetResource: context?.targetResource || null,
     });
 };
 const cacheRemoteContext = (tokenHash, context) => {
@@ -356,6 +347,8 @@ const resolveRemoteContext = async (bearerToken) => {
     }
     const tenantId = String(introspection.tenantId || "unknown");
     const tokenId = typeof introspection.tokenId === "string" ? introspection.tokenId : null;
+    const grantedScope = normalizeMcpScopeString(introspection?.scope || introspection?.grantedScope || "") || MCP_SCOPE_TOOLS;
+    const targetResource = normalizeBaseUrl(introspection?.resource || introspection?.targetResource || introspection?.aud || "");
     let cachedShopifyClient = null;
     if (HAZIFY_MCP_CONTEXT_TTL_MS > 0 && cachedContext && cachedContext.expiresAtMs > Date.now()) {
         const cached = cachedContext.context;
@@ -373,6 +366,9 @@ const resolveRemoteContext = async (bearerToken) => {
         license: introspection.license || {},
         shopifyDomain: domain,
         shopifyClient: cachedShopifyClient,
+        grantedScope,
+        scopeCapabilities: getMcpScopeCapabilities(grantedScope),
+        targetResource,
     });
     cacheRemoteContext(tokenHash, context);
     return context;
@@ -452,11 +448,8 @@ const ensureRemoteShopifyClient = async (context) => {
     return hydratedContext;
 };
 const tenantToolExecutionLocks = new Map();
-const CONTEXT_FREE_TOOLS = new Set([
-    "list_theme_import_tools",
-    "get-supported-tracking-companies",
-    "get-license-status",
-]);
+let hazifyToolRegistry = null;
+const getRegisteredTool = (toolName) => hazifyToolRegistry?.byName.get(toolName) || null;
 const runSerializedByKey = async (key, work) => {
     const lockKey = key || "__default__";
     const previous = tenantToolExecutionLocks.get(lockKey) || Promise.resolve();
@@ -480,560 +473,48 @@ const buildToolExecutionContext = (context = null) => freezeExecutionContext({
     license: context?.license || {},
     shopifyDomain: context?.shopifyDomain || null,
     shopifyClient: context?.shopifyClient || localShopifyClient || null,
+    grantedScope: context?.grantedScope || null,
+    scopeCapabilities: context?.scopeCapabilities || defaultMcpScopeCapabilities,
+    targetResource: context?.targetResource || null,
 });
-const toolRequiresShopifyClient = (toolName) => !CONTEXT_FREE_TOOLS.has(toolName);
-async function runLicensedTool(toolName, mutating, executor, args) {
+const toolRequiresShopifyClient = (toolName) => getRegisteredTool(toolName)?.requiresShopifyClient !== false;
+const createInsufficientScopeError = (toolName, requiredScope = MCP_SCOPE_TOOLS_WRITE) => {
+    const error = new Error(`Tool '${toolName}' requires scope '${requiredScope}'.`);
+    error.status = 403;
+    error.errorCode = "insufficient_scope";
+    error.requiredScope = requiredScope;
+    return error;
+};
+const createGetLicenseStatusExecute = () => async (_input, explicitContext = null) => {
     if (!IS_HTTP_TRANSPORT) {
-        await licenseManager.assertToolAllowed(toolName, { mutating });
-        const executionContext = buildToolExecutionContext();
-        if (!executionContext.shopifyClient && toolRequiresShopifyClient(toolName)) {
-            throw new Error("Missing Shopify client in stdio execution context");
-        }
-        const result = await executor(args, executionContext);
-        return toMcpResponse(result);
-    }
-    const context = requestContextStore.getStore();
-    if (!context) {
-        throw new Error("Missing request context");
-    }
-    const decision = evaluateRemoteLicenseAccess(context.license, { toolName, mutating });
-    if (!decision.allowed) {
-        throw new Error(`License gate blocked '${toolName}': ${decision.reason}`);
-    }
-    const executeTool = async () => {
-        let effectiveContext = context;
-        if (toolRequiresShopifyClient(toolName) && !effectiveContext.shopifyClient) {
-            effectiveContext = await ensureRemoteShopifyClient(effectiveContext);
-        }
-        const executionContext = buildToolExecutionContext(effectiveContext);
-        if (!executionContext.shopifyClient && toolRequiresShopifyClient(toolName)) {
-            throw new Error("Missing Shopify client in request execution context");
-        }
-        const result = await executor(args, executionContext);
-        return toMcpResponse(result);
-    };
-    if (!mutating) {
-        return executeTool();
-    }
-    return runSerializedByKey(context.tenantId || context.tokenHash, executeTool);
-}
-// Add tools individually, using their schemas directly
-const createHazifyServer = () => {
-    const server = createServerInstance();
-    const mutatingTools = new Set([
-        "update-order",
-        "update-fulfillment-tracking",
-        "set-order-tracking",
-        "update-order-tracking",
-        "add-tracking-to-order",
-        "update-customer",
-        "create-product",
-        "update-product",
-        "manage-product-variants",
-        "manage-product-options",
-        "delete-product",
-        "delete-product-variants",
-        "refund-order",
-        "clone-product-from-url",
-        "upsert-theme-file",
-        "upsert-theme-files",
-        "delete-theme-file",
-    ]);
-    const destructiveTools = new Set([
-        "delete-product",
-        "delete-product-variants",
-        "refund-order",
-        "delete-theme-file",
-    ]);
-    const toolDescriptions = {
-        "get-products": "List Shopify products with optional title search.",
-        "get-product-by-id": "Fetch a single Shopify product by GID.",
-        "get-customers": "List Shopify customers with optional search query.",
-        "get-orders": "List Shopify orders by status.",
-        "get-order-by-id": "Fetch a single order by GID, numeric ID, or order number like #1004.",
-        "update-order": "Update order metadata or shipping details. For tracking, prefer set-order-tracking.",
-        "update-fulfillment-tracking": "Update fulfillment tracking directly with tracking number and carrier.",
-        "set-order-tracking": "Preferred one-shot tracking update flow (order, trackingCode, carrier).",
-        "update-order-tracking": "Alias of set-order-tracking. Kept for compatibility.",
-        "add-tracking-to-order": "Alias of set-order-tracking. Kept for compatibility.",
-        "get-supported-tracking-companies": "List supported carrier names to use in tracking updates.",
-        "get-customer-orders": "List orders for a specific customer ID.",
-        "update-customer": "Update customer profile fields, tags, or metafields.",
-        "create-product": "Create a Shopify product with options, collections, metafields, and media.",
-        "update-product": "Update an existing Shopify product and optionally add media.",
-        "manage-product-variants": "Create or update product variants in bulk.",
-        "manage-product-options": "Create, update, or delete product options.",
-        "delete-product": "Delete a product by GID.",
-        "delete-product-variants": "Delete one or more variants from a product.",
-        "refund-order": "Create a full or partial refund on an order.",
-        "clone-product-from-url": "Import a product from a public Shopify product URL.",
-        "get-themes": "List Shopify themes and identify the live theme.",
-        "get-theme-file": "Read a specific file from a Shopify theme.",
-        "get-theme-files": "Read multiple files from a Shopify theme.",
-        "upsert-theme-file": "Create or update a file in a Shopify theme.",
-        "upsert-theme-files": "Create or update multiple files in a Shopify theme.",
-        "delete-theme-file": "Delete a specific file from a Shopify theme.",
-        "verify-theme-files": "Verify multiple theme files by expected metadata.",
-        "list_theme_import_tools": "List metadata/advice for external tooling that can review or import generated sections outside this remote MCP.",
-        "get-license-status": "Return current license/access status and effective capabilities.",
-    };
-    const originalTool = server.tool.bind(server);
-    server.tool = (name, ...rest) => {
-        if (rest.length === 2 && typeof rest[0] === "object" && typeof rest[1] === "function") {
-            const mutating = mutatingTools.has(name);
-            return originalTool(name, toolDescriptions[name] || name, rest[0], {
-                readOnlyHint: !mutating,
-                destructiveHint: destructiveTools.has(name),
-                idempotentHint: !mutating,
-            }, rest[1]);
-        }
-        return originalTool(name, ...rest);
-    };
-server.tool("get-products", {
-    searchTitle: z.string().optional(),
-    limit: z.number().default(10)
-}, async (args) => {
-    return runLicensedTool("get-products", false, getProducts.execute, args);
-});
-server.tool("get-product-by-id", {
-    productId: z.string().min(1)
-}, async (args) => {
-    return runLicensedTool("get-product-by-id", false, getProductById.execute, args);
-});
-server.tool("get-customers", {
-    searchQuery: z.string().optional(),
-    limit: z.number().default(10)
-}, async (args) => {
-    return runLicensedTool("get-customers", false, getCustomers.execute, args);
-});
-server.tool("get-orders", {
-    status: z.enum(["any", "open", "closed", "cancelled"]).default("any"),
-    limit: z.number().default(10)
-}, async (args) => {
-    return runLicensedTool("get-orders", false, getOrders.execute, args);
-});
-// Add the getOrderById tool
-server.tool("get-order-by-id", {
-    orderId: z.string().min(1).describe("Accepts Shopify GID, numeric order id, or ordernummer like 1004/#1004")
-}, async (args) => {
-    return runLicensedTool("get-order-by-id", false, getOrderById.execute, args);
-});
-// Add the updateOrder tool
-server.tool("update-order", {
-    id: z.string().min(1).describe("Accepts Shopify GID, numeric order id, or ordernummer like 1004/#1004"),
-    tags: z.array(z.string()).optional(),
-    email: z.string().email().optional(),
-    note: z.string().optional(),
-    customAttributes: z
-        .array(z.object({
-        key: z.string(),
-        value: z.string()
-    }))
-        .optional()
-        .describe("Order aanvullende gegevens. Gebruik NIET voor tracking; legacy tracking keys worden automatisch omgezet naar fulfillment-tracking."),
-    metafields: z
-        .array(z.object({
-        id: z.string().optional(),
-        namespace: z.string().optional(),
-        key: z.string().optional(),
-        value: z.string(),
-        type: z.string().optional()
-    }))
-        .optional()
-        .describe("Order metafields. tracking_number/carrier/tracking_url worden niet naar metafields geschreven maar omgezet naar fulfillment-tracking."),
-    shippingAddress: z
-        .object({
-        address1: z.string().optional(),
-        address2: z.string().optional(),
-        city: z.string().optional(),
-        company: z.string().optional(),
-        country: z.string().optional(),
-        firstName: z.string().optional(),
-        lastName: z.string().optional(),
-        phone: z.string().optional(),
-        province: z.string().optional(),
-        zip: z.string().optional()
-    })
-        .optional(),
-    tracking: z
-        .object({
-        fulfillmentId: z.string().optional(),
-        number: z.string().optional(),
-        url: z.string().url().optional(),
-        company: z.string().optional(),
-        notifyCustomer: z.boolean().optional()
-    })
-        .optional()
-        .describe("Use this for real fulfillment tracking updates. Do NOT use customAttributes for tracking."),
-    fulfillmentId: z.string().optional(),
-    trackingNumber: z.string().optional().describe("Deprecated alias. Gebruik bij voorkeur tracking.number of update-fulfillment-tracking."),
-    trackingUrl: z.string().url().optional(),
-    trackingCompany: z.string().optional().describe("Deprecated alias. Gebruik exact carriernaam uit get-supported-tracking-companies."),
-    notifyCustomer: z.boolean().optional()
-}, async (args) => {
-    return runLicensedTool("update-order", true, updateOrder.execute, args);
-});
-server.tool("update-fulfillment-tracking", {
-    orderId: z.string().min(1).describe("Accepts Shopify GID, numeric order id, or ordernummer like 1004/#1004"),
-    trackingNumber: z.string().min(1),
-    trackingCompany: z.string().optional().describe("Prefer exact value from get-supported-tracking-companies"),
-    trackingUrl: z.string().url().optional(),
-    notifyCustomer: z.boolean().default(false),
-    fulfillmentId: z.string().optional().describe("Optional. If omitted, the tool automatically updates the latest non-cancelled fulfillment on the order."),
-}, async (args) => {
-    return runLicensedTool("update-fulfillment-tracking", true, updateFulfillmentTracking.execute, args);
-});
-server.tool("set-order-tracking", {
-    order: z.string().min(1).describe("Order reference, e.g. #1004 / 1004 / gid://shopify/Order/..."),
-    trackingCode: z.string().min(1),
-    carrier: z.string().optional(),
-    trackingUrl: z.string().url().optional(),
-    notifyCustomer: z.boolean().default(false),
-    fulfillmentId: z.string().optional()
-}, async (args) => {
-    return runLicensedTool("set-order-tracking", true, setOrderTracking.execute, args);
-});
-server.tool("update-order-tracking", {
-    order: z.string().min(1).describe("Order reference, e.g. #1004 / 1004 / gid://shopify/Order/..."),
-    trackingCode: z.string().min(1),
-    carrier: z.string().optional(),
-    trackingUrl: z.string().url().optional(),
-    notifyCustomer: z.boolean().default(false),
-    fulfillmentId: z.string().optional()
-}, async (args) => {
-    return runLicensedTool("update-order-tracking", true, setOrderTracking.execute, args);
-});
-server.tool("add-tracking-to-order", {
-    order: z.string().min(1).describe("Order reference, e.g. #1004 / 1004 / gid://shopify/Order/..."),
-    trackingCode: z.string().min(1),
-    carrier: z.string().optional(),
-    trackingUrl: z.string().url().optional(),
-    notifyCustomer: z.boolean().default(false),
-    fulfillmentId: z.string().optional()
-}, async (args) => {
-    return runLicensedTool("add-tracking-to-order", true, setOrderTracking.execute, args);
-});
-server.tool("get-supported-tracking-companies", {
-    search: z.string().optional(),
-    limit: z.number().default(250)
-}, async (args) => {
-    return runLicensedTool("get-supported-tracking-companies", false, getSupportedTrackingCompanies.execute, args);
-});
-// Add the getCustomerOrders tool
-server.tool("get-customer-orders", {
-    customerId: z
-        .string()
-        .min(1)
-        .describe("Accepts Shopify customer numeric id or gid://shopify/Customer/<id>"),
-    limit: z.number().default(10)
-}, async (args) => {
-    return runLicensedTool("get-customer-orders", false, getCustomerOrders.execute, args);
-});
-// Add the updateCustomer tool
-server.tool("update-customer", {
-    id: z
-        .string()
-        .min(1)
-        .describe("Accepts Shopify customer numeric id or gid://shopify/Customer/<id>"),
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    email: z.string().email().optional(),
-    phone: z.string().optional(),
-    tags: z.array(z.string()).optional(),
-    note: z.string().optional(),
-    taxExempt: z.boolean().optional(),
-    metafields: z
-        .array(z.object({
-        id: z.string().optional(),
-        namespace: z.string().optional(),
-        key: z.string().optional(),
-        value: z.string(),
-        type: z.string().optional()
-    }))
-        .optional()
-}, async (args) => {
-    return runLicensedTool("update-customer", true, updateCustomer.execute, args);
-});
-// Add the createProduct tool
-server.tool("create-product", {
-    title: z.string().min(1),
-    descriptionHtml: z.string().optional(),
-    handle: z.string().optional().describe("URL slug. Auto-generated from title if omitted."),
-    vendor: z.string().optional(),
-    productType: z.string().optional(),
-    tags: z.array(z.string()).optional(),
-    status: z.enum(["ACTIVE", "DRAFT", "ARCHIVED"]).default("DRAFT"),
-    seo: z
-        .object({
-        title: z.string().optional(),
-        description: z.string().optional(),
-    })
-        .optional()
-        .describe("SEO title and description"),
-    metafields: z
-        .array(z.object({
-        namespace: z.string(),
-        key: z.string(),
-        value: z.string(),
-        type: z.string().describe("e.g. 'single_line_text_field', 'json', 'number_integer'"),
-    }))
-        .optional(),
-    productOptions: z
-        .array(z.object({
-        name: z.string().describe("Option name, e.g. 'Size'"),
-        values: z.array(z.object({ name: z.string() })).optional(),
-    }))
-        .optional()
-        .describe("Product options to create inline (max 3)"),
-    collectionsToJoin: z.array(z.string()).optional().describe("Collection GIDs to add product to"),
-    media: z
-        .array(z.object({
-        originalSource: z.string().url(),
-        mediaContentType: z.enum(["IMAGE", "VIDEO", "EXTERNAL_VIDEO", "MODEL_3D"]),
-        alt: z.string().optional(),
-    }))
-        .optional()
-        .describe("Product media to create inline"),
-}, async (args) => {
-    return runLicensedTool("create-product", true, createProduct.execute, args);
-});
-// Add the updateProduct tool
-server.tool("update-product", {
-    id: z.string().min(1).describe("Shopify product GID, e.g. gid://shopify/Product/123"),
-    title: z.string().optional(),
-    descriptionHtml: z.string().optional(),
-    handle: z.string().optional().describe("URL slug for the product"),
-    vendor: z.string().optional(),
-    productType: z.string().optional(),
-    tags: z.array(z.string()).optional(),
-    status: z.enum(["ACTIVE", "DRAFT", "ARCHIVED"]).optional(),
-    seo: z
-        .object({
-        title: z.string().optional(),
-        description: z.string().optional(),
-    })
-        .optional()
-        .describe("SEO title and description"),
-    metafields: z
-        .array(z.object({
-        id: z.string().optional(),
-        namespace: z.string().optional(),
-        key: z.string().optional(),
-        value: z.string(),
-        type: z.string().optional(),
-    }))
-        .optional(),
-    collectionsToJoin: z.array(z.string()).optional().describe("Collection GIDs to add product to"),
-    collectionsToLeave: z.array(z.string()).optional().describe("Collection GIDs to remove product from"),
-    redirectNewHandle: z.boolean().optional().describe("If true, old handle redirects to new handle"),
-    media: z
-        .array(z.object({
-        originalSource: z.string().url(),
-        mediaContentType: z.enum(["IMAGE", "VIDEO", "EXTERNAL_VIDEO", "MODEL_3D"]),
-        alt: z.string().optional(),
-    }))
-        .optional()
-        .describe("New media to add to the product"),
-}, async (args) => {
-    return runLicensedTool("update-product", true, updateProduct.execute, args);
-});
-// Add the manageProductVariants tool
-server.tool("manage-product-variants", {
-    productId: z.string().min(1).describe("Shopify product GID"),
-    variants: z
-        .array(z.object({
-        id: z.string().optional().describe("Variant GID for updates. Omit to create new."),
-        price: z.string().optional().describe("Price as string, e.g. '49.00'"),
-        compareAtPrice: z.string().optional().describe("Compare-at price for showing discounts"),
-        sku: z.string().optional().describe("SKU (mapped to inventoryItem.sku)"),
-        tracked: z.boolean().optional().describe("Whether inventory is tracked. Set false for print-on-demand."),
-        taxable: z.boolean().optional(),
-        barcode: z.string().optional(),
-        optionValues: z
-            .array(z.object({
-            optionName: z.string().describe("Option name, e.g. 'Size'"),
-            name: z.string().describe("Option value, e.g. '8x10'"),
-        }))
-            .optional(),
-    }))
-        .min(1)
-        .describe("Variants to create or update"),
-    strategy: z
-        .enum(["DEFAULT", "REMOVE_STANDALONE_VARIANT", "PRESERVE_STANDALONE_VARIANT"])
-        .optional()
-        .describe("How to handle the Default Title variant when creating. DEFAULT removes it automatically."),
-}, async (args) => {
-    return runLicensedTool("manage-product-variants", true, manageProductVariants.execute, args);
-});
-// Add the manageProductOptions tool
-server.tool("manage-product-options", {
-    productId: z.string().min(1).describe("Shopify product GID"),
-    action: z.enum(["create", "update", "delete"]),
-    options: z
-        .array(z.object({
-        name: z.string().describe("Option name, e.g. 'Size'"),
-        position: z.number().optional(),
-        values: z.array(z.string()).optional().describe("Option values, e.g. ['A4', 'A3']"),
-    }))
-        .optional()
-        .describe("Options to create (action=create)"),
-    optionId: z.string().optional().describe("Option GID to update (action=update)"),
-    name: z.string().optional().describe("New name for the option (action=update)"),
-    position: z.number().optional().describe("New position (action=update)"),
-    valuesToAdd: z.array(z.string()).optional().describe("Values to add (action=update)"),
-    valuesToDelete: z.array(z.string()).optional().describe("Value GIDs to delete (action=update)"),
-    optionIds: z.array(z.string()).optional().describe("Option GIDs to delete (action=delete)"),
-}, async (args) => {
-    return runLicensedTool("manage-product-options", true, manageProductOptions.execute, args);
-});
-// Add the deleteProduct tool
-server.tool("delete-product", {
-    id: z.string().min(1).describe("Shopify product GID, e.g. gid://shopify/Product/123"),
-}, async (args) => {
-    return runLicensedTool("delete-product", true, deleteProduct.execute, args);
-});
-// Add the deleteProductVariants tool
-server.tool("delete-product-variants", {
-    productId: z.string().min(1).describe("Shopify product GID"),
-    variantIds: z.array(z.string().min(1)).min(1).describe("Array of variant GIDs to delete"),
-}, async (args) => {
-    return runLicensedTool("delete-product-variants", true, deleteProductVariants.execute, args);
-});
-server.tool("refund-order", {
-    orderId: z.string().min(1).describe("Accepts Shopify GID, numeric order id, or order number like 1004/#1004"),
-    note: z.string().optional(),
-    audit: z.object({
-        amount: z.string().min(1).describe("Refund amount for audit trail, e.g. 19.95"),
-        reason: z.string().min(3).describe("Reason for refund, e.g. damaged item"),
-        scope: z.enum(["full", "partial"]).describe("Refund scope"),
-    }),
-    notify: z.boolean().default(false),
-    currency: z.string().optional(),
-    allowOverRefunding: z.boolean().optional(),
-    refundLineItems: z
-        .array(z.object({
-        lineItemId: z.string().min(1),
-        quantity: z.number().int().positive(),
-        restockType: z.string().optional(),
-        locationId: z.string().optional(),
-    }))
-        .optional(),
-    shipping: z
-        .object({
-        amount: z.string().optional(),
-        fullRefund: z.boolean().optional(),
-    })
-        .optional(),
-    transactions: z
-        .array(z.object({
-        amount: z.string().min(1),
-        gateway: z.string().min(1),
-        kind: z.string().default("REFUND"),
-        parentId: z.string().optional(),
-    }))
-        .optional(),
-}, async (args) => {
-    return runLicensedTool("refund-order", true, refundOrder.execute, args);
-});
-server.tool("clone-product-from-url", {
-    sourceUrl: z.string().url().describe("Public Shopify product URL"),
-    status: z.enum(["ACTIVE", "DRAFT", "ARCHIVED"]).default("DRAFT"),
-    titleOverride: z.string().optional(),
-    handleOverride: z.string().optional(),
-    vendorOverride: z.string().optional(),
-    importDescription: z.boolean().default(true),
-    importMedia: z.boolean().default(true),
-    taxable: z.boolean().default(true),
-    tracked: z.boolean().default(true),
-}, async (args) => {
-    return runLicensedTool("clone-product-from-url", true, cloneProductFromUrl.execute, args);
-});
-server.tool("get-themes", {
-    role: z.enum(["main", "unpublished", "demo", "development"]).optional(),
-    limit: z.number().int().positive().max(250).default(100),
-}, async (args) => {
-    const parsedArgs = getThemes.schema.parse(args);
-    return runLicensedTool("get-themes", false, getThemes.execute, parsedArgs);
-});
-server.tool("get-theme-file", {
-    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
-    key: z.string().min(1).describe("Theme file key, e.g. sections/custom-banner.liquid"),
-    includeContent: z.boolean().default(true),
-}, async (args) => {
-    const parsedArgs = getThemeFileTool.schema.parse(args);
-    return runLicensedTool("get-theme-file", false, getThemeFileTool.execute, parsedArgs);
-});
-server.tool("get-theme-files", {
-    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
-    keys: z.array(z.string().min(1)).min(1).max(200).describe("Theme file keys"),
-    includeContent: z.boolean().default(false).describe("Include file content (value/attachment) in response"),
-}, async (args) => {
-    const parsedArgs = getThemeFilesTool.schema.parse(args);
-    return runLicensedTool("get-theme-files", false, getThemeFilesTool.execute, parsedArgs);
-});
-server.tool("upsert-theme-file", {
-    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
-    key: z.string().min(1).describe("Theme file key, e.g. sections/custom-banner.liquid"),
-    value: z.string().optional().describe("Text content for Liquid/JSON/CSS/JS assets"),
-    attachment: z.string().optional().describe("Base64 payload for binary assets"),
-    checksum: z.string().optional(),
-}, async (args) => {
-    const parsedArgs = upsertThemeFileTool.schema.parse(args);
-    return runLicensedTool("upsert-theme-file", true, upsertThemeFileTool.execute, parsedArgs);
-});
-server.tool("upsert-theme-files", {
-    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
-    files: z.array(z.object({
-        key: z.string().min(1),
-        value: z.string().optional(),
-        attachment: z.string().optional(),
-        checksum: z.string().optional(),
-    })).min(1).max(200).describe("Batch of theme files to upsert"),
-    verifyAfterWrite: z.boolean().default(false),
-}, async (args) => {
-    const parsedArgs = upsertThemeFilesTool.schema.parse(args);
-    return runLicensedTool("upsert-theme-files", true, upsertThemeFilesTool.execute, parsedArgs);
-});
-server.tool("delete-theme-file", {
-    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
-    key: z.string().min(1).describe("Theme file key to delete"),
-}, async (args) => {
-    const parsedArgs = deleteThemeFileTool.schema.parse(args);
-    return runLicensedTool("delete-theme-file", true, deleteThemeFileTool.execute, parsedArgs);
-});
-server.tool("verify-theme-files", {
-    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-    themeRole: z.enum(["main", "unpublished", "demo", "development"]).default("main"),
-    expected: z.array(z.object({
-        key: z.string().min(1),
-        size: z.number().int().nonnegative().optional(),
-        checksumMd5: z.string().optional(),
-    })).min(1).max(200).describe("Expected metadata per file"),
-}, async (args) => {
-    const parsedArgs = verifyThemeFilesTool.schema.parse(args);
-    return runLicensedTool("verify-theme-files", false, verifyThemeFilesTool.execute, parsedArgs);
-});
-server.tool("list_theme_import_tools", {}, async (args) => {
-    return runLicensedTool("list_theme_import_tools", false, listThemeImportTools.execute, args);
-});
-server.tool("get-license-status", {}, async () => {
-    if (!IS_HTTP_TRANSPORT) {
-        await licenseManager.assertToolAllowed("get-license-status", { mutating: false });
-        return toMcpResponse({
+        return {
             license: licenseManager.getStatus(),
+            access: {
+                read: true,
+                write: true,
+                readReason: "local stdio execution",
+                writeReason: "local stdio execution",
+            },
+            mcpScope: {
+                grantedScope: null,
+                read: true,
+                write: true,
+                legacyFullAccess: true,
+                source: "local-stdio",
+            },
+            tenant: {
+                id: "stdio-local",
+                licenseKey: HAZIFY_LICENSE_KEY,
+                shopDomain: MYSHOPIFY_DOMAIN,
+            },
             server: {
                 name: "Hazify MCP",
                 version: SERVER_VERSION,
                 transport: "stdio",
             },
-        });
+        };
     }
-    const context = requestContextStore.getStore();
+    const context = explicitContext || requestContextStore.getStore();
     if (!context) {
         throw new Error("Missing request context");
     }
@@ -1045,7 +526,7 @@ server.tool("get-license-status", {}, async () => {
         toolName: "status-write-check",
         mutating: true,
     });
-    return toMcpResponse({
+    return {
         license: {
             status: context.license?.status || "invalid",
             entitlements: context.license?.entitlements || {},
@@ -1060,10 +541,18 @@ server.tool("get-license-status", {}, async () => {
             readReason: readDecision.reason,
             writeReason: writeDecision.reason,
         },
+        mcpScope: {
+            grantedScope: context.grantedScope,
+            read: Boolean(context.scopeCapabilities?.read),
+            write: Boolean(context.scopeCapabilities?.write),
+            legacyFullAccess: Boolean(context.scopeCapabilities?.legacyFullAccess),
+            source: "remote-introspection",
+        },
         tenant: {
             id: context.tenantId,
             licenseKey: context.licenseKey,
             shopDomain: context.shopifyDomain,
+            targetResource: context.targetResource || null,
         },
         server: {
             name: "Hazify MCP",
@@ -1071,8 +560,54 @@ server.tool("get-license-status", {}, async () => {
             transport: "http",
             sessionMode: MCP_SESSION_MODE,
         },
-    });
+    };
+};
+async function runLicensedTool(tool, args) {
+    const toolName = tool.name;
+    const mutating = Boolean(tool.writeScopeRequired);
+    if (!IS_HTTP_TRANSPORT) {
+        await licenseManager.assertToolAllowed(toolName, { mutating });
+        const executionContext = buildToolExecutionContext();
+        if (!executionContext.shopifyClient && toolRequiresShopifyClient(toolName)) {
+            throw new Error("Missing Shopify client in stdio execution context");
+        }
+        const result = await tool.execute(args, executionContext);
+        return toMcpResponse(result);
+    }
+    const context = requestContextStore.getStore();
+    if (!context) {
+        throw new Error("Missing request context");
+    }
+    if (mutating && !context.scopeCapabilities?.write) {
+        throw createInsufficientScopeError(toolName);
+    }
+    const decision = evaluateRemoteLicenseAccess(context.license, { toolName, mutating });
+    if (!decision.allowed) {
+        throw new Error(`License gate blocked '${toolName}': ${decision.reason}`);
+    }
+    const executeTool = async () => {
+        let effectiveContext = context;
+        if (toolRequiresShopifyClient(toolName) && !effectiveContext.shopifyClient) {
+            effectiveContext = await ensureRemoteShopifyClient(effectiveContext);
+        }
+        const executionContext = buildToolExecutionContext(effectiveContext);
+        if (!executionContext.shopifyClient && toolRequiresShopifyClient(toolName)) {
+            throw new Error("Missing Shopify client in request execution context");
+        }
+        const result = await tool.execute(args, executionContext);
+        return toMcpResponse(result);
+    };
+    if (!mutating) {
+        return executeTool();
+    }
+    return runSerializedByKey(context.tenantId || context.tokenHash, executeTool);
+}
+hazifyToolRegistry = createHazifyToolRegistry({
+    getLicenseStatusExecute: createGetLicenseStatusExecute(),
 });
+const createHazifyServer = () => {
+    const server = createServerInstance();
+    registerHazifyTools(server, hazifyToolRegistry, (tool, args) => runLicensedTool(tool, args));
     return server;
 };
 const stdioServer = !IS_HTTP_TRANSPORT ? createHazifyServer() : null;
@@ -1143,7 +678,7 @@ const buildAuthorizationServerMetadata = (req) => {
         grant_types_supported: ["authorization_code", "refresh_token"],
         token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
         code_challenge_methods_supported: ["S256"],
-        scopes_supported: ["mcp:tools"],
+        scopes_supported: getDefaultMcpScopesSupported(),
         service_documentation: `${issuer}/onboarding`,
     };
 };
@@ -1152,15 +687,15 @@ const buildProtectedResourceMetadata = (req) => {
     return {
         resource: resolvePublicMcpUrl(req),
         authorization_servers: [authServer],
-        scopes_supported: ["mcp:tools"],
+        scopes_supported: getDefaultMcpScopesSupported(),
         bearer_methods_supported: ["header"],
         resource_documentation: `${authServer}/onboarding`,
     };
 };
-const buildWwwAuthenticateHeader = (req, errorCode, description) => {
+const buildWwwAuthenticateHeader = (req, errorCode, description, scope = MCP_SCOPE_TOOLS) => {
     const metadataUrl = `${resolveRequestBaseUrl(req)}/.well-known/oauth-protected-resource`;
     const safeDescription = String(description || "").replace(/"/g, "'");
-    return `Bearer realm="Hazify MCP", resource_metadata="${metadataUrl}", scope="mcp:tools", error="${errorCode}", error_description="${safeDescription}"`;
+    return `Bearer realm="Hazify MCP", resource_metadata="${metadataUrl}", scope="${scope}", error="${errorCode}", error_description="${safeDescription}"`;
 };
 const logHttpEvent = (event, details = {}) => {
     try {
@@ -1303,6 +838,15 @@ else {
         res.setHeader("WWW-Authenticate", buildWwwAuthenticateHeader(req, "invalid_token", message));
         respondJsonRpcError(res, 401, message, -32001);
     };
+    const respondInsufficientScope = (req, res, message, requiredScope = MCP_SCOPE_TOOLS_WRITE) => {
+        logHttpEvent("mcp_http_insufficient_scope", {
+            ...requestLogContext(req),
+            reason: message,
+            requiredScope,
+        });
+        res.setHeader("WWW-Authenticate", buildWwwAuthenticateHeader(req, "insufficient_scope", message, requiredScope));
+        respondJsonRpcError(res, 403, message, -32001);
+    };
     const respondMethodNotAllowed = (res, message, allowedMethods = []) => {
         if (Array.isArray(allowedMethods) && allowedMethods.length) {
             res.setHeader("Allow", allowedMethods.join(", "));
@@ -1387,6 +931,23 @@ else {
             return null;
         }
     };
+    const resolveScopeBlockedTool = (body, context) => {
+        if (!body || Array.isArray(body) || body.method !== "tools/call") {
+            return null;
+        }
+        const toolName = typeof body?.params?.name === "string" ? body.params.name : "";
+        if (!toolName) {
+            return null;
+        }
+        const tool = getRegisteredTool(toolName);
+        if (!tool?.writeScopeRequired || context?.scopeCapabilities?.write) {
+            return null;
+        }
+        return {
+            toolName,
+            requiredScope: MCP_SCOPE_TOOLS_WRITE,
+        };
+    };
     app.post("/mcp", async (req, res) => {
         if (!assertAllowedOrigin(req, res)) {
             return;
@@ -1396,6 +957,11 @@ else {
         ensureCompatibleStreamableAcceptHeader(req);
         const context = await resolveRequestAuthContext(req, res);
         if (!context) {
+            return;
+        }
+        const scopeBlockedTool = resolveScopeBlockedTool(req.body, context);
+        if (scopeBlockedTool) {
+            respondInsufficientScope(req, res, `Tool '${scopeBlockedTool.toolName}' requires write scope.`, scopeBlockedTool.requiredScope);
             return;
         }
         if (isInitializeRequest(req.body)) {

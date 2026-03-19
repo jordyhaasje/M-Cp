@@ -1,4 +1,5 @@
 # Remote MCP Deployment (Hazify)
+Doelgroep: repo maintainers.
 
 ## Architectuur
 1. `apps/hazify-license-service` beheert accounts, onboarding, OAuth, token-introspectie en interne token-exchange.

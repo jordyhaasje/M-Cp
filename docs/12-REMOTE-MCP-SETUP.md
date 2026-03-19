@@ -1,4 +1,5 @@
 # Remote MCP Setup (Aanbevolen)
+Doelgroep: ChatGPT / connector integraties, coding agents / Codex en repo maintainers.
 
 ## Doel
 Eindgebruikers verbinden via remote MCP zonder lokale server setup.
@@ -23,6 +24,7 @@ read_products,write_products,read_customers,write_customers,read_orders,write_or
 ## Authenticatie
 ### OAuth (voorkeur)
 - discovery via `/.well-known/oauth-protected-resource`
+- compatibele discovery-aliases bestaan ook voor issuer-URL's met padcomponenten, inclusief path-inserted well-known routes voor hosts die de nieuwste MCP-discovery verwachten
 - authorize/token met PKCE `S256`
 - `GET /oauth/authorize` rendert alleen de toestemmingpagina; allow/deny gebeurt via `POST /oauth/authorize`
 - De authorize submit bewaart de volledige originele OAuth-context, inclusief `resource`; bodyvelden winnen, querystring dient alleen als continuity fallback
@@ -31,19 +33,32 @@ read_products,write_products,read_customers,write_customers,read_orders,write_or
 - Dynamic client registration zonder `token_endpoint_auth_method` valt terug op public client (`none`)
 - Legacy DCR-clients die eerder foutief als `client_secret_*` zijn opgeslagen, mogen zonder secret verder voor native/public redirect URI's (loopback/custom scheme) om VS Code/Codex reconnects compatibel te houden.
 - Legacy public/native clients met `token_endpoint_auth_method=none` mogen tijdens token/refresh ook een meegezonden `client_secret` hebben; de server negeert die secret en valideert op `client_id` + PKCE.
-- scope: `mcp:tools`
-- `resource` moet overeenkomen met de remote MCP URL van deze authorization server
+- compat-first scopes:
+  - `mcp:tools` blijft legacy full access
+  - `mcp:tools:read` geeft read-only tooltoegang
+  - `mcp:tools:write` geeft full access en is vereist voor muterende tools
+- `resource` wordt compat-first verwerkt:
+  - als de client `resource` meestuurt, moet die exact overeenkomen met de remote MCP URL van deze authorization server
+  - legacy token-requests zonder `resource` blijven ondersteund om reconnect-regressies te voorkomen
 - server-side tokenvalidatie via `/v1/mcp/token/introspect`
 - interne Shopify token-exchange via `/v1/mcp/token/exchange` gebeurt lazy:
   - geen exchange bij `initialize` of `tools/list`
   - geen exchange bij context-free tools
   - exchange pas bij tools die Shopify-auth echt nodig hebben
 - `/v1/mcp/token/exchange` volgt license read-policy vóór token-return (403 `license_inactive` bij denied)
+- muterende tools geven server-side `403 insufficient_scope` zonder `mcp:tools:write`
+- tool annotations blijven hints; autorisatie blijft server-side scope plus licentiebeleid
 - Voor native/desktop clients met opaque origin (bijv. `vscode-webview://...`): voeg `null` toe aan `HAZIFY_MCP_ALLOWED_ORIGINS`.
 - De server normaliseert `Accept` voor `POST /mcp` compatibel (bijv. `application/json` of `*/*`), zodat clients die geen expliciete `text/event-stream` sturen nog steeds kunnen initialiseren.
 
 ### API token (fallback)
 Gebruik alleen als OAuth niet beschikbaar is in de client.
+
+## Client-compatibiliteit
+- Minimale host-ondersteuning: `initialize`, `tools/list`, Bearer-auth op `/mcp`, OAuth PKCE `S256` of handmatige API-tokenconfiguratie.
+- Client-support verschilt nog per host; sommige clients volgen protected resource metadata volledig, andere vereisen handmatige invulling van auth- of MCP-URL's.
+- Dynamic client registration blijft beschikbaar voor backwards compatibility, maar handmatige preregistratie of vaste clientconfig kan nog steeds nodig zijn bij hosts met beperkte OAuth-discovery.
+- Als een host geen remote OAuth-flow ondersteunt, blijft de API-token fallback bruikbaar.
 
 ## Snelle validatie
 1. `initialize` werkt
@@ -54,10 +69,23 @@ Gebruik alleen als OAuth niet beschikbaar is in de client.
 
 ## Theme import policy
 - Hazify MCP genereert of importeert geen sections.
-- Hazify MCP ondersteunt wel remote theme file deploy/verificatie:
+- Hazify MCP ondersteunt wel remote theme file planning, deploy en verificatie:
+  - goedkope planningslaag:
+    - `resolve-homepage-sections`
+    - `find-theme-section-by-name`
+    - `search-theme-files`
   - single-file: `get-theme-file`, `upsert-theme-file`, `delete-theme-file`
   - batch v2: `get-theme-files`, `upsert-theme-files`, `verify-theme-files`
+- `get-theme-files` blijft metadata-first; gebruik `get-theme-file` alleen voor echte edits of gerichte verificatie.
+- `resolve-homepage-sections` retourneert compacte, afleidbare velden zoals `displayTitle`, `schemaName`, `presetNames` en `sourceFiles`, zodat de planningsfase tokenzuinig blijft.
+- `search-theme-files` retourneert alleen gecapte hits met snippets en dumpt geen volledige bestanden tenzij daar expliciet om wordt gevraagd.
 - Gebruik `list_theme_import_tools` alleen voor metadata/advisering over externe tooling (bijv. lokale Chrome MCP en Shopify Dev MCP).
 
 Externe workflow:
 `AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`
+
+## Compat & migratie
+- Nieuwe toolnamen: `resolve-homepage-sections`, `find-theme-section-by-name`, `search-theme-files`.
+- Bestaande tracking-aliases `update-order-tracking` en `add-tracking-to-order` blijven backwards compatible via `set-order-tracking`.
+- `get-license-status` rapporteert additief ook MCP-scopecontext naast licentie-informatie.
+- `docs/16-SECTION-CLONE-RUNNER.md` is gearchiveerd naar `docs/archive/16-SECTION-CLONE-RUNNER.md`; de actieve scope staat nu in dit document en in `docs/14-GPT-INSTRUCTIONS.md`.

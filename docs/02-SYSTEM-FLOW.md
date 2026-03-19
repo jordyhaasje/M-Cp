@@ -1,4 +1,5 @@
 # System Flow
+Doelgroep: repo maintainers en coding agents / Codex.
 
 ## 1) Onboarding flow
 1. gebruiker opent `/onboarding`

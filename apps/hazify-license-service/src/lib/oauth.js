@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { URL } from "url";
+import { getDefaultMcpScopesSupported } from "@hazify/mcp-common";
 
 function isAllowedRedirectUri(uriValue, allowedCustomRedirectSchemes = []) {
   if (typeof uriValue !== "string" || !uriValue.trim()) {
@@ -34,7 +35,7 @@ function buildOauthMetadata({ issuer, serviceDocumentation }) {
     grant_types_supported: ["authorization_code", "refresh_token"],
     token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
     code_challenge_methods_supported: ["S256"],
-    scopes_supported: ["mcp:tools"],
+    scopes_supported: getDefaultMcpScopesSupported(),
     service_documentation: serviceDocumentation,
   };
 }

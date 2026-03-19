@@ -312,9 +312,11 @@ const shopifyRestRequest = async (shopifyClient, apiVersion, options) => {
 
   if (!expectedStatuses.includes(response.status)) {
     const details = extractErrorMessage(data, responseText);
-    throw buildErrorWithStatus(
-      `Shopify theme API ${method.toUpperCase()} ${path} mislukt (${response.status}): ${details}`,
-      response.status
+    throw buildThemeApiError(
+      `Shopify theme API ${method.toUpperCase()} ${path} mislukt`,
+      [details],
+      response.status,
+      { responseData: data }
     );
   }
 
@@ -353,16 +355,14 @@ const shopifyGraphqlRequest = async (shopifyClient, apiVersion, { query, variabl
 
   if (!expectedStatuses.includes(response.status)) {
     const details = extractErrorMessage(data, responseText);
-    throw buildErrorWithStatus(
-      `Shopify theme GraphQL request mislukt (${response.status}): ${details}`,
-      response.status,
-      { graphQLErrors: Array.isArray(data?.errors) ? data.errors : [] }
-    );
+    throw buildThemeApiError("Shopify theme GraphQL request mislukt", [details], response.status, {
+      graphQLErrors: Array.isArray(data?.errors) ? data.errors : [],
+    });
   }
 
   if (Array.isArray(data?.errors) && data.errors.length > 0) {
-    const details = extractErrorMessage(data, responseText);
-    throw buildErrorWithStatus(`Shopify theme GraphQL fout: ${details}`, response.status, {
+    const details = collectThemeErrorMessages(data.errors);
+    throw buildThemeApiError("Shopify theme GraphQL fout", details, response.status, {
       graphQLErrors: data.errors,
     });
   }
@@ -506,13 +506,73 @@ const createChecksumMd5Base64 = (file) => {
   return crypto.createHash("md5").update(payload).digest("base64");
 };
 
-const buildThemeUserError = (context, userErrors) => {
-  const details = userErrors
-    .map((entry) => entry?.message || entry?.code || entry?.filename || JSON.stringify(entry))
-    .filter(Boolean)
-    .join(", ");
-  return buildErrorWithStatus(`${context}: ${details || "Onbekende fout"}`, 400, { userErrors });
+const collectThemeErrorMessages = (entries) =>
+  entries
+    .map((entry) => {
+      if (!entry) {
+        return null;
+      }
+      const filename = typeof entry.filename === "string" && entry.filename.trim() ? entry.filename.trim() : "";
+      const message =
+        typeof entry.message === "string" && entry.message.trim()
+          ? entry.message.trim()
+          : typeof entry.code === "string" && entry.code.trim()
+          ? entry.code.trim()
+          : JSON.stringify(entry);
+      return filename ? `${filename}: ${message}` : message;
+    })
+    .filter(Boolean);
+
+const buildThemeApiError = (context, messages = [], status = 400, extras = {}) => {
+  const details = messages.filter(Boolean).join(", ");
+  const normalized = details.toLowerCase();
+
+  if (normalized.includes("write_themes")) {
+    return buildErrorWithStatus(
+      `${context}: Shopify app mist write_themes scope. Voeg write_themes toe en autoriseer de app opnieuw.`,
+      403,
+      { ...extras, reason: "missing_write_themes" }
+    );
+  }
+
+  if (
+    normalized.includes("exemption") ||
+    normalized.includes("not approved") ||
+    normalized.includes("theme app extension")
+  ) {
+    return buildErrorWithStatus(
+      `${context}: Shopify blokkeert deze theme-write zonder geldige exemption of toegestane app-configuratie.`,
+      403,
+      { ...extras, reason: "theme_write_exemption_required" }
+    );
+  }
+
+  if (
+    normalized.includes("checksum") ||
+    normalized.includes("precondition") ||
+    normalized.includes("etag") ||
+    normalized.includes("conflict")
+  ) {
+    return buildErrorWithStatus(
+      `${context}: checksum/precondition mismatch. Lees het bestand opnieuw en probeer de write daarna opnieuw.`,
+      409,
+      { ...extras, reason: "checksum_mismatch" }
+    );
+  }
+
+  if (status === 404 || normalized.includes("not found") || normalized.includes("bestaat niet")) {
+    return buildErrorWithStatus(
+      `${context}: theme of bestand niet gevonden. Controleer themeId/themeRole en bestandsnaam.`,
+      404,
+      { ...extras, reason: "theme_or_file_not_found" }
+    );
+  }
+
+  return buildErrorWithStatus(`${context}: ${details || "Onbekende fout"}`, status, extras);
 };
+
+const buildThemeUserError = (context, userErrors) =>
+  buildThemeApiError(context, collectThemeErrorMessages(userErrors), 400, { userErrors });
 
 const shouldFallbackToRest = (error) => {
   const status = Number(error?.status || 0);
@@ -926,6 +986,58 @@ export const getThemeFiles = async (
   );
 
   return { theme, files };
+};
+
+export const searchThemeFiles = async (
+  shopifyClient,
+  apiVersion = DEFAULT_API_VERSION,
+  { themeId, themeRole = "main", patterns = [], includeContent = false, resultLimit = 20 }
+) => {
+  if (!Array.isArray(patterns) || patterns.length === 0) {
+    throw new Error("patterns moet minimaal 1 item bevatten.");
+  }
+  const normalizedPatterns = patterns.map((pattern) => String(pattern || "").trim()).filter(Boolean);
+  if (normalizedPatterns.length !== patterns.length) {
+    throw new Error("Elke pattern in patterns[] moet een niet-lege string zijn.");
+  }
+  ensureUnique(normalizedPatterns, "patterns");
+
+  const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
+  const cappedLimit = Math.max(1, Math.min(Number(resultLimit || 20), MAX_READ_KEYS_PER_CHUNK));
+  const resultByFilename = new Map();
+  for (const patternChunk of chunkArray(normalizedPatterns, MAX_READ_KEYS_PER_CHUNK)) {
+    if (resultByFilename.size >= cappedLimit) {
+      break;
+    }
+    const data = await shopifyGraphqlRequest(shopifyClient, apiVersion, {
+      query: includeContent ? THEME_FILES_WITH_CONTENT_QUERY : THEME_FILES_METADATA_QUERY,
+      variables: {
+        themeId: theme.adminGraphqlApiId || themeNumericIdToGraphqlId(theme.id),
+        first: cappedLimit,
+        filenames: patternChunk,
+      },
+    });
+    const fileConnection = data?.theme?.files;
+    const userErrors = Array.isArray(fileConnection?.userErrors) ? fileConnection.userErrors : [];
+    if (userErrors.length > 0) {
+      throw buildThemeUserError("Shopify theme files konden niet worden doorzocht", userErrors);
+    }
+    const nodes = Array.isArray(fileConnection?.nodes) ? fileConnection.nodes : [];
+    for (const node of nodes) {
+      if (!node?.filename || resultByFilename.has(node.filename)) {
+        continue;
+      }
+      resultByFilename.set(node.filename, mapGraphqlThemeFile(node));
+      if (resultByFilename.size >= cappedLimit) {
+        break;
+      }
+    }
+  }
+  return {
+    theme,
+    files: Array.from(resultByFilename.values()),
+    truncated: resultByFilename.size >= cappedLimit,
+  };
 };
 
 export const verifyThemeFiles = async (

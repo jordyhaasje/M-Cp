@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import http from "http";
 import path from "path";
 import { URL } from "url";
-import { sha256Hex, normalizeBaseUrl } from "@hazify/mcp-common";
+import { MCP_SCOPE_TOOLS, normalizeBaseUrl, normalizeMcpScopeString, sha256Hex } from "@hazify/mcp-common";
 import {
   exchangeShopifyClientCredentials,
   normalizeShopDomain,
@@ -635,6 +635,8 @@ function createMcpTokenForTenant(tenantId, options = {}) {
       : Number.isFinite(expiresInDays) && expiresInDays > 0
       ? addDays(nowIso(), expiresInDays)
       : null;
+  const scope = normalizeMcpScopeString(options.scope || "") || MCP_SCOPE_TOOLS;
+  const targetResource = normalizeBaseUrl(options.targetResource || "");
 
   db.mcpTokens[tokenId] = {
     tokenId,
@@ -654,6 +656,8 @@ function createMcpTokenForTenant(tenantId, options = {}) {
       typeof options.oauthTokenFamilyId === "string" && options.oauthTokenFamilyId.trim()
         ? options.oauthTokenFamilyId.trim()
         : null,
+    scope,
+    targetResource: targetResource || null,
     status: "active",
     createdAt: nowIso(),
     updatedAt: nowIso(),
@@ -665,6 +669,8 @@ function createMcpTokenForTenant(tenantId, options = {}) {
     tokenId,
     accessToken,
     expiresAt,
+    scope,
+    targetResource: targetResource || null,
     tenant,
     license,
   };
@@ -875,6 +881,38 @@ function oauthIssuerBase(req) {
     return normalizeBaseUrl(config.oauthIssuer);
   }
   return requestBaseUrl(req);
+}
+
+function matchesPathInsertedWellKnown(pathname, wellKnownPath) {
+  const issuer = normalizeBaseUrl(config.oauthIssuer || "");
+  if (!issuer) {
+    return false;
+  }
+  try {
+    const issuerPath = new URL(issuer).pathname.replace(/\/+$/, "");
+    if (!issuerPath || issuerPath === "/") {
+      return false;
+    }
+    return pathname === `${wellKnownPath}${issuerPath}`;
+  } catch {
+    return false;
+  }
+}
+
+function matchesIssuerPathAlias(pathname, suffix) {
+  const issuer = normalizeBaseUrl(config.oauthIssuer || "");
+  if (!issuer) {
+    return false;
+  }
+  try {
+    const issuerPath = new URL(issuer).pathname.replace(/\/+$/, "");
+    if (!issuerPath || issuerPath === "/") {
+      return false;
+    }
+    return pathname === `${issuerPath}${suffix}`;
+  } catch {
+    return false;
+  }
 }
 
 function findLicenseByStripe(subscriptionId, customerId, licenseKeyFromMetadata) {
@@ -1225,22 +1263,54 @@ const server = http.createServer(async (req, res) => {
     if (method === "GET" && url.pathname.startsWith("/assets/brands/")) {
       return publicUiHandlers.handleBrandAsset(req, res, url);
     }
-    if (method === "GET" && url.pathname === "/.well-known/oauth-authorization-server") {
+    if (
+      method === "GET" &&
+      (url.pathname === "/.well-known/oauth-authorization-server" ||
+        matchesPathInsertedWellKnown(url.pathname, "/.well-known/oauth-authorization-server"))
+    ) {
       return oauthHandlers.handleOAuthAuthorizationServerMetadata(req, res);
     }
-    if (method === "GET" && url.pathname === "/.well-known/openid-configuration") {
+    if (
+      method === "GET" &&
+      (url.pathname === "/.well-known/openid-configuration" ||
+        matchesPathInsertedWellKnown(url.pathname, "/.well-known/openid-configuration"))
+    ) {
       return oauthHandlers.handleOAuthOpenIdConfiguration(req, res);
     }
-    if (method === "POST" && (url.pathname === "/oauth/register" || url.pathname === "/register")) {
+    if (
+      method === "POST" &&
+      (url.pathname === "/oauth/register" ||
+        url.pathname === "/register" ||
+        matchesIssuerPathAlias(url.pathname, "/oauth/register") ||
+        matchesIssuerPathAlias(url.pathname, "/register"))
+    ) {
       return oauthHandlers.handleOAuthRegister(req, res);
     }
-    if (method === "GET" && (url.pathname === "/oauth/authorize" || url.pathname === "/authorize")) {
+    if (
+      method === "GET" &&
+      (url.pathname === "/oauth/authorize" ||
+        url.pathname === "/authorize" ||
+        matchesIssuerPathAlias(url.pathname, "/oauth/authorize") ||
+        matchesIssuerPathAlias(url.pathname, "/authorize"))
+    ) {
       return oauthHandlers.handleOAuthAuthorizeGet(req, res, url);
     }
-    if (method === "POST" && (url.pathname === "/oauth/authorize" || url.pathname === "/authorize")) {
+    if (
+      method === "POST" &&
+      (url.pathname === "/oauth/authorize" ||
+        url.pathname === "/authorize" ||
+        matchesIssuerPathAlias(url.pathname, "/oauth/authorize") ||
+        matchesIssuerPathAlias(url.pathname, "/authorize"))
+    ) {
       return oauthHandlers.handleOAuthAuthorizePost(req, res);
     }
-    if (method === "POST" && (url.pathname === "/oauth/token" || url.pathname === "/token")) {
+    if (
+      method === "POST" &&
+      (url.pathname === "/oauth/token" ||
+        url.pathname === "/token" ||
+        matchesIssuerPathAlias(url.pathname, "/oauth/token") ||
+        matchesIssuerPathAlias(url.pathname, "/token"))
+    ) {
       return oauthHandlers.handleOAuthToken(req, res);
     }
     if (method === "GET" && url.pathname === "/health") {

@@ -1,4 +1,10 @@
 import crypto from "crypto";
+import {
+  MCP_SCOPE_TOOLS,
+  getMcpScopeCapabilities,
+  normalizeMcpScopeString,
+  parseSpaceSeparatedScopes,
+} from "@hazify/mcp-common";
 
 export function createOAuthHandlers({
   db,
@@ -198,6 +204,44 @@ export function createOAuthHandlers({
     return grantType === "authorization_code" || grantType === "refresh_token";
   }
 
+  const allowedAuxiliaryScopes = new Set(["offline_access"]);
+
+  function normalizeOauthScope(rawScope, fallback = MCP_SCOPE_TOOLS) {
+    const tokens = parseSpaceSeparatedScopes(rawScope || "", [fallback]);
+    return normalizeMcpScopeString(tokens.join(" "), fallback);
+  }
+
+  function assertSupportedOauthScope(rawScope, fallback = MCP_SCOPE_TOOLS) {
+    const rawTokens = parseSpaceSeparatedScopes(rawScope || "", [fallback]);
+    const normalizedScope = normalizeOauthScope(rawTokens.join(" "), fallback);
+    const capabilities = getMcpScopeCapabilities(normalizedScope);
+    if (!capabilities.read) {
+      throw new Error("Unsupported scope");
+    }
+    const invalidTokens = rawTokens.filter(
+      (token) => !token.startsWith("mcp:") && !allowedAuxiliaryScopes.has(token)
+    );
+    if (invalidTokens.length > 0) {
+      throw new Error("Unsupported scope");
+    }
+    return normalizedScope;
+  }
+
+  function resolveOAuthClientScope(client) {
+    return assertSupportedOauthScope(client?.scope || MCP_SCOPE_TOOLS, MCP_SCOPE_TOOLS);
+  }
+
+  function resolveRequestedOAuthScope(client, rawScope) {
+    const clientScope = resolveOAuthClientScope(client);
+    const requestedScope = assertSupportedOauthScope(rawScope, clientScope);
+    const requestedCapabilities = getMcpScopeCapabilities(requestedScope);
+    const clientCapabilities = getMcpScopeCapabilities(clientScope);
+    if (requestedCapabilities.write && !clientCapabilities.write) {
+      throw new Error("Requested scope exceeds registered client scope");
+    }
+    return requestedScope;
+  }
+
   function logOAuthTokenFailure(reason, details = {}) {
     try {
       logEvent("oauth_token_failed", {
@@ -278,7 +322,18 @@ export function createOAuthHandlers({
           json
         );
       }
-      const scope = "mcp:tools";
+      let scope;
+      try {
+        scope = assertSupportedOauthScope(payload.scope, MCP_SCOPE_TOOLS);
+      } catch (error) {
+        return oauthJsonError(
+          res,
+          400,
+          "invalid_client_metadata",
+          error instanceof Error ? error.message : String(error),
+          json
+        );
+      }
 
       const clientId = randomId("oauthcli");
       const issuedAtSeconds = Math.floor(Date.now() / 1000);
@@ -341,6 +396,7 @@ export function createOAuthHandlers({
     decision,
     licenseKey,
     shopDomain = "",
+    targetResource = "",
     authorizePath = "/oauth/authorize",
   }) {
     if (decision !== "allow") {
@@ -436,6 +492,7 @@ export function createOAuthHandlers({
       tenantId: tenant.tenantId,
       licenseKey,
       scope,
+      targetResource: targetResource || null,
       codeChallenge,
       codeChallengeMethod: "S256",
       createdAt: nowIso(),
@@ -459,10 +516,10 @@ export function createOAuthHandlers({
     const responseType = url.searchParams.get("response_type") || "code";
     const codeChallenge = url.searchParams.get("code_challenge") || "";
     const codeChallengeMethod = url.searchParams.get("code_challenge_method") || "S256";
-    const scope =
+    const requestedScope =
       typeof url.searchParams.get("scope") === "string" && url.searchParams.get("scope").trim()
         ? String(url.searchParams.get("scope")).trim()
-        : "mcp:tools";
+        : "";
     const resource =
       typeof url.searchParams.get("resource") === "string" && url.searchParams.get("resource").trim()
         ? String(url.searchParams.get("resource")).trim()
@@ -488,7 +545,9 @@ export function createOAuthHandlers({
       );
       return;
     }
+    let scope = resolveOAuthClientScope(client);
     try {
+      scope = resolveRequestedOAuthScope(client, requestedScope);
       assertOAuthClientRedirectUri(client, redirectUri);
       if (responseType !== "code") {
         redirectWithOAuthResult(res, redirectUri, {
@@ -623,7 +682,7 @@ export function createOAuthHandlers({
         readRequestParam("response_type", "code", { enforceMatch: true }) || "code";
       const codeChallenge = readRequestParam("code_challenge", "", { enforceMatch: true });
       const codeChallengeMethod = readRequestParam("code_challenge_method", "S256", { enforceMatch: true }) || "S256";
-      const scope = readRequestParam("scope", "mcp:tools", { enforceMatch: true }) || "mcp:tools";
+      const requestedScope = readRequestParam("scope", "", { enforceMatch: true });
       const resource = readRequestParam("resource", "", { enforceMatch: true });
       const decision =
         typeof payload.decision === "string" && payload.decision.trim()
@@ -650,6 +709,7 @@ export function createOAuthHandlers({
         );
         return;
       }
+      const scope = resolveRequestedOAuthScope(client, requestedScope);
       assertOAuthClientRedirectUri(client, redirectUri);
       if (responseType !== "code") {
         redirectWithOAuthResult(res, redirectUri, {
@@ -730,6 +790,7 @@ export function createOAuthHandlers({
         decision,
         licenseKey,
         shopDomain: requestedShopDomain,
+        targetResource: normalizedResource || "",
         authorizePath: authorizeAction,
       });
     } catch (error) {
@@ -861,6 +922,45 @@ export function createOAuthHandlers({
             });
             return oauthJsonError(res, 400, "invalid_grant", "Invalid code_verifier", json);
           }
+          const requestedScope =
+            typeof payload.scope === "string" && payload.scope.trim()
+              ? assertSupportedOauthScope(payload.scope, codeRecord.scope || resolveOAuthClientScope(client))
+              : null;
+          const effectiveScope = codeRecord.scope || resolveOAuthClientScope(client);
+          if (requestedScope && requestedScope !== effectiveScope) {
+            logOAuthTokenFailure("invalid_scope", {
+              grantType,
+              clientId: client.clientId,
+            });
+            return oauthJsonError(
+              res,
+              400,
+              "invalid_scope",
+              "scope must match the previously granted scope",
+              json
+            );
+          }
+          const rawRequestedResource =
+            typeof payload.resource === "string" && payload.resource.trim() ? payload.resource.trim() : "";
+          let requestedResource = "";
+          try {
+            requestedResource = rawRequestedResource ? assertSupportedOauthResource(req, rawRequestedResource) : "";
+          } catch (error) {
+            if (error instanceof Error && error.message === "Unsupported resource for this authorization server") {
+              return oauthJsonError(res, 400, "invalid_target", "Unsupported resource", json);
+            }
+            throw error;
+          }
+          const effectiveTargetResource = normalizeBaseUrl(codeRecord.targetResource || "") || "";
+          if (requestedResource && effectiveTargetResource && requestedResource !== effectiveTargetResource) {
+            return oauthJsonError(
+              res,
+              400,
+              "invalid_target",
+              "resource must match the previously granted resource",
+              json
+            );
+          }
 
           const accessTokenTtlSeconds = Math.max(300, Number(config.oauthAccessTokenTtlSeconds || 3600));
           const refreshTokenTtlDays = positiveNumber(config.oauthRefreshTokenTtlDays || 30, 30);
@@ -873,6 +973,8 @@ export function createOAuthHandlers({
             oauthClientId: client.clientId,
             oauthRefreshTokenId: refreshTokenId,
             oauthTokenFamilyId: refreshFamilyId,
+            scope: effectiveScope,
+            targetResource: effectiveTargetResource || requestedResource || "",
           });
 
           db.oauthRefreshTokens[refreshTokenId] = {
@@ -884,7 +986,8 @@ export function createOAuthHandlers({
             familyId: refreshFamilyId,
             parentRefreshTokenId: null,
             replacedByRefreshTokenId: null,
-            scope: codeRecord.scope || "mcp:tools",
+            scope: effectiveScope,
+            targetResource: effectiveTargetResource || requestedResource || "",
             status: "active",
             revokedAt: null,
             replayDetectedAt: null,
@@ -901,7 +1004,7 @@ export function createOAuthHandlers({
             token_type: "Bearer",
             expires_in: accessTokenTtlSeconds,
             refresh_token: refreshToken,
-            scope: codeRecord.scope || "mcp:tools",
+            scope: effectiveScope,
           });
         });
       }
@@ -980,9 +1083,11 @@ export function createOAuthHandlers({
           );
         }
 
+        const effectiveScope = assertSupportedOauthScope(refreshRecord.scope || MCP_SCOPE_TOOLS, MCP_SCOPE_TOOLS);
         const requestedScope =
-          typeof payload.scope === "string" && payload.scope.trim() ? payload.scope.trim() : null;
-        const effectiveScope = refreshRecord.scope || "mcp:tools";
+          typeof payload.scope === "string" && payload.scope.trim()
+            ? assertSupportedOauthScope(payload.scope, effectiveScope)
+            : null;
         if (requestedScope && requestedScope !== effectiveScope) {
           logOAuthTokenFailure("invalid_scope", {
             grantType,
@@ -993,6 +1098,27 @@ export function createOAuthHandlers({
             400,
             "invalid_scope",
             "scope must match the previously granted scope",
+            json
+          );
+        }
+        const rawRequestedResource =
+          typeof payload.resource === "string" && payload.resource.trim() ? payload.resource.trim() : "";
+        let requestedResource = "";
+        try {
+          requestedResource = rawRequestedResource ? assertSupportedOauthResource(req, rawRequestedResource) : "";
+        } catch (error) {
+          if (error instanceof Error && error.message === "Unsupported resource for this authorization server") {
+            return oauthJsonError(res, 400, "invalid_target", "Unsupported resource", json);
+          }
+          throw error;
+        }
+        const effectiveTargetResource = normalizeBaseUrl(refreshRecord.targetResource || "") || "";
+        if (requestedResource && effectiveTargetResource && requestedResource !== effectiveTargetResource) {
+          return oauthJsonError(
+            res,
+            400,
+            "invalid_target",
+            "resource must match the previously granted resource",
             json
           );
         }
@@ -1008,6 +1134,8 @@ export function createOAuthHandlers({
           oauthClientId: refreshRecord.clientId,
           oauthRefreshTokenId: nextRefreshTokenId,
           oauthTokenFamilyId: familyId,
+          scope: effectiveScope,
+          targetResource: effectiveTargetResource || requestedResource || "",
         });
 
         refreshRecord.status = "rotated";
@@ -1023,6 +1151,7 @@ export function createOAuthHandlers({
           parentRefreshTokenId: refreshRecord.refreshTokenId,
           replacedByRefreshTokenId: null,
           scope: effectiveScope,
+          targetResource: effectiveTargetResource || requestedResource || "",
           status: "active",
           revokedAt: null,
           replayDetectedAt: null,

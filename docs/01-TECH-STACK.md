@@ -1,4 +1,5 @@
 # Tech Stack (Productie)
+Doelgroep: repo maintainers en coding agents / Codex.
 
 ## Architectuur
 Deze monorepo bevat twee runtime services:

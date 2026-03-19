@@ -1,4 +1,5 @@
 # Repo Structure
+Doelgroep: repo maintainers en coding agents / Codex.
 
 ## Actieve mappen
 - `apps/hazify-license-service/`

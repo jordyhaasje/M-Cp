@@ -158,6 +158,24 @@ try {
 
   await waitFor(`${mcpBaseUrl}/.well-known/oauth-protected-resource`);
 
+  const protectedResourceResponse = await fetch(`${mcpBaseUrl}/.well-known/oauth-protected-resource`);
+  assert.equal(protectedResourceResponse.status, 200, "protected resource metadata should be reachable");
+  const protectedResourceMetadata = await protectedResourceResponse.json();
+  assert.deepEqual(
+    protectedResourceMetadata?.scopes_supported,
+    ["mcp:tools", "mcp:tools:read", "mcp:tools:write"],
+    "protected resource metadata should advertise compat-first scopes"
+  );
+
+  const authorizationMetadataResponse = await fetch(`${mcpBaseUrl}/.well-known/oauth-authorization-server`);
+  assert.equal(authorizationMetadataResponse.status, 200, "authorization server metadata should be reachable");
+  const authorizationMetadata = await authorizationMetadataResponse.json();
+  assert.deepEqual(
+    authorizationMetadata?.scopes_supported,
+    ["mcp:tools", "mcp:tools:read", "mcp:tools:write"],
+    "authorization metadata should advertise compat-first scopes"
+  );
+
   const email = `contract-${Date.now()}@example.test`;
   const password = "ContractPass!123";
 
@@ -296,6 +314,9 @@ try {
   for (const expectedTool of [
     "get-products",
     "refund-order",
+    "resolve-homepage-sections",
+    "find-theme-section-by-name",
+    "search-theme-files",
     "get-theme-files",
     "upsert-theme-files",
     "verify-theme-files",
@@ -307,6 +328,8 @@ try {
       `tools/list should expose '${expectedTool}'`
     );
   }
+  const getOrdersTool = toolsListBody.result.tools.find((tool) => tool?.name === "get-orders");
+  assert.ok(getOrdersTool?.inputSchema?.properties?.cursor, "get-orders should expose cursor in tools/list");
   const disallowedOriginResponse = await fetch(`${mcpBaseUrl}/mcp`, {
     method: "POST",
     headers: {

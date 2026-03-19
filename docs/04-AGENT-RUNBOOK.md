@@ -1,4 +1,5 @@
 # Agent Runbook
+Doelgroep: coding agents / Codex en repo maintainers.
 
 ## Startcheck
 1. Lees verplicht in volgorde: `00` → `01` → `02` → `03` → `04` → `10` → `12`.

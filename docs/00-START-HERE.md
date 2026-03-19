@@ -1,4 +1,5 @@
 # Start Here (Codex)
+Doelgroep: coding agents / Codex.
 
 Dit is de verplichte leesvolgorde voor agents in deze workspace.
 
@@ -8,14 +9,13 @@ Dit is de verplichte leesvolgorde voor agents in deze workspace.
 3. `docs/02-SYSTEM-FLOW.md`
 4. `docs/03-REPO-STRUCTURE.md`
 5. `docs/04-AGENT-RUNBOOK.md`
-6. `docs/10-MCP-SERVER-SETUP.md`
-7. `docs/12-REMOTE-MCP-SETUP.md`
-8. `docs/20-TRACKING-WORKFLOW.md` (bij trackingvragen)
-9. `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/deploy/licensing)
-10. `docs/14-GPT-INSTRUCTIONS.md` (bij GPT-configuratie)
-11. `docs/16-SECTION-CLONE-RUNNER.md` (bij section-clone workflows)
-12. `AGENTS.md`
-13. Runtime code in `apps/hazify-license-service/src/` en `apps/hazify-mcp-remote/src/`
+6. `AGENTS.md`
+7. `docs/10-MCP-SERVER-SETUP.md`
+8. `docs/12-REMOTE-MCP-SETUP.md`
+9. `docs/20-TRACKING-WORKFLOW.md` (bij trackingvragen)
+10. `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/deploy/licensing)
+11. `docs/14-GPT-INSTRUCTIONS.md` (bij GPT-configuratie)
+12. Runtime code in `apps/hazify-license-service/src/` en `apps/hazify-mcp-remote/src/`
 
 ## Actieve mapindeling
 - `apps/hazify-license-service/`
@@ -29,3 +29,5 @@ Dit is de verplichte leesvolgorde voor agents in deze workspace.
 
 ## Werkregel
 Als documentatie en code elkaar tegenspreken, is code leidend en update je de documentatie in dezelfde wijziging.
+
+Gebruik `docs/archive/` alleen voor historische context of oude workflows.

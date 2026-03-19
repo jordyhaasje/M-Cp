@@ -6,6 +6,7 @@ const docsDir = path.join(repoRoot, "docs");
 const docsIndexPath = path.join(docsDir, "README.md");
 const startHerePath = path.join(docsDir, "00-START-HERE.md");
 const rootReadmePath = path.join(repoRoot, "README.md");
+const agentsPath = path.join(repoRoot, "AGENTS.md");
 
 const problems = [];
 
@@ -70,6 +71,11 @@ function parseMarkdownLinks(content) {
   return [...content.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)].map((match) => match[1].trim());
 }
 
+function hasTopAudienceLine(content) {
+  const firstLines = content.split(/\r?\n/).slice(0, 8);
+  return firstLines.some((line) => /^Doelgroep:\s+\S+/.test(line.trim()));
+}
+
 function isExternalTarget(target) {
   return (
     target.startsWith("#") ||
@@ -125,15 +131,40 @@ async function main() {
   const indexedDocs = extractSectionCodePaths(docsIndexContent, "Actief")
     .filter((value) => value.startsWith("docs/") && value.endsWith(".md"))
     .sort();
-  const readOrderDocs = extractSectionCodePaths(startHereContent, "Leesvolgorde")
+  const orderedReadOrder = extractSectionCodePaths(startHereContent, "Leesvolgorde");
+  const readOrderDocs = orderedReadOrder
     .filter((value) => value.startsWith("docs/") && value.endsWith(".md") && !value.startsWith("docs/archive/"))
     .sort();
 
   comparePathLists("docs/README.md", actualActiveDocs, indexedDocs);
   comparePathLists("docs/00-START-HERE.md", actualActiveDocs, readOrderDocs);
 
-  const markdownFilesToCheck = [rootReadmePath, docsIndexPath, ...actualActiveDocs.map((file) => path.join(repoRoot, file))];
+  const agentsIndex = orderedReadOrder.indexOf("AGENTS.md");
+  const runbookIndex = orderedReadOrder.indexOf("docs/04-AGENT-RUNBOOK.md");
+  const mcpSetupIndex = orderedReadOrder.indexOf("docs/10-MCP-SERVER-SETUP.md");
+
+  if (agentsIndex === -1) {
+    problems.push("docs/00-START-HERE.md: `AGENTS.md` ontbreekt in de leesvolgorde");
+  } else {
+    if (runbookIndex !== -1 && agentsIndex <= runbookIndex) {
+      problems.push("docs/00-START-HERE.md: `AGENTS.md` moet na `docs/04-AGENT-RUNBOOK.md` staan");
+    }
+    if (mcpSetupIndex !== -1 && agentsIndex >= mcpSetupIndex) {
+      problems.push("docs/00-START-HERE.md: `AGENTS.md` moet voor `docs/10-MCP-SERVER-SETUP.md` staan");
+    }
+  }
+
+  const markdownFilesToCheck = [
+    rootReadmePath,
+    agentsPath,
+    docsIndexPath,
+    ...actualActiveDocs.map((file) => path.join(repoRoot, file)),
+  ];
   for (const filePath of markdownFilesToCheck) {
+    const content = await readText(filePath);
+    if (!hasTopAudienceLine(content)) {
+      problems.push(`missing doelgroep line near top of ${toPosixPath(path.relative(repoRoot, filePath))}`);
+    }
     await checkMarkdownLinks(filePath);
   }
 

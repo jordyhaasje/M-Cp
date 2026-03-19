@@ -1,4 +1,5 @@
 # AGENTS.md
+Doelgroep: coding agents / Codex.
 
 ## Doel
 Deze workspace is voor operationele uitvoering van:
@@ -28,11 +29,13 @@ De agent werkt snel, veilig en verifieert altijd data voordat er wijzigingen wor
 3. Lees daarna `docs/02-SYSTEM-FLOW.md`
 4. Lees daarna `docs/03-REPO-STRUCTURE.md`
 5. Lees daarna `docs/04-AGENT-RUNBOOK.md`
-6. Lees daarna `docs/10-MCP-SERVER-SETUP.md`
-7. Lees daarna `docs/12-REMOTE-MCP-SETUP.md`
-8. Lees daarna `docs/20-TRACKING-WORKFLOW.md` (bij trackingvragen)
-9. Lees daarna `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/licensing)
-10. Pas daarna pas code aan in `apps/hazify-mcp-remote/src/`
+6. Lees daarna `AGENTS.md` (deze instructie)
+7. Lees daarna `docs/10-MCP-SERVER-SETUP.md`
+8. Lees daarna `docs/12-REMOTE-MCP-SETUP.md`
+9. Lees daarna `docs/20-TRACKING-WORKFLOW.md` (bij trackingvragen)
+10. Lees daarna `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/licensing)
+11. Lees daarna `docs/14-GPT-INSTRUCTIONS.md` (bij connector/GPT-vragen)
+12. Pas daarna pas code aan in `apps/hazify-mcp-remote/src/`
 
 Als documentatie en code elkaar tegenspreken: code is leidend, en documentatie moet direct worden bijgewerkt in dezelfde wijziging.
 

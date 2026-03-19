@@ -521,6 +521,8 @@ export function createLicenseBillingHandlers({
         tokenId: tokenRecord.tokenId,
         tenantId: tenant.tenantId,
         licenseKey: tokenRecord.licenseKey || tenant.licenseKey,
+        scope: tokenRecord.scope || "mcp:tools",
+        resource: tokenRecord.targetResource || null,
         license: canonicalLicense(license),
         shopify: {
           domain: tenant.shopify?.domain || null,
@@ -640,6 +642,8 @@ export function createLicenseBillingHandlers({
         active: true,
         tokenId: tokenRecord.tokenId,
         tenantId: tenant.tenantId,
+        scope: tokenRecord.scope || "mcp:tools",
+        resource: tokenRecord.targetResource || null,
         shopify: {
           domain: tenant.shopify?.domain || null,
           authMode,

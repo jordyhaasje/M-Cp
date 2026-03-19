@@ -1,4 +1,5 @@
 # Hazify Monorepo
+Doelgroep: repo maintainers.
 
 Deze repository bevat de productiecode voor:
 - `apps/hazify-license-service` (accounts, onboarding, OAuth, token-introspectie + interne token-exchange, billing)
@@ -52,3 +53,9 @@ npm test
 
 ## Leesvolgorde
 Start met `docs/00-START-HERE.md`.
+
+## Compat & migratie
+- Nieuwe theme-planning tools: `resolve-homepage-sections`, `find-theme-section-by-name`, `search-theme-files`.
+- Bestaande tracking-aliases `update-order-tracking` en `add-tracking-to-order` blijven backwards compatible en hergebruiken `set-order-tracking`.
+- Remote MCP ondersteunt nu compat-first scopes: `mcp:tools`, `mcp:tools:read`, `mcp:tools:write`.
+- `docs/16-SECTION-CLONE-RUNNER.md` is gearchiveerd; de actieve scope staat nu in `docs/12-REMOTE-MCP-SETUP.md` en `docs/14-GPT-INSTRUCTIONS.md`.
