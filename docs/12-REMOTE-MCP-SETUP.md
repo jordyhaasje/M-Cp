@@ -68,24 +68,30 @@ Gebruik alleen als OAuth niet beschikbaar is in de client.
 5. stateless mode (`MCP_SESSION_MODE=stateless`) werkt zonder `mcp-session-id`
 
 ## Theme import policy
-- Hazify MCP genereert of importeert geen sections.
-- Hazify MCP ondersteunt wel remote theme file planning, deploy en verificatie:
+- Hazify MCP ondersteunt native OS 2.0 section-create/place via `create-theme-section` voor:
+  - `templates/*.json`
+  - `sections/header-group.json`
+  - `sections/footer-group.json`
+- Hazify MCP ondersteunt daarnaast remote theme file planning, deploy en verificatie:
   - goedkope planningslaag:
     - `resolve-homepage-sections`
     - `find-theme-section-by-name`
     - `search-theme-files`
+  - create helper:
+    - `create-theme-section`
   - single-file: `get-theme-file`, `upsert-theme-file`, `delete-theme-file`
   - batch v2: `get-theme-files`, `upsert-theme-files`, `verify-theme-files`
 - `get-theme-files` blijft metadata-first; gebruik `get-theme-file` alleen voor echte edits of gerichte verificatie.
-- `resolve-homepage-sections` retourneert compacte, afleidbare velden zoals `displayTitle`, `schemaName`, `presetNames` en `sourceFiles`, zodat de planningsfase tokenzuinig blijft.
+- `resolve-homepage-sections` retourneert compacte, afleidbare velden zoals `displayTitle`, `schemaName`, `presetNames` en `sourceFiles`, zodat de planningsfase tokenzuinig blijft voor homepage inventory/editing.
+- `find-theme-section-by-name` is lookup-only voor bestaande sections en retourneert routing-hints (`recommendedFlow`, `creationSuggested`) om create-vragen weg te sturen van bestaande lookup-calls.
 - `search-theme-files` retourneert alleen gecapte hits met snippets en dumpt geen volledige bestanden tenzij daar expliciet om wordt gevraagd.
-- Gebruik `list_theme_import_tools` alleen voor metadata/advisering over externe tooling (bijv. lokale Chrome MCP en Shopify Dev MCP).
+- Gebruik `list_theme_import_tools` alleen voor metadata/advisering over externe tooling (bijv. lokale Chrome MCP en Shopify Dev MCP), niet voor normale native section-create requests.
 
 Externe workflow:
 `AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`
 
 ## Compat & migratie
-- Nieuwe toolnamen: `resolve-homepage-sections`, `find-theme-section-by-name`, `search-theme-files`.
+- Nieuwe toolnamen: `resolve-homepage-sections`, `find-theme-section-by-name`, `search-theme-files`, `create-theme-section`.
 - Bestaande tracking-aliases `update-order-tracking` en `add-tracking-to-order` blijven backwards compatible via `set-order-tracking`.
 - `get-license-status` rapporteert additief ook MCP-scopecontext naast licentie-informatie.
 - `docs/16-SECTION-CLONE-RUNNER.md` is gearchiveerd naar `docs/archive/16-SECTION-CLONE-RUNNER.md`; de actieve scope staat nu in dit document en in `docs/14-GPT-INSTRUCTIONS.md`.

@@ -6,9 +6,10 @@ Doelgroep: repo maintainers en coding agents / Codex.
 2. kiest `Inloggen` of `Account maken`
 3. accountflow via `/login` of `/signup`
 4. bij succes opent `/dashboard`
-5. gebruiker koppelt winkel met `shopAccessToken` of `shopClientId + shopClientSecret`
-6. onboarding valideert credentials + vereiste scopes (incl. `read_themes`/`write_themes`)
-7. gebruiker maakt MCP token via dashboard
+5. optioneel in testmodus: `HAZIFY_AUTO_ACTIVATE_SIGNUP_LICENSES=true` geeft nieuwe signup-accounts direct een actieve licentie zonder checkout
+6. gebruiker koppelt winkel met `shopAccessToken` of `shopClientId + shopClientSecret`
+7. onboarding valideert credentials + vereiste scopes (incl. `read_themes`/`write_themes`)
+8. gebruiker maakt MCP token via dashboard
 
 ## 2) OAuth flow (aanbevolen)
 1. client leest `/.well-known/oauth-protected-resource`
@@ -40,8 +41,8 @@ Doelgroep: repo maintainers en coding agents / Codex.
 - stateful mode alleen expliciet en met sticky sessions of gedeelde session store
 
 ## 5) Externe theme import flow
-De remote Hazify MCP importeert geen sections.
-De remote Hazify MCP ondersteunt wel theme file deploy/verificatie:
+De remote Hazify MCP ondersteunt native OS 2.0 section-create/place op ondersteunde JSON targets via `create-theme-section`.
+De remote Hazify MCP ondersteunt daarnaast theme file deploy/verificatie:
 - single-file: `get-theme-file`, `upsert-theme-file`, `delete-theme-file`
 - batch v2: `get-theme-files`, `upsert-theme-files`, `verify-theme-files`
 

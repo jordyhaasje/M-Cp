@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { cloneProductFromUrl } from "../src/tools/cloneProductFromUrl.js";
+import { createThemeSectionTool } from "../src/tools/createThemeSection.js";
 import { createProduct } from "../src/tools/createProduct.js";
 import { deleteProduct } from "../src/tools/deleteProduct.js";
 import { deleteProductVariants } from "../src/tools/deleteProductVariants.js";
@@ -33,6 +34,15 @@ import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
 const shopifyScopedTools = [
   { name: "clone-product-from-url", tool: cloneProductFromUrl, input: { sourceUrl: "https://example.com/products/demo" } },
   { name: "create-product", tool: createProduct, input: { title: "Demo product" } },
+  {
+    name: "create-theme-section",
+    tool: createThemeSectionTool,
+    input: {
+      targetFile: "templates/index.json",
+      name: "Demo section",
+      sectionLiquid: `<div>Demo section</div>`,
+    },
+  },
   { name: "delete-product", tool: deleteProduct, input: { id: "gid://shopify/Product/1" } },
   {
     name: "delete-product-variants",

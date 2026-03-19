@@ -26,6 +26,7 @@ Optioneel/aanbevolen:
 - `MAX_BODY_BYTES` (aanbevolen minimaal `1048576`; hoger bij grotere payloads)
 - `OAUTH_ACCESS_TOKEN_TTL_SECONDS` (default `3600`; verhoog dit voor browserconnectoren zoals ChatGPT als de client refresh-tokens niet stabiel hergebruikt en onnodig opnieuw autoriseert)
 - `OAUTH_REFRESH_TOKEN_TTL_DAYS` (default `30`)
+- `HAZIFY_AUTO_ACTIVATE_SIGNUP_LICENSES=true` schakelt tijdelijke testmodus in waarbij nieuwe signup-accounts direct een actieve licentie krijgen zonder checkout; laat in normale betaalde productie uit of weg
 
 ### MCP remote
 Runtime-verplicht voor remote HTTP transport:
@@ -78,6 +79,7 @@ Defaults/optioneel:
 - `pg-mem` tests valideren repository/persistence gedrag, maar niet advisory-lock semantiek; lock-semantiek vereist een echte Postgres testomgeving.
 
 ## Theme section import (extern)
-De remote MCP doet geen section import. De importflow draait buiten deze repository:
+De remote MCP ondersteunt native OS 2.0 section-create/place in ondersteunde JSON targets.
+Externe import/review flows blijven daarnaast buiten deze repository draaien:
 
 `AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`

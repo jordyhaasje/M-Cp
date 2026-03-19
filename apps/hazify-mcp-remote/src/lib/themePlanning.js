@@ -216,6 +216,19 @@ const scoreSectionMatch = (query, section) => {
   };
 };
 
+const buildLookupHints = ({ exactMatches, fuzzyMatches }) => {
+  const bestExactConfidence = exactMatches[0]?.confidence || 0;
+  const bestFuzzyConfidence = fuzzyMatches[0]?.confidence || 0;
+  const bestConfidence = Math.max(bestExactConfidence, bestFuzzyConfidence);
+  const recommendedFlow = exactMatches.length > 0 || bestFuzzyConfidence >= 0.85 ? "edit_existing" : "create_new";
+  const creationSuggested = exactMatches.length === 0 && bestFuzzyConfidence < 0.85;
+  return {
+    bestConfidence,
+    recommendedFlow,
+    creationSuggested,
+  };
+};
+
 const buildTextSnippets = (content, query, { mode = "literal", snippetLength = 120, maxSnippets = 2 } = {}) => {
   const text = typeof content === "string" ? content : "";
   if (!text) {
@@ -384,9 +397,11 @@ export const findThemeSectionByName = async (
   const matches = candidates
     .map((section) => {
       const result = scoreSectionMatch(query, section);
+      const matchConfidence = Number(result.score.toFixed(2));
       return {
         ...section,
-        confidence: Number(Math.max(section.confidence || 0, result.score).toFixed(2)),
+        sourceConfidence: section.confidence || 0,
+        confidence: matchConfidence,
         matchedOn: result.matchedOn,
         exact: result.exact,
       };
@@ -396,28 +411,34 @@ export const findThemeSectionByName = async (
 
   const exactMatches = matches.filter((entry) => entry.exact);
   const fuzzyMatches = matches.filter((entry) => !entry.exact).slice(0, 8);
+  const lookupHints = buildLookupHints({ exactMatches, fuzzyMatches });
+  const nextSteps =
+    lookupHints.recommendedFlow === "edit_existing"
+      ? uniqueStrings(
+          (exactMatches.length > 0 ? exactMatches : fuzzyMatches.slice(0, 2)).flatMap((match) => [
+            `Gebruik get-theme-file voor ${match.sectionFile || match.originFile}`,
+          ])
+        )
+      : [
+          "Gebruik create-theme-section voor een nieuwe OS 2.0 section zodra targetFile bekend is.",
+          "Gebruik search-theme-files alleen als je nog een compacte stijlreferentie nodig hebt uit sections/snippets/assets.",
+        ];
 
   return {
     query,
     page: page || "theme-wide",
     exactMatches,
     fuzzyMatches,
-    confidence:
-      exactMatches[0]?.confidence ||
-      fuzzyMatches[0]?.confidence ||
-      0,
+    confidence: lookupHints.bestConfidence,
+    lookupOnly: true,
+    recommendedFlow: lookupHints.recommendedFlow,
+    creationSuggested: lookupHints.creationSuggested,
     relevantFiles: uniqueStrings([
       ...Array.from(relevantFiles),
       ...exactMatches.flatMap((match) => [match.originFile, match.sectionFile]),
       ...fuzzyMatches.flatMap((match) => [match.originFile, match.sectionFile]),
     ]),
-    nextSteps:
-      exactMatches.length > 0
-        ? uniqueStrings(exactMatches.flatMap((match) => [`Gebruik get-theme-file voor ${match.sectionFile}`]))
-        : [
-            "Gebruik resolve-homepage-sections om homepage-volgorde te bevestigen.",
-            "Gebruik get-theme-file op een relevante section-file voor de daadwerkelijke edit.",
-          ],
+    nextSteps,
   };
 };
 

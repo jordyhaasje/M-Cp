@@ -14,17 +14,19 @@ Dit document bevat operationele regels voor ChatGPT connector-gebruik.
 - Remote MCP gebruikt lazy Shopify token exchange: pas bij tools die Shopify-auth echt nodig hebben.
 
 ## Theme import policy
-1. Gebruik in Hazify MCP alleen `list_theme_import_tools` voor capability discovery.
-2. Laat section generatie/import uitvoeren door externe tooling buiten deze repository.
-3. Gebruik voor theme-planning in deze remote MCP eerst de read-only resolvertools:
+1. Gebruik voor een nieuwe OS 2.0 section op een ondersteund JSON target direct `create-theme-section`.
+2. Als het target/template niet expliciet bekend is, stel eerst een korte vervolgvraag en gok niet.
+3. Gebruik in Hazify MCP `list_theme_import_tools` alleen voor expliciete externe review/import-vragen.
+4. Gebruik voor fix/update/style-wijzigingen in deze remote MCP eerst de read-only resolvertools:
    - `resolve-homepage-sections`
    - `find-theme-section-by-name`
    - `search-theme-files`
-4. Gebruik `get-theme-file` en `upsert-theme-file(s)` pas nadat de targetbestanden via de resolverlaag zijn bevestigd.
-5. `search-theme-files` en `resolve-homepage-sections` zijn expliciet bedoeld om tool-chaining en tokenverbruik te verlagen bij kleine theme-wijzigingen.
-6. Externe keten:
+5. Gebruik `find-theme-section-by-name` alleen voor bestaande lookup/edit-flows; niet als standaard eerste stap voor create-vragen.
+6. Gebruik `get-theme-file` en `upsert-theme-file(s)` pas nadat de targetbestanden via de resolverlaag zijn bevestigd, tenzij `create-theme-section` het create-pad al afvangt.
+7. `search-theme-files` en `resolve-homepage-sections` zijn expliciet bedoeld om tool-chaining en tokenverbruik te verlagen bij kleine theme-wijzigingen.
+8. Externe keten:
    `AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`
-7. Hazify MCP blijft verantwoordelijk voor store API-operaties (producten, orders, refunds, tracking, theme files), inclusief batch theme file deploy/verificatie.
+9. Hazify MCP blijft verantwoordelijk voor store API-operaties (producten, orders, refunds, tracking, theme files), inclusief native section-create/place en batch theme file deploy/verificatie.
 
 ## Referenties
 - `docs/12-REMOTE-MCP-SETUP.md`

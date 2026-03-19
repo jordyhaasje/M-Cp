@@ -38,7 +38,8 @@ const SearchThemeFilesInputSchema = z
 
 const searchThemeFilesTool = {
   name: "search-theme-files",
-  description: "Search scoped theme files and return compact snippets instead of full file dumps.",
+  description:
+    "Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern.",
   schema: SearchThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

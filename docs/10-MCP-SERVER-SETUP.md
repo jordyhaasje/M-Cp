@@ -20,8 +20,8 @@ Doelgroep: repo maintainers en coding agents / Codex.
 2. `npm test`
 
 ## Theme import tooling policy
-- Hazify MCP importeert geen generated sections.
-- Hazify MCP ondersteunt wel theme file deploy/verificatie via Shopify API.
+- Hazify MCP ondersteunt native OS 2.0 section-create/place op ondersteunde JSON templates en section groups via `create-theme-section`.
+- Hazify MCP ondersteunt daarnaast theme file deploy/verificatie via Shopify API.
   - single-file: `get-theme-file`, `upsert-theme-file`, `delete-theme-file`
   - batch v2: `get-theme-files`, `upsert-theme-files`, `verify-theme-files`
 - Gebruik `list_theme_import_tools` uitsluitend om externe tooling metadata/advisering op te vragen.

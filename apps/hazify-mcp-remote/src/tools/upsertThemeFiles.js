@@ -55,7 +55,8 @@ const UpsertThemeFilesInputSchema = z
 
 const upsertThemeFilesTool = {
   name: "upsert-theme-files",
-  description: "Create or update multiple Shopify theme files in chunked batches.",
+  description:
+    "Create or update multiple Shopify theme files in chunked batches, including new section/snippet/template/assets files when exact targets are already known.",
   schema: UpsertThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

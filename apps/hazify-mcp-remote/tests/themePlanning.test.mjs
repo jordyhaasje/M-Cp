@@ -179,6 +179,17 @@ try {
     page: "homepage",
   });
   assert.ok(exactMatchResult.exactMatches.length >= 1, "exact homepage section matches should be returned");
+  assert.equal(exactMatchResult.lookupOnly, true, "section finder should signal lookup-only intent");
+  assert.equal(
+    exactMatchResult.recommendedFlow,
+    "edit_existing",
+    "exact section matches should recommend edit_existing"
+  );
+  assert.equal(
+    exactMatchResult.creationSuggested,
+    false,
+    "exact section matches should not suggest creating a new section"
+  );
   assert.ok(
     exactMatchResult.relevantFiles.includes("sections/hero-banner.liquid"),
     "exact match should point to the section file"
@@ -189,6 +200,26 @@ try {
     query: "quotes",
   });
   assert.ok(fuzzyMatchResult.fuzzyMatches.length >= 1, "theme-wide fuzzy section matches should be returned");
+
+  const createSuggestionResult = await findThemeSectionByName(shopifyClient, "2026-01", {
+    themeId: 123,
+    query: "Most asked questions",
+    page: "homepage",
+  });
+  assert.equal(
+    createSuggestionResult.recommendedFlow,
+    "create_new",
+    "generic create-style queries without strong matches should recommend create_new"
+  );
+  assert.equal(
+    createSuggestionResult.creationSuggested,
+    true,
+    "generic create-style queries without strong matches should suggest creating a new section"
+  );
+  assert.ok(
+    createSuggestionResult.nextSteps.some((step) => step.includes("create-theme-section")),
+    "create suggestions should point to the create-theme-section flow"
+  );
 
   const searchResult = await searchThemeFilesWithSnippets(shopifyClient, "2026-01", {
     query: "headline",

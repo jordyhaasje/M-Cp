@@ -48,6 +48,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 
 ### Themes
 - Themes ophalen: `get-themes`
+- Nieuwe OS 2.0 section maken en plaatsen: `create-theme-section`
 - Theme bestand lezen: `get-theme-file`
 - Theme bestanden batch lezen: `get-theme-files`
 - Theme bestand schrijven/updaten: `upsert-theme-file`
@@ -75,7 +76,8 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 1. Haal themes op met `get-themes` en bevestig live theme (`role=main`) of gebruik expliciet `themeId`.
 2. Gebruik `upsert-theme-file`/`delete-theme-file` alleen na expliciete validatie van target-bestand.
 3. Verifieer writes altijd met `get-theme-file`.
-4. Voor section-imports: Hazify MCP voert geen import uit; gebruik alleen `list_theme_import_tools` voor discovery van externe tooling.
+4. Voor nieuwe OS 2.0 sections op ondersteunde JSON targets: gebruik `create-theme-section`.
+5. Gebruik `list_theme_import_tools` alleen voor expliciete externe review/import discovery buiten de native remote MCP flow.
 
 ### Orders
 - Ophalen: `get-orders`, `get-order-by-id`
@@ -123,7 +125,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 - Nooit refunds doen zonder expliciete validatie van bedrag en scope.
 - Productimport is niet klaar zonder gecontroleerde variant-media.
 - Trackingnummer/vervoerder nooit via `customAttributes` of losse metafields bijwerken; altijd fulfillment-tracking gebruiken.
-- Geen section-generatie of section-import uitvoeren via deze MCP.
+- Geen section-create uitvoeren zonder expliciete target-validatie; unsupported importflows blijven extern.
 - Deel geen gevoelige data buiten Shopify-context.
 
 ## Snelheidsmodus (als snelheid belangrijk is)

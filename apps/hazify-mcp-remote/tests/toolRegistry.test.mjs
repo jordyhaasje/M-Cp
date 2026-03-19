@@ -48,6 +48,7 @@ for (const criticalToolName of [
   "get-orders",
   "get-order-by-id",
   "get-customers",
+  "create-theme-section",
   "get-theme-file",
   "get-theme-files",
   "get-license-status",
@@ -61,6 +62,7 @@ for (const criticalToolName of [
 }
 
 for (const expectedToolName of [
+  "create-theme-section",
   "resolve-homepage-sections",
   "find-theme-section-by-name",
   "search-theme-files",

@@ -36,7 +36,8 @@ const UpsertThemeFileInputSchema = z
 
 const upsertThemeFileTool = {
   name: "upsert-theme-file",
-  description: "Create or update a Shopify theme file (theme code CRUD only; no built-in section-import pipeline).",
+  description:
+    "Create or update a single Shopify theme file, including new section/snippet/template/assets files when you already know the exact target key.",
   schema: UpsertThemeFileInputSchema,
   execute: async (input, context = {}) => {
       const shopifyClient = requireShopifyClient(context);

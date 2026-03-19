@@ -14,7 +14,7 @@ const ResolveHomepageSectionsInputSchema = z.object({
 const resolveHomepageSectionsTool = {
   name: "resolve-homepage-sections",
   description:
-    "Resolve homepage template files and section instances with token-lean metadata for planning theme edits.",
+    "Resolve homepage template files and section instances with token-lean metadata for homepage inventory and edit planning.",
   schema: ResolveHomepageSectionsInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

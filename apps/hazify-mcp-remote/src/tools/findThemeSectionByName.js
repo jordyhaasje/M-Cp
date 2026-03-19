@@ -14,7 +14,8 @@ const FindThemeSectionByNameInputSchema = z.object({
 
 const findThemeSectionByNameTool = {
   name: "find-theme-section-by-name",
-  description: "Find exact and fuzzy theme section matches by section name, schema name, preset, or instance id.",
+  description:
+    "Lookup existing theme section instances or files by section name, schema name, preset, or instance id. Use this for edit/fix flows, not as the default first step for creating a brand-new section.",
   schema: FindThemeSectionByNameInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

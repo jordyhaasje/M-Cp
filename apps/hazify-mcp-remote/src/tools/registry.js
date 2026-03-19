@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { cloneProductFromUrl } from "./cloneProductFromUrl.js";
+import { createThemeSectionTool } from "./createThemeSection.js";
 import { createProduct } from "./createProduct.js";
 import { deleteProduct } from "./deleteProduct.js";
 import { deleteProductVariants } from "./deleteProductVariants.js";
@@ -220,8 +221,23 @@ const findThemeSectionByNameOutputSchema = z
     exactMatches: z.array(passthroughObject()),
     fuzzyMatches: z.array(passthroughObject()),
     confidence: z.number(),
+    lookupOnly: z.boolean(),
+    recommendedFlow: z.enum(["edit_existing", "create_new"]),
+    creationSuggested: z.boolean(),
     relevantFiles: z.array(z.string()),
     nextSteps: z.array(z.string()),
+  })
+  .passthrough();
+
+const createThemeSectionOutputSchema = z
+  .object({
+    theme: themeSummarySchema,
+    targetFile: z.string(),
+    sectionFile: z.string(),
+    sectionInstanceId: z.string(),
+    placement: z.enum(["append", "prepend", "before", "after"]),
+    createdFiles: z.array(z.string()),
+    verifySummary: passthroughObject().nullable().optional(),
   })
   .passthrough();
 
@@ -316,6 +332,11 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
   }),
   defineToolManifest(cloneProductFromUrl, { writeScopeRequired: true, idempotent: false }),
   defineToolManifest(getThemes),
+  defineToolManifest(createThemeSectionTool, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: createThemeSectionOutputSchema,
+  }),
   defineToolManifest(resolveHomepageSectionsTool, {
     outputSchema: resolveHomepageSectionsOutputSchema,
   }),
