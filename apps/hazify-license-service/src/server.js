@@ -762,6 +762,147 @@ function resolveTenantForAccount(account, preferredTenantId = "") {
   return matching[0];
 }
 
+function normalizeOptionalLicenseKey(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+function normalizeStoredContactEmail(value) {
+  try {
+    return normalizeOptionalEmail(value);
+  } catch {
+    return null;
+  }
+}
+
+function findAccountByLicenseKey(licenseKey, excludeAccountId = "") {
+  const normalized = normalizeOptionalLicenseKey(licenseKey);
+  if (!normalized) {
+    return null;
+  }
+  return (
+    Object.values(db.accounts || {}).find(
+      (entry) =>
+        entry &&
+        entry.status !== "disabled" &&
+        entry.licenseKey === normalized &&
+        entry.accountId !== excludeAccountId
+    ) || null
+  );
+}
+
+function canSwitchAccountLicense(account) {
+  return listTenantsForAccount(account).length === 0;
+}
+
+function licenseCandidatePriority(record) {
+  const status = canonicalLicense(record).status;
+  switch (status) {
+    case "active":
+      return 5;
+    case "past_due":
+      return 4;
+    case "canceled":
+      return 3;
+    case "unpaid":
+      return 2;
+    case "invalid":
+    default:
+      return 1;
+  }
+}
+
+function listAdoptableLicensesForEmail(email, excludeAccountId = "") {
+  const normalizedEmail = normalizeOptionalEmail(email);
+  if (!normalizedEmail) {
+    return [];
+  }
+  return Object.values(db.licenses || {})
+    .filter((record) => record && normalizeStoredContactEmail(record.contactEmail) === normalizedEmail)
+    .filter((record) => !findAccountByLicenseKey(record.licenseKey, excludeAccountId))
+    .sort((a, b) => {
+      const priorityDiff = licenseCandidatePriority(b) - licenseCandidatePriority(a);
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
+      return Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0);
+    });
+}
+
+function assignLicenseToAccount(account, licenseKey, { requireExisting = false } = {}) {
+  const normalized = normalizeOptionalLicenseKey(licenseKey);
+  if (!normalized) {
+    return null;
+  }
+  const target = db.licenses[normalized] || null;
+  if (!target) {
+    if (requireExisting) {
+      throw new Error("Opgegeven licentie is niet gevonden.");
+    }
+    return null;
+  }
+  const owner = findAccountByLicenseKey(normalized, account?.accountId || "");
+  if (owner) {
+    throw new Error("Deze licentie is al gekoppeld aan een ander account.");
+  }
+  if (account?.licenseKey && account.licenseKey !== normalized && !canSwitchAccountLicense(account)) {
+    throw new Error("Deze licentie kan niet worden gekoppeld omdat dit account al winkels heeft.");
+  }
+  ensureLicenseRecordShape(target);
+  account.licenseKey = normalized;
+  account.updatedAt = nowIso();
+  const accountEmail = normalizeOptionalEmail(account?.email);
+  if (accountEmail) {
+    target.contactEmail = accountEmail;
+  }
+  target.updatedAt = nowIso();
+  return target;
+}
+
+function maybeAdoptAccountLicense(account, { licenseKey = null, email = null, requireExistingLicense = false } = {}) {
+  const requestedLicenseKey = normalizeOptionalLicenseKey(licenseKey);
+  if (requestedLicenseKey) {
+    return assignLicenseToAccount(account, requestedLicenseKey, {
+      requireExisting: requireExistingLicense,
+    });
+  }
+
+  const current = account?.licenseKey ? db.licenses[account.licenseKey] || null : null;
+  if (current && isLicenseUsableForOnboarding(current)) {
+    const accountEmail = normalizeOptionalEmail(account?.email);
+    if (accountEmail) {
+      current.contactEmail = accountEmail;
+      current.updatedAt = nowIso();
+    }
+    return current;
+  }
+
+  const candidates = listAdoptableLicensesForEmail(email || account?.email || "", account?.accountId || "");
+  const candidate = candidates[0] || null;
+  if (!candidate) {
+    return current;
+  }
+  return assignLicenseToAccount(account, candidate.licenseKey, {
+    requireExisting: true,
+  });
+}
+
+async function redeemAccountLicenseFromQuery(account, licenseKey) {
+  const before = account?.licenseKey || null;
+  const adopted = maybeAdoptAccountLicense(account, {
+    licenseKey,
+    email: account?.email || "",
+    requireExistingLicense: true,
+  });
+  if (adopted || account?.licenseKey !== before) {
+    await persistDb();
+  }
+  return adopted;
+}
+
 function buildDashboardPayload(req, account, session, preferredTenantId = "") {
   const license = ensureAccountLicenseRecord(account);
   const tenants = listTenantsForAccount(account);
@@ -1044,6 +1185,7 @@ const publicUiHandlers = createPublicUiHandlers({
   renderSignupPage,
   renderDashboardPage,
   resolveAccountSession,
+  redeemAccountLicenseFromQuery,
   safeRedirectPath,
 });
 
@@ -1105,6 +1247,7 @@ const accountHandlers = createAccountHandlers({
   resolveTenantForAccount,
   listTenantMcpTokens,
   listTenantsForAccount,
+  maybeAdoptAccountLicense,
 });
 
 const licenseBillingHandlers = createLicenseBillingHandlers({
@@ -1139,6 +1282,7 @@ const licenseBillingHandlers = createLicenseBillingHandlers({
   maskSecret,
   exchangeShopifyClientCredentials,
   logEvent,
+  normalizeOptionalEmail,
 });
 
 const adminHandlers = createAdminHandlers({

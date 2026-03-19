@@ -11,6 +11,7 @@ export function createPublicUiHandlers({
   renderSignupPage,
   renderDashboardPage,
   resolveAccountSession,
+  redeemAccountLicenseFromQuery,
   safeRedirectPath,
 }) {
   function writeHtml(res, html) {
@@ -25,17 +26,40 @@ export function createPublicUiHandlers({
     return redirectTo(res, "/onboarding", 302);
   }
 
-  function handleOnboardingPage(req, res) {
+  async function handleOnboardingPage(req, res, url) {
     const resolved = resolveAccountSession(req);
     if (resolved.account) {
+      const licenseKey = url.searchParams.get("licenseKey") || "";
+      if (licenseKey) {
+        try {
+          await redeemAccountLicenseFromQuery(resolved.account, licenseKey);
+        } catch (error) {
+          console.warn("Failed to redeem license from onboarding query:", error);
+        }
+      }
       return redirectTo(res, "/dashboard");
     }
-    return writeHtml(res, renderOnboardingLandingPage());
+    return writeHtml(
+      res,
+      renderOnboardingLandingPage({
+        next: safeRedirectPath(url.searchParams.get("next") || "/dashboard", "/dashboard"),
+        licenseKey: url.searchParams.get("licenseKey") || "",
+        payment: url.searchParams.get("payment") || "",
+      })
+    );
   }
 
-  function handleLoginPage(req, res, url) {
+  async function handleLoginPage(req, res, url) {
     const resolved = resolveAccountSession(req);
     if (resolved.account) {
+      const licenseKey = url.searchParams.get("licenseKey") || "";
+      if (licenseKey) {
+        try {
+          await redeemAccountLicenseFromQuery(resolved.account, licenseKey);
+        } catch (error) {
+          console.warn("Failed to redeem license from login query:", error);
+        }
+      }
       const next = safeRedirectPath(url.searchParams.get("next") || "/dashboard", "/dashboard");
       return redirectTo(res, next);
     }
@@ -43,14 +67,23 @@ export function createPublicUiHandlers({
       res,
       renderLoginPage({
         next: safeRedirectPath(url.searchParams.get("next") || "/dashboard", "/dashboard"),
+        licenseKey: url.searchParams.get("licenseKey") || "",
         error: url.searchParams.get("error") || "",
       })
     );
   }
 
-  function handleSignupPage(req, res, url) {
+  async function handleSignupPage(req, res, url) {
     const resolved = resolveAccountSession(req);
     if (resolved.account) {
+      const licenseKey = url.searchParams.get("licenseKey") || "";
+      if (licenseKey) {
+        try {
+          await redeemAccountLicenseFromQuery(resolved.account, licenseKey);
+        } catch (error) {
+          console.warn("Failed to redeem license from signup query:", error);
+        }
+      }
       const next = safeRedirectPath(url.searchParams.get("next") || "/dashboard", "/dashboard");
       return redirectTo(res, next);
     }
@@ -58,16 +91,25 @@ export function createPublicUiHandlers({
       res,
       renderSignupPage({
         next: safeRedirectPath(url.searchParams.get("next") || "/dashboard", "/dashboard"),
+        licenseKey: url.searchParams.get("licenseKey") || "",
         error: url.searchParams.get("error") || "",
       })
     );
   }
 
-  function handleDashboardPage(req, res, url) {
+  async function handleDashboardPage(req, res, url) {
     const resolved = resolveAccountSession(req);
     if (!resolved.account) {
       const next = safeRedirectPath(url.pathname + (url.search || ""), "/dashboard");
       return redirectTo(res, `/onboarding?next=${encodeURIComponent(next)}`);
+    }
+    const licenseKey = url.searchParams.get("licenseKey") || "";
+    if (licenseKey) {
+      try {
+        await redeemAccountLicenseFromQuery(resolved.account, licenseKey);
+      } catch (error) {
+        console.warn("Failed to redeem license from dashboard query:", error);
+      }
     }
     return writeHtml(res, renderDashboardPage());
   }

@@ -30,6 +30,7 @@ export function createLicenseBillingHandlers({
   maskSecret,
   exchangeShopifyClientCredentials,
   logEvent,
+  normalizeOptionalEmail,
 }) {
   function logMcpAuthEvent(event, details = {}) {
     try {
@@ -242,7 +243,7 @@ export function createLicenseBillingHandlers({
     }
     try {
       const { json: payload } = await readBody(req);
-      const customerEmail = payload.customerEmail;
+      const customerEmail = normalizeOptionalEmail(payload.customerEmail);
       const priceId = resolveConfiguredPriceId(config, payload);
 
       if (!customerEmail) {
@@ -251,17 +252,25 @@ export function createLicenseBillingHandlers({
 
       const licenseKey = payload.licenseKey || generateLicenseKey();
       const baseUrl = requestBaseUrl(req);
-      const successUrl =
-        payload.successUrl ||
-        config.checkoutSuccessUrl ||
-        `${baseUrl}/onboarding?payment=success&licenseKey=${encodeURIComponent(licenseKey)}`;
-      const cancelUrl =
-        payload.cancelUrl ||
-        config.checkoutCancelUrl ||
-        `${baseUrl}/onboarding?payment=cancel&licenseKey=${encodeURIComponent(licenseKey)}`;
+      const successUrl = appendQueryParamsToUrl(
+        payload.successUrl || config.checkoutSuccessUrl || `${baseUrl}/onboarding`,
+        {
+          payment: "success",
+          licenseKey,
+        }
+      );
+      const cancelUrl = appendQueryParamsToUrl(
+        payload.cancelUrl || config.checkoutCancelUrl || `${baseUrl}/onboarding`,
+        {
+          payment: "cancel",
+          licenseKey,
+        }
+      );
 
-      if (!db.licenses[licenseKey]) {
-        db.licenses[licenseKey] = ensureLicenseRecordShape({
+      let shouldPersistLicense = false;
+      let record = db.licenses[licenseKey] || null;
+      if (!record) {
+        record = ensureLicenseRecordShape({
           licenseKey,
           status: "invalid",
           entitlements: { mutations: true, tools: {} },
@@ -272,6 +281,17 @@ export function createLicenseBillingHandlers({
           createdAt: nowIso(),
           updatedAt: nowIso(),
         });
+        db.licenses[licenseKey] = record;
+        shouldPersistLicense = true;
+      } else {
+        ensureLicenseRecordShape(record);
+      }
+      if (record.contactEmail !== customerEmail) {
+        record.contactEmail = customerEmail;
+        record.updatedAt = nowIso();
+        shouldPersistLicense = true;
+      }
+      if (shouldPersistLicense) {
         await persistDb();
       }
 
@@ -404,6 +424,12 @@ export function createLicenseBillingHandlers({
           record.subscription.canceledAt = null;
           record.pastDueSince = null;
           record.canceledAt = null;
+          const contactEmail = normalizeOptionalEmail(
+            object.customer_details?.email || object.customer_email || record.contactEmail || null
+          );
+          if (contactEmail) {
+            record.contactEmail = contactEmail;
+          }
           record.updatedAt = nowIso();
         }
       }

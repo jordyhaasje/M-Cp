@@ -40,7 +40,23 @@ export function createAccountHandlers({
   resolveTenantForAccount,
   listTenantMcpTokens,
   listTenantsForAccount,
+  maybeAdoptAccountLicense,
 }) {
+  function activateLicenseForSignupTesting(license) {
+    if (!config.autoActivateSignupLicenses || !license) {
+      return license;
+    }
+    license.status = "active";
+    if (license.subscription && typeof license.subscription === "object") {
+      license.subscription.status = "active";
+      license.subscription.canceledAt = null;
+    }
+    license.pastDueSince = null;
+    license.canceledAt = null;
+    license.updatedAt = nowIso();
+    return license;
+  }
+
   async function handleAccountSignup(req, res) {
     if (!applyRateLimit(req, res)) {
       return;
@@ -76,8 +92,15 @@ export function createAccountHandlers({
         updatedAt: nowIso(),
         lastLoginAt: nowIso(),
       };
+      maybeAdoptAccountLicense(account, {
+        licenseKey: payload?.licenseKey,
+        email,
+        requireExistingLicense: typeof payload?.licenseKey === "string" && payload.licenseKey.trim().length > 0,
+      });
       db.accounts[accountId] = account;
-      ensureAccountLicenseRecord(account);
+      const license = activateLicenseForSignupTesting(ensureAccountLicenseRecord(account));
+      license.contactEmail = email;
+      license.updatedAt = nowIso();
       const session = createAccountSession({
         db,
         accountId,
@@ -137,7 +160,15 @@ export function createAccountHandlers({
         });
       }
 
+      maybeAdoptAccountLicense(account, {
+        licenseKey: payload?.licenseKey,
+        email,
+        requireExistingLicense: typeof payload?.licenseKey === "string" && payload.licenseKey.trim().length > 0,
+      });
       ensureAccountLicenseRecord(account);
+      const license = ensureAccountLicenseRecord(account);
+      license.contactEmail = email;
+      license.updatedAt = nowIso();
       account.lastLoginAt = nowIso();
       account.updatedAt = nowIso();
       const session = createAccountSession({

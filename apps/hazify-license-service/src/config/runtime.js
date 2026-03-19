@@ -53,6 +53,10 @@ const config = {
   dbSingleWriterEnforced:
     String(process.env.DB_SINGLE_WRITER_ENFORCED || "true").trim().toLowerCase() !== "false",
   dbSingleWriterLockKey: Number(process.env.DB_SINGLE_WRITER_LOCK_KEY || 19450603),
+  autoActivateSignupLicenses:
+    String(process.env.HAZIFY_AUTO_ACTIVATE_SIGNUP_LICENSES || "")
+      .trim()
+      .toLowerCase() === "true",
   backupExportKey: process.env.BACKUP_EXPORT_KEY || "",
 };
 

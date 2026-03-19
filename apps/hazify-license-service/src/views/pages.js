@@ -1369,11 +1369,12 @@ function discordFooter() {
   `;
 }
 
-function authForm({ mode, next = "/dashboard" }) {
+function authForm({ mode, next = "/dashboard", licenseKey = "" }) {
   const isLogin = mode === "login";
   return `
     <form data-auth-form="${isLogin ? "login" : "signup"}" class="grid-2" style="display:grid;">
       <input type="hidden" name="next" value="${escapeHtml(next)}" />
+      <input type="hidden" name="licenseKey" value="${escapeHtml(licenseKey)}" />
       ${
         isLogin
           ? ""
@@ -1397,8 +1398,9 @@ function authForm({ mode, next = "/dashboard" }) {
   `;
 }
 
-function authPageShell({ mode, next = "/dashboard", error = "" }) {
+function authPageShell({ mode, next = "/dashboard", licenseKey = "", error = "" }) {
   const isLogin = mode === "login";
+  const licenseQuery = licenseKey ? `&licenseKey=${encodeURIComponent(licenseKey)}` : "";
   return shell({
     title: `${isLogin ? "Inloggen" : "Account maken"} - Hazify`,
     body: `
@@ -1413,10 +1415,10 @@ function authPageShell({ mode, next = "/dashboard", error = "" }) {
           <div class="content">
             <article class="panel">
               <p id="notice" class="notice ${error ? "err" : "hidden"}">${escapeHtml(error || "")}</p>
-              ${authForm({ mode, next })}
+              ${authForm({ mode, next, licenseKey })}
               <div class="btn-row">
-                <a class="btn soft" href="${isLogin ? `/signup?next=${encodeURIComponent(next)}` : `/login?next=${encodeURIComponent(next)}`}">${isLogin ? "Account maken" : "Inloggen"}</a>
-                <a class="btn" href="/onboarding">Terug</a>
+                <a class="btn soft" href="${isLogin ? `/signup?next=${encodeURIComponent(next)}${licenseQuery}` : `/login?next=${encodeURIComponent(next)}${licenseQuery}`}">${isLogin ? "Account maken" : "Inloggen"}</a>
+                <a class="btn" href="/onboarding${licenseKey ? `?licenseKey=${encodeURIComponent(licenseKey)}` : ""}">Terug</a>
               </div>
             </article>
           </div>
@@ -1457,7 +1459,13 @@ function authPageShell({ mode, next = "/dashboard", error = "" }) {
   });
 }
 
-export function renderOnboardingLandingPage() {
+export function renderOnboardingLandingPage({ next = "/dashboard", licenseKey = "", payment = "" } = {}) {
+  const paymentNotice =
+    payment === "success"
+      ? '<p class="notice ok">Betaling ontvangen. Log in of maak een account om je winkel direct te koppelen.</p>'
+      : payment === "cancel"
+      ? '<p class="notice warn">Betaling geannuleerd. Je kunt opnieuw proberen of eerst inloggen.</p>'
+      : "";
   return shell({
     title: "Hazify onboarding",
     body: `
@@ -1471,6 +1479,7 @@ export function renderOnboardingLandingPage() {
           </div>
 
           <div class="content onboarding-content">
+            ${paymentNotice}
             <div class="cards-2 onboarding-cards">
               <article class="start-card login-card">
                 <h3>Inloggen</h3>
@@ -1510,10 +1519,10 @@ export function renderOnboardingLandingPage() {
       </div>
 
       <template id="loginFormTemplate">
-        ${authForm({ mode: "login" })}
+        ${authForm({ mode: "login", next, licenseKey })}
       </template>
       <template id="signupFormTemplate">
-        ${authForm({ mode: "signup" })}
+        ${authForm({ mode: "signup", next, licenseKey })}
       </template>
 
       <script>
@@ -1604,14 +1613,16 @@ export function renderOnboardingLandingPage() {
   });
 }
 
-export function renderLoginPage({ next = "/dashboard", error = "" }) {
+export function renderLoginPage({ next = "/dashboard", licenseKey = "", error = "" }) {
   const safeNext = typeof next === "string" && next.startsWith("/") ? next : "/dashboard";
-  return authPageShell({ mode: "login", next: safeNext, error });
+  const safeLicenseKey = typeof licenseKey === "string" ? licenseKey : "";
+  return authPageShell({ mode: "login", next: safeNext, licenseKey: safeLicenseKey, error });
 }
 
-export function renderSignupPage({ next = "/dashboard", error = "" }) {
+export function renderSignupPage({ next = "/dashboard", licenseKey = "", error = "" }) {
   const safeNext = typeof next === "string" && next.startsWith("/") ? next : "/dashboard";
-  return authPageShell({ mode: "signup", next: safeNext, error });
+  const safeLicenseKey = typeof licenseKey === "string" ? licenseKey : "";
+  return authPageShell({ mode: "signup", next: safeNext, licenseKey: safeLicenseKey, error });
 }
 
 export function renderDashboardPage() {

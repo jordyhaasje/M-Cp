@@ -15,7 +15,7 @@
     "smoke:prod": "node scripts/smoke-prod.mjs",
     "build": "npm run -ws --if-present build",
     "test": "npm run -ws --if-present test && npm run test:e2e",
-    "test:e2e": "node tests/e2e/contract.test.mjs",
+    "test:e2e": "node tests/e2e/contract.test.mjs && node apps/hazify-license-service/tests/account-license-binding.test.mjs && node apps/hazify-license-service/tests/signup-auto-active-license.test.mjs",
     "start": "node scripts/start-service.mjs",
     "start:license": "npm run --workspace @hazify/license-service start",
     "start:mcp": "npm run --workspace @hazify/mcp-remote build && npm run --workspace @hazify/mcp-remote start:remote",
