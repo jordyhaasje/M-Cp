@@ -12,8 +12,7 @@ const UpsertThemeFileInputSchema = z
     key: z.string().min(1).describe("Theme file key, e.g. sections/custom-banner.liquid"),
     value: z.string().optional().describe("REQUIRED if attachment is omitted. Use ONLY for text files (Liquid, JSON, CSS, JS). NEVER use alongside attachment."),
     attachment: z.string().optional().describe("REQUIRED if value is omitted. Use ONLY for base64 content for binary assets (jpg/png). NEVER use alongside value."),
-    checksum: z.string().optional().describe("Optional checksum for conflict-safe writes. Prefer passing the checksum from a prior get-theme-file call when editing an existing file."),
-    verifyAfterWrite: z.boolean().default(true).describe("Verify the written file directly after the write using expected size/checksum metadata."),
+    checksum: z.string().optional().describe("Optional checksum for conflict-safe writes"),
   })
   .superRefine((input, ctx) => {
     const hasValue = typeof input.value === "string";
@@ -38,7 +37,7 @@ const UpsertThemeFileInputSchema = z
 const upsertThemeFileTool = {
   name: "upsert-theme-file",
   description:
-    "Create or update a single Shopify theme file when you already know the exact target key. For edits on existing files, prefer checksum from get-theme-file and always verify with get-theme-file afterwards.",
+    "Create or update a single Shopify theme file, including new section/snippet/template/assets files when you already know the exact target key.",
   schema: UpsertThemeFileInputSchema,
   execute: async (input, context = {}) => {
       const shopifyClient = requireShopifyClient(context);
@@ -50,7 +49,6 @@ const upsertThemeFileTool = {
         value: input.value,
         attachment: input.attachment,
         checksum: input.checksum,
-        verifyAfterWrite: input.verifyAfterWrite,
       });
 
       return {
@@ -61,9 +59,6 @@ const upsertThemeFileTool = {
           role: result.theme.role,
         },
         asset: result.asset,
-        ...(result.verify ? { verify: result.verify } : {}),
-        ...(result.verifySummary ? { verifySummary: result.verifySummary } : {}),
-        ...(result.verifyError ? { verifyError: result.verifyError } : {}),
       };
     } catch (error) {
       console.error("Error upserting theme file:", error);

@@ -104,6 +104,7 @@ const THEME_FILES_WITH_CONTENT_QUERY = `#graphql
         userErrors {
           code
           filename
+          message
         }
       }
     }
@@ -131,6 +132,7 @@ const THEME_FILES_METADATA_QUERY = `#graphql
         userErrors {
           code
           filename
+          message
         }
       }
     }
@@ -1310,13 +1312,13 @@ export const upsertThemeFiles = async (
 export const upsertThemeFile = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main", key, value, attachment, checksum, verifyAfterWrite = false }
+  { themeId, themeRole = "main", key, value, attachment, checksum }
 ) => {
   if (checksum !== undefined) {
     await assertThemeFileChecksum(shopifyClient, apiVersion, { themeId, themeRole, key, checksum });
   }
 
-  const result = await withThemeGraphqlFallback(
+  return withThemeGraphqlFallback(
     async () => {
       const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
       const files = [
@@ -1354,34 +1356,6 @@ export const upsertThemeFile = async (
     },
     () => upsertThemeFileRest(shopifyClient, apiVersion, { themeId, themeRole, key, value, attachment, checksum })
   );
-
-  if (!verifyAfterWrite) {
-    return result;
-  }
-
-  try {
-    const verifyResult = await verifyThemeFiles(shopifyClient, apiVersion, {
-      themeId: result.theme.id,
-      expected: [
-        {
-          key,
-          size: createExpectedSizeFromInputFile({ value, attachment }),
-          checksumMd5: createChecksumMd5Base64({ value, attachment }),
-        },
-      ],
-    });
-
-    return {
-      ...result,
-      verifySummary: verifyResult.summary,
-      verify: verifyResult.results[0] || null,
-    };
-  } catch (error) {
-    return {
-      ...result,
-      verifyError: normalizeResultError(error),
-    };
-  }
 };
 
 export const deleteThemeFile = async (

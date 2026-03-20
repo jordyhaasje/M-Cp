@@ -1,6 +1,6 @@
 import assert from "assert";
 import crypto from "crypto";
-import { getThemeFiles, upsertThemeFile, upsertThemeFiles, verifyThemeFiles } from "../src/lib/themeFiles.js";
+import { getThemeFiles, upsertThemeFiles, verifyThemeFiles } from "../src/lib/themeFiles.js";
 
 const originalFetch = global.fetch;
 
@@ -211,15 +211,6 @@ try {
   });
   assert.equal(withContentResult.files[0].value, "<div>Existing</div>");
 
-  const singleUpsertResult = await upsertThemeFile(shopifyClient, "2026-01", {
-    themeId: 123,
-    key: "sections/single.liquid",
-    value: "<div>Single write</div>",
-    verifyAfterWrite: true,
-  });
-  assert.equal(singleUpsertResult.asset.key, "sections/single.liquid");
-  assert.equal(singleUpsertResult.verify?.status, "match", "single-file upsert should support built-in verification");
-
   const verifyResult = await verifyThemeFiles(shopifyClient, "2026-01", {
     themeId: 123,
     expected: [
@@ -279,7 +270,6 @@ try {
 
   const persistedNewFile = fileStore.get("sections/new.liquid");
   assert.equal(persistedNewFile.value, "<div>Brand new</div>");
-  assert.equal(fileStore.get("sections/single.liquid")?.value, "<div>Single write</div>");
 
   console.log("themeFilesBatch.test.mjs passed");
 } finally {

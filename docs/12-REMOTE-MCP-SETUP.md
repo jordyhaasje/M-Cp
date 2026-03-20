@@ -81,10 +81,7 @@ Gebruik alleen als OAuth niet beschikbaar is in de client.
     - `create-theme-section`
   - single-file: `get-theme-file`, `upsert-theme-file`, `delete-theme-file`
   - batch v2: `get-theme-files`, `upsert-theme-files`, `verify-theme-files`
-- Start bij normale theme-fixes niet met generieke tool-discovery; gebruik direct deze Hazify theme tools.
-- `get-theme-files` blijft metadata-first; `get-theme-file` is nu ook metadata-first tenzij `includeContent=true` expliciet wordt gezet.
-- Gebruik bij edits op bestaande theme files bij voorkeur de `checksum` uit `get-theme-file` of `get-theme-files` voor conflict-safe writes.
-- Verifieer single-file writes bij voorkeur inline via `upsert-theme-file.verifyAfterWrite=true`; gebruik `get-theme-file` alleen als je daarna nog een gerichte readback nodig hebt. Gebruik bij batch writes waar mogelijk `verifyAfterWrite` of `verify-theme-files`.
+- `get-theme-files` blijft metadata-first; gebruik `get-theme-file` alleen voor echte edits of gerichte verificatie.
 - `resolve-template-sections` retourneert compacte, afleidbare velden zoals `displayTitle`, `schemaName`, `presetNames` en `sourceFiles`, zodat de planningsfase tokenzuinig blijft voor homepage-, product-, collection- en andere template-inventory/editing.
 - `resolve-homepage-sections` blijft als legacy alias beschikbaar en mapt intern naar `resolve-template-sections` met `pageType=homepage`.
 - `find-theme-section-by-name` is lookup-only voor bestaande sections en retourneert routing-hints (`recommendedFlow`, `creationSuggested`) om create-vragen weg te sturen van bestaande lookup-calls. Gebruik optioneel `page` voor gerichte scopes zoals `homepage`, `product` of `collection`.

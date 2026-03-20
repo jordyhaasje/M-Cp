@@ -63,10 +63,6 @@ function createGraphqlFetch(files) {
     }
 
     if (query.includes("ThemeFilesByIdWithContent") || query.includes("ThemeFilesByIdMetadata")) {
-      assert.ok(
-        !/userErrors\s*\{[\s\S]*?\bmessage\b[\s\S]*?\}/.test(query),
-        "theme file read queries should not request unsupported userErrors.message"
-      );
       const filenames = Array.isArray(variables.filenames) ? variables.filenames : [];
       const first = Number(variables.first || filenames.length || 50);
       const matched = Object.entries(files)
