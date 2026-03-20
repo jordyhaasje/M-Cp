@@ -19,6 +19,7 @@ const RefundTransactionSchema = z.object({
 
 const RefundOrderInputSchema = z.object({
   orderId: z.string().min(1).describe("Accepts Shopify GID, numeric order id, or order number like 1004/#1004"),
+  confirmation: z.literal("REFUND_ORDER").describe("Verplicht type: 'REFUND_ORDER' ter bevestiging om accidentele refunds te voorkomen."),
   note: z.string().optional(),
   audit: z.object({
     amount: z.string().min(1).describe("Refund amount for audit trail, e.g. '19.95'"),

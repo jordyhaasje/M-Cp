@@ -17,6 +17,8 @@ const TrackingInputSchema = z
 // Based on https://shopify.dev/docs/api/admin-graphql/latest/mutations/orderupdate
 const UpdateOrderInputSchema = z.object({
     id: z.string().min(1),
+    confirmation: z.literal("UPDATE_ORDER").describe("Verplicht type: 'UPDATE_ORDER' ter bevestiging voor LLM hallucinatie-preventie."),
+    reason: z.string().min(5).describe("Reden voor het aanpassen van de order (voor audit trail)."),
     tags: z.array(z.string()).optional(),
     email: z.string().email().optional(),
     note: z.string().optional(),

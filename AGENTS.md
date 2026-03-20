@@ -113,7 +113,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 ## Veiligheidsregels
 - Geen destructieve actie op aannames.
 - Bij ontbrekende data: eerst verifiëren, dan pas uitvoeren.
-- Voor zwaar destructieve acties (zoals `delete-product`, `delete-theme-file`, of grote `upsert` overwrites) dwingt de API een verplichte `confirmation` string en/of `reason` af. Lees het Zod-schema zorgvuldig en genereer nooit deze tekst zonder doordachte "Chain of Thought" waarom het verwijderd mag worden.
+- Voor destructieve en financiële mutaties (zoals `delete-product`, `delete-theme-file`, `upsert` overwrites, `refund-order` en `update-order`) dwingt de API een verplichte `confirmation` string (en vaak een `reason`) af. Lees het Zod-schema zorgvuldig en genereer deze fields nooit zonder doordachte "Chain of Thought" over de noodzaak.
 - Nooit refunds doen zonder expliciete validatie van bedrag en scope.
 - Productimport is niet klaar zonder gecontroleerde variant-media.
 - Trackingnummer/vervoerder nooit via `customAttributes` of losse metafields bijwerken; altijd fulfillment-tracking gebruiken.
