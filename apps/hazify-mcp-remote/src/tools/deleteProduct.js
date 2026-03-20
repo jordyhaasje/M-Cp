@@ -1,5 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
+import { assertNoUserErrors } from "@hazify/shopify-core";
 import { z } from "zod";
 // Input schema for deleteProduct
 const DeleteProductInputSchema = z.object({
@@ -29,11 +30,7 @@ const deleteProduct = {
             const data = (await shopifyClient.request(query, {
                 input: { id: input.id },
             }));
-            if (data.productDelete.userErrors.length > 0) {
-                throw new Error(`Failed to delete product: ${data.productDelete.userErrors
-                    .map((e) => `${e.field}: ${e.message}`)
-                    .join(", ")}`);
-            }
+            assertNoUserErrors(data.productDelete.userErrors, "Failed to delete product");
             return { deletedProductId: data.productDelete.deletedProductId };
         }
         catch (error) {

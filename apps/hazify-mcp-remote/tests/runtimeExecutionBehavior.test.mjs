@@ -307,7 +307,7 @@ try {
       method: "tools/call",
       params: {
         name: "upsert-theme-file",
-        arguments: { themeId: 123, key: "sections/blocked.liquid", value: "<div>blocked</div>" },
+        arguments: { themeId: 123, key: "sections/blocked.liquid", value: "<div>blocked</div>", confirmation: "UPSERT_THEME_FILE", auditReason: "Test audit reason" },
       },
     },
     readonlyAuthHeaders
@@ -365,7 +365,7 @@ try {
       method: "tools/call",
       params: {
         name: "upsert-theme-file",
-        arguments: { themeId: 123, key: "sections/one.liquid", value: "<div>one</div>" },
+        arguments: { themeId: 123, key: "sections/one.liquid", value: "<div>one</div>", confirmation: "UPSERT_THEME_FILE", auditReason: "Test audit reason" },
       },
     }),
     postMcp({
@@ -374,7 +374,7 @@ try {
       method: "tools/call",
       params: {
         name: "upsert-theme-file",
-        arguments: { themeId: 123, key: "sections/two.liquid", value: "<div>two</div>" },
+        arguments: { themeId: 123, key: "sections/two.liquid", value: "<div>two</div>", confirmation: "UPSERT_THEME_FILE", auditReason: "Test audit reason" },
       },
     }),
   ]);

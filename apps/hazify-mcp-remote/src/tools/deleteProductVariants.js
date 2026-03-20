@@ -1,5 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
+import { assertNoUserErrors } from "@hazify/shopify-core";
 import { z } from "zod";
 // Input schema for deleteProductVariants
 const DeleteProductVariantsInputSchema = z.object({
@@ -55,11 +56,7 @@ const deleteProductVariants = {
                 productId,
                 variantsIds: variantIds,
             }));
-            if (data.productVariantsBulkDelete.userErrors.length > 0) {
-                throw new Error(`Failed to delete variants: ${data.productVariantsBulkDelete.userErrors
-                    .map((e) => `${e.field}: ${e.message}`)
-                    .join(", ")}`);
-            }
+            assertNoUserErrors(data.productVariantsBulkDelete.userErrors, "Failed to delete variants");
             const product = data.productVariantsBulkDelete.product;
             return {
                 product: {

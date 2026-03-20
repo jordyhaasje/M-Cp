@@ -1,5 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
+import { assertNoUserErrors } from "@hazify/shopify-core";
 import { z } from "zod";
 import { isSupportedTrackingCompany, assertSupportedTrackingCompany } from "../lib/trackingCompanies.js";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
@@ -553,11 +554,7 @@ const updateOrder = {
                         ...orderFields
                     }
                 }));
-                if (orderUpdateResponse.orderUpdate.userErrors.length > 0) {
-                    throw new Error(`Failed to update order: ${orderUpdateResponse.orderUpdate.userErrors
-                        .map((error) => `${error.field}: ${error.message}`)
-                        .join(", ")}`);
-                }
+                assertNoUserErrors(orderUpdateResponse.orderUpdate.userErrors, "Failed to update order");
                 orderResult = formatOrderResponse(orderUpdateResponse.orderUpdate.order);
             }
             if (trackingRequest.trackingRequested) {
@@ -578,11 +575,7 @@ const updateOrder = {
                         trackingInfoInput: trackingRequest.trackingInfoInput,
                         notifyCustomer: trackingRequest.notifyCustomer
                     }));
-                    if (trackingUpdateResponse.fulfillmentTrackingInfoUpdate.userErrors.length > 0) {
-                        throw new Error(`Failed to update fulfillment tracking: ${trackingUpdateResponse.fulfillmentTrackingInfoUpdate.userErrors
-                            .map((error) => `${error.field}: ${error.message}`)
-                            .join(", ")}`);
-                    }
+                    assertNoUserErrors(trackingUpdateResponse.fulfillmentTrackingInfoUpdate.userErrors, "Failed to update fulfillment tracking");
                     trackingResult = {
                         action: "updated_existing_fulfillment",
                         fulfillmentId: targetFulfillment.id,
@@ -604,11 +597,7 @@ const updateOrder = {
                     const createFulfillmentResponse = (await shopifyClient.request(FULFILLMENT_CREATE_MUTATION, {
                         fulfillment: fulfillmentInput
                     }));
-                    if (createFulfillmentResponse.fulfillmentCreate.userErrors.length > 0) {
-                        throw new Error(`Failed to create fulfillment with tracking: ${createFulfillmentResponse.fulfillmentCreate.userErrors
-                            .map((error) => `${error.field}: ${error.message}`)
-                            .join(", ")}`);
-                    }
+                    assertNoUserErrors(createFulfillmentResponse.fulfillmentCreate.userErrors, "Failed to create fulfillment with tracking");
                     trackingResult = {
                         action: "created_fulfillment_with_tracking",
                         fulfillmentId: createFulfillmentResponse.fulfillmentCreate.fulfillment?.id || null,
@@ -636,11 +625,7 @@ const updateOrder = {
                                 customAttributes: cleanedCustomAttributes
                             }
                         }));
-                    if (cleanupResponse.orderUpdate.userErrors.length > 0) {
-                        throw new Error(`Failed to cleanup legacy tracking custom attributes: ${cleanupResponse.orderUpdate.userErrors
-                            .map((error) => `${error.field}: ${error.message}`)
-                            .join(", ")}`);
-                    }
+                    assertNoUserErrors(cleanupResponse.orderUpdate.userErrors, "Failed to cleanup legacy tracking custom attributes");
                     if (!orderResult) {
                         orderResult = formatOrderResponse(cleanupResponse.orderUpdate.order);
                     }

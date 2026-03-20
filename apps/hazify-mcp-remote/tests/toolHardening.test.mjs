@@ -119,12 +119,16 @@ try {
 
   const missingThemePayload = upsertThemeFileTool.schema.safeParse({
     key: "sections/test.liquid",
+    confirmation: "UPSERT_THEME_FILE",
+    auditReason: "Test audit reason",
   });
   assert.equal(missingThemePayload.success, false, "upsert-theme-file should require value or attachment");
 
   const validThemePayload = upsertThemeFileTool.schema.safeParse({
     key: "sections/test.liquid",
     value: "<div>ok</div>",
+    confirmation: "UPSERT_THEME_FILE",
+    auditReason: "Test audit reason",
   });
   assert.equal(validThemePayload.success, true, "upsert-theme-file should accept textual value");
 
@@ -133,6 +137,8 @@ try {
       { key: "sections/test.liquid", value: "<div>1</div>" },
       { key: "sections/test.liquid", value: "<div>2</div>" },
     ],
+    confirmation: "UPSERT_THEME_FILES",
+    auditReason: "Test audit reason",
   });
   assert.equal(duplicateBatchThemePayload.success, false, "upsert-theme-files should reject duplicate keys");
 
@@ -150,6 +156,7 @@ try {
   const refundResult = await refundOrder.execute(
     refundOrder.schema.parse({
       orderId: "gid://shopify/Order/1",
+      confirmation: "REFUND_ORDER",
       audit: {
         amount: "19.95",
         reason: "Damaged item",
@@ -297,6 +304,7 @@ try {
     await refundOrder.execute(
       refundOrder.schema.parse({
         orderId: orderInput,
+        confirmation: "REFUND_ORDER",
         audit: {
           amount: "10.00",
           reason: "Test matrix",
@@ -400,6 +408,8 @@ try {
   await updateOrder.execute(
     updateOrder.schema.parse({
       id: "gid://shopify/Order/1",
+      confirmation: "UPDATE_ORDER",
+      reason: "Testing tracking context updates",
       tracking: {
         number: "TRACK-CONTEXT-2",
         company: "UPS",

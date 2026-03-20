@@ -1,5 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
+import { assertNoUserErrors } from "@hazify/shopify-core";
 import { z } from "zod";
 // Input schema for updateProduct
 const UpdateProductInputSchema = z.object({
@@ -104,11 +105,7 @@ const updateProduct = {
                 ...(media?.length ? { media } : {}),
             };
             const data = (await shopifyClient.request(query, variables));
-            if (data.productUpdate.userErrors.length > 0) {
-                throw new Error(`Failed to update product: ${data.productUpdate.userErrors
-                    .map((e) => `${e.field}: ${e.message}`)
-                    .join(", ")}`);
-            }
+            assertNoUserErrors(data.productUpdate.userErrors, "Failed to update product");
             const product = data.productUpdate.product;
             return {
                 product: {

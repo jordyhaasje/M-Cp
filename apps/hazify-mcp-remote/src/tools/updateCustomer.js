@@ -1,5 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
+import { assertNoUserErrors } from "@hazify/shopify-core";
 import { z } from "zod";
 import { normalizeCustomerIdentifier } from "../lib/customerIdentifier.js";
 // Input schema for updating a customer
@@ -77,11 +78,7 @@ const updateCustomer = {
             };
             const data = (await shopifyClient.request(query, variables));
             // If there are user errors, throw an error
-            if (data.customerUpdate.userErrors.length > 0) {
-                throw new Error(`Failed to update customer: ${data.customerUpdate.userErrors
-                    .map((e) => `${e.field}: ${e.message}`)
-                    .join(", ")}`);
-            }
+            assertNoUserErrors(data.customerUpdate.userErrors, "Failed to update customer");
             // Format and return the updated customer
             const customer = data.customerUpdate.customer;
             // Format metafields if they exist

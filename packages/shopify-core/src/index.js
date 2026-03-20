@@ -39,6 +39,15 @@ export function extractShopifyScopeHandles(payload) {
     .filter(Boolean);
 }
 
+export function assertNoUserErrors(userErrors, actionMessage = "Shopify GraphQL error") {
+  if (Array.isArray(userErrors) && userErrors.length > 0) {
+    const errorDetails = userErrors
+      .map((error) => `${error.field || 'General'}: ${error.message}`)
+      .join(", ");
+    throw new Error(`${actionMessage}: ${errorDetails}`);
+  }
+}
+
 export function hasRequiredScope(grantedScopes, requiredScope) {
   if (grantedScopes.has(requiredScope)) {
     return true;

@@ -1,5 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
+import { assertNoUserErrors } from "@hazify/shopify-core";
 import { z } from "zod";
 // Input schema for creating a product
 const CreateProductInputSchema = z.object({
@@ -105,11 +106,7 @@ const createProduct = {
             }
             const data = (await shopifyClient.request(query, variables));
             // If there are user errors, throw an error
-            if (data.productCreate.userErrors.length > 0) {
-                throw new Error(`Failed to create product: ${data.productCreate.userErrors
-                    .map((e) => `${e.field}: ${e.message}`)
-                    .join(", ")}`);
-            }
+            assertNoUserErrors(data.productCreate.userErrors, "Failed to create product");
             const product = data.productCreate.product;
             return {
                 product: {

@@ -1,5 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
+import { assertNoUserErrors } from "@hazify/shopify-core";
 import { z } from "zod";
 // Input schema for manageProductOptions
 const ManageProductOptionsInputSchema = z.object({
@@ -110,11 +111,7 @@ const manageProductOptions = {
                     productId,
                     options,
                 }));
-                if (data.productOptionsCreate.userErrors.length > 0) {
-                    throw new Error(`Failed to create options: ${data.productOptionsCreate.userErrors
-                        .map((e) => `${e.field}: ${e.message}`)
-                        .join(", ")}`);
-                }
+                assertNoUserErrors(data.productOptionsCreate.userErrors, "Failed to create options");
                 return formatProductResponse(data.productOptionsCreate.product);
             }
             if (action === "update") {
@@ -161,11 +158,7 @@ const manageProductOptions = {
                     variables.optionValuesToDelete = input.valuesToDelete;
                 }
                 const data = (await shopifyClient.request(query, variables));
-                if (data.productOptionUpdate.userErrors.length > 0) {
-                    throw new Error(`Failed to update option: ${data.productOptionUpdate.userErrors
-                        .map((e) => `${e.field}: ${e.message}`)
-                        .join(", ")}`);
-                }
+                assertNoUserErrors(data.productOptionUpdate.userErrors, "Failed to update option");
                 return formatProductResponse(data.productOptionUpdate.product);
             }
             if (action === "delete") {
@@ -197,11 +190,7 @@ const manageProductOptions = {
                     productId,
                     options: input.optionIds,
                 }));
-                if (data.productOptionsDelete.userErrors.length > 0) {
-                    throw new Error(`Failed to delete options: ${data.productOptionsDelete.userErrors
-                        .map((e) => `${e.field}: ${e.message}`)
-                        .join(", ")}`);
-                }
+                assertNoUserErrors(data.productOptionsDelete.userErrors, "Failed to delete options");
                 return formatProductResponse(data.productOptionsDelete.product);
             }
             throw new Error(`Unknown action: ${action}`);

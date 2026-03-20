@@ -1,5 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
+import { assertNoUserErrors } from "@hazify/shopify-core";
 import { z } from "zod";
 // Input schema for manageProductVariants
 const VariantOptionSchema = z.object({
@@ -101,11 +102,7 @@ const manageProductVariants = {
                     variants: createVariants,
                     ...(input.strategy && { strategy: input.strategy }),
                 }));
-                if (createData.productVariantsBulkCreate.userErrors.length > 0) {
-                    throw new Error(`Failed to create variants: ${createData.productVariantsBulkCreate.userErrors
-                        .map((e) => `${e.field}: ${e.message}`)
-                        .join(", ")}`);
-                }
+                assertNoUserErrors(createData.productVariantsBulkCreate.userErrors, "Failed to create variants");
                 results.created =
                     createData.productVariantsBulkCreate.productVariants.map((v) => ({
                         id: v.id,
@@ -172,11 +169,7 @@ const manageProductVariants = {
                     productId,
                     variants: updateVariants,
                 }));
-                if (updateData.productVariantsBulkUpdate.userErrors.length > 0) {
-                    throw new Error(`Failed to update variants: ${updateData.productVariantsBulkUpdate.userErrors
-                        .map((e) => `${e.field}: ${e.message}`)
-                        .join(", ")}`);
-                }
+                assertNoUserErrors(updateData.productVariantsBulkUpdate.userErrors, "Failed to update variants");
                 results.updated =
                     updateData.productVariantsBulkUpdate.productVariants.map((v) => ({
                         id: v.id,

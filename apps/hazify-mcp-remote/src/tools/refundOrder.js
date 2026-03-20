@@ -1,5 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
+import { assertNoUserErrors } from "@hazify/shopify-core";
 import { z } from "zod";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
 
@@ -106,11 +107,7 @@ const refundOrder = {
       const data = await shopifyClient.request(mutation, { input: refundInput });
       const payload = data.refundCreate;
 
-      if (payload.userErrors?.length) {
-        throw new Error(
-          payload.userErrors.map((e) => `${e.field}: ${e.message}`).join(", ")
-        );
-      }
+      assertNoUserErrors(payload.userErrors, "Failed to create refund");
 
       return {
         refund: {

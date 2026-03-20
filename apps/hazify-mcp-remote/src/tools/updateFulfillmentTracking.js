@@ -1,5 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
+import { assertNoUserErrors } from "@hazify/shopify-core";
 import { z } from "zod";
 import { isSupportedTrackingCompany, assertSupportedTrackingCompany } from "../lib/trackingCompanies.js";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
@@ -254,11 +255,7 @@ const updateFulfillmentTracking = {
                     trackingInfoInput,
                     notifyCustomer: input.notifyCustomer
                 }));
-                if (response.fulfillmentTrackingInfoUpdate.userErrors.length > 0) {
-                    throw new Error(`Failed to update fulfillment tracking: ${response.fulfillmentTrackingInfoUpdate.userErrors
-                        .map((error) => `${error.field}: ${error.message}`)
-                        .join(", ")}`);
-                }
+                assertNoUserErrors(response.fulfillmentTrackingInfoUpdate.userErrors, "Failed to update fulfillment tracking");
                 fulfillment = response.fulfillmentTrackingInfoUpdate.fulfillment;
                 action = "updated_existing_fulfillment";
             }
@@ -274,11 +271,7 @@ const updateFulfillmentTracking = {
                         trackingInfo: trackingInfoInput
                     }
                 }));
-                if (response.fulfillmentCreate.userErrors.length > 0) {
-                    throw new Error(`Failed to create fulfillment with tracking: ${response.fulfillmentCreate.userErrors
-                        .map((error) => `${error.field}: ${error.message}`)
-                        .join(", ")}`);
-                }
+                assertNoUserErrors(response.fulfillmentCreate.userErrors, "Failed to create fulfillment with tracking");
                 fulfillment = response.fulfillmentCreate.fulfillment;
                 action = "created_fulfillment_with_tracking";
             }
