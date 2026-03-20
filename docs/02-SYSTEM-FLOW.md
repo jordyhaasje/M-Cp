@@ -34,3 +34,12 @@ De Remote MCP implementeert **géén eigen browser runtime of local generation**
 3. **Externe review tooling**: metadata over lokale externe tools is opvraagbaar via `list_theme_import_tools`. Dit vertelt hoe external (local) review workflows moeten worden opgezet.
 
 Model: `AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`
+
+## 5. Veiligheid, Rate Limiting & Tool Hardening
+
+De Remote MCP beschikt over diepliggende veiligheidsmechanismen tegen malformatie en LLM-hallucinaties:
+1. **Tenant Isolation:** Iedere integratie en tool call is strict geïsoleerd op de shop en tenant van de gekoppelde GraphQL/REST sessie. Cross-tenant data leakages door AI LLM-hallucineren is hiermee op netwerk- en applicatieniveau fundamenteel geblokkeerd.
+2. **Tool Hardening (Zod Validaties):** Gevaarlijke of destructieve mutaties (oa. `delete-product`, `refund-order`, `upsert-theme-file`, `create-theme-section`) vereisen expliciete `confirmation` strings en een `auditReason`. Als de argumenten missen of invalid zijn, blokkeert Zod de API call.
+3. **Smart JSON Safeguard:** Via API JSON templates aanmaken of wijzigen (`templates/*.json` en `config/*.json`) is een harde blokkade, ter bescherming van homepage destructie. De LLM stuurt losse theme bestanden aan, waarna de merchant zélf via z'n Theme Editor kan plaatsen.
+4. **Core File Protection:** Kritieke infrastructuur-bestanden (zoals `layout/theme.liquid`) blokkeren API saves indien vitale tags, specifiek `{{ content_for_header }}` en `{{ content_for_layout }}`, ontbreken in de payload. Ze mogen bovendien nooit via integraties verwijderd worden.
+5. **API Rate Limiting (Exponential Backoff):** De Shopify REST Asset API (gebruikt voor theme files) is onderhevig aan strenge request limits (max calls per minuut, leak rate). Theme-operaties en file uploads abstraheren dit via automatische *Exponential Backoff* mechanismes om succes op bulk mutaties te garanderen en HTTP 429-errors netjes af te vangen.
