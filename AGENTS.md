@@ -66,6 +66,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 ### Theme workflow (verplicht)
 1. Haal themes op met `get-themes` en bevestig live theme (`role=main`) of gebruik expliciet `themeId`.
 2. Gebruik `upsert-theme-file`/`delete-theme-file` alleen na expliciete validatie van target-bestand.
+   * **CRITICAL**: LLM's hebben de neiging om een `content` parameter te hallucineren. Dit is ten strengste verboden. Gebruik ALTIJD de verplichte `value` parameter voor het doorgeven van letterlijke bestandsinhoud (broncode/tekst) of `sectionLiquid` waar van toepassing.
 3. Verifieer writes altijd met `get-theme-file`.
 4. Voor nieuwe OS 2.0 sections op ondersteunde JSON targets: gebruik `create-theme-section`.
 5. Gebruik `list_theme_import_tools` alleen voor expliciete externe review/import discovery buiten de native remote MCP flow.

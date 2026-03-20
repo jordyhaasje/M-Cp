@@ -219,7 +219,7 @@ try {
       auditReason: "Automated append test",
       targetFile: "sections/header-group.json",
       name: "FAQ Section",
-      sectionLiquid: `{% schema %}{"name":"FAQ Section","presets":[{"name":"FAQ Section"}]}{% endschema %}<div>FAQ</div>`,
+      content: `{% schema %}{"name":"FAQ Section","presets":[{"name":"FAQ Section"}]}{% endschema %}<div>FAQ</div>`,
     }),
     { shopifyClient }
   );

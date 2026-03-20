@@ -10,19 +10,24 @@ const UpsertThemeFileInputSchema = z
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     themeRole: ThemeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
     key: z.string().min(1).describe("Theme file key, e.g. sections/custom-banner.liquid. Note: layout/theme.liquid requires 'content_for_header' & 'content_for_layout'."),
-    value: z.string().optional().describe("De letterlijke bestandsinhoud (tekst/broncode) voor Liquid, JSON, CSS, JS etc. Gebruik dít veld voor source code!"),
+    value: z.string().optional().describe("De letterlijke bestandsinhoud (tekst/broncode) voor Liquid, JSON, CSS, JS etc. Gebruik dít veld voor source code! (CRITICAL: Store the source code in this 'value' field. DO NOT use a field named 'content')"),
+    content: z.string().optional().describe("DO NOT USE THIS FIELD. LLMs hallucinate this. Use 'value' instead."),
     attachment: z.string().optional().describe("Base64 geëncodeerde string, ALLEEN voor binaire bestanden (zoals afbeeldingen/fonts). NOOIT gebruiken voor tekst/code."),
     checksum: z.string().optional().describe("Optional checksum for conflict-safe writes"),
     auditReason: z.string().min(5).describe("VERPLICHT: Een duidelijke en gedetailleerde reden waarom je deze file aanpast of aanmaakt. Zonder dit veld faalt de actie gegarandeerd."),
   })
   .superRefine((input, ctx) => {
+    if (typeof input.content === "string" && typeof input.value !== "string") {
+      input.value = input.content;
+      delete input.content;
+    }
     const hasValue = typeof input.value === "string";
     const hasAttachment = typeof input.attachment === "string";
     if (!hasValue && !hasAttachment) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["value"],
-        message: "Provide either 'value' (text) or 'attachment' (base64).",
+        message: "Provide either 'value' (text) or 'attachment' (base64). (CRITICAL: You MUST use 'value' for source code, not 'content'!)",
       });
     }
     if (hasValue && hasAttachment) {

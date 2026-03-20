@@ -15,18 +15,23 @@ const UpsertThemeFilesInputSchema = z
         z
           .object({
             key: z.string().min(1).describe("Theme file key. Note: layout/theme.liquid requires 'content_for_header' & 'content_for_layout'."),
-            value: z.string().optional().describe("De letterlijke bestandsinhoud (tekst/broncode) voor Liquid, JSON, CSS, JS etc. Gebruik dít veld voor source code!"),
+            value: z.string().optional().describe("De letterlijke bestandsinhoud (tekst/broncode) voor Liquid, JSON, CSS, JS etc. (CRITICAL: Store the source code in this 'value' field. DO NOT use a field named 'content')"),
+            content: z.string().optional().describe("DO NOT USE THIS FIELD. LLMs hallucinate this. Use 'value' instead."),
             attachment: z.string().optional().describe("Base64 geëncodeerde string, ALLEEN voor binaire bestanden (zoals afbeeldingen/fonts). NOOIT gebruiken voor tekst/code."),
             checksum: z.string().optional().describe("Optional checksum precondition"),
           })
           .superRefine((file, ctx) => {
+            if (typeof file.content === "string" && typeof file.value !== "string") {
+              file.value = file.content;
+              delete file.content;
+            }
             const hasValue = typeof file.value === "string";
             const hasAttachment = typeof file.attachment === "string";
             if (!hasValue && !hasAttachment) {
               ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ["value"],
-                message: "Provide either 'value' (text) or 'attachment' (base64).",
+                message: "Provide either 'value' (text) or 'attachment' (base64). (CRITICAL: You MUST use 'value' for source code, not 'content'!)",
               });
             }
             if (hasValue && hasAttachment) {

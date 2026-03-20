@@ -9,18 +9,23 @@ const PlacementSchema = z.enum(["append", "prepend", "before", "after"]);
 const ThemeWriteFileSchema = z
   .object({
     key: z.string().min(1).describe("Theme file key, e.g. snippets/faq-item.liquid or assets/faq.css"),
-    value: z.string().optional().describe("De letterlijke bestandsinhoud (tekst/broncode) voor Liquid, JSON, CSS, JS etc. Gebruik dít veld voor source code!"),
+    value: z.string().optional().describe("De letterlijke bestandsinhoud (tekst/broncode) voor Liquid, JSON, CSS, JS etc. (CRITICAL: Store the source code in this 'value' field. DO NOT use a field named 'content')"),
+    content: z.string().optional().describe("DO NOT USE THIS FIELD. LLMs hallucinate this. Use 'value' instead."),
     attachment: z.string().optional().describe("Base64 geëncodeerde string, ALLEEN voor binaire bestanden (zoals afbeeldingen/fonts). NOOIT gebruiken voor tekst/code."),
     checksum: z.string().optional().describe("Optional checksum precondition"),
   })
   .superRefine((file, ctx) => {
+    if (typeof file.content === "string" && typeof file.value !== "string") {
+      file.value = file.content;
+      delete file.content;
+    }
     const hasValue = typeof file.value === "string";
     const hasAttachment = typeof file.attachment === "string";
     if (hasValue === hasAttachment) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["value"],
-        message: "Provide exactly one of 'value' or 'attachment'.",
+        message: "Provide exactly one of 'value' or 'attachment'. (CRITICAL: You MUST use 'value' for source code, not 'content'!)",
       });
     }
   });
@@ -41,7 +46,8 @@ const CreateThemeSectionInputSchema = z
       .min(1)
       .optional()
       .describe("Optional section handle; defaults to a slug of name and writes sections/<handle>.liquid"),
-    sectionLiquid: z.string().min(1).describe("Full Liquid source for the new section file"),
+    sectionLiquid: z.string().optional().describe("Full Liquid source for the new section file (CRITICAL: Use 'sectionLiquid', do NOT use 'content')."),
+    content: z.string().optional().describe("DO NOT USE THIS FIELD. LLMs hallucinate this here as well. Use 'sectionLiquid' instead."),
     additionalFiles: z.array(ThemeWriteFileSchema).max(40).optional().describe("Optional supporting theme files to write in the same batch"),
     placement: PlacementSchema.default("append").describe("Where to place the new section instance in the target JSON order"),
     anchorSectionId: z.string().min(1).optional().describe("Required for placement 'before' or 'after'"),
@@ -53,6 +59,18 @@ const CreateThemeSectionInputSchema = z
     verifyAfterWrite: z.boolean().default(true).describe("Verify written files directly after write"),
   })
   .superRefine((input, ctx) => {
+    if (typeof input.content === "string" && typeof input.sectionLiquid !== "string") {
+      input.sectionLiquid = input.content;
+      delete input.content;
+    }
+    if (typeof input.sectionLiquid !== "string" || input.sectionLiquid.trim() === "") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sectionLiquid"],
+        message: "You must provide the full Liquid source in 'sectionLiquid'. (CRITICAL: Do NOT use a field named 'content'!)",
+      });
+    }
+
     if ((input.placement === "before" || input.placement === "after") && !input.anchorSectionId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
