@@ -9,13 +9,14 @@ const GetThemeFileInputSchema = z.object({
   themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
   themeRole: ThemeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
   key: z.string().min(1).describe("Theme file key, e.g. sections/hero.liquid"),
-  includeContent: z.boolean().default(true).describe("Include file content (value/attachment) in response"),
+  includeContent: z.boolean().default(false).describe("Include file content (value/attachment) in response. Keep false for metadata/verification reads and set true only when you need the full file content."),
 });
 
 
 const getThemeFileTool = {
   name: "get-theme-file",
-  description: "Read a file from a Shopify theme (defaults to live theme role=main).",
+  description:
+    "Read a file from a Shopify theme (defaults to live theme role=main). Metadata-only by default to save tokens; set includeContent=true only when the actual file body is needed.",
   schema: GetThemeFileInputSchema,
   execute: async (input, context = {}) => {
       const shopifyClient = requireShopifyClient(context);

@@ -73,11 +73,14 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 4. Bij twijfel of ontbrekende API-zichtbaarheid: verifieer via Shopify Admin readback voordat je publiceert.
 
 ### Theme workflow (verplicht)
-1. Haal themes op met `get-themes` en bevestig live theme (`role=main`) of gebruik expliciet `themeId`.
-2. Gebruik `upsert-theme-file`/`delete-theme-file` alleen na expliciete validatie van target-bestand.
-3. Verifieer writes altijd met `get-theme-file`.
-4. Voor nieuwe OS 2.0 sections op ondersteunde JSON targets: gebruik `create-theme-section`.
-5. Gebruik `list_theme_import_tools` alleen voor expliciete externe review/import discovery buiten de native remote MCP flow.
+1. Start bij standaard theme-taken niet met generieke tool-discovery; gebruik direct de bekende Hazify theme tools.
+2. Haal themes op met `get-themes` en bevestig live theme (`role=main`) of gebruik expliciet `themeId`.
+3. Gebruik `upsert-theme-file`/`delete-theme-file` alleen na expliciete validatie van target-bestand.
+4. Gebruik `get-theme-file` standaard metadata-first; zet alleen content aan als je de volledige file body echt nodig hebt.
+5. Bij edits op bestaande bestanden: geef waar mogelijk ook de laatst gelezen `checksum` uit `get-theme-file` mee aan de write.
+6. Verifieer writes direct met ingebouwde verify-opties of met `get-theme-file`.
+7. Voor nieuwe OS 2.0 sections op ondersteunde JSON targets: gebruik `create-theme-section`.
+8. Gebruik `list_theme_import_tools` alleen voor expliciete externe review/import discovery buiten de native remote MCP flow.
 
 ### Orders
 - Ophalen: `get-orders`, `get-order-by-id`
