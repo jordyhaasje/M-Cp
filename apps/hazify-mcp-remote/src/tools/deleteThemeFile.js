@@ -9,6 +9,8 @@ const DeleteThemeFileInputSchema = z.object({
   themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
   themeRole: ThemeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
   key: z.string().min(1).describe("Theme file key to delete"),
+  confirmation: z.literal("DELETE_THEME_FILE").describe("Verplicht type: 'DELETE_THEME_FILE' ter bevestiging"),
+  reason: z.string().min(5).describe("Auditable reden"),
 });
 
 

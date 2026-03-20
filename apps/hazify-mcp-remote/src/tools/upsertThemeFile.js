@@ -13,6 +13,7 @@ const UpsertThemeFileInputSchema = z
     value: z.string().optional().describe("Text content for Liquid/JSON/CSS/JS assets"),
     attachment: z.string().optional().describe("Base64 content for binary assets"),
     checksum: z.string().optional().describe("Optional checksum for conflict-safe writes"),
+    auditReason: z.string().min(5).describe("Beschrijf in minimaal een zin waarom de file wordt gecreërd/ge-update. Helpt bij LLM validation tracing."),
   })
   .superRefine((input, ctx) => {
     const hasValue = typeof input.value === "string";

@@ -5,6 +5,8 @@ import { z } from "zod";
 const DeleteProductVariantsInputSchema = z.object({
     productId: z.string().min(1).describe("Shopify product GID"),
     variantIds: z.array(z.string().min(1)).min(1).describe("Array of variant GIDs to delete"),
+    confirmation: z.literal("DELETE_VARIANTS").describe("Verplicht type: 'DELETE_VARIANTS' als dubbele bevestiging."),
+    reason: z.string().min(5).describe("Auditable reden waarom de varianten verdwijnen."),
 });
 // Will be initialized in index.ts
 const deleteProductVariants = {

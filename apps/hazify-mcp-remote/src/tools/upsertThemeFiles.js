@@ -9,6 +9,7 @@ const UpsertThemeFilesInputSchema = z
   .object({
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     themeRole: ThemeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
+    auditReason: z.string().min(5).describe("Beschrijf in minimaal een zin waarom de file wordt gecreërd/ge-update. Helpt bij LLM validation tracing."),
     files: z
       .array(
         z

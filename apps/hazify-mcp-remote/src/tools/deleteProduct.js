@@ -4,6 +4,8 @@ import { z } from "zod";
 // Input schema for deleteProduct
 const DeleteProductInputSchema = z.object({
     id: z.string().min(1).describe("Shopify product GID, e.g. gid://shopify/Product/123"),
+    confirmation: z.literal("DELETE_PRODUCT").describe("Verplicht type: 'DELETE_PRODUCT' als dubbele bevestiging (ter preventie LLM hallucinaties)."),
+    reason: z.string().min(5).describe("Korte audit rede voor productverwijdering."),
 });
 // Will be initialized in index.ts
 const deleteProduct = {
