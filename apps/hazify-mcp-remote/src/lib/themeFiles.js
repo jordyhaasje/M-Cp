@@ -284,7 +284,10 @@ const extractErrorMessage = (data, fallbackText) => {
   return "Onbekende fout";
 };
 
-const shopifyRestRequest = async (shopifyClient, apiVersion, options) => {
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const shopifyRestRequest = async (shopifyClient, apiVersion, options, retryCount = 0) => {
+  const MAX_RETRIES = 3;
   const { method = "GET", path, query, body, expectedStatuses = [200] } = options;
   const domain = getShopDomainFromClient(shopifyClient);
   const accessToken = getAccessTokenFromClient(shopifyClient);
@@ -301,6 +304,24 @@ const shopifyRestRequest = async (shopifyClient, apiVersion, options) => {
   });
 
   const responseText = await response.text();
+  
+  if (response.status === 429) {
+    if (retryCount < MAX_RETRIES) {
+      // Typically Shopify uses 'Retry-After' header in seconds for REST
+      let delayMs = 2000 * Math.pow(2, retryCount); // Exponential backoff default
+      const retryAfterHeader = response.headers.get("retry-after");
+      if (retryAfterHeader) {
+        const parsed = parseFloat(retryAfterHeader);
+        if (!isNaN(parsed) && parsed > 0) {
+          delayMs = parsed * 1000;
+        }
+      }
+      console.warn(`[REST Rate Limit] 429 received. Retrying in ${delayMs}ms... (Attempt ${retryCount + 1}/${MAX_RETRIES})`);
+      await sleep(delayMs);
+      return shopifyRestRequest(shopifyClient, apiVersion, options, retryCount + 1);
+    }
+  }
+
   let data = null;
   if (responseText) {
     try {
@@ -326,7 +347,8 @@ const shopifyRestRequest = async (shopifyClient, apiVersion, options) => {
   };
 };
 
-const shopifyGraphqlRequest = async (shopifyClient, apiVersion, { query, variables = {}, expectedStatuses = [200] }) => {
+const shopifyGraphqlRequest = async (shopifyClient, apiVersion, { query, variables = {}, expectedStatuses = [200] }, retryCount = 0) => {
+  const MAX_RETRIES = 3;
   const domain = getShopDomainFromClient(shopifyClient);
   const accessToken = getAccessTokenFromClient(shopifyClient);
   const url = buildAdminGraphqlUrl({ domain, apiVersion });
@@ -341,6 +363,15 @@ const shopifyGraphqlRequest = async (shopifyClient, apiVersion, { query, variabl
   });
 
   const responseText = await response.text();
+  
+  // Handing HTTP 429 for GraphQL (though sometimes it returns 200 with throttled errors)
+  if (response.status === 429 && retryCount < MAX_RETRIES) {
+    const delayMs = 2000 * Math.pow(2, retryCount);
+    console.warn(`[GraphQL Rate Limit] 429 received. Retrying in ${delayMs}ms... (Attempt ${retryCount + 1}/${MAX_RETRIES})`);
+    await sleep(delayMs);
+    return shopifyGraphqlRequest(shopifyClient, apiVersion, { query, variables, expectedStatuses }, retryCount + 1);
+  }
+
   let data = null;
   if (responseText) {
     try {
@@ -350,6 +381,16 @@ const shopifyGraphqlRequest = async (shopifyClient, apiVersion, { query, variabl
         `Shopify theme GraphQL response kon niet worden geparsed (${response.status}).`,
         response.status
       );
+    }
+  }
+
+  // Handle GraphQL specific throttling if it comes back as 200 but has Throttled errors
+  if (data && Array.isArray(data.errors) && data.errors.some(e => e.extensions?.code === "THROTTLED")) {
+    if (retryCount < MAX_RETRIES) {
+      const delayMs = 2000 * Math.pow(2, retryCount);
+      console.warn(`[GraphQL Throttled] Query throttled. Retrying in ${delayMs}ms... (Attempt ${retryCount + 1}/${MAX_RETRIES})`);
+      await sleep(delayMs);
+      return shopifyGraphqlRequest(shopifyClient, apiVersion, { query, variables, expectedStatuses }, retryCount + 1);
     }
   }
 
@@ -601,6 +642,26 @@ const withThemeGraphqlFallback = async (graphqlOperation, restOperation) => {
   }
 };
 
+const validateCoreFileUpsert = (key, value, attachment) => {
+  if (key === "layout/theme.liquid" && typeof value === "string") {
+    if (!value.includes("content_for_header") || !value.includes("content_for_layout")) {
+      throw buildErrorWithStatus(
+        `Veiligheidsblokkade: ${key} moet verplicht '{{ content_for_header }}' en '{{ content_for_layout }}' bevatten. Dit voorkomt dat het hoofdthema stukgaat.`,
+        400
+      );
+    }
+  }
+};
+
+const validateCoreFileDelete = (key) => {
+  if (key === "layout/theme.liquid") {
+    throw buildErrorWithStatus(
+      `Veiligheidsblokkade: ${key} is een core-bestand en mag NOOIT via deze tool verwijderd worden ter bescherming van de webshop.`,
+      400
+    );
+  }
+};
+
 const listThemesRest = async (shopifyClient, apiVersion = DEFAULT_API_VERSION) => {
   const response = await shopifyRestRequest(shopifyClient, apiVersion, {
     method: "GET",
@@ -655,6 +716,8 @@ const upsertThemeFileRestByTheme = async (
   apiVersion = DEFAULT_API_VERSION,
   { theme, key, value, attachment, checksum }
 ) => {
+  validateCoreFileUpsert(key, value, attachment);
+
   const assetInput = { key };
 
   if (value !== undefined) {
@@ -695,6 +758,8 @@ const deleteThemeFileRestByTheme = async (
   apiVersion = DEFAULT_API_VERSION,
   { theme, key }
 ) => {
+  validateCoreFileDelete(key);
+
   await shopifyRestRequest(shopifyClient, apiVersion, {
     method: "DELETE",
     path: `/themes/${theme.id}/assets.json`,
@@ -1106,6 +1171,9 @@ export const upsertThemeFiles = async (
     if (hasValue === hasAttachment) {
       throw new Error(`File '${key}' moet exact één van 'value' of 'attachment' bevatten.`);
     }
+
+    validateCoreFileUpsert(key, file.value, file.attachment);
+
     return {
       key,
       ...(hasValue ? { value: file.value } : {}),
@@ -1314,6 +1382,8 @@ export const upsertThemeFile = async (
   apiVersion = DEFAULT_API_VERSION,
   { themeId, themeRole = "main", key, value, attachment, checksum }
 ) => {
+  validateCoreFileUpsert(key, value, attachment);
+
   if (checksum !== undefined) {
     await assertThemeFileChecksum(shopifyClient, apiVersion, { themeId, themeRole, key, checksum });
   }
@@ -1365,6 +1435,8 @@ export const deleteThemeFile = async (
 ) =>
   withThemeGraphqlFallback(
     async () => {
+      validateCoreFileDelete(key);
+
       const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
       const data = await shopifyGraphqlRequest(shopifyClient, apiVersion, {
         query: THEME_FILES_DELETE_MUTATION,

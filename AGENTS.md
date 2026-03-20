@@ -114,6 +114,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 - Geen destructieve actie op aannames.
 - Bij ontbrekende data: eerst verifiëren, dan pas uitvoeren.
 - Voor destructieve en financiële mutaties (zoals `delete-product`, `delete-theme-file`, `upsert` overwrites, `refund-order` en `update-order`) dwingt de API een verplichte `confirmation` string (en vaak een `reason`) af. Lees het Zod-schema zorgvuldig en genereer deze fields nooit zonder doordachte "Chain of Thought" over de noodzaak.
+- Het wijzigen van `layout/theme.liquid` is kritiek. Zorg altijd dat `content_for_header` en `content_for_layout` behouden blijven. Verwijderen is intern geblokkeerd ter bescherming.
 - Nooit refunds doen zonder expliciete validatie van bedrag en scope.
 - Productimport is niet klaar zonder gecontroleerde variant-media.
 - Trackingnummer/vervoerder nooit via `customAttributes` of losse metafields bijwerken; altijd fulfillment-tracking gebruiken.

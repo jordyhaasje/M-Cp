@@ -14,7 +14,7 @@ const UpsertThemeFilesInputSchema = z
       .array(
         z
           .object({
-            key: z.string().min(1).describe("Theme file key, e.g. sections/custom-banner.liquid"),
+            key: z.string().min(1).describe("Theme file key. Note: layout/theme.liquid requires 'content_for_header' & 'content_for_layout'."),
             value: z.string().optional().describe("Text content for Liquid/JSON/CSS/JS assets"),
             attachment: z.string().optional().describe("Base64 payload for binary assets"),
             checksum: z.string().optional().describe("Optional checksum precondition"),
