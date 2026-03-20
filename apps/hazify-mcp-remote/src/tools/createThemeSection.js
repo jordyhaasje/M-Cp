@@ -9,8 +9,8 @@ const PlacementSchema = z.enum(["append", "prepend", "before", "after"]);
 const ThemeWriteFileSchema = z
   .object({
     key: z.string().min(1).describe("Theme file key, e.g. snippets/faq-item.liquid or assets/faq.css"),
-    value: z.string().optional().describe("REQUIRED if attachment is omitted. Use ONLY for text files (Liquid, JSON, CSS, JS)."),
-    attachment: z.string().optional().describe("REQUIRED if value is omitted. Use ONLY for base64 payload for binary assets."),
+    value: z.string().optional().describe("Text content for Liquid/JSON/CSS/JS assets"),
+    attachment: z.string().optional().describe("Base64 payload for binary assets"),
     checksum: z.string().optional().describe("Optional checksum precondition"),
   })
   .superRefine((file, ctx) => {
@@ -32,7 +32,8 @@ const CreateThemeSectionInputSchema = z
     targetFile: z
       .string()
       .min(1)
-      .describe("Required JSON template or section group file target, e.g. templates/index.json or sections/header-group.json. Do NOT omit this."),
+      .optional()
+      .describe("Required JSON template/group target, e.g. templates/index.json or sections/header-group.json"),
     name: z.string().min(1).describe("Human-readable section name"),
     handle: z
       .string()

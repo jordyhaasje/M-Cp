@@ -271,42 +271,39 @@ const buildTextSnippets = (content, query, { mode = "literal", snippetLength = 1
   return results;
 };
 
-export const resolveTemplateSections = async (
+export const resolveHomepageSections = async (
   shopifyClient,
   apiVersion,
-  { themeId, themeRole = "main", pageType = "index" } = {}
+  { themeId, themeRole = "main", page = "homepage" } = {}
 ) => {
-  if (!pageType) {
-    throw new Error("pageType is verplicht (bijv. 'product', 'collection', 'index').");
+  if (page !== "homepage") {
+    throw new Error("Alleen page='homepage' wordt momenteel ondersteund.");
   }
 
   const notes = [];
-  const searchTarget = pageType === "homepage" ? "index" : pageType;
-  const templateKeys = [`templates/${searchTarget}.json`, `templates/${searchTarget}.liquid`];
-
   const templateResult = await getThemeFiles(shopifyClient, apiVersion, {
     themeId,
     themeRole,
-    keys: templateKeys,
+    keys: ["templates/index.json", "templates/index.liquid"],
     includeContent: true,
   });
   const templateFilesByKey = new Map(templateResult.files.map((asset) => [asset.key, asset]));
-  const pageJson = templateFilesByKey.get(`templates/${searchTarget}.json`);
-  const pageLiquid = templateFilesByKey.get(`templates/${searchTarget}.liquid`);
+  const homepageJson = templateFilesByKey.get("templates/index.json");
+  const homepageLiquid = templateFilesByKey.get("templates/index.liquid");
 
   let rawSections = [];
   let sourceFiles = [
-    buildSourceFileRow(pageJson, "page-template", Boolean(pageJson?.found)),
-    buildSourceFileRow(pageLiquid, "page-template-fallback", Boolean(pageLiquid?.found) && !pageJson?.found),
+    buildSourceFileRow(homepageJson, "homepage-template", Boolean(homepageJson?.found)),
+    buildSourceFileRow(homepageLiquid, "homepage-template-fallback", Boolean(homepageLiquid?.found) && !homepageJson?.found),
   ];
 
-  if (pageJson?.found && typeof pageJson.value === "string") {
-    rawSections = parseJsonTemplateSections(pageJson, notes);
-  } else if (pageLiquid?.found && typeof pageLiquid.value === "string") {
-    notes.push(`JSON-template ontbreekt; resolver gebruikt fallback via templates/${searchTarget}.liquid.`);
-    rawSections = parseLiquidHomepageSections(pageLiquid);
+  if (homepageJson?.found && typeof homepageJson.value === "string") {
+    rawSections = parseJsonTemplateSections(homepageJson, notes);
+  } else if (homepageLiquid?.found && typeof homepageLiquid.value === "string") {
+    notes.push("Homepage JSON-template ontbreekt; resolver gebruikt fallback via templates/index.liquid.");
+    rawSections = parseLiquidHomepageSections(homepageLiquid);
   } else {
-    notes.push(`Geen template gevonden onder templates/${searchTarget}.json of templates/${searchTarget}.liquid.`);
+    notes.push("Geen homepage template gevonden onder templates/index.json of templates/index.liquid.");
   }
 
   const sectionGroupResult = await getThemeFiles(shopifyClient, apiVersion, {
@@ -349,7 +346,7 @@ export const resolveTemplateSections = async (
       name: templateResult.theme.name,
       role: templateResult.theme.role,
     },
-    pageType,
+    page: "homepage",
     sourceFiles: sourceFiles.filter((row) => row.key),
     sections: attachSectionMetadata(orderedSections, sectionAssetsByKey),
     notes,
@@ -386,11 +383,10 @@ export const findThemeSectionByName = async (
 ) => {
   const relevantFiles = new Set();
   const candidates = [];
-  if (!page || typeof page === "string") {
-    const pageTypeToResolve = page || "index";
-    const templateSections = await resolveTemplateSections(shopifyClient, apiVersion, { themeId, themeRole, pageType: pageTypeToResolve });
-    templateSections.sourceFiles.forEach((sourceFile) => relevantFiles.add(sourceFile.key));
-    candidates.push(...templateSections.sections);
+  if (!page || page === "homepage") {
+    const homepage = await resolveHomepageSections(shopifyClient, apiVersion, { themeId, themeRole, page: "homepage" });
+    homepage.sourceFiles.forEach((sourceFile) => relevantFiles.add(sourceFile.key));
+    candidates.push(...homepage.sections);
   }
   if (!page) {
     const themeWideCatalog = await buildThemeWideSectionCatalog(shopifyClient, apiVersion, { themeId, themeRole });

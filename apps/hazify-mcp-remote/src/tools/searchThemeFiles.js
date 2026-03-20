@@ -21,8 +21,8 @@ const SearchThemeFilesInputSchema = z
     mode: z.enum(["literal", "regex"]).default("literal"),
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     themeRole: ThemeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
-    filePatterns: z.array(z.string().min(1)).max(20).optional().describe("Explicit filename patterns, e.g. ['sections/*.liquid']. REQUIRED if scope is omitted. Do not leave both empty."),
-    scope: z.array(ScopeBucketSchema).min(1).max(4).optional().describe("Optional narrowed scope buckets. REQUIRED if filePatterns is omitted. Do not leave both empty."),
+    filePatterns: z.array(z.string().min(1)).max(20).optional().describe("Explicit filename patterns, e.g. ['sections/*.liquid']"),
+    scope: z.array(ScopeBucketSchema).min(1).max(4).optional().describe("Optional narrowed scope buckets"),
     resultLimit: z.number().int().min(1).max(20).default(8),
     snippetLength: z.number().int().min(40).max(240).default(120),
   })
@@ -39,7 +39,7 @@ const SearchThemeFilesInputSchema = z
 const searchThemeFilesTool = {
   name: "search-theme-files",
   description:
-    "Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern. Avoid broad searches. Use strict scoping (filePatterns or scope) to prevent hitting results limits.",
+    "Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern.",
   schema: SearchThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

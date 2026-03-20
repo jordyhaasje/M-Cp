@@ -1,7 +1,7 @@
 import assert from "assert";
 import {
   findThemeSectionByName,
-  resolveTemplateSections,
+  resolveHomepageSections,
   searchThemeFilesWithSnippets,
 } from "../src/lib/themePlanning.js";
 
@@ -142,27 +142,6 @@ const homepageJsonFiles = {
     {% endschema %}
     <div>Footer links</div>
   `),
-  "templates/product.json": makeTextAsset(
-    JSON.stringify({
-      sections: {
-        main: { type: "main-product" },
-        faq: { type: "product-faq" },
-      },
-      order: ["main", "faq"],
-    })
-  ),
-  "sections/main-product.liquid": makeTextAsset(`
-    {% schema %}
-    {"name":"Main product","presets":[{"name":"Default product"}]}
-    {% endschema %}
-    <div>Product hero</div>
-  `),
-  "sections/product-faq.liquid": makeTextAsset(`
-    {% schema %}
-    {"name":"Product FAQ","presets":[{"name":"Product questions"}]}
-    {% endschema %}
-    <div>Answers about materials and shipping</div>
-  `),
 };
 
 const homepageLiquidFiles = {
@@ -177,11 +156,8 @@ const homepageLiquidFiles = {
 try {
   global.fetch = createGraphqlFetch(homepageJsonFiles);
 
-  const homepageResult = await resolveTemplateSections(shopifyClient, "2026-01", {
-    themeId: 123,
-    pageType: "homepage",
-  });
-  assert.equal(homepageResult.pageType, "homepage");
+  const homepageResult = await resolveHomepageSections(shopifyClient, "2026-01", { themeId: 123 });
+  assert.equal(homepageResult.page, "homepage");
   assert.ok(
     homepageResult.sourceFiles.some((entry) => entry.key === "templates/index.json" && entry.used),
     "homepage resolver should include index.json as source file"
@@ -195,22 +171,6 @@ try {
   assert.ok(
     homepageResult.sections.some((section) => section.originFile === "sections/header-group.json"),
     "homepage resolver should include discoverable header/footer section groups"
-  );
-
-  const productResult = await resolveTemplateSections(shopifyClient, "2026-01", {
-    themeId: 123,
-    pageType: "product",
-  });
-  assert.equal(productResult.pageType, "product");
-  assert.ok(
-    productResult.sourceFiles.some((entry) => entry.key === "templates/product.json" && entry.used),
-    "product resolver should target templates/product.json when requested"
-  );
-  assert.ok(
-    productResult.sections.some(
-      (section) => section.type === "product-faq" && section.schemaName === "Product FAQ"
-    ),
-    "generic resolver should attach schema metadata for non-homepage templates"
   );
 
   const exactMatchResult = await findThemeSectionByName(shopifyClient, "2026-01", {
@@ -240,16 +200,6 @@ try {
     query: "quotes",
   });
   assert.ok(fuzzyMatchResult.fuzzyMatches.length >= 1, "theme-wide fuzzy section matches should be returned");
-
-  const productPageMatchResult = await findThemeSectionByName(shopifyClient, "2026-01", {
-    themeId: 123,
-    query: "Product FAQ",
-    page: "product",
-  });
-  assert.ok(
-    productPageMatchResult.exactMatches.some((match) => match.sectionFile === "sections/product-faq.liquid"),
-    "page-scoped finder should resolve exact matches on non-homepage templates"
-  );
 
   const createSuggestionResult = await findThemeSectionByName(shopifyClient, "2026-01", {
     themeId: 123,
@@ -289,10 +239,7 @@ try {
   );
 
   global.fetch = createGraphqlFetch(homepageLiquidFiles);
-  const liquidFallbackResult = await resolveTemplateSections(shopifyClient, "2026-01", {
-    themeId: 123,
-    pageType: "homepage",
-  });
+  const liquidFallbackResult = await resolveHomepageSections(shopifyClient, "2026-01", { themeId: 123 });
   assert.ok(
     liquidFallbackResult.notes.some((note) => note.includes("fallback")),
     "resolver should report when it falls back to templates/index.liquid"

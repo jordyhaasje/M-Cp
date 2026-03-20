@@ -10,8 +10,8 @@ const UpsertThemeFileInputSchema = z
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     themeRole: ThemeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
     key: z.string().min(1).describe("Theme file key, e.g. sections/custom-banner.liquid"),
-    value: z.string().optional().describe("REQUIRED if attachment is omitted. Use ONLY for text files (Liquid, JSON, CSS, JS). NEVER use alongside attachment."),
-    attachment: z.string().optional().describe("REQUIRED if value is omitted. Use ONLY for base64 content for binary assets (jpg/png). NEVER use alongside value."),
+    value: z.string().optional().describe("Text content for Liquid/JSON/CSS/JS assets"),
+    attachment: z.string().optional().describe("Base64 content for binary assets"),
     checksum: z.string().optional().describe("Optional checksum for conflict-safe writes"),
   })
   .superRefine((input, ctx) => {
