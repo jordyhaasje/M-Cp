@@ -115,6 +115,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 - Bij ontbrekende data: eerst verifiëren, dan pas uitvoeren.
 - Voor destructieve en financiële mutaties (zoals `delete-product`, `delete-theme-file`, `upsert` overwrites, `refund-order` en `update-order`) dwingt de API een verplichte `confirmation` string (en vaak een `reason`) af. Lees het Zod-schema zorgvuldig en genereer deze fields nooit zonder doordachte "Chain of Thought" over de noodzaak.
 - Het wijzigen van `layout/theme.liquid` is kritiek. Zorg altijd dat `content_for_header` en `content_for_layout` behouden blijven. Verwijderen is intern geblokkeerd ter bescherming.
+- LLM's mogen NOOIT proberen secties "live" te zetten of de layout te wijzigen door JSON templates (zoals `templates/index.json` of bestanden in `config/`) aan te passen. Dit is strikt verboden wegens kans op homepage destructie. Een taak voor het maken van een section is direct voltooid zodra de losse bronbestanden (.liquid, .css, .js) succesvol via de API zijn aangemaakt in hun map. Instrueer de klant om de gemaakte sectie toe te voegen via de Shopify Theme Editor.
 - Nooit refunds doen zonder expliciete validatie van bedrag en scope.
 - Productimport is niet klaar zonder gecontroleerde variant-media.
 - Trackingnummer/vervoerder nooit via `customAttributes` of losse metafields bijwerken; altijd fulfillment-tracking gebruiken.

@@ -216,7 +216,8 @@ try {
   const appendResult = await createThemeSectionTool.execute(
     createThemeSectionTool.schema.parse({
       themeId: 123,
-      targetFile: "templates/index.json",
+      auditReason: "Automated append test",
+      targetFile: "sections/header-group.json",
       name: "FAQ Section",
       sectionLiquid: `{% schema %}{"name":"FAQ Section","presets":[{"name":"FAQ Section"}]}{% endschema %}<div>FAQ</div>`,
     }),
@@ -225,22 +226,23 @@ try {
 
   assert.equal(appendResult.sectionFile, "sections/faq-section.liquid");
   assert.equal(appendResult.placement, "append");
-  assert.ok(appendResult.createdFiles.includes("templates/index.json"));
+  assert.ok(appendResult.createdFiles.includes("sections/header-group.json"));
   assert.ok(appendResult.createdFiles.includes("sections/faq-section.liquid"));
-  const appendedTemplate = JSON.parse(fileStore.get("templates/index.json").value);
+  const appendedTemplate = JSON.parse(fileStore.get("sections/header-group.json").value);
   assert.equal(appendedTemplate.order.at(-1), appendResult.sectionInstanceId);
   assert.deepEqual(appendedTemplate.sections[appendResult.sectionInstanceId], { type: "faq-section" });
 
   const beforeResult = await createThemeSectionTool.execute(
     createThemeSectionTool.schema.parse({
       themeId: 123,
-      targetFile: "templates/index.json",
+      auditReason: "Automated before test",
+      targetFile: "sections/header-group.json",
       name: "Image FAQ",
       handle: "image-faq",
       sectionLiquid:
         `{% schema %}{"name":"Image FAQ","presets":[{"name":"Image FAQ"}]}{% endschema %}<div>Image FAQ</div>`,
       placement: "before",
-      anchorSectionId: "promo01",
+      anchorSectionId: "header01",
       templateSectionData: {
         type: "ignored-here",
         settings: {
@@ -261,9 +263,9 @@ try {
     { shopifyClient }
   );
 
-  const beforeTemplate = JSON.parse(fileStore.get("templates/index.json").value);
-  const promoIndex = beforeTemplate.order.indexOf("promo01");
-  assert.equal(beforeTemplate.order[promoIndex - 1], beforeResult.sectionInstanceId);
+  const beforeTemplate = JSON.parse(fileStore.get("sections/header-group.json").value);
+  const headerIndex = beforeTemplate.order.indexOf("header01");
+  assert.equal(beforeTemplate.order[headerIndex - 1], beforeResult.sectionInstanceId);
   assert.deepEqual(beforeTemplate.sections[beforeResult.sectionInstanceId], {
     type: "image-faq",
     settings: {
@@ -276,24 +278,26 @@ try {
   const afterResult = await createThemeSectionTool.execute(
     createThemeSectionTool.schema.parse({
       themeId: 123,
-      targetFile: "sections/header-group.json",
+      auditReason: "Automated after test",
+      targetFile: "sections/footer-group.json",
       name: "Promo Strip",
       sectionLiquid:
         `{% schema %}{"name":"Promo Strip","presets":[{"name":"Promo Strip"}]}{% endschema %}<div>Promo</div>`,
       placement: "after",
-      anchorSectionId: "header01",
+      anchorSectionId: "footer01",
     }),
     { shopifyClient }
   );
 
-  const headerGroup = JSON.parse(fileStore.get("sections/header-group.json").value);
-  assert.equal(headerGroup.order[1], afterResult.sectionInstanceId);
+  const footerGroup = JSON.parse(fileStore.get("sections/footer-group.json").value);
+  assert.equal(footerGroup.order[1], afterResult.sectionInstanceId);
 
   await assert.rejects(
     () =>
       createThemeSectionTool.execute(
         createThemeSectionTool.schema.parse({
           themeId: 123,
+          auditReason: "Missing target test",
           name: "Missing target",
           sectionLiquid: "<div>Missing target</div>",
         }),
@@ -307,7 +311,8 @@ try {
       createThemeSectionTool.execute(
         createThemeSectionTool.schema.parse({
           themeId: 123,
-          targetFile: "templates/index.liquid",
+          auditReason: "Unsupported target test",
+          targetFile: "sections/index.liquid",
           name: "Unsupported target",
           sectionLiquid: "<div>Unsupported</div>",
         }),
@@ -321,7 +326,8 @@ try {
       createThemeSectionTool.execute(
         createThemeSectionTool.schema.parse({
           themeId: 123,
-          targetFile: "templates/index.json",
+          auditReason: "Duplicate file test",
+          targetFile: "sections/header-group.json",
           name: "FAQ Section",
           handle: "faq-section",
           sectionLiquid: "<div>Duplicate</div>",

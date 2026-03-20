@@ -38,7 +38,8 @@ const shopifyScopedTools = [
     name: "create-theme-section",
     tool: createThemeSectionTool,
     input: {
-      targetFile: "templates/index.json",
+      targetFile: "sections/header-group.json",
+      auditReason: "demo reason",
       name: "Demo section",
       sectionLiquid: `<div>Demo section</div>`,
     },

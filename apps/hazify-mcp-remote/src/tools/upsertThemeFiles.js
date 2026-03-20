@@ -9,14 +9,14 @@ const UpsertThemeFilesInputSchema = z
   .object({
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     themeRole: ThemeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
-    auditReason: z.string().min(5).describe("Beschrijf in minimaal een zin waarom de file wordt gecreërd/ge-update. Helpt bij LLM validation tracing."),
+    auditReason: z.string().min(5).describe("VERPLICHT: Een duidelijke en gedetailleerde reden waarom je deze file aanpast of aanmaakt. Zonder dit veld faalt de actie gegarandeerd."),
     files: z
       .array(
         z
           .object({
             key: z.string().min(1).describe("Theme file key. Note: layout/theme.liquid requires 'content_for_header' & 'content_for_layout'."),
-            value: z.string().optional().describe("Text content for Liquid/JSON/CSS/JS assets"),
-            attachment: z.string().optional().describe("Base64 payload for binary assets"),
+            value: z.string().optional().describe("De letterlijke bestandsinhoud (tekst/broncode) voor Liquid, JSON, CSS, JS etc. Gebruik dít veld voor source code!"),
+            attachment: z.string().optional().describe("Base64 geëncodeerde string, ALLEEN voor binaire bestanden (zoals afbeeldingen/fonts). NOOIT gebruiken voor tekst/code."),
             checksum: z.string().optional().describe("Optional checksum precondition"),
           })
           .superRefine((file, ctx) => {
@@ -52,6 +52,17 @@ const UpsertThemeFilesInputSchema = z
         message: "Duplicate keys are not allowed in files[].",
       });
     }
+
+    input.files.forEach((file, index) => {
+      const themeFileKey = file.key.trim();
+      if (themeFileKey.endsWith('.json') && (themeFileKey.startsWith('templates/') || themeFileKey.startsWith('config/'))) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["files", index, "key"],
+          message: "Modifying JSON templates directly is strictly forbidden to prevent layout destruction. The section files (.liquid/.css/.js) are safely created. STOP modifying files now and instruct the user to manually add the new section via the Shopify Theme Editor.",
+        });
+      }
+    });
   });
 
 const upsertThemeFilesTool = {

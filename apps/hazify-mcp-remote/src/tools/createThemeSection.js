@@ -9,8 +9,8 @@ const PlacementSchema = z.enum(["append", "prepend", "before", "after"]);
 const ThemeWriteFileSchema = z
   .object({
     key: z.string().min(1).describe("Theme file key, e.g. snippets/faq-item.liquid or assets/faq.css"),
-    value: z.string().optional().describe("Text content for Liquid/JSON/CSS/JS assets"),
-    attachment: z.string().optional().describe("Base64 payload for binary assets"),
+    value: z.string().optional().describe("De letterlijke bestandsinhoud (tekst/broncode) voor Liquid, JSON, CSS, JS etc. Gebruik dít veld voor source code!"),
+    attachment: z.string().optional().describe("Base64 geëncodeerde string, ALLEEN voor binaire bestanden (zoals afbeeldingen/fonts). NOOIT gebruiken voor tekst/code."),
     checksum: z.string().optional().describe("Optional checksum precondition"),
   })
   .superRefine((file, ctx) => {
@@ -29,6 +29,7 @@ const CreateThemeSectionInputSchema = z
   .object({
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     themeRole: ThemeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
+    auditReason: z.string().min(5).describe("VERPLICHT: Een duidelijke en gedetailleerde reden waarom je deze file aanpast of aanmaakt. Zonder dit veld faalt de actie gegarandeerd."),
     targetFile: z
       .string()
       .min(1)
@@ -57,6 +58,30 @@ const CreateThemeSectionInputSchema = z
         code: z.ZodIssueCode.custom,
         path: ["anchorSectionId"],
         message: "anchorSectionId is required when placement is 'before' or 'after'.",
+      });
+    }
+
+    if (input.targetFile) {
+      const target = input.targetFile.trim();
+      if (target.endsWith('.json') && (target.startsWith('templates/') || target.startsWith('config/'))) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["targetFile"],
+          message: "Modifying JSON templates directly is strictly forbidden to prevent layout destruction. The section files (.liquid/.css/.js) are safely created. STOP modifying files now and instruct the user to manually add the new section via the Shopify Theme Editor.",
+        });
+      }
+    }
+
+    if (input.additionalFiles) {
+      input.additionalFiles.forEach((file, index) => {
+        const themeFileKey = file.key.trim();
+        if (themeFileKey.endsWith('.json') && (themeFileKey.startsWith('templates/') || themeFileKey.startsWith('config/'))) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["additionalFiles", index, "key"],
+            message: "Modifying JSON templates directly is strictly forbidden to prevent layout destruction. The section files (.liquid/.css/.js) are safely created. STOP modifying files now and instruct the user to manually add the new section via the Shopify Theme Editor.",
+          });
+        }
       });
     }
   });
