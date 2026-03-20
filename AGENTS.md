@@ -16,8 +16,6 @@ De agent werkt snel, veilig en verifieert altijd data voordat er wijzigingen wor
 
 ## Workspace-structuur (verplicht)
 - Documentatie staat in `docs/`
-- Legacy documentatie staat in `docs/archive/`
-- Legacy data/artifacts staan in `docs/archive/artifacts/`
 - MCP-servercode staat in `apps/hazify-mcp-remote/`
 - License API service staat in `apps/hazify-license-service/`
 - Gedeelde packages staan in `packages/`
@@ -27,15 +25,8 @@ De agent werkt snel, veilig en verifieert altijd data voordat er wijzigingen wor
 1. Lees eerst `docs/00-START-HERE.md`
 2. Lees daarna `docs/01-TECH-STACK.md`
 3. Lees daarna `docs/02-SYSTEM-FLOW.md`
-4. Lees daarna `docs/03-REPO-STRUCTURE.md`
-5. Lees daarna `docs/04-AGENT-RUNBOOK.md`
-6. Lees daarna `AGENTS.md` (deze instructie)
-7. Lees daarna `docs/10-MCP-SERVER-SETUP.md`
-8. Lees daarna `docs/12-REMOTE-MCP-SETUP.md`
-9. Lees daarna `docs/20-TRACKING-WORKFLOW.md` (bij trackingvragen)
-10. Lees daarna `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/licensing)
-11. Lees daarna `docs/14-GPT-INSTRUCTIONS.md` (bij connector/GPT-vragen)
-12. Pas daarna pas code aan in `apps/hazify-mcp-remote/src/`
+4. Lees daarna `AGENTS.md` (deze instructie)
+5. Pas daarna pas code aan in `apps/hazify-mcp-remote/src/`
 
 Als documentatie en code elkaar tegenspreken: code is leidend, en documentatie moet direct worden bijgewerkt in dezelfde wijziging.
 

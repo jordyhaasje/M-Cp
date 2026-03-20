@@ -1,57 +1,36 @@
-# System Flow
-Doelgroep: repo maintainers en coding agents / Codex.
+# System Flow (Runtime & Integratie)
+Doelgroep: repo maintainers en AI-agents.
 
-## 1) Onboarding flow
-1. gebruiker opent `/onboarding`
-2. kiest `Inloggen` of `Account maken`
-3. accountflow via `/login` of `/signup`
-4. bij succes opent `/dashboard`
-5. optioneel in testmodus: `HAZIFY_AUTO_ACTIVATE_SIGNUP_LICENSES=true` geeft nieuwe signup-accounts direct een actieve licentie zonder checkout
-6. gebruiker koppelt winkel met `shopAccessToken` of `shopClientId + shopClientSecret`
-7. onboarding valideert credentials + vereiste scopes (incl. `read_themes`/`write_themes`)
-8. gebruiker maakt MCP token via dashboard
+Dit document beschrijft hoe aanvragen, authenticatie en store integraties op de actuele codebase functioneren.
 
-## 2) OAuth flow (aanbevolen)
-1. client leest `/.well-known/oauth-protected-resource`
-2. client ontdekt auth server metadata
-3. dynamic client registration via `/oauth/register`
-4. authorize via `GET /oauth/authorize` met PKCE `S256`
-5. authorize UI rendert alleen; toestaan/weigeren loopt via `POST /oauth/authorize`
-6. authorize POST bewaart de originele OAuth-context (`response_type`, `client_id`, `redirect_uri`, `state`, `scope`, `code_challenge`, `code_challenge_method`, `resource`)
-7. submit-regel: form body wint, querystring is alleen fallback/continuity; mismatch op gevoelige velden resulteert in `invalid_request`
-8. interactieve OAuth CSP laat de `redirect_uri`-origin toe in `form-action` zodat browserredirects naar connector-clients (bijv. ChatGPT) niet geblokkeerd worden
-9. token exchange via `/oauth/token`
-10. access token wordt gebruikt op `/mcp`
+## 1. Onboarding & Credentials
+1. Een gebruiker registreert zich op de License Service en koppelt zijn Shopify winkel via `shopAccessToken` of `shopClientId` / `shopClientSecret`.
+2. Validatie controleert op `REQUIRED_SHOPIFY_ADMIN_SCOPES` (inclusief `read_themes`, `write_themes`).
+3. Credentials en secrets blijven **100% server-side** op de License Service en worden nooit via de frontend aan de MCP client doorgegeven.
 
-## 3) MCP request flow
-1. client roept `/mcp` aan met Bearer token of `x-api-key`
-2. MCP service valideert token via `/v1/mcp/token/introspect`
-3. MCP service evalueert request context + licentiebeleid
-4. MCP service valideert origin-allowlist indien `Origin` header aanwezig is
-5. Shopify token exchange gebeurt lazy via `/v1/mcp/token/exchange` alleen als de gekozen tool Shopify-auth nodig heeft
-6. `initialize`, `tools/list` en context-free tools triggeren geen Shopify exchange
-7. tool draait request-scoped binnen tenant-context (geen globale mutable Shopify state)
-8. response bevat MCP content + structuredContent
+## 2. Authenticatie: OAuth PKCE (Voorkeur) & Fallback
+Vanaf 2026 ondersteunt Hazify native OAuth 2.0 PKCE.
+1. **Discovery:** Client ontdekt auth servers via `/.well-known/oauth-protected-resource`.
+2. **Authorize Flow:** `GET /oauth/authorize` levert de visuele login pagina. Toestemming (of weigering) gaat via een specifieke form submit op `POST /oauth/authorize`.
+   - De authorize submit (POST) onthoudt de *originele* OAuth-parameters, inclusief de `resource` parameter.
+   - Origin van `redirect_uri` wordt in de CSP `form-action` geladen, zodat redirects naar platforms zoals `https://chatgpt.com` netjes lukken.
+3. **Token:** `/oauth/token` wisselt autorisatiecode in voor access tokens.
+*(Fallback: API tools tokens gegenereerd op het web dashboard zijn bruikbaar voor pure API of legacy connectors.)*
 
-## 4) Compatibiliteit
-- OAuth-first: VS Code, Cursor, ChatGPT, Claude
-- API token fallback voor clients zonder OAuth-flow
-- legacy aliases (`/register`, `/authorize`, `/token`) blijven ondersteund
-- default MCP session mode: stateless (`MCP_SESSION_MODE=stateless`)
-- stateful mode alleen expliciet en met sticky sessions of gedeelde session store
+## 3. Remote MCP Request Lifecycle (`/mcp`)
+De service (`mcp-remote/src/index.js`) luistert op het HTTP-transport.
+1. Een request bevat een token (via Bearer of `x-api-key`). Geen query parameters.
+2. Controle op `Origin` (indien meegeleverd) versus allowlist in `isOriginAllowed`.
+3. Verificatie via introspection aan de license service (`/v1/mcp/token/introspect`). Check licentiestatus en tool/mutation entitlements (`context.license.entitlements.tools`, etc).
+4. **Lazy Token Exchange:** Shopify-autorisatie (`/v1/mcp/token/exchange`) vindt alleen plaats vóór evaluatie van een tool die écht met Shopify moet babbelen. De aanroepen naar MCP's `initialize` en `tools/list` omzeilen dit en zijn zeer snel.
+5. De operatie wordt gelimiteerd door in-memory scopes (o.a. `mcp:tools:read` vs `mcp:tools:write`).
 
-## 5) Externe theme import flow
-De remote Hazify MCP ondersteunt native OS 2.0 section-create/place op ondersteunde JSON targets via `create-theme-section`.
-De remote Hazify MCP ondersteunt daarnaast theme file deploy/verificatie:
-- single-file: `get-theme-file`, `upsert-theme-file`, `delete-theme-file`
-- batch v2: `get-theme-files`, `upsert-theme-files`, `verify-theme-files`
+## 4. Theme Import Beleid & Tools
+De Remote MCP implementeert **géén eigen browser runtime of local generation**. 
+1. **Native OS 2.0 Section Creation:** Maken en plaatsen van JSON gebaseerde OS 2.0 componenten gaat uitsluitend direct via `create-theme-section`.
+2. **Resolve en Edit:** Om tokenoverhead en trage readbacks te minimaliseren voor AI agents:
+   - Identificeer altijd eerst via de planningslaag (`resolve-homepage-sections`, `find-theme-section-by-name`, `search-theme-files`).
+   - Gebruik `get-theme-file` / `upsert-theme-file(s)` alléén als het bestand echt is bevestigd via de target resolves.
+3. **Externe review tooling**: metadata over lokale externe tools is opvraagbaar via `list_theme_import_tools`. Dit vertelt hoe external (local) review workflows moeten worden opgezet.
 
-Externe flow:
-1. AI client bepaalt benodigde externe import/review tooling via `list_theme_import_tools` (metadata/advisering)
-2. AI client gebruikt lokale toolstack buiten Hazify:
-   - Chrome MCP (optioneel voor visuele inspectie)
-   - Shopify Dev MCP (voor section import in theme)
-3. Lokale toolstack levert voorbereide theme-bestanden op
-4. Hazify remote schrijft en verifieert die bestanden op de target theme
-
-Kort model: `AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`
+Model: `AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`

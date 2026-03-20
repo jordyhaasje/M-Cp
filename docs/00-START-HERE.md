@@ -1,33 +1,38 @@
-# Start Here (Codex)
-Doelgroep: coding agents / Codex.
+# Start Here
+Doelgroep: nieuwe developers en coding agents.
 
-Dit is de verplichte leesvolgorde voor agents in deze workspace.
+Dit is het startpunt voor de Hazify monorepo. Deze workspace draait de productiecode voor Hazify's remote MCP-integratie met Shopify.
 
-## Leesvolgorde
-1. `docs/00-START-HERE.md`
-2. `docs/01-TECH-STACK.md`
-3. `docs/02-SYSTEM-FLOW.md`
-4. `docs/03-REPO-STRUCTURE.md`
-5. `docs/04-AGENT-RUNBOOK.md`
-6. `AGENTS.md`
-7. `docs/10-MCP-SERVER-SETUP.md`
-8. `docs/12-REMOTE-MCP-SETUP.md`
-9. `docs/20-TRACKING-WORKFLOW.md` (bij trackingvragen)
-10. `docs/30-REMOTE-MCP-DEPLOYMENT.md` (bij distributie/deploy/licensing)
-11. `docs/14-GPT-INSTRUCTIONS.md` (bij GPT-configuratie)
-12. Runtime code in `apps/hazify-license-service/src/` en `apps/hazify-mcp-remote/src/`
+## 1. Leesvolgorde (Verplicht)
+1. `docs/00-START-HERE.md` (Dit document)
+2. `docs/01-TECH-STACK.md` (Architectuur, env vars, deployment)
+3. `docs/02-SYSTEM-FLOW.md` (Auth, OAuth, Runtime requests)
+4. `AGENTS.md` (Root - Operationele regels voor AI-agents, mutaties, tracking)
 
-## Actieve mapindeling
-- `apps/hazify-license-service/`
-- `apps/hazify-mcp-remote/`
-- `packages/shopify-core/`
-- `packages/mcp-common/`
-- `docs/`
-- `scripts/`
-- `tests/`
-- `.github/`
+**Gouden regel:** Als documentatie en code elkaar tegenspreken, is de code *altijd* leidend. Update de documentatie in dezelfde wijziging.
 
-## Werkregel
-Als documentatie en code elkaar tegenspreken, is code leidend en update je de documentatie in dezelfde wijziging.
+## 2. Repo Structuur
+De monorepo is opgebouwd via npm workspaces. `src/` is de enige bron van waarheid. Er is geen `archive` of handmatig aangepaste `dist/`.
 
-Gebruik `docs/archive/` alleen voor historische context of oude workflows.
+- `apps/hazify-license-service/`: Node.js service voor account, OAuth, billing en token-exchange. (Entry: `src/server.js`)
+- `apps/hazify-mcp-remote/`: Remote MCP service via `/mcp`. (Entry: `src/index.js`)
+- `packages/shopify-core/`: Gedeelde Shopify logica (`normalizeShopDomain`, `REQUIRED_SHOPIFY_ADMIN_SCOPES`).
+- `packages/mcp-common/`: Gedeelde utility functies en scope string afhandeling.
+- `docs/`: Alle actieve documentatie.
+
+## 3. Standaard Workflow & Runbook
+Zorg dat je na wijzigingen altijd de repo verifieert met de verplichte checks:
+
+```bash
+npm ci
+npm run check:docs
+npm run check:repo
+npm run build
+npm test
+```
+
+Vóór productie-deploy:
+```bash
+npm run check:git-sync
+npm run smoke:prod
+```

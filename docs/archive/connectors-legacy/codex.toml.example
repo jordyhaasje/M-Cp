@@ -1,3 +1,0 @@
-[mcp_servers.hazify-mcp]
-url = "https://hazify-mcp-remote-production.up.railway.app/mcp"
-bearer_token = "hzmcp_REPLACE_ME"

@@ -1,63 +1,31 @@
-# Tech Stack (Productie)
-Doelgroep: repo maintainers en coding agents / Codex.
+# Tech Stack & Architectuur
+Doelgroep: repo maintainers en coding agents.
 
-## Architectuur
-Deze monorepo bevat twee runtime services:
-1. `apps/hazify-license-service` (Node.js HTTP service)
-2. `apps/hazify-mcp-remote` (Node.js MCP service, Streamable HTTP op `/mcp`)
+## 1. Architectuur & Services
+De monorepo bevat twee Node.js runtime services (vereist Node.js `>=22.12.0`):
 
-Gedeelde logica:
-- `packages/shopify-core` (Shopify domain/auth/scope validatie)
-- `packages/mcp-common` (hashing, URL/origin utilities)
+1. **`apps/hazify-license-service`** (Entry: `src/server.js`)
+   Beheert accounts (`/signup`, `/login`), onboarding (`/v1/onboarding/connect-shopify`), token-introspectie (`/v1/mcp/token/introspect`), token-exchange (`/v1/mcp/token/exchange`), OAuth server routes (`/oauth/authorize`, `/oauth/token`), en billing/admin.
 
-## License Service
-Pad: `apps/hazify-license-service/src/server.js`
+2. **`apps/hazify-mcp-remote`** (Entry: `src/index.js`)
+   De daadwerkelijke **Remote MCP service**. Draait op `/mcp` over HTTP transport. Voert remote deploy/verificatie van voorbereide theme files uit en handelt alle store API operaties (producten, orders, klanten) af.
 
-Verantwoordelijkheden:
-- account signup/login/logout en dashboard sessies
-- onboarding (`/v1/onboarding/connect-shopify`)
-- MCP token create/revoke + introspectie (`/v1/mcp/token/introspect`)
-- interne Shopify token-exchange voor remote MCP (`/v1/mcp/token/exchange`)
-- OAuth authorization server (`/oauth/register`, `/oauth/authorize`, `/oauth/token`)
-- billing/Stripe checkout, portal en webhook verwerking
-- admin/readiness/export routes voor operations
+## 2. Deploy Platform & Env Vars
+Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazify-MCP-Remote`). 
 
-Belangrijk:
-- Shopify credentials blijven server-side
-- Ondersteunt beide vormen: `shopAccessToken` en BYO `shopClientId` + `shopClientSecret`
-- Onboarding valideert verplichte Shopify scopes inclusief `read_themes` en `write_themes`
-- In productie zijn `DATABASE_URL`, `DATA_ENCRYPTION_KEY`, `MCP_API_KEY`, `ADMIN_API_KEY`, `PUBLIC_BASE_URL`, `MCP_PUBLIC_URL` verplicht
-- `DB_SINGLE_WRITER_ENFORCED=true` is de standaard en verplicht in productie
-- In productie moet `HAZIFY_FREE_MODE=false` staan
-- Postgres persistence gebruikt transactionele per-entity writes (upsert/delete), zonder `TRUNCATE + full reinsert`
-- Single-writer consistency wordt afgedwongen met een Postgres advisory lock; dit is expliciet geen multi-writer/horizontale write-correctness model
-- De service gebruikt nog een process-memory working set (`db`) per instance; externe DB-writers buiten deze service worden niet ondersteund als consistency-model
+### License Service (Productievereisten)
+- `DATABASE_URL` en `DATA_ENCRYPTION_KEY` zijn verplicht.
+- `DB_SINGLE_WRITER_ENFORCED=true` (actief als enkele writer wegens lock/persistence model).
+- `HAZIFY_FREE_MODE=false`.
+- `ADMIN_API_KEY` en `MCP_API_KEY` (alias `HAZIFY_MCP_API_KEY`).
+- `PUBLIC_BASE_URL` en `MCP_PUBLIC_URL`.
 
-## MCP Remote Service
-Pad: `apps/hazify-mcp-remote/src/index.js`
+### Remote MCP (Productievereisten)
+- `HAZIFY_MCP_INTROSPECTION_URL`
+- `HAZIFY_MCP_API_KEY` (moet sterke secret van >=16 tekens zijn)
+- `MCP_SESSION_MODE` is standaard **`stateless`**. Stateful deployment is alleen aanbevolen met sticky sessions (`MCP_STATEFUL_DEPLOYMENT_SAFE=true`).
+- In-memory context cache `HAZIFY_MCP_CONTEXT_TTL_MS` (standaard 120.000 ms over HTTP).
 
-Verantwoordelijkheden:
-- MCP endpoint op `/mcp`
-- token introspectie + interne token-exchange bij license service
-- OAuth discovery metadata
-- tool-executie binnen tenant context
-- theme-bestanden via Admin GraphQL theme management; REST Asset API blijft alleen als compat-fallback voor shops waar theme GraphQL nog niet beschikbaar is
-- theme file batch data-plane voor remote deploy/verificatie (`upsert-theme-files`, `get-theme-files`, `verify-theme-files`)
-- native OS 2.0 section-create/place helper voor ondersteunde JSON targets: `create-theme-section`
-- metadata discovery tool voor externe review/import workflows: `list_theme_import_tools`
-
-Belangrijk:
-- Remote `/mcp` over Streamable HTTP is leidend
-- stdio/local blijft alleen expliciete fallback via `--transport=stdio` of `start:fallback:stdio`
-- `/mcp` accepteert alleen `Authorization: Bearer` of `x-api-key`
-- Origin allowlist check is actief bij requests met `Origin` header
-- default session mode is stateless (`MCP_SESSION_MODE=stateless`)
-- default context cache TTL in remote HTTP mode is 120s (`HAZIFY_MCP_CONTEXT_TTL_MS=120000`)
-- `stateful` mode is opt-in en vereist sticky sessions of gedeelde session store
-- Geen browser runtime in deze service; section-create/place gebeurt alleen via theme file writes op ondersteunde JSON targets
-
-## Runtime/Platform
-- Node.js `>=22.12.0` vereist
-- ESM modules
-- npm workspaces op repo root
-- Railway voor productie deploy
+## 3. Persistence
+- Postgres writes via `createStorageAdapter` (`src/repositories/storage-adapter.js`) zijn transactioneel (upsert/delete). Geen destructieve `TRUNCATE + full reinsert`.
+- Single-writer consistency is gehandhaafd door een exclusieve Postgres advisory lock; er is bewust geen ondersteuning voor meerdere parallelle write-instances tegelijk op de database.
