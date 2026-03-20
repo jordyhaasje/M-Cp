@@ -21,7 +21,7 @@ import { listThemeImportTools } from "./listThemeImportTools.js";
 import { manageProductOptions } from "./manageProductOptions.js";
 import { manageProductVariants } from "./manageProductVariants.js";
 import { refundOrder } from "./refundOrder.js";
-import { resolveHomepageSectionsTool } from "./resolveHomepageSections.js";
+import { resolveTemplateSectionsTool } from "./resolveTemplateSections.js";
 import { searchThemeFilesTool } from "./searchThemeFiles.js";
 import { setOrderTracking } from "./setOrderTracking.js";
 import { updateCustomer } from "./updateCustomer.js";
@@ -34,6 +34,7 @@ import { verifyThemeFilesTool } from "./verifyThemeFiles.js";
 
 const passthroughObject = () => z.object({}).passthrough();
 const nullableString = () => z.string().nullable();
+const themeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 const moneySchema = z
   .object({
     amount: z.string(),
@@ -182,10 +183,10 @@ const setOrderTrackingOutputSchema = z
   })
   .passthrough();
 
-const resolveHomepageSectionsOutputSchema = z
+const resolveTemplateSectionsOutputSchema = z
   .object({
     theme: themeSummarySchema,
-    page: z.literal("homepage"),
+    pageType: z.string(),
     sourceFiles: z.array(
       z
         .object({
@@ -212,6 +213,18 @@ const resolveHomepageSectionsOutputSchema = z
         .passthrough()
     ),
     notes: z.array(z.string()),
+  })
+  .passthrough();
+
+const resolveHomepageSectionsInputSchema = z.object({
+  themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
+  themeRole: themeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
+  page: z.literal("homepage").default("homepage"),
+});
+
+const resolveHomepageSectionsOutputSchema = resolveTemplateSectionsOutputSchema
+  .extend({
+    page: z.literal("homepage"),
   })
   .passthrough();
 
@@ -337,8 +350,8 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
     idempotent: false,
     outputSchema: createThemeSectionOutputSchema,
   }),
-  defineToolManifest(resolveHomepageSectionsTool, {
-    outputSchema: resolveHomepageSectionsOutputSchema,
+  defineToolManifest(resolveTemplateSectionsTool, {
+    outputSchema: resolveTemplateSectionsOutputSchema,
   }),
   defineToolManifest(findThemeSectionByNameTool, {
     outputSchema: findThemeSectionByNameOutputSchema,
@@ -366,6 +379,7 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
 const buildAliasToolDefinitions = (canonicalDefinitions) => {
   const canonicalMap = new Map(canonicalDefinitions.map((tool) => [tool.name, tool]));
   const setOrderTrackingManifest = canonicalMap.get("set-order-tracking");
+  const resolveTemplateSectionsManifest = canonicalMap.get("resolve-template-sections");
   return [
     defineAliasManifest("update-order-tracking", setOrderTrackingManifest, {
       description: "Alias of set-order-tracking. Kept for compatibility.",
@@ -378,6 +392,23 @@ const buildAliasToolDefinitions = (canonicalDefinitions) => {
       writeScopeRequired: true,
       idempotent: false,
       outputSchema: setOrderTrackingOutputSchema,
+    }),
+    defineAliasManifest("resolve-homepage-sections", resolveTemplateSectionsManifest, {
+      description:
+        "Legacy alias of resolve-template-sections limited to the homepage. Kept for compatibility.",
+      inputSchema: resolveHomepageSectionsInputSchema,
+      outputSchema: resolveHomepageSectionsOutputSchema,
+      execute: async (input, context = {}) => {
+        const result = await resolveTemplateSectionsManifest.execute(
+          { themeId: input.themeId, themeRole: input.themeRole, pageType: "homepage" },
+          context
+        );
+        return {
+          ...result,
+          page: "homepage",
+          pageType: "homepage",
+        };
+      },
     }),
   ];
 };

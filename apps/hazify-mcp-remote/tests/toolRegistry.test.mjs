@@ -63,9 +63,16 @@ for (const criticalToolName of [
 
 for (const expectedToolName of [
   "create-theme-section",
+  "resolve-template-sections",
   "resolve-homepage-sections",
   "find-theme-section-by-name",
   "search-theme-files",
 ]) {
   assert.ok(registry.byName.has(expectedToolName), `${expectedToolName} should be present in the shared registry`);
 }
+
+assert.equal(
+  registry.byName.get("resolve-homepage-sections")?.canonicalName,
+  "resolve-template-sections",
+  "legacy homepage resolver should point to the generic template resolver as canonical tool"
+);

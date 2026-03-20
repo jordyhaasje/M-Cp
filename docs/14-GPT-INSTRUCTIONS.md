@@ -18,15 +18,17 @@ Dit document bevat operationele regels voor ChatGPT connector-gebruik.
 2. Als het target/template niet expliciet bekend is, stel eerst een korte vervolgvraag en gok niet.
 3. Gebruik in Hazify MCP `list_theme_import_tools` alleen voor expliciete externe review/import-vragen.
 4. Gebruik voor fix/update/style-wijzigingen in deze remote MCP eerst de read-only resolvertools:
-   - `resolve-homepage-sections`
+   - `resolve-template-sections`
    - `find-theme-section-by-name`
    - `search-theme-files`
 5. Gebruik `find-theme-section-by-name` alleen voor bestaande lookup/edit-flows; niet als standaard eerste stap voor create-vragen.
-6. Gebruik `get-theme-file` en `upsert-theme-file(s)` pas nadat de targetbestanden via de resolverlaag zijn bevestigd, tenzij `create-theme-section` het create-pad al afvangt.
-7. `search-theme-files` en `resolve-homepage-sections` zijn expliciet bedoeld om tool-chaining en tokenverbruik te verlagen bij kleine theme-wijzigingen.
-8. Externe keten:
+6. Gebruik optioneel `page` in `find-theme-section-by-name` voor gerichte scopes zoals `homepage`, `product` of `collection`.
+7. Gebruik `get-theme-file` en `upsert-theme-file(s)` pas nadat de targetbestanden via de resolverlaag zijn bevestigd, tenzij `create-theme-section` het create-pad al afvangt.
+8. `search-theme-files` en `resolve-template-sections` zijn expliciet bedoeld om tool-chaining en tokenverbruik te verlagen bij kleine theme-wijzigingen.
+9. `resolve-homepage-sections` blijft alleen als legacy alias beschikbaar voor bestaande homepage-flows.
+10. Externe keten:
    `AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`
-9. Hazify MCP blijft verantwoordelijk voor store API-operaties (producten, orders, refunds, tracking, theme files), inclusief native section-create/place en batch theme file deploy/verificatie.
+11. Hazify MCP blijft verantwoordelijk voor store API-operaties (producten, orders, refunds, tracking, theme files), inclusief native section-create/place en batch theme file deploy/verificatie.
 
 ## Referenties
 - `docs/12-REMOTE-MCP-SETUP.md`

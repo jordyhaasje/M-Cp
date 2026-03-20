@@ -9,7 +9,11 @@ const FindThemeSectionByNameInputSchema = z.object({
   query: z.string().min(1).describe("Section name, schema title, preset name, instance id, or type"),
   themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
   themeRole: ThemeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
-  page: z.enum(["homepage"]).optional().describe("Optional page scope. Omit for theme-wide search."),
+  page: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Optional page scope (e.g. 'homepage', 'index', 'product', 'collection'). Omit for theme-wide search."),
 });
 
 const findThemeSectionByNameTool = {

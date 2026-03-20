@@ -289,17 +289,14 @@ try {
   const headerGroup = JSON.parse(fileStore.get("sections/header-group.json").value);
   assert.equal(headerGroup.order[1], afterResult.sectionInstanceId);
 
-  await assert.rejects(
+  assert.throws(
     () =>
-      createThemeSectionTool.execute(
-        createThemeSectionTool.schema.parse({
-          themeId: 123,
-          name: "Missing target",
-          sectionLiquid: "<div>Missing target</div>",
-        }),
-        { shopifyClient }
-      ),
-    /target_required:/
+      createThemeSectionTool.schema.parse({
+        themeId: 123,
+        name: "Missing target",
+        sectionLiquid: "<div>Missing target</div>",
+      }),
+    /targetFile/
   );
 
   await assert.rejects(
