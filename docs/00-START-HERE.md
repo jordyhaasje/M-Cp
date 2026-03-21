@@ -3,7 +3,7 @@ Doelgroep: nieuwe developers en coding agents.
 
 Dit is het startpunt voor de Hazify monorepo. Deze workspace draait de productiecode voor Hazify's remote MCP-integratie met Shopify.
 
-## 1. Leesvolgorde (Verplicht)
+## Leesvolgorde
 1. `docs/00-START-HERE.md` (Dit document)
 2. `docs/01-TECH-STACK.md` (Architectuur, env vars, deployment)
 3. `docs/02-SYSTEM-FLOW.md` (Auth, OAuth, Runtime requests)

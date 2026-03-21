@@ -1,4 +1,5 @@
 # Hazify Monorepo
+Doelgroep: ontwikkelaars en agents
 
 Deze repository bevat de productiecode voor Hazify's remote MCP integratie met Shopify.
 

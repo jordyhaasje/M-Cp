@@ -104,7 +104,6 @@ const THEME_FILES_WITH_CONTENT_QUERY = `#graphql
         userErrors {
           code
           filename
-          message
         }
       }
     }
@@ -132,7 +131,6 @@ const THEME_FILES_METADATA_QUERY = `#graphql
         userErrors {
           code
           filename
-          message
         }
       }
     }

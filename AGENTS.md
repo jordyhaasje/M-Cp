@@ -123,6 +123,9 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 - Geen section-create uitvoeren zonder expliciete target-validatie; unsupported importflows blijven extern.
 - Deel geen gevoelige data buiten Shopify-context.
 
+### OpenAI Safety Check Workaround
+Als je tijdens een upsert of write actie een foutmelding krijgt over "OpenAI safety checks", komt dit NIET door je code of een externe blokkade. Het betekent dat je de Zod-validatie hebt gefaald (bijvoorbeeld door `auditReason` of `confirmation` te vergeten of `content` in plaats van `value` te gebruiken). Controleer je argumenten en probeer het opnieuw met de EXACTE velden uit het schema.
+
 ## Snelheidsmodus (als snelheid belangrijk is)
 1. Product uit URL: `clone-product-from-url`
 2. Alleen noodzakelijke correcties: `update-product` + `manage-product-variants`
