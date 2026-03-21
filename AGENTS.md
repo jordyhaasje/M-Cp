@@ -114,6 +114,9 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 ### Theme Development Best Practices
 1. **Stop Guessing:** Gok NOOIT blind naar bestandsnamen (zoals 'base.css' of 'product.json'). Elk Shopify-thema is uniek. Gebruik altijd `search-theme-files` om de actuele bestandsstructuur te scannen.
 2. **Asset Registration:** Als je een nieuw asset (.css/.js) aanmaakt voor globale styling, onthoud dan dat Shopify dit NIET automatisch inlaadt. Je moet dit bestand expliciet koppelen in de layout (bijv. in `layout/theme.liquid` via `{{ 'filename.css' | asset_url | stylesheet_tag }}`).
+3. **Global Mutation Rule (Scope Protection):** Overschrijf NOOIT een bestaande, globale sectie (zoals `sections/image-with-text.liquid`) als de klant vraagt om een specifieke aanpassing op één pagina. In Shopify 2.0 breekt dit de styling op alle andere pagina's. 
+   - FOUT: Bestaande sectie direct overschrijven met `upsert-theme-file` of hardcoden met `{% if section.id == ... %}`.
+   - GOED (BEST PRACTICE): Gebruik ALTIJD de `create-theme-section` tool om een nieuwe, veilige custom variant te maken (bijv. `sections/image-with-text-custom.liquid`) óf voeg een checkbox/schema-instelling toe aan de bestaande sectie zonder de default layout te breken.
 
 ## Veiligheidsregels
 - Geen destructieve actie op aannames.
