@@ -128,7 +128,10 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 - Deel geen gevoelige data buiten Shopify-context.
 
 ### OpenAI Safety Check Workaround
-Als je tijdens een upsert of write actie een foutmelding krijgt over "OpenAI safety checks", komt dit NIET door je code of een externe blokkade. Het betekent dat je de Zod-validatie hebt gefaald (bijvoorbeeld door `auditReason` of `confirmation` te vergeten of `content` in plaats van `value` te gebruiken). Controleer je argumenten en probeer het opnieuw met de EXACTE velden uit het schema.
+Als je een foutmelding krijgt over "This tool call was blocked by OpenAI's safety checks" (bijvoorbeeld bij `search-theme-files` of `get-theme-file`), komt dit vaak doordat de payload te groot of onleesbaar is (zoals enorme geminificeerde bestanden), of doordat je zoekopdracht te breed was. 
+**Oplossing:** Maak je actie specifieker. Gebruik bij zoekopdrachten altijd strikte `filePatterns` of `scope`. Probeer niet de hele codebase in één keer te lezen.
+
+*(Let op bij schrijf-acties: Krijg je deze fout tijdens een upsert, dan heb je de Zod-validatie gefaald door bijv. `confirmation` te missen of `content` i.p.v. `value` te gebruiken.)*
 
 ## Snelheidsmodus (als snelheid belangrijk is)
 1. Product uit URL: `clone-product-from-url`
