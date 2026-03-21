@@ -21,8 +21,8 @@ const SearchThemeFilesInputSchema = z
     mode: z.enum(["literal", "regex"]).default("literal"),
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     themeRole: ThemeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
-    filePatterns: z.array(z.string().min(1)).max(20).optional().describe("Explicit filename patterns, e.g. ['snippets/*.liquid']. Dit verkleint de zoekruimte effectief."),
-    scope: z.array(ScopeBucketSchema).min(1).max(4).optional().describe("ARRAY VAN STRINGS (e.g. ['sections', 'snippets']). Absoluut GEEN losse string."),
+    filePatterns: z.array(z.string().min(1)).max(20).optional().describe("JE BENT VERPLICHT filePatterns (bijv. ['*.liquid']) OF scope TE GEBRUIKEN. Een lege zoekopdracht is verboden. Dit verkleint de zoekruimte effectief."),
+    scope: z.array(ScopeBucketSchema).min(1).max(4).optional().describe("JE BENT VERPLICHT scope OF filePatterns TE GEBRUIKEN. MOET EEN ARRAY ZIJN (e.g. ['sections']). Absoluut GEEN losse string."),
     resultLimit: z.number().int().min(1).max(20).default(8),
     snippetLength: z.number().int().min(40).max(240).default(120),
   })

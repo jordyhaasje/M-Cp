@@ -32,6 +32,9 @@ De Remote MCP implementeert **géén eigen browser runtime of local generation**
    - Identificeer altijd eerst via de planningslaag (`resolve-homepage-sections`, `find-theme-section-by-name`, `search-theme-files`).
    - Gebruik `get-theme-file` / `upsert-theme-file(s)` alléén als het bestand echt is bevestigd via de target resolves.
 3. **Externe review tooling**: metadata over lokale externe tools is opvraagbaar via `list_theme_import_tools`. Dit vertelt hoe external (local) review workflows moeten worden opgezet.
+4. **Theme Development Best Practices (LLM Instructies):**
+   - **Stop Guessing:** AI-agents mogen NOOIT blind gokken naar bestandsnamen zoals 'base.css' of 'product.json'. Ze moeten verplicht `search-theme-files` gebruiken.
+   - **Asset Registration:** Als de AI een nieuw CSS/JS asset aanmaakt, weet het dat Shopify dit niet automatisch inlaadt. Het moet expliciet gekoppeld worden in de layout (bijv. in `layout/theme.liquid` via `{{ 'filename.css' | asset_url | stylesheet_tag }}`).
 
 Model: `AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`
 

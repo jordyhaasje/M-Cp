@@ -111,6 +111,10 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 5. Log relevante info in Shopify-notitie of auditveld.
 6. Rapporteer kort: wat gedaan is, wat nog openstaat.
 
+### Theme Development Best Practices
+1. **Stop Guessing:** Gok NOOIT blind naar bestandsnamen (zoals 'base.css' of 'product.json'). Elk Shopify-thema is uniek. Gebruik altijd `search-theme-files` om de actuele bestandsstructuur te scannen.
+2. **Asset Registration:** Als je een nieuw asset (.css/.js) aanmaakt voor globale styling, onthoud dan dat Shopify dit NIET automatisch inlaadt. Je moet dit bestand expliciet koppelen in de layout (bijv. in `layout/theme.liquid` via `{{ 'filename.css' | asset_url | stylesheet_tag }}`).
+
 ## Veiligheidsregels
 - Geen destructieve actie op aannames.
 - Bij ontbrekende data: eerst verifiëren, dan pas uitvoeren.
