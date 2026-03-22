@@ -118,6 +118,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
    - FOUT: Bestaande sectie direct overschrijven met `upsert-theme-file` of hardcoden met `{% if section.id == ... %}`.
    - GOED (BEST PRACTICE): Gebruik ALTIJD de `create-theme-section` tool om een nieuwe, veilige custom variant te maken (bijv. `sections/image-with-text-custom.liquid`) óf voeg een checkbox/schema-instelling toe aan de bestaande sectie zonder de default layout te breken.
 4. **Save Tokens (Find & Replace):** Gebruik bij kleine aanpassingen in grote, bestaande bestanden (zoals base.css) NOOIT de `value` parameter om het hele bestand te herschrijven. Gebruik in plaats daarvan de parameters `searchString` en `replaceString` om alleen het specifieke blokje code te patchen.
+5. **De Geverifieerde Workflow (Lezen = Weten):** Gok NOOIT of een thema bepaalde instellingen heeft. Bij vragen over simpele visuele wijzigingen (zoals het aanpassen van kleuren of lettertypes), patch je niet direct de CSS. Lees eerst `config/settings_data.json` of het specifieke sectie-bestand uit. Controleer of dit een instelling is (zoals een `color_scheme` in het schema) die de klant gewoon in de Shopify Theme Editor kan aanpassen. Als dat zo is, voer dan **GEEN code-wijziging** uit, maar vertel de klant waar ze dit in hun dashboard kunnen vinden. Dit bespaart token-kosten en voorkomt het onnodig patchen van bestanden.
 
 ## Veiligheidsregels
 - Geen destructieve actie op aannames.
