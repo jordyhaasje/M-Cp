@@ -39,7 +39,7 @@ const CreateThemeSectionInputSchema = z
       .string()
       .min(1)
       .optional()
-      .describe("Required JSON template/group target, e.g. templates/index.json or sections/header-group.json"),
+      .describe("Required JSON section group target, e.g. sections/header-group.json. NOTE: templates/ targets are strictly forbidden."),
     name: z.string().min(1).describe("Human-readable section name"),
     handle: z
       .string()
@@ -57,6 +57,7 @@ const CreateThemeSectionInputSchema = z
       .describe("Optional JSON payload to store under target.sections[sectionInstanceId]"),
     overwriteExistingSectionFile: z.boolean().default(false).describe("Allow overwriting an existing sections/<handle>.liquid file"),
     verifyAfterWrite: z.boolean().default(true).describe("Verify written files directly after write"),
+    confirmation: z.literal("CREATE_THEME_SECTION").describe("Verplicht type: 'CREATE_THEME_SECTION' ter bevestiging"),
   })
   .superRefine((input, ctx) => {
     if (typeof input.content === "string" && typeof input.sectionLiquid !== "string") {

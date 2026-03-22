@@ -17,6 +17,7 @@ const UpsertThemeFileInputSchema = z
     replaceString: z.string().optional().describe("Optional. New text to replace 'searchString'. CRITICAL: requires 'searchString'."),
     checksum: z.string().optional().describe("Optional checksum for conflict-safe writes"),
     auditReason: z.string().min(5).describe("VERPLICHT: Een duidelijke en gedetailleerde reden waarom je deze file aanpast of aanmaakt. Zonder dit veld faalt de actie gegarandeerd."),
+    confirmation: z.literal("UPSERT_THEME_FILE").describe("Verplicht type: 'UPSERT_THEME_FILE' ter bevestiging"),
   })
   .superRefine((input, ctx) => {
     if (typeof input.content === "string" && typeof input.value !== "string") {

@@ -122,7 +122,13 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 ## Veiligheidsregels
 - Geen destructieve actie op aannames.
 - Bij ontbrekende data: eerst verifiëren, dan pas uitvoeren.
-- Voor destructieve en financiële mutaties (zoals `delete-product`, `delete-theme-file`, `upsert` overwrites, `refund-order` en `update-order`) dwingt de API een verplichte `confirmation` string (en vaak een `reason`) af. Lees het Zod-schema zorgvuldig en genereer deze fields nooit zonder doordachte "Chain of Thought" over de noodzaak.
+- Voor destructieve en financiële mutaties (zoals `delete-product`, `delete-theme-file`, `upsert` overwrites, `refund-order` en `update-order`) dwingt de API een verplichte `confirmation` string (en vaak een `reason`) af. Lees het Zod-schema zorgvuldig en genereer deze fields nooit zonder doordachte "Chain of Thought" over de noodzaak. De exacte vereiste literals per theme-schrijf-tool zijn:
+  | Tool | Vereiste `confirmation` literal |
+  |---|---|
+  | `create-theme-section` | `"CREATE_THEME_SECTION"` |
+  | `upsert-theme-file` | `"UPSERT_THEME_FILE"` |
+  | `upsert-theme-files` | `"UPSERT_THEME_FILES"` |
+  | `delete-theme-file` | `"DELETE_THEME_FILE"` |
 - Het wijzigen van `layout/theme.liquid` is kritiek. Zorg altijd dat `content_for_header` en `content_for_layout` behouden blijven. Verwijderen is intern geblokkeerd ter bescherming.
 - LLM's mogen NOOIT proberen secties "live" te zetten of de layout te wijzigen door JSON templates (zoals `templates/index.json` of bestanden in `config/`) aan te passen. Dit is strikt verboden wegens kans op homepage destructie. Een taak voor het maken van een section is direct voltooid zodra de losse bronbestanden (.liquid, .css, .js) succesvol via de API zijn aangemaakt in hun map. Instrueer de klant om de gemaakte sectie toe te voegen via de Shopify Theme Editor.
 - Nooit refunds doen zonder expliciete validatie van bedrag en scope.

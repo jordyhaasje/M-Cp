@@ -61,6 +61,7 @@ const UpsertThemeFilesInputSchema = z
       .max(200)
       .describe("Batch of theme files to create/update"),
     verifyAfterWrite: z.boolean().default(false).describe("Verify files directly after write"),
+    confirmation: z.literal("UPSERT_THEME_FILES").describe("Verplicht type: 'UPSERT_THEME_FILES' ter bevestiging"),
   })
   .superRefine((input, ctx) => {
     const keys = input.files.map((file) => String(file.key).trim());
@@ -105,7 +106,7 @@ const upsertThemeFilesTool = {
 
         for (const fileItem of input.files) {
           if (fileItem.searchString !== undefined && fileItem.replaceString !== undefined) {
-            const currentAsset = currentData.assets.find(a => a.key === fileItem.key);
+            const currentAsset = currentData.files.find(a => a.key === fileItem.key);
             if (!currentAsset || currentAsset.missing) {
               throw new Error(`Cannot patch non-existing file '${fileItem.key}'.`);
             }

@@ -217,6 +217,7 @@ try {
     createThemeSectionTool.schema.parse({
       themeId: 123,
       auditReason: "Automated append test",
+      confirmation: "CREATE_THEME_SECTION",
       targetFile: "sections/header-group.json",
       name: "FAQ Section",
       content: `{% schema %}{"name":"FAQ Section","presets":[{"name":"FAQ Section"}]}{% endschema %}<div>FAQ</div>`,
@@ -236,6 +237,7 @@ try {
     createThemeSectionTool.schema.parse({
       themeId: 123,
       auditReason: "Automated before test",
+      confirmation: "CREATE_THEME_SECTION",
       targetFile: "sections/header-group.json",
       name: "Image FAQ",
       handle: "image-faq",
@@ -279,6 +281,7 @@ try {
     createThemeSectionTool.schema.parse({
       themeId: 123,
       auditReason: "Automated after test",
+      confirmation: "CREATE_THEME_SECTION",
       targetFile: "sections/footer-group.json",
       name: "Promo Strip",
       sectionLiquid:
@@ -298,6 +301,7 @@ try {
         createThemeSectionTool.schema.parse({
           themeId: 123,
           auditReason: "Missing target test",
+          confirmation: "CREATE_THEME_SECTION",
           name: "Missing target",
           sectionLiquid: "<div>Missing target</div>",
         }),
@@ -312,6 +316,7 @@ try {
         createThemeSectionTool.schema.parse({
           themeId: 123,
           auditReason: "Unsupported target test",
+          confirmation: "CREATE_THEME_SECTION",
           targetFile: "sections/index.liquid",
           name: "Unsupported target",
           sectionLiquid: "<div>Unsupported</div>",
@@ -327,6 +332,7 @@ try {
         createThemeSectionTool.schema.parse({
           themeId: 123,
           auditReason: "Duplicate file test",
+          confirmation: "CREATE_THEME_SECTION",
           targetFile: "sections/header-group.json",
           name: "FAQ Section",
           handle: "faq-section",
