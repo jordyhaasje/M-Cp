@@ -117,6 +117,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 3. **Global Mutation Rule (Scope Protection):** Overschrijf NOOIT een bestaande, globale sectie (zoals `sections/image-with-text.liquid`) als de klant vraagt om een specifieke aanpassing op één pagina. In Shopify 2.0 breekt dit de styling op alle andere pagina's. 
    - FOUT: Bestaande sectie direct overschrijven met `upsert-theme-file` of hardcoden met `{% if section.id == ... %}`.
    - GOED (BEST PRACTICE): Gebruik ALTIJD de `create-theme-section` tool om een nieuwe, veilige custom variant te maken (bijv. `sections/image-with-text-custom.liquid`) óf voeg een checkbox/schema-instelling toe aan de bestaande sectie zonder de default layout te breken.
+4. **Save Tokens (Find & Replace):** Gebruik bij kleine aanpassingen in grote, bestaande bestanden (zoals base.css) NOOIT de `value` parameter om het hele bestand te herschrijven. Gebruik in plaats daarvan de parameters `searchString` en `replaceString` om alleen het specifieke blokje code te patchen.
 
 ## Veiligheidsregels
 - Geen destructieve actie op aannames.

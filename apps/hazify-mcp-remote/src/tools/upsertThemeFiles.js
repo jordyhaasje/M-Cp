@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
-import { upsertThemeFiles } from "../lib/themeFiles.js";
+import { upsertThemeFiles, getThemeFiles } from "../lib/themeFiles.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
@@ -18,6 +18,8 @@ const UpsertThemeFilesInputSchema = z
             value: z.string().optional().describe("De letterlijke bestandsinhoud (tekst/broncode) voor Liquid, JSON, CSS, JS etc. (CRITICAL: Store the source code in this 'value' field. DO NOT use a field named 'content')"),
             content: z.string().optional().describe("DO NOT USE THIS FIELD. LLMs hallucinate this. Use 'value' instead."),
             attachment: z.string().optional().describe("Base64 geëncodeerde string, ALLEEN voor binaire bestanden (zoals afbeeldingen/fonts). NOOIT gebruiken voor tekst/code."),
+            searchString: z.string().optional().describe("Optional. Text to find & replace. CRITICAL: requires 'replaceString'. Must be an exact match."),
+            replaceString: z.string().optional().describe("Optional. New text to replace 'searchString'. CRITICAL: requires 'searchString'."),
             checksum: z.string().optional().describe("Optional checksum precondition"),
           })
           .superRefine((file, ctx) => {
@@ -27,18 +29,30 @@ const UpsertThemeFilesInputSchema = z
             }
             const hasValue = typeof file.value === "string";
             const hasAttachment = typeof file.attachment === "string";
-            if (!hasValue && !hasAttachment) {
+            const hasSearch = typeof file.searchString === "string";
+            const hasReplace = typeof file.replaceString === "string";
+
+            if (!hasValue && !hasAttachment && (!hasSearch || !hasReplace)) {
               ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ["value"],
-                message: "Provide either 'value' (text) or 'attachment' (base64). (CRITICAL: You MUST use 'value' for source code, not 'content'!)",
+                message: "Provide either 'value' (text), 'attachment' (base64) OR BOTH 'searchString' and 'replaceString' (patch/replace).",
               });
             }
-            if (hasValue && hasAttachment) {
+
+            if ((hasValue || hasAttachment) && (hasSearch || hasReplace)) {
               ctx.addIssue({
                 code: z.ZodIssueCode.custom,
-                path: ["attachment"],
-                message: "Use either 'value' or 'attachment', not both.",
+                path: ["searchString"],
+                message: "You cannot mix 'value' or 'attachment' with 'searchString'/'replaceString'. Choose one method: full overwrite OR find/replace patch.",
+              });
+            }
+
+            if (hasSearch !== hasReplace) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["searchString"],
+                message: "Both 'searchString' and 'replaceString' must be provided together for a patch.",
               });
             }
           })
@@ -78,6 +92,41 @@ const upsertThemeFilesTool = {
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);
     try {
+      const patchFiles = input.files.filter(f => f.searchString !== undefined && f.replaceString !== undefined);
+      
+      if (patchFiles.length > 0) {
+        const patchKeys = patchFiles.map(f => f.key);
+        const currentData = await getThemeFiles(shopifyClient, API_VERSION, {
+          themeId: input.themeId,
+          themeRole: input.themeRole,
+          keys: patchKeys,
+          includeContent: true
+        });
+
+        for (const fileItem of input.files) {
+          if (fileItem.searchString !== undefined && fileItem.replaceString !== undefined) {
+            const currentAsset = currentData.assets.find(a => a.key === fileItem.key);
+            if (!currentAsset || currentAsset.missing) {
+              throw new Error(`Cannot patch non-existing file '${fileItem.key}'.`);
+            }
+            if (typeof currentAsset.value !== "string") {
+              throw new Error(`Cannot patch binary or empty file '${fileItem.key}' using search/replace.`);
+            }
+            if (!currentAsset.value.includes(fileItem.searchString)) {
+              throw new Error(`Error: searchString not found in the file '${fileItem.key}'. Make sure you use an exact, unique match.`);
+            }
+            
+            fileItem.value = currentAsset.value.replace(fileItem.searchString, fileItem.replaceString);
+            if (fileItem.checksum === undefined) {
+              fileItem.checksum = currentAsset.checksumMd5 || currentAsset.checksum;
+            }
+            
+            delete fileItem.searchString;
+            delete fileItem.replaceString;
+          }
+        }
+      }
+
       const result = await upsertThemeFiles(shopifyClient, API_VERSION, {
         themeId: input.themeId,
         themeRole: input.themeRole,
