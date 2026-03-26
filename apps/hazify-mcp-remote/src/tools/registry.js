@@ -5,7 +5,7 @@ import { createProduct } from "./createProduct.js";
 import { deleteProduct } from "./deleteProduct.js";
 import { deleteProductVariants } from "./deleteProductVariants.js";
 import { deleteThemeFileTool } from "./deleteThemeFile.js";
-import { findThemeSectionByNameTool } from "./findThemeSectionByName.js";
+
 import { getCustomerOrders } from "./getCustomerOrders.js";
 import { getCustomers } from "./getCustomers.js";
 import { createGetLicenseStatusTool } from "./getLicenseStatus.js";
@@ -21,7 +21,7 @@ import { listThemeImportTools } from "./listThemeImportTools.js";
 import { manageProductOptions } from "./manageProductOptions.js";
 import { manageProductVariants } from "./manageProductVariants.js";
 import { refundOrder } from "./refundOrder.js";
-import { resolveHomepageSectionsTool } from "./resolveHomepageSections.js";
+
 import { searchThemeFilesTool } from "./searchThemeFiles.js";
 import { setOrderTracking } from "./setOrderTracking.js";
 import { updateCustomer } from "./updateCustomer.js";
@@ -182,52 +182,7 @@ const setOrderTrackingOutputSchema = z
   })
   .passthrough();
 
-const resolveHomepageSectionsOutputSchema = z
-  .object({
-    theme: themeSummarySchema,
-    page: z.literal("homepage"),
-    sourceFiles: z.array(
-      z
-        .object({
-          key: z.string(),
-          kind: z.string(),
-          found: z.boolean(),
-          used: z.boolean(),
-        })
-        .passthrough()
-    ),
-    sections: z.array(
-      z
-        .object({
-          instanceId: z.string(),
-          type: z.string(),
-          displayTitle: z.string().nullable(),
-          schemaName: z.string().nullable(),
-          presetNames: z.array(z.string()),
-          sectionFile: z.string().nullable(),
-          originFile: z.string(),
-          position: z.number(),
-          confidence: z.number(),
-        })
-        .passthrough()
-    ),
-    notes: z.array(z.string()),
-  })
-  .passthrough();
 
-const findThemeSectionByNameOutputSchema = z
-  .object({
-    query: z.string(),
-    exactMatches: z.array(passthroughObject()),
-    fuzzyMatches: z.array(passthroughObject()),
-    confidence: z.number(),
-    lookupOnly: z.boolean(),
-    recommendedFlow: z.enum(["edit_existing", "create_new"]),
-    creationSuggested: z.boolean(),
-    relevantFiles: z.array(z.string()),
-    nextSteps: z.array(z.string()),
-  })
-  .passthrough();
 
 const createThemeSectionOutputSchema = z
   .object({
@@ -337,12 +292,7 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
     idempotent: false,
     outputSchema: createThemeSectionOutputSchema,
   }),
-  defineToolManifest(resolveHomepageSectionsTool, {
-    outputSchema: resolveHomepageSectionsOutputSchema,
-  }),
-  defineToolManifest(findThemeSectionByNameTool, {
-    outputSchema: findThemeSectionByNameOutputSchema,
-  }),
+
   defineToolManifest(searchThemeFilesTool, {
     outputSchema: searchThemeFilesOutputSchema,
   }),
@@ -407,7 +357,5 @@ const registerHazifyTools = (server, registry, executeTool) => {
 
 export {
   createHazifyToolRegistry,
-  createAnnotations,
-  defineToolManifest,
   registerHazifyTools,
 };

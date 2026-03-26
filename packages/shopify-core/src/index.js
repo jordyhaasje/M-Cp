@@ -24,7 +24,7 @@ export function normalizeShopDomain(value) {
   return withoutPath;
 }
 
-export function extractShopifyScopeHandles(payload) {
+function extractShopifyScopeHandles(payload) {
   const rawScopes = Array.isArray(payload?.access_scopes) ? payload.access_scopes : [];
   return rawScopes
     .map((entry) => {
@@ -48,7 +48,7 @@ export function assertNoUserErrors(userErrors, actionMessage = "Shopify GraphQL 
   }
 }
 
-export function hasRequiredScope(grantedScopes, requiredScope) {
+function hasRequiredScope(grantedScopes, requiredScope) {
   if (grantedScopes.has(requiredScope)) {
     return true;
   }

@@ -42,6 +42,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 - Nieuwe OS 2.0 section maken en plaatsen: `create-theme-section`
 - Theme bestand lezen: `get-theme-file`
 - Theme bestanden batch lezen: `get-theme-files`
+- Theme bestanden doorzoeken: `search-theme-files`
 - Theme bestand schrijven/updaten: `upsert-theme-file`
 - Theme bestanden batch schrijven/updaten: `upsert-theme-files`
 - Theme bestand verwijderen: `delete-theme-file`
@@ -70,6 +71,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 3. Verifieer writes altijd met `get-theme-file`.
 4. Voor nieuwe OS 2.0 sections op ondersteunde JSON targets: gebruik `create-theme-section`.
 5. Gebruik `list_theme_import_tools` alleen voor expliciete externe review/import discovery buiten de native remote MCP flow.
+6. **Limits & Concurrency**: Om de Railway server te beschermen is er een harde limiet van **maximaal 10 bestanden** per verzoek bij het ophalen, updaten of doorzoeken van thema's. Schrijfacties worden bovendien beveiligd met een **File Lock** (mutex). Krijg je een melding dat een bestand "locked by another operation" is, wacht dan even en probeer het rustig opnieuw.
 
 ### Orders
 - Ophalen: `get-orders`, `get-order-by-id`

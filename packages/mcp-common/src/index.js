@@ -1,7 +1,7 @@
 import crypto from "crypto";
 
 export const MCP_SCOPE_TOOLS = "mcp:tools";
-export const MCP_SCOPE_TOOLS_READ = "mcp:tools:read";
+const MCP_SCOPE_TOOLS_READ = "mcp:tools:read";
 export const MCP_SCOPE_TOOLS_WRITE = "mcp:tools:write";
 
 const MCP_KNOWN_SCOPES = new Set([MCP_SCOPE_TOOLS, MCP_SCOPE_TOOLS_READ, MCP_SCOPE_TOOLS_WRITE]);
@@ -80,7 +80,7 @@ export function getDefaultMcpScopesSupported() {
   return [MCP_SCOPE_TOOLS, MCP_SCOPE_TOOLS_READ, MCP_SCOPE_TOOLS_WRITE];
 }
 
-export function normalizeOrigin(value) {
+function normalizeOrigin(value) {
   if (typeof value !== "string" || !value.trim()) {
     return "";
   }

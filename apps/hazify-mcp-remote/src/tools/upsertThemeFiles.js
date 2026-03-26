@@ -58,7 +58,7 @@ const UpsertThemeFilesInputSchema = z
           })
       )
       .min(1)
-      .max(200)
+      .max(10)
       .describe("Batch of theme files to create/update"),
     verifyAfterWrite: z.boolean().default(false).describe("Verify files directly after write"),
     confirmation: z.literal("UPSERT_THEME_FILES").describe("Verplicht type: 'UPSERT_THEME_FILES' ter bevestiging"),

@@ -2,9 +2,11 @@ import crypto from "crypto";
 
 const DEFAULT_API_VERSION = "2026-01";
 const THEME_GRAPHQL_ID_PREFIX = "gid://shopify/OnlineStoreTheme/";
-const MAX_THEME_FILES_PER_REQUEST = 200;
-const MAX_UPSERT_FILES_PER_CHUNK = 20;
-const MAX_READ_KEYS_PER_CHUNK = 50;
+const MAX_THEME_FILES_PER_REQUEST = 10;
+const MAX_UPSERT_FILES_PER_CHUNK = 10;
+const MAX_READ_KEYS_PER_CHUNK = 10;
+
+const activeThemeWrites = new Set();
 
 const THEME_LIST_QUERY = `#graphql
   query ThemeList($first: Int!, $roles: [ThemeRole!]) {
@@ -370,13 +372,12 @@ const shopifyGraphqlRequest = async (shopifyClient, apiVersion, { query, variabl
     return shopifyGraphqlRequest(shopifyClient, apiVersion, { query, variables, expectedStatuses }, retryCount + 1);
   }
 
-  let data = null;
   if (responseText) {
     try {
       data = JSON.parse(responseText);
     } catch (_error) {
       throw buildErrorWithStatus(
-        `Shopify theme GraphQL response kon niet worden geparsed (${response.status}).`,
+        `Shopify theme GraphQL response kon niet worden geparsed (${response.status}). Response fragment (max 250 tekens): ${responseText.substring(0, 250)}`,
         response.status
       );
     }
@@ -1186,193 +1187,222 @@ export const upsertThemeFiles = async (
   );
 
   const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
-  const resultsByKey = new Map();
-  const filesToApply = [];
-
+  
+  const lockKeys = [];
   for (const file of normalizedFiles) {
-    if (file.checksum === undefined) {
-      filesToApply.push(file);
-      continue;
+    const lockKey = `${theme.id}:${file.key}`;
+    if (activeThemeWrites.has(lockKey)) {
+      for (const k of lockKeys) activeThemeWrites.delete(k);
+      throw new Error(`File ${file.key} is currently locked by another operation. Try again in a few seconds.`);
     }
-    try {
-      await assertThemeFileChecksum(shopifyClient, apiVersion, {
-        themeId: theme.id,
-        key: file.key,
-        checksum: file.checksum,
-      });
-      filesToApply.push(file);
-    } catch (error) {
-      resultsByKey.set(file.key, {
-        key: file.key,
-        status: "failed_precondition",
-        error: normalizeResultError(error),
-      });
-    }
+    activeThemeWrites.add(lockKey);
+    lockKeys.push(lockKey);
   }
 
-  for (const fileChunk of chunkArray(filesToApply, MAX_UPSERT_FILES_PER_CHUNK)) {
-    const chunkResults = await withThemeGraphqlFallback(
-      async () => {
-        const payloadFiles = fileChunk.map((file) => ({
-          filename: file.key,
-          body: {
-            type: typeof file.attachment === "string" ? "BASE64" : "TEXT",
-            value: typeof file.attachment === "string" ? file.attachment : file.value,
-          },
-        }));
-        const data = await shopifyGraphqlRequest(shopifyClient, apiVersion, {
-          query: THEME_FILES_UPSERT_MUTATION,
-          variables: {
-            themeId: theme.adminGraphqlApiId || themeNumericIdToGraphqlId(theme.id),
-            files: payloadFiles,
-          },
-        });
-        const payload = data?.themeFilesUpsert;
-        const upsertedKeys = new Set(
-          Array.isArray(payload?.upsertedThemeFiles)
-            ? payload.upsertedThemeFiles.map((entry) => entry?.filename).filter(Boolean)
-            : []
-        );
-        const userErrors = Array.isArray(payload?.userErrors) ? payload.userErrors : [];
-        const userErrorsByFilename = new Map();
-        for (const userError of userErrors) {
-          if (typeof userError?.filename === "string" && userError.filename) {
-            userErrorsByFilename.set(userError.filename, userError);
-          }
-        }
+  try {
+    const resultsByKey = new Map();
+    const filesToApply = [];
 
-        return fileChunk.map((file) => {
-          if (upsertedKeys.has(file.key)) {
-            return {
-              key: file.key,
-              status: "applied",
-              jobId: payload?.job?.id || null,
-            };
-          }
-
-          const error = userErrorsByFilename.get(file.key);
-          if (error) {
-            return {
-              key: file.key,
-              status: "failed",
-              error: {
-                message: error.message || "Onbekende themeFilesUpsert fout.",
-                code: error.code || null,
-              },
-            };
-          }
-
-          return {
-            key: file.key,
-            status: "failed",
-            error: {
-              message: userErrors[0]?.message || "Onbekende fout tijdens themeFilesUpsert.",
-              code: userErrors[0]?.code || null,
-            },
-          };
-        });
-      },
-      async () => {
-        const restResults = [];
-        for (const file of fileChunk) {
-          try {
-            const result = await upsertThemeFileRestByTheme(shopifyClient, apiVersion, {
-              theme,
-              key: file.key,
-              value: file.value,
-              attachment: file.attachment,
-              checksum: file.checksum,
-            });
-            restResults.push({
-              key: file.key,
-              status: "applied",
-              asset: result.asset,
-              jobId: null,
-            });
-          } catch (error) {
-            restResults.push({
-              key: file.key,
-              status: "failed",
-              error: normalizeResultError(error),
-            });
-          }
-        }
-        return restResults;
+    for (const file of normalizedFiles) {
+      if (file.checksum === undefined) {
+        filesToApply.push(file);
+        continue;
       }
-    );
-
-    for (const result of chunkResults) {
-      resultsByKey.set(result.key, result);
-    }
-  }
-
-  let verifySummary = null;
-  let verifyError = null;
-  if (verifyAfterWrite) {
-    const verifyExpected = normalizedFiles
-      .filter((file) => resultsByKey.get(file.key)?.status === "applied")
-      .map((file) => ({
-        key: file.key,
-        size: createExpectedSizeFromInputFile(file),
-        checksumMd5: createChecksumMd5Base64(file),
-      }));
-
-    if (verifyExpected.length > 0) {
       try {
-        const verifyResult = await verifyThemeFiles(shopifyClient, apiVersion, {
+        await assertThemeFileChecksum(shopifyClient, apiVersion, {
           themeId: theme.id,
-          expected: verifyExpected,
+          key: file.key,
+          checksum: file.checksum,
         });
-        const verifyByKey = new Map(verifyResult.results.map((result) => [result.key, result]));
-        verifySummary = verifyResult.summary;
-        for (const file of normalizedFiles) {
-          const current = resultsByKey.get(file.key);
-          if (!current || current.status !== "applied") {
-            continue;
-          }
-          resultsByKey.set(file.key, {
-            ...current,
-            verify: verifyByKey.get(file.key) || null,
-          });
-        }
+        filesToApply.push(file);
       } catch (error) {
-        verifyError = normalizeResultError(error);
+        resultsByKey.set(file.key, {
+          key: file.key,
+          status: "failed_precondition",
+          error: normalizeResultError(error),
+        });
       }
     }
-  }
 
-  const results = normalizedFiles.map((file) => {
-    return (
-      resultsByKey.get(file.key) || {
-        key: file.key,
-        status: "failed",
-        error: { message: "Onbekende upsert status.", status: null },
+    for (const fileChunk of chunkArray(filesToApply, MAX_UPSERT_FILES_PER_CHUNK)) {
+      try {
+        const chunkResults = await withThemeGraphqlFallback(
+          async () => {
+            const payloadFiles = fileChunk.map((file) => ({
+              filename: file.key,
+              body: {
+                type: typeof file.attachment === "string" ? "BASE64" : "TEXT",
+                value: typeof file.attachment === "string" ? file.attachment : file.value,
+              },
+            }));
+            const data = await shopifyGraphqlRequest(shopifyClient, apiVersion, {
+              query: THEME_FILES_UPSERT_MUTATION,
+              variables: {
+                themeId: theme.adminGraphqlApiId || themeNumericIdToGraphqlId(theme.id),
+                files: payloadFiles,
+              },
+            });
+            const payload = data?.themeFilesUpsert;
+            const upsertedKeys = new Set(
+              Array.isArray(payload?.upsertedThemeFiles)
+                ? payload.upsertedThemeFiles.map((entry) => entry?.filename).filter(Boolean)
+                : []
+            );
+            const userErrors = Array.isArray(payload?.userErrors) ? payload.userErrors : [];
+            const userErrorsByFilename = new Map();
+            for (const userError of userErrors) {
+              if (typeof userError?.filename === "string" && userError.filename) {
+                userErrorsByFilename.set(userError.filename, userError);
+              }
+            }
+
+            return fileChunk.map((file) => {
+              if (upsertedKeys.has(file.key)) {
+                return {
+                  key: file.key,
+                  status: "applied",
+                  jobId: payload?.job?.id || null,
+                };
+              }
+
+              const error = userErrorsByFilename.get(file.key);
+              if (error) {
+                return {
+                  key: file.key,
+                  status: "failed",
+                  error: {
+                    message: error.message || "Onbekende themeFilesUpsert fout.",
+                    code: error.code || null,
+                  },
+                };
+              }
+
+              return {
+                key: file.key,
+                status: "failed",
+                error: {
+                  message: userErrors[0]?.message || "Onbekende fout tijdens themeFilesUpsert.",
+                  code: userErrors[0]?.code || null,
+                },
+              };
+            });
+          },
+          async () => {
+            const restResults = [];
+            for (const file of fileChunk) {
+              try {
+                const result = await upsertThemeFileRestByTheme(shopifyClient, apiVersion, {
+                  theme,
+                  key: file.key,
+                  value: file.value,
+                  attachment: file.attachment,
+                  checksum: file.checksum,
+                });
+                restResults.push({
+                  key: file.key,
+                  status: "applied",
+                  asset: result.asset,
+                  jobId: null,
+                });
+              } catch (error) {
+                restResults.push({
+                  key: file.key,
+                  status: "failed",
+                  error: normalizeResultError(error),
+                });
+              }
+            }
+            return restResults;
+          }
+        );
+
+        for (const result of chunkResults) {
+          resultsByKey.set(result.key, result);
+        }
+      } catch (chunkError) {
+        const appliedFiles = Array.from(resultsByKey.values())
+          .filter((r) => r.status === "applied")
+          .map((r) => r.key);
+        throw new Error(
+          `Batch write abort. Een onverwachte fout is opgetreden bij een chunk. Succesvol geschreven voor deze crash: ${
+            appliedFiles.length > 0 ? appliedFiles.join(", ") : "geen"
+          }. Foutmelding: ${chunkError.message}`
+        );
       }
+    }
+
+    let verifySummary = null;
+    let verifyError = null;
+    if (verifyAfterWrite) {
+      const verifyExpected = normalizedFiles
+        .filter((file) => resultsByKey.get(file.key)?.status === "applied")
+        .map((file) => ({
+          key: file.key,
+          size: createExpectedSizeFromInputFile(file),
+          checksumMd5: createChecksumMd5Base64(file),
+        }));
+
+      if (verifyExpected.length > 0) {
+        try {
+          const verifyResult = await verifyThemeFiles(shopifyClient, apiVersion, {
+            themeId: theme.id,
+            expected: verifyExpected,
+          });
+          const verifyByKey = new Map(verifyResult.results.map((result) => [result.key, result]));
+          verifySummary = verifyResult.summary;
+          for (const file of normalizedFiles) {
+            const current = resultsByKey.get(file.key);
+            if (!current || current.status !== "applied") {
+              continue;
+            }
+            resultsByKey.set(file.key, {
+              ...current,
+              verify: verifyByKey.get(file.key) || null,
+            });
+          }
+        } catch (error) {
+          verifyError = normalizeResultError(error);
+        }
+      }
+    }
+
+    const results = normalizedFiles.map((file) => {
+      return (
+        resultsByKey.get(file.key) || {
+          key: file.key,
+          status: "failed",
+          error: { message: "Onbekende upsert status.", status: null },
+        }
+      );
+    });
+
+    const summary = results.reduce(
+      (acc, result) => {
+        acc.total += 1;
+        if (result.status === "applied") {
+          acc.applied += 1;
+        } else if (result.status === "failed_precondition") {
+          acc.failedPrecondition += 1;
+        } else {
+          acc.failed += 1;
+        }
+        return acc;
+      },
+      { total: 0, applied: 0, failed: 0, failedPrecondition: 0 }
     );
-  });
 
-  const summary = results.reduce(
-    (acc, result) => {
-      acc.total += 1;
-      if (result.status === "applied") {
-        acc.applied += 1;
-      } else if (result.status === "failed_precondition") {
-        acc.failedPrecondition += 1;
-      } else {
-        acc.failed += 1;
-      }
-      return acc;
-    },
-    { total: 0, applied: 0, failed: 0, failedPrecondition: 0 }
-  );
-
-  return {
-    theme,
-    summary,
-    results,
-    ...(verifyAfterWrite ? { verifySummary } : {}),
-    ...(verifyError ? { verifyError } : {}),
-  };
+    return {
+      theme,
+      summary,
+      results,
+      ...(verifyAfterWrite ? { verifySummary } : {}),
+      ...(verifyError ? { verifyError } : {}),
+    };
+  } finally {
+    for (const k of lockKeys) {
+      activeThemeWrites.delete(k);
+    }
+  }
 };
 
 export const upsertThemeFile = async (
@@ -1382,48 +1412,58 @@ export const upsertThemeFile = async (
 ) => {
   validateCoreFileUpsert(key, value, attachment);
 
-  if (checksum !== undefined) {
-    await assertThemeFileChecksum(shopifyClient, apiVersion, { themeId, themeRole, key, checksum });
+  const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
+  const lockKey = `${theme.id}:${key}`;
+  if (activeThemeWrites.has(lockKey)) {
+    throw new Error(`File ${key} is currently locked by another operation. Try again in a few seconds.`);
   }
+  activeThemeWrites.add(lockKey);
 
-  return withThemeGraphqlFallback(
-    async () => {
-      const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
-      const files = [
-        {
-          filename: key,
-          body: {
-            type: typeof attachment === "string" ? "BASE64" : "TEXT",
-            value: typeof attachment === "string" ? attachment : value,
+  try {
+    if (checksum !== undefined) {
+      await assertThemeFileChecksum(shopifyClient, apiVersion, { themeId: theme.id, themeRole: theme.role, key, checksum });
+    }
+
+    return await withThemeGraphqlFallback(
+      async () => {
+        const files = [
+          {
+            filename: key,
+            body: {
+              type: typeof attachment === "string" ? "BASE64" : "TEXT",
+              value: typeof attachment === "string" ? attachment : value,
+            },
           },
-        },
-      ];
-      const data = await shopifyGraphqlRequest(shopifyClient, apiVersion, {
-        query: THEME_FILES_UPSERT_MUTATION,
-        variables: {
-          themeId: theme.adminGraphqlApiId || themeNumericIdToGraphqlId(theme.id),
-          files,
-        },
-      });
+        ];
+        const data = await shopifyGraphqlRequest(shopifyClient, apiVersion, {
+          query: THEME_FILES_UPSERT_MUTATION,
+          variables: {
+            themeId: theme.adminGraphqlApiId || themeNumericIdToGraphqlId(theme.id),
+            files,
+          },
+        });
 
-      const payload = data?.themeFilesUpsert;
-      const userErrors = Array.isArray(payload?.userErrors) ? payload.userErrors : [];
-      if (userErrors.length > 0) {
-        throw buildThemeUserError(`Shopify theme file '${key}' kon niet worden opgeslagen`, userErrors);
-      }
+        const payload = data?.themeFilesUpsert;
+        const userErrors = Array.isArray(payload?.userErrors) ? payload.userErrors : [];
+        if (userErrors.length > 0) {
+          throw buildThemeUserError(`Shopify theme file '${key}' kon niet worden opgeslagen`, userErrors);
+        }
 
-      return {
-        theme,
-        asset: {
-          key,
-          value: typeof value === "string" ? value : undefined,
-          attachment: typeof attachment === "string" ? attachment : undefined,
-          jobId: payload?.job?.id || null,
-        },
-      };
-    },
-    () => upsertThemeFileRest(shopifyClient, apiVersion, { themeId, themeRole, key, value, attachment, checksum })
-  );
+        return {
+          theme,
+          asset: {
+            key,
+            value: typeof value === "string" ? value : undefined,
+            attachment: typeof attachment === "string" ? attachment : undefined,
+            jobId: payload?.job?.id || null,
+          },
+        };
+      },
+      () => upsertThemeFileRest(shopifyClient, apiVersion, { themeId: theme.id, themeRole: theme.role, key, value, attachment, checksum })
+    );
+  } finally {
+    activeThemeWrites.delete(lockKey);
+  }
 };
 
 export const deleteThemeFile = async (

@@ -28,7 +28,6 @@ const normalizeInstanceBase = (handle) => {
 };
 
 const isSupportedTargetFile = (targetFile) =>
-  /^templates\/[^/]+\.json$/i.test(String(targetFile || "").trim()) ||
   SUPPORTED_SECTION_TARGETS.has(String(targetFile || "").trim());
 
 const safeParseJson = (value, key) => {
