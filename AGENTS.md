@@ -30,7 +30,7 @@ De agent werkt snel, veilig en verifieert altijd data voordat er wijzigingen wor
 
 Als documentatie en code elkaar tegenspreken: code is leidend, en documentatie moet direct worden bijgewerkt in dezelfde wijziging.
 
-## Prioriteit van tools
+# Prioriteit van tools
 Gebruik tools in deze volgorde:
 1. `shopify-mcp` voor Shopify-data en mutaties
 
@@ -38,7 +38,7 @@ Gebruik tools in deze volgorde:
 Gebruik altijd de `mcp__shopify-mcp__*` tools.
 
 ### Themes
-- Themes ophalen: `get-themes`
+- Themes ophale#n: `get-themes`
 - Nieuwe OS 2.0 section maken en plaatsen: `create-theme-section`
 - Theme bestand lezen: `get-theme-file`
 - Theme bestanden batch lezen: `get-theme-files`
@@ -114,6 +114,31 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 6. Rapporteer kort: wat gedaan is, wat nog openstaat.
 
 ### Theme Development Best Practices
+
+#### De Verplichte Diagnose Workflow (Hoe je omgaat met gebruikers-prompts)
+Gebruikers spreken in visuele termen (UI-labels, tekst op het scherm, paginanamen) en kennen geen bestandsnamen. Je mag NOOIT direct code schrijven op basis van een visuele beschrijving. Volg ALTIJD dit 4-stappenplan op de achtergrond:
+
+**STAP 1: Mapping (Zoeken & Identificeren)**
+Als een gebruiker zegt: "Pas de sectie 'Feature blocks' aan op de homepage" of "Verander de tekst 'Snelle levering' in de footer":
+- Gok nooit de bestandsnaam.
+- Gebruik direct `search-theme-files`. Zoek naar de exacte tekst die de gebruiker noemt, of zoek naar de sectienaam (omdat sectienamen in de Shopify Editor worden bepaald door het `{% schema %}` onderin het `.liquid` bestand).
+
+**STAP 2: Analyseren (Lezen)**
+Zodra je het juiste bestand hebt gevonden (bijv. `trust-badges.liquid` of `footer.liquid`), gebruik je `get-theme-file` om het in te lezen. Analyseer hoe de Liquid, HTML en CSS momenteel samenwerken.
+
+**STAP 3: De Shopify Standaard Toepassen (Niet zelf verzinnen)**
+Bedenk geen eigen, complexe CSS of JavaScript als de gebruiker om standaard web-elementen vraagt (zoals een mobiele slider). Gebruik de native Shopify (Dawn) architectuur:
+- Vraagt de klant om een mobiele slider waarbij 1 item tegelijk in beeld is? Verwijder dan de `grid--peek` class en gebruik in je CSS patch: `width: 100% !important; flex: 0 0 100% !important; scroll-snap-align: center;` binnen een mobiele `@media` query.
+- Vraagt de klant om een slider met dots? Gebruik de standaard Shopify `<slider-component>` structuur.
+
+**STAP 4: Chirurgisch Patchen**
+Gebruik `upsert-theme-file` in Patch Mode (`searchString` en `replaceString`). Overschrijf nooit het hele bestand. Zorg dat je wijzigingen voor mobiel altijd strikt scheidt van desktop via `@media screen and (max-width: 749px)`. Bevestig met de verplichte string `"UPSERT_THEME_FILE"`.
+
+*Uitzondering:* Als de vraag van de gebruiker écht te vaag is (bijv. "Maak het mooier" of "Fix de knop" zonder verdere context), gebruik dan geen tools, maar vraag de gebruiker eerst om opheldering: "Op welke pagina staat deze knop en welke tekst staat erop, zodat ik het juiste bestand kan zoeken?"
+
+> **Let op:** Als je conflicten verwacht bij de uitvoering van deze stappen, meld dit dan direct in je output aan de gebruiker.
+
+#### Algemene Regels
 1. **Stop Guessing:** Gok NOOIT blind naar bestandsnamen (zoals 'base.css' of 'product.json'). Elk Shopify-thema is uniek. Gebruik altijd `search-theme-files` om de actuele bestandsstructuur te scannen.
 2. **Asset Registration:** Als je een nieuw asset (.css/.js) aanmaakt voor globale styling, onthoud dan dat Shopify dit NIET automatisch inlaadt. Je moet dit bestand expliciet koppelen in de layout (bijv. in `layout/theme.liquid` via `{{ 'filename.css' | asset_url | stylesheet_tag }}`).
 3. **Global Mutation Rule (Scope Protection):** Overschrijf NOOIT een bestaande, globale sectie (zoals `sections/image-with-text.liquid`) als de klant vraagt om een specifieke aanpassing op één pagina. In Shopify 2.0 breekt dit de styling op alle andere pagina's. 
