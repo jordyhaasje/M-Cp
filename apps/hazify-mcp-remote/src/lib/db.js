@@ -8,8 +8,8 @@ export function getDbPool() {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) {
       console.warn('DATABASE_URL is niet ingesteld. Database lock / functionaliteit wordt overgeslagen als mocks actief zijn, anders zal dit falen.');
+      return null;
     }
-    // We only create the pool if connectionString is truthy. In tests passing false for ssl avoids errors.
     const isLocalMock = process.env.NODE_ENV === 'test';
     pool = createDatabasePool(connectionString, !isLocalMock);
   }

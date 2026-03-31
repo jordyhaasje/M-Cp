@@ -46,6 +46,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools. Beschikbare tools voor API-intera
 - **`delete-product`**: Delete a product
 - **`delete-product-variants`**: Delete one or more variants from a product
 - **`delete-theme-file`**: Delete a file from a Shopify theme (defaults to live theme role=main).
+- **`draft-theme-artifact`**: Scaffoldt en lints veilige code wijzigingen lokaal en pusht deze naar een realtime Sandbox theme. Het elimineert syntax errors door een strenge theme-check-node validatie cycle en zorgt dat live shops nooit breken.
 - **`get-customer-orders`**: Get orders for a specific customer
 - **`get-customers`**: Get customers or search by name/email
 - **`get-license-status`**: Return current license status, effective access, and MCP scope capabilities.

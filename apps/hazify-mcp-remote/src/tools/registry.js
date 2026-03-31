@@ -5,6 +5,7 @@ import { createProduct } from "./createProduct.js";
 import { deleteProduct } from "./deleteProduct.js";
 import { deleteProductVariants } from "./deleteProductVariants.js";
 import { deleteThemeFileTool } from "./deleteThemeFile.js";
+import { draftThemeArtifact } from "./draftThemeArtifact.js";
 
 import { getCustomerOrders } from "./getCustomerOrders.js";
 import { getCustomers } from "./getCustomers.js";
@@ -312,6 +313,7 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
     outputSchema: getLicenseStatusOutputSchema,
   }),
   defineToolManifest(analyzeReferenceUi, { requiresShopifyClient: false }),
+  defineToolManifest(draftThemeArtifact, { writeScopeRequired: true, idempotent: false }),
 ];
 
 const buildAliasToolDefinitions = (canonicalDefinitions) => {

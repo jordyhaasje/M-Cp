@@ -195,7 +195,7 @@ const normalizeHeaders = (rawHeaders) => {
   return new Map();
 };
 
-const getShopDomainFromClient = (shopifyClient) => {
+export const getShopDomainFromClient = (shopifyClient) => {
   const rawUrl = shopifyClient?.url;
   if (!rawUrl || typeof rawUrl !== "string") {
     throw new Error("Shopify client URL ontbreekt; kan theme API endpoint niet bepalen.");
@@ -215,7 +215,7 @@ const getShopDomainFromClient = (shopifyClient) => {
   return domain;
 };
 
-const getAccessTokenFromClient = (shopifyClient) => {
+export const getAccessTokenFromClient = (shopifyClient) => {
   const headers = normalizeHeaders(shopifyClient?.requestConfig?.headers);
   const token = headers.get("x-shopify-access-token");
   if (!token || typeof token !== "string" || !token.trim()) {
@@ -224,7 +224,7 @@ const getAccessTokenFromClient = (shopifyClient) => {
   return token.trim();
 };
 
-const buildAdminRestUrl = ({ domain, apiVersion, path, query }) => {
+export const buildAdminRestUrl = ({ domain, apiVersion, path, query }) => {
   const normalizedVersion = String(apiVersion || DEFAULT_API_VERSION).trim() || DEFAULT_API_VERSION;
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const url = new URL(`https://${domain}/admin/api/${normalizedVersion}${normalizedPath}`);

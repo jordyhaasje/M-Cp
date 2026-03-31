@@ -11,4 +11,6 @@ await import("./themePlanning.test.mjs");
 await import("./runtimeExecutionBehavior.test.mjs");
 await import("./tenantIsolation.test.mjs");
 await import("./tenantIsolationAllTools.test.mjs");
+await import("./analyzeReferenceUi.test.mjs");
+await import("./draftThemeArtifact.test.mjs");
 console.log("All hazify tests passed");

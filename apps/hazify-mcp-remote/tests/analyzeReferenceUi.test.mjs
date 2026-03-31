@@ -103,7 +103,7 @@ test("analyzeReferenceUi - fetch failure", async (t) => {
   });
 
   try {
-    const result = await analyzeReferenceUi({ url: "https://example.com" });
+    const result = await execute({ url: "https://example.com" });
     assert.strictEqual(result.success, false);
     assert.ok(result.error.includes("404"));
   } finally {
