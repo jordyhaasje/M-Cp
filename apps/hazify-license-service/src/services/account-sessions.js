@@ -73,7 +73,7 @@ function resolveAccountSessionFromRequest({
   if (!session) {
     return { account: null, session: null, reason: "invalid" };
   }
-  if (session.expiresAt && Date.parse(session.expiresAt) < Date.now()) {
+  if (session.expiresAt && Date.parse(session.expiresAt) < Date.parse(nowIso())) {
     session.status = "expired";
     session.updatedAt = nowIso();
     return { account: null, session: null, reason: "expired" };

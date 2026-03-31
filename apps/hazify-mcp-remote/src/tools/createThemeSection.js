@@ -48,7 +48,7 @@ const CreateThemeSectionInputSchema = z
       .describe("Optional section handle; defaults to a slug of name and writes sections/<handle>.liquid"),
     sectionLiquid: z.string().optional().describe("Full Liquid source for the new section file (CRITICAL: Use 'sectionLiquid', do NOT use 'content')."),
     content: z.string().optional().describe("DO NOT USE THIS FIELD. LLMs hallucinate this here as well. Use 'sectionLiquid' instead."),
-    additionalFiles: z.array(ThemeWriteFileSchema).max(40).optional().describe("Optional supporting theme files to write in the same batch"),
+    additionalFiles: z.array(ThemeWriteFileSchema).max(10).optional().describe("Optional supporting theme files to write in the same batch (hard limit: 10 files max)"),
     placement: PlacementSchema.default("append").describe("Where to place the new section instance in the target JSON order"),
     anchorSectionId: z.string().min(1).optional().describe("Required for placement 'before' or 'after'"),
     templateSectionData: z

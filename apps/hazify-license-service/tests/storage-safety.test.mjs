@@ -1,4 +1,5 @@
 import assert from "assert";
+import crypto from "crypto";
 import { newDb } from "pg-mem";
 import { PostgresStorage } from "../src/repositories/postgres-storage.js";
 
@@ -8,6 +9,13 @@ function deepClone(value) {
 
 function createStorageHarness() {
   const mem = newDb({ autoCreateForeignKeyIndices: true });
+  mem.public.registerFunction({
+    name: 'gen_random_uuid',
+    args: [],
+    returns: 'uuid',
+    implementation: () => crypto.randomUUID()
+  });
+
   const pg = mem.adapters.createPg();
   const queryLog = [];
   const originalQuery = pg.Client.prototype.query;

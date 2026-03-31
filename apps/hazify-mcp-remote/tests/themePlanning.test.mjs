@@ -1,7 +1,5 @@
 import assert from "assert";
 import {
-  findThemeSectionByName,
-  resolveHomepageSections,
   searchThemeFilesWithSnippets,
 } from "../src/lib/themePlanning.js";
 
@@ -156,71 +154,6 @@ const homepageLiquidFiles = {
 try {
   global.fetch = createGraphqlFetch(homepageJsonFiles);
 
-  const homepageResult = await resolveHomepageSections(shopifyClient, "2026-01", { themeId: 123 });
-  assert.equal(homepageResult.page, "homepage");
-  assert.ok(
-    homepageResult.sourceFiles.some((entry) => entry.key === "templates/index.json" && entry.used),
-    "homepage resolver should include index.json as source file"
-  );
-  assert.ok(
-    homepageResult.sections.some(
-      (section) => section.type === "hero-banner" && section.schemaName === "Hero banner"
-    ),
-    "homepage resolver should attach schema metadata from section files"
-  );
-  assert.ok(
-    homepageResult.sections.some((section) => section.originFile === "sections/header-group.json"),
-    "homepage resolver should include discoverable header/footer section groups"
-  );
-
-  const exactMatchResult = await findThemeSectionByName(shopifyClient, "2026-01", {
-    themeId: 123,
-    query: "Hero banner",
-    page: "homepage",
-  });
-  assert.ok(exactMatchResult.exactMatches.length >= 1, "exact homepage section matches should be returned");
-  assert.equal(exactMatchResult.lookupOnly, true, "section finder should signal lookup-only intent");
-  assert.equal(
-    exactMatchResult.recommendedFlow,
-    "edit_existing",
-    "exact section matches should recommend edit_existing"
-  );
-  assert.equal(
-    exactMatchResult.creationSuggested,
-    false,
-    "exact section matches should not suggest creating a new section"
-  );
-  assert.ok(
-    exactMatchResult.relevantFiles.includes("sections/hero-banner.liquid"),
-    "exact match should point to the section file"
-  );
-
-  const fuzzyMatchResult = await findThemeSectionByName(shopifyClient, "2026-01", {
-    themeId: 123,
-    query: "quotes",
-  });
-  assert.ok(fuzzyMatchResult.fuzzyMatches.length >= 1, "theme-wide fuzzy section matches should be returned");
-
-  const createSuggestionResult = await findThemeSectionByName(shopifyClient, "2026-01", {
-    themeId: 123,
-    query: "Most asked questions",
-    page: "homepage",
-  });
-  assert.equal(
-    createSuggestionResult.recommendedFlow,
-    "create_new",
-    "generic create-style queries without strong matches should recommend create_new"
-  );
-  assert.equal(
-    createSuggestionResult.creationSuggested,
-    true,
-    "generic create-style queries without strong matches should suggest creating a new section"
-  );
-  assert.ok(
-    createSuggestionResult.nextSteps.some((step) => step.includes("create-theme-section")),
-    "create suggestions should point to the create-theme-section flow"
-  );
-
   const searchResult = await searchThemeFilesWithSnippets(shopifyClient, "2026-01", {
     query: "headline",
     filePatterns: ["sections/*.liquid"],
@@ -236,18 +169,6 @@ try {
   assert.ok(
     searchResult.hits.some((hit) => hit.snippets.some((snippet) => snippet.toLowerCase().includes("headline"))),
     "search-theme-files snippets should include the matched text"
-  );
-
-  global.fetch = createGraphqlFetch(homepageLiquidFiles);
-  const liquidFallbackResult = await resolveHomepageSections(shopifyClient, "2026-01", { themeId: 123 });
-  assert.ok(
-    liquidFallbackResult.notes.some((note) => note.includes("fallback")),
-    "resolver should report when it falls back to templates/index.liquid"
-  );
-  assert.deepEqual(
-    liquidFallbackResult.sections.map((section) => section.type),
-    ["hero-banner", "testimonials"],
-    "liquid homepage fallback should preserve section order"
   );
 } finally {
   global.fetch = originalFetch;

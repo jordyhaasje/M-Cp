@@ -330,6 +330,15 @@ CREATE INDEX IF NOT EXISTS idx_oauth_auth_codes_client ON oauth_auth_codes(clien
 CREATE INDEX IF NOT EXISTS idx_oauth_auth_codes_tenant ON oauth_auth_codes(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_hash ON oauth_refresh_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_tokens(family_id);
+
+CREATE TABLE IF NOT EXISTS theme_drafts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop_domain TEXT NOT NULL,
+  status TEXT NOT NULL,
+  files_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 `;
     await this.pool.query(sql);
   }

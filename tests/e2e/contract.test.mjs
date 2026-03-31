@@ -314,8 +314,6 @@ try {
   for (const expectedTool of [
     "get-products",
     "refund-order",
-    "resolve-homepage-sections",
-    "find-theme-section-by-name",
     "search-theme-files",
     "get-theme-files",
     "upsert-theme-files",

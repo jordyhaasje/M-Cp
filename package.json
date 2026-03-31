@@ -9,11 +9,12 @@
     "packages/*"
   ],
   "scripts": {
-    "check:docs": "node scripts/check-docs.mjs",
+    "generate:docs": "node scripts/generate-tool-docs.mjs",
+    "check:docs": "npm run generate:docs && node scripts/check-docs.mjs",
     "check:repo": "node scripts/check-repo-hygiene.mjs",
     "check:git-sync": "node scripts/check-git-sync.mjs",
     "smoke:prod": "node scripts/smoke-prod.mjs",
-    "build": "npm run -ws --if-present build",
+    "build": "npm run generate:docs && npm run -ws --if-present build",
     "test": "npm run -ws --if-present test && npm run test:e2e",
     "test:e2e": "node tests/e2e/contract.test.mjs && node apps/hazify-license-service/tests/account-license-binding.test.mjs && node apps/hazify-license-service/tests/signup-auto-active-license.test.mjs",
     "start": "node scripts/start-service.mjs",

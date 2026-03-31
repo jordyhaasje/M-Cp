@@ -63,8 +63,6 @@ for (const criticalToolName of [
 
 for (const expectedToolName of [
   "create-theme-section",
-  "resolve-homepage-sections",
-  "find-theme-section-by-name",
   "search-theme-files",
 ]) {
   assert.ok(registry.byName.has(expectedToolName), `${expectedToolName} should be present in the shared registry`);

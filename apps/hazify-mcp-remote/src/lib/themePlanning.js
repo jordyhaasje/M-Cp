@@ -20,6 +20,48 @@ const safeParseJson = (value) => {
     return null;
   }
 };
+const buildTextSnippets = (content, query, { mode = "literal", snippetLength = 120, maxSnippets = 2 } = {}) => {
+  const text = typeof content === "string" ? content : "";
+  if (!text) {
+    return [];
+  }
+  const results = [];
+  if (mode === "regex") {
+    let regex;
+    try {
+      regex = new RegExp(query, "gi");
+    } catch {
+      throw new Error(`Ongeldige regex-query: ${query}`);
+    }
+    let match = regex.exec(text);
+    while (match && results.length < maxSnippets) {
+      const index = match.index || 0;
+      const start = Math.max(0, index - Math.floor(snippetLength / 2));
+      const end = Math.min(text.length, index + match[0].length + Math.floor(snippetLength / 2));
+      results.push(text.slice(start, end).trim());
+      if (match[0].length === 0) {
+        regex.lastIndex += 1;
+      }
+      match = regex.exec(text);
+    }
+    return results;
+  }
+  const lowered = text.toLowerCase();
+  const loweredQuery = normalizeText(query);
+  let searchIndex = 0;
+  while (results.length < maxSnippets) {
+    const matchIndex = lowered.indexOf(loweredQuery, searchIndex);
+    if (matchIndex < 0) {
+      break;
+    }
+    const start = Math.max(0, matchIndex - Math.floor(snippetLength / 2));
+    const end = Math.min(text.length, matchIndex + loweredQuery.length + Math.floor(snippetLength / 2));
+    results.push(text.slice(start, end).trim());
+    searchIndex = matchIndex + Math.max(loweredQuery.length, 1);
+  }
+  return results;
+};
+
 export const searchThemeFilesWithSnippets = async (
   shopifyClient,
   apiVersion,

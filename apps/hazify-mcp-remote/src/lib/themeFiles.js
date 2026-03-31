@@ -1,12 +1,11 @@
 import crypto from "crypto";
+import { tryAcquireThemeFileLock } from "./db.js";
 
 const DEFAULT_API_VERSION = "2026-01";
 const THEME_GRAPHQL_ID_PREFIX = "gid://shopify/OnlineStoreTheme/";
 const MAX_THEME_FILES_PER_REQUEST = 10;
 const MAX_UPSERT_FILES_PER_CHUNK = 10;
 const MAX_READ_KEYS_PER_CHUNK = 10;
-
-const activeThemeWrites = new Set();
 
 const THEME_LIST_QUERY = `#graphql
   query ThemeList($first: Int!, $roles: [ThemeRole!]) {
@@ -372,6 +371,7 @@ const shopifyGraphqlRequest = async (shopifyClient, apiVersion, { query, variabl
     return shopifyGraphqlRequest(shopifyClient, apiVersion, { query, variables, expectedStatuses }, retryCount + 1);
   }
 
+  let data = null;
   if (responseText) {
     try {
       data = JSON.parse(responseText);
@@ -1188,15 +1188,15 @@ export const upsertThemeFiles = async (
 
   const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
   
-  const lockKeys = [];
+  const dbLocks = [];
   for (const file of normalizedFiles) {
-    const lockKey = `${theme.id}:${file.key}`;
-    if (activeThemeWrites.has(lockKey)) {
-      for (const k of lockKeys) activeThemeWrites.delete(k);
+    const releaseLock = await tryAcquireThemeFileLock(theme.id, file.key);
+    if (!releaseLock) {
+      // Revert locks already obtained
+      for (const release of dbLocks) await release();
       throw new Error(`File ${file.key} is currently locked by another operation. Try again in a few seconds.`);
     }
-    activeThemeWrites.add(lockKey);
-    lockKeys.push(lockKey);
+    dbLocks.push(releaseLock);
   }
 
   try {
@@ -1399,8 +1399,8 @@ export const upsertThemeFiles = async (
       ...(verifyError ? { verifyError } : {}),
     };
   } finally {
-    for (const k of lockKeys) {
-      activeThemeWrites.delete(k);
+    for (const release of dbLocks) {
+      await release();
     }
   }
 };
@@ -1413,11 +1413,11 @@ export const upsertThemeFile = async (
   validateCoreFileUpsert(key, value, attachment);
 
   const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
-  const lockKey = `${theme.id}:${key}`;
-  if (activeThemeWrites.has(lockKey)) {
+  
+  const releaseLock = await tryAcquireThemeFileLock(theme.id, key);
+  if (!releaseLock) {
     throw new Error(`File ${key} is currently locked by another operation. Try again in a few seconds.`);
   }
-  activeThemeWrites.add(lockKey);
 
   try {
     if (checksum !== undefined) {
@@ -1462,7 +1462,7 @@ export const upsertThemeFile = async (
       () => upsertThemeFileRest(shopifyClient, apiVersion, { themeId: theme.id, themeRole: theme.role, key, value, attachment, checksum })
     );
   } finally {
-    activeThemeWrites.delete(lockKey);
+    await releaseLock();
   }
 };
 

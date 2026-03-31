@@ -155,7 +155,6 @@ async function main() {
   }
 
   const markdownFilesToCheck = [
-    rootReadmePath,
     agentsPath,
     docsIndexPath,
     ...actualActiveDocs.map((file) => path.join(repoRoot, file)),

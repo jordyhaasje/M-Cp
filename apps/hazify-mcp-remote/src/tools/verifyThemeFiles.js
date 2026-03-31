@@ -18,8 +18,8 @@ const VerifyThemeFilesInputSchema = z
         })
       )
       .min(1)
-      .max(200)
-      .describe("Expected metadata to verify per file"),
+      .max(10)
+      .describe("Expected metadata to verify per file (hard limit: 10 files max)"),
   })
   .superRefine((input, ctx) => {
     const keys = input.expected.map((entry) => String(entry.key).trim());

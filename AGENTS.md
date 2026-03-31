@@ -35,28 +35,43 @@ Gebruik tools in deze volgorde:
 1. `shopify-mcp` voor Shopify-data en mutaties
 
 ## Shopify taken
-Gebruik altijd de `mcp__shopify-mcp__*` tools.
+Gebruik altijd de `mcp__shopify-mcp__*` tools. Beschikbare tools voor API-interacties worden in de onderstaande lijst dynamisch bijgehouden.
 
-### Themes
-- Themes ophale#n: `get-themes`
-- Nieuwe OS 2.0 section maken en plaatsen: `create-theme-section`
-- Theme bestand lezen: `get-theme-file`
-- Theme bestanden batch lezen: `get-theme-files`
-- Theme bestanden doorzoeken: `search-theme-files`
-- Theme bestand schrijven/updaten: `upsert-theme-file`
-- Theme bestanden batch schrijven/updaten: `upsert-theme-files`
-- Theme bestand verwijderen: `delete-theme-file`
-- Theme bestanden verifiëren: `verify-theme-files`
-- Externe import tooling metadata ophalen: `list_theme_import_tools`
+<!-- BEGIN: TOOLS_LIST -->
+- **`add-tracking-to-order`**: Alias of set-order-tracking. Kept for compatibility.
+- **`clone-product-from-url`**: Clone a public Shopify product URL into your connected store with options, variants, prices and media.
+- **`create-product`**: Create a new product. When using productOptions, Shopify registers all option values but only creates one default variant (first value of each option, price $0). Use manage-product-variants with strategy=REMOVE_STANDALONE_VARIANT afterward to create all real variants with prices.
+- **`create-theme-section`**: Create a new OS 2.0 section file and place it directly into a supported JSON template or section group without first searching for an existing section.
+- **`delete-product`**: Delete a product
+- **`delete-product-variants`**: Delete one or more variants from a product
+- **`delete-theme-file`**: Delete a file from a Shopify theme (defaults to live theme role=main).
+- **`get-customer-orders`**: Get orders for a specific customer
+- **`get-customers`**: Get customers or search by name/email
+- **`get-license-status`**: Return current license status, effective access, and MCP scope capabilities.
+- **`get-order-by-id`**: READ-ONLY: fetch a specific order and tracking status. Does not update anything.
+- **`get-orders`**: READ-ONLY: get orders with optional filtering by status. Supports cursor pagination.
+- **`get-product-by-id`**: Get a specific product by ID
+- **`get-products`**: Get all products or search by title
+- **`get-supported-tracking-companies`**: Get Shopify-supported tracking carriers that can be selected in the order fulfillment tracking UI
+- **`get-theme-file`**: Read a file from a Shopify theme (defaults to live theme role=main).
+- **`get-theme-files`**: Read multiple files from a Shopify theme with metadata-first default output.
+- **`get-themes`**: List available Shopify themes (including the live theme).
+- **`list_theme_import_tools`**: List metadata/advice for external tools used outside this remote MCP for visual review or external import workflows. Do not use this for normal native section creation inside the remote MCP.
+- **`manage-product-options`**: Create, update, or delete product options (e.g. Size, Color). Use action='create' to add options, 'update' to rename or add/remove values, 'delete' to remove options.
+- **`manage-product-variants`**: Create or update product variants. Omit variant id to create new, include id to update existing.
+- **`refund-order`**: Create a full or partial refund for an order using Shopify refundCreate.
+- **`search-theme-files`**: Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern.
+- **`set-order-tracking`**: One-shot tracking update tool for LLMs: resolves order reference, updates fulfillment tracking, and returns verification-ready output.
+- **`update-customer`**: Update a customer's information
+- **`update-fulfillment-tracking`**: Update order shipment tracking in the actual fulfillment record (not custom attributes/metafields). fulfillmentId is optional; when omitted, the latest non-cancelled fulfillment is updated automatically.
+- **`update-order`**: Update an existing order with new information
+- **`update-order-tracking`**: Alias of set-order-tracking. Kept for compatibility.
+- **`update-product`**: Update an existing product's fields (title, description, status, tags, etc.)
+- **`upsert-theme-file`**: Create or update a single Shopify theme file, including new section/snippet/template/assets files when you already know the exact target key.
+- **`upsert-theme-files`**: Create or update multiple Shopify theme files in chunked batches, including new section/snippet/template/assets files when exact targets are already known.
+- **`verify-theme-files`**: Verify multiple theme files by expected metadata (size/checksumMd5).
+<!-- END: TOOLS_LIST -->
 
-### Producten
-- Ophalen: `get-products`, `get-product-by-id`
-- Aanmaken: `create-product`
-- Bijwerken: `update-product`
-- Variants: `manage-product-variants`, `delete-product-variants`
-- Opties: `manage-product-options`
-- Verwijderen: `delete-product`
-- Import via URL: `clone-product-from-url`
 
 ### Product-import regels (verplicht)
 1. Gebruik bij URL-import eerst `clone-product-from-url`.
@@ -73,19 +88,6 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 5. Gebruik `list_theme_import_tools` alleen voor expliciete externe review/import discovery buiten de native remote MCP flow.
 6. **Limits & Concurrency**: Om de Railway server te beschermen is er een harde limiet van **maximaal 10 bestanden** per verzoek bij het ophalen, updaten of doorzoeken van thema's. Schrijfacties worden bovendien beveiligd met een **File Lock** (mutex). Krijg je een melding dat een bestand "locked by another operation" is, wacht dan even en probeer het rustig opnieuw.
 
-### Orders
-- Ophalen: `get-orders`, `get-order-by-id`
-- Klantorders: `get-customer-orders`
-- Updaten: `update-order` (tags/notities/adres/trackingvelden)
-- Tracking (one-shot): `set-order-tracking` (voorkeur voor LLMs)
-- Tracking (voorkeur): `update-fulfillment-tracking` (altijd voor trackingnummer/vervoerder)
-
-### Klanten
-- Ophalen: `get-customers`
-- Bijwerken: `update-customer`
-
-### Licentie
-- Status opvragen: `get-license-status`
 
 ### Tracking workflow (verplicht)
 1. Lees order met `get-order-by-id` en gebruik `order.tracking.shipments` als bron.
@@ -94,8 +96,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools.
 4. Verifieer direct met `get-order-by-id` dat `order.tracking.shipments` is aangepast.
 5. Als `legacyCustomAttributes` of `legacyMetafields` zichtbaar zijn: niet gebruiken als bron, alleen fulfillment-tracking aanhouden.
 
-### Refunds
-- Gebruik: `refund-order`
+### Refund regels (verplicht)
 - Verplicht vóór refund:
   1. Juiste order-ID
   2. Juiste regel(s) of bedrag

@@ -13,7 +13,7 @@ const GetThemeFilesInputSchema = z
       .array(z.string().min(1))
       .min(1)
       .max(10)
-      .describe("Theme file keys, e.g. ['sections/hero.liquid', 'assets/theme.css']"),
+      .describe("Theme file keys, e.g. ['sections/hero.liquid', 'assets/theme.css'] (hard limit: 10 files max)"),
     includeContent: z.boolean().default(false).describe("Include file content (value/attachment) in response"),
   })
   .superRefine((input, ctx) => {
