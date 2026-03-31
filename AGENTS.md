@@ -39,6 +39,7 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools. Beschikbare tools voor API-intera
 
 <!-- BEGIN: TOOLS_LIST -->
 - **`add-tracking-to-order`**: Alias of set-order-tracking. Kept for compatibility.
+- **`analyze-reference-ui`**: Fetches en analyseert een externe URL als visuele referentie, stript agressief onnodige tags (<script>, svg, data-uri), en formatteert de HTML naar een extreem token-efficiënte, Pug-achtige Markdown representatie met strikt behoud van Classes en IDs voor UI / CSS component modeling.
 - **`clone-product-from-url`**: Clone a public Shopify product URL into your connected store with options, variants, prices and media.
 - **`create-product`**: Create a new product. When using productOptions, Shopify registers all option values but only creates one default variant (first value of each option, price $0). Use manage-product-variants with strategy=REMOVE_STANDALONE_VARIANT afterward to create all real variants with prices.
 - **`create-theme-section`**: Create a new OS 2.0 section file and place it directly into a supported JSON template or section group without first searching for an existing section.

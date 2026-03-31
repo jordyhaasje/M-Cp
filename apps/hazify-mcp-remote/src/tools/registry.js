@@ -21,7 +21,7 @@ import { listThemeImportTools } from "./listThemeImportTools.js";
 import { manageProductOptions } from "./manageProductOptions.js";
 import { manageProductVariants } from "./manageProductVariants.js";
 import { refundOrder } from "./refundOrder.js";
-
+import { analyzeReferenceUi } from "./analyzeReferenceUi.js";
 import { searchThemeFilesTool } from "./searchThemeFiles.js";
 import { setOrderTracking } from "./setOrderTracking.js";
 import { updateCustomer } from "./updateCustomer.js";
@@ -311,6 +311,7 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
     requiresShopifyClient: false,
     outputSchema: getLicenseStatusOutputSchema,
   }),
+  defineToolManifest(analyzeReferenceUi, { requiresShopifyClient: false }),
 ];
 
 const buildAliasToolDefinitions = (canonicalDefinitions) => {

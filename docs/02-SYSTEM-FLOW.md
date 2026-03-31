@@ -31,8 +31,9 @@ De Remote MCP implementeert **géén eigen browser runtime of local generation**
 2. **Resolve en Edit:** Om tokenoverhead en trage readbacks te minimaliseren voor AI agents:
    - Identificeer altijd eerst via `search-theme-files` voordat je een bestand opent of aanpast.
    - Gebruik `get-theme-file` / `upsert-theme-file(s)` alléén als het bestand echt is bevestigd via de target resolves.
-3. **Externe review tooling**: metadata over lokale externe tools is opvraagbaar via `list_theme_import_tools`. Dit vertelt hoe external (local) review workflows moeten worden opgezet.
-4. **Theme Development Best Practices (LLM Instructies):**
+4. **Externe review tooling**: metadata over lokale externe tools is opvraagbaar via `list_theme_import_tools`. Dit vertelt hoe external (local) review workflows moeten worden opgezet.
+5. **Visuele UI Scrapen (Referenties):** De MCP heeft een ingebouwde token-geoptimaliseerde scraper (`analyze-reference-ui`). Deze laadt websites in via `cheerio`, stript agressief zware elementen (zoals SVG, script, data-uri afbeeldingen) en retourneert class/id structuren als compacte Pug-achtige Markdown. Dit verhoogt de context window stabiliteit aanzienlijk bij referentie-onderzoek.
+6. **Theme Development Best Practices (LLM Instructies):**
    - **Stop Guessing:** AI-agents mogen NOOIT blind gokken naar bestandsnamen zoals 'base.css' of 'product.json'. Ze moeten verplicht `search-theme-files` gebruiken.
    - **Asset Registration:** Als de AI een nieuw CSS/JS asset aanmaakt, weet het dat Shopify dit niet automatisch inlaadt. Het moet expliciet gekoppeld worden in de layout (bijv. in `layout/theme.liquid` via `{{ 'filename.css' | asset_url | stylesheet_tag }}`).
 
