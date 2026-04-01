@@ -46,6 +46,13 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools. Beschikbare tools voor API-intera
 - **`delete-product-variants`**: Delete one or more variants from a product
 - **`delete-theme-file`**: Delete a file from a Shopify theme (defaults to live theme role=main).
 - **`draft-theme-artifact`**: DIT IS DE ENIGE TOOL OM THEME FILES AAN TE MAKEN OF TE UPDATEN. Scaffoldt en lints code wijzigingen lokaal via een virtuele gatekeeper. Naast een strenge theme-check-node security pass worden bestanden veilig in PostgreSQL gelogd, waarna ze (bij 100% goedkeuring) weggeschreven worden naar de live winkel (of op te snorren preview thema's).
+
+⚠️ EXTREMELY CRITICAL STRICT CODE GENERATION RULES ⚠️
+Rule 1 (UI/UX): Code MUST represent modern, premium Shopify 2.0 UI. NEVER use visible native scrollbars (::-webkit-scrollbar { display: none; }). Use modern CSS (scroll-snap-type, display: grid, gap, aspect-ratio).
+Rule 2 (Dynamic Schema): NEVER hardcode texts, colors, or image URLs in the HTML. EVERY visual element MUST be bound to a setting in the {% schema %} (using color_picker, image_picker, text, richtext, range for padding/margins).
+Rule 3 (Blocks): Sliders, grids, and galleries MUST use the blocks architecture so merchants can add/remove items in the editor.
+Rule 4 (Presets): Every section MUST have a complete presets array with default blocks so it appears in the Theme Editor.
+Rule 5 (Mobile First): Always include responsive CSS (media queries) so the layout adapts flawlessly to mobile.
 - **`get-customer-orders`**: Get orders for a specific customer
 - **`get-customers`**: Get customers or search by name/email
 - **`get-license-status`**: Return current license status, effective access, and MCP scope capabilities.
