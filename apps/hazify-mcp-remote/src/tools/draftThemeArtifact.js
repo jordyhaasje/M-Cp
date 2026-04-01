@@ -21,7 +21,7 @@ export const inputSchema = z.object({
   files: z.array(
     z.object({
       key: z.string().describe("De exacte filelocatie (bijv. sections/feature-sandbox.liquid)"),
-      value: z.string().describe("De volledige inhoud / broncode voor deze sandbox preview. Strict Enforcement: Payload will fail if not Shopify OS 2.0 compliant. 1. Must use scoped CSS (#shopify-section-{{ section.id }}). 2. Must use 'image_tag' liquid filters for images. 3. Schema must contain comprehensive settings (Colors, Layout ranges) and a valid 'presets' array for Theme Editor visibility.")
+      value: z.string().describe("De volledige inhoud / broncode voor deze sandbox preview. Strict Enforcement: Payload will fail if not Shopify OS 2.0 compliant. 1. Must use scoped CSS (#shopify-section-{{ section.id }}). 2. Must use 'image_tag' liquid filters for images. 3. Schema must contain comprehensive settings (Colors, Layout ranges) and a valid 'presets' array for Theme Editor visibility. Strict Building Inspection Active: Your code payload WILL BE REJECTED if it does not explicitly contain @media queries (for mobile responsiveness), rich schema settings (range and color types), and a presets array. Do not submit lazy or generic code.")
     })
   ).max(10).describe("Maximale file batch is 10 items conform veiligheidsregels"),
   themeId: z.string().or(z.number()).optional().describe("Doel thema ID. Gebruik themeRole='main' als je rechtstreeks de live store wilt aanpassen (default)."),
@@ -45,6 +45,25 @@ export const draftThemeArtifact = {
 
     const dbPool = getDbPool();
     const { files, themeId, themeRole } = args;
+
+    // Stap 0 (Bouwinspectie): Pre-validatie tegen passieve LLM code output
+    for (const file of files) {
+      if (file.key.endsWith(".liquid") && file.key.startsWith("sections/")) {
+        const val = file.value;
+        const hasMedia = val.includes("@media");
+        const hasRange = val.includes('"type": "range"') || val.includes("'type': 'range'") || val.includes('"type":"range"');
+        const hasColor = val.includes('"type": "color"') || val.includes("'type': 'color'") || val.includes('"type":"color"') || val.includes("color_background");
+        const hasPresets = val.includes('"presets":') || val.includes("'presets':") || val.includes('"presets":');
+
+        if (!hasMedia || !hasRange || !hasColor || !hasPresets) {
+          return {
+            success: false,
+            status: "inspection_failed",
+            message: "Building Inspection Failed: Your code was rejected because it is too generic. It is missing mobile responsiveness (@media queries) AND/OR rich schema settings (range, color). Rewrite the code to match a premium 1-to-1 Shopify OS 2.0 section."
+          };
+        }
+      }
+    }
 
     // Stap 1 (Database): Opslaan in theme_drafts met status pending
     let draftId = `mock-${Date.now()}`;
