@@ -6,8 +6,6 @@ import { refundOrder } from "../src/tools/refundOrder.js";
 import { updateCustomer } from "../src/tools/updateCustomer.js";
 import { updateFulfillmentTracking } from "../src/tools/updateFulfillmentTracking.js";
 import { updateOrder } from "../src/tools/updateOrder.js";
-import { upsertThemeFileTool } from "../src/tools/upsertThemeFile.js";
-import { upsertThemeFilesTool } from "../src/tools/upsertThemeFiles.js";
 import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
 import { listThemeImportTools } from "../src/tools/listThemeImportTools.js";
@@ -117,30 +115,6 @@ try {
   assert.equal(cloneResult.variantMediaMapping.summary.totalVariants, 1);
   assert.equal(cloneResult.variantMediaMapping.summary.verified, 1);
 
-  const missingThemePayload = upsertThemeFileTool.schema.safeParse({
-    key: "sections/test.liquid",
-    confirmation: "UPSERT_THEME_FILE",
-    auditReason: "Test audit reason",
-  });
-  assert.equal(missingThemePayload.success, false, "upsert-theme-file should require value or attachment");
-
-  const validThemePayload = upsertThemeFileTool.schema.safeParse({
-    key: "sections/test.liquid",
-    value: "<div>ok</div>",
-    confirmation: "UPSERT_THEME_FILE",
-    auditReason: "Test audit reason",
-  });
-  assert.equal(validThemePayload.success, true, "upsert-theme-file should accept textual value");
-
-  const duplicateBatchThemePayload = upsertThemeFilesTool.schema.safeParse({
-    files: [
-      { key: "sections/test.liquid", value: "<div>1</div>" },
-      { key: "sections/test.liquid", value: "<div>2</div>" },
-    ],
-    confirmation: "UPSERT_THEME_FILES",
-    auditReason: "Test audit reason",
-  });
-  assert.equal(duplicateBatchThemePayload.success, false, "upsert-theme-files should reject duplicate keys");
 
   const metadataBatchReadPayload = getThemeFilesTool.schema.safeParse({
     keys: ["sections/test.liquid"],

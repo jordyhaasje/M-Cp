@@ -3,7 +3,6 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { cloneProductFromUrl } from "../src/tools/cloneProductFromUrl.js";
-import { createThemeSectionTool } from "../src/tools/createThemeSection.js";
 import { createProduct } from "../src/tools/createProduct.js";
 import { deleteProduct } from "../src/tools/deleteProduct.js";
 import { deleteProductVariants } from "../src/tools/deleteProductVariants.js";
@@ -27,24 +26,12 @@ import { updateCustomer } from "../src/tools/updateCustomer.js";
 import { updateFulfillmentTracking } from "../src/tools/updateFulfillmentTracking.js";
 import { updateOrder } from "../src/tools/updateOrder.js";
 import { updateProduct } from "../src/tools/updateProduct.js";
-import { upsertThemeFileTool } from "../src/tools/upsertThemeFile.js";
-import { upsertThemeFilesTool } from "../src/tools/upsertThemeFiles.js";
 import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
 
 const shopifyScopedTools = [
   { name: "clone-product-from-url", tool: cloneProductFromUrl, input: { sourceUrl: "https://example.com/products/demo" } },
   { name: "create-product", tool: createProduct, input: { title: "Demo product" } },
-  {
-    name: "create-theme-section",
-    tool: createThemeSectionTool,
-    input: {
-      targetFile: "sections/header-group.json",
-      auditReason: "demo reason",
-      confirmation: "CREATE_THEME_SECTION",
-      name: "Demo section",
-      sectionLiquid: `<div>Demo section</div>`,
-    },
-  },
+
   { name: "delete-product", tool: deleteProduct, input: { id: "gid://shopify/Product/1", confirmation: "DELETE_PRODUCT", reason: "test reason" } },
   {
     name: "delete-product-variants",
@@ -89,12 +76,7 @@ const shopifyScopedTools = [
   },
   { name: "update-order", tool: updateOrder, input: { id: "gid://shopify/Order/1", confirmation: "UPDATE_ORDER", reason: "test reason" } },
   { name: "update-product", tool: updateProduct, input: { id: "gid://shopify/Product/1" } },
-  { name: "upsert-theme-file", tool: upsertThemeFileTool, input: { key: "sections/demo.liquid", value: "<div/>", confirmation: "UPSERT_THEME_FILE", auditReason: "test reason" } },
-  {
-    name: "upsert-theme-files",
-    tool: upsertThemeFilesTool,
-    input: { files: [{ key: "sections/demo.liquid", value: "<div/>" }], confirmation: "UPSERT_THEME_FILES", auditReason: "test reason" },
-  },
+
   {
     name: "verify-theme-files",
     tool: verifyThemeFilesTool,

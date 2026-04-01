@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { cloneProductFromUrl } from "./cloneProductFromUrl.js";
-import { createThemeSectionTool } from "./createThemeSection.js";
 import { createProduct } from "./createProduct.js";
 import { deleteProduct } from "./deleteProduct.js";
 import { deleteProductVariants } from "./deleteProductVariants.js";
@@ -29,8 +28,6 @@ import { updateCustomer } from "./updateCustomer.js";
 import { updateFulfillmentTracking } from "./updateFulfillmentTracking.js";
 import { updateOrder } from "./updateOrder.js";
 import { updateProduct } from "./updateProduct.js";
-import { upsertThemeFileTool } from "./upsertThemeFile.js";
-import { upsertThemeFilesTool } from "./upsertThemeFiles.js";
 import { verifyThemeFilesTool } from "./verifyThemeFiles.js";
 
 const passthroughObject = () => z.object({}).passthrough();
@@ -185,17 +182,7 @@ const setOrderTrackingOutputSchema = z
 
 
 
-const createThemeSectionOutputSchema = z
-  .object({
-    theme: themeSummarySchema,
-    targetFile: z.string(),
-    sectionFile: z.string(),
-    sectionInstanceId: z.string(),
-    placement: z.enum(["append", "prepend", "before", "after"]),
-    createdFiles: z.array(z.string()),
-    verifySummary: passthroughObject().nullable().optional(),
-  })
-  .passthrough();
+
 
 const searchThemeFilesOutputSchema = z
   .object({
@@ -288,19 +275,13 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
   }),
   defineToolManifest(cloneProductFromUrl, { writeScopeRequired: true, idempotent: false }),
   defineToolManifest(getThemes),
-  defineToolManifest(createThemeSectionTool, {
-    writeScopeRequired: true,
-    idempotent: false,
-    outputSchema: createThemeSectionOutputSchema,
-  }),
 
   defineToolManifest(searchThemeFilesTool, {
     outputSchema: searchThemeFilesOutputSchema,
   }),
   defineToolManifest(getThemeFileTool, { outputSchema: getThemeFileOutputSchema }),
   defineToolManifest(getThemeFilesTool, { outputSchema: getThemeFilesOutputSchema }),
-  defineToolManifest(upsertThemeFileTool, { writeScopeRequired: true, idempotent: false }),
-  defineToolManifest(upsertThemeFilesTool, { writeScopeRequired: true, idempotent: false }),
+
   defineToolManifest(deleteThemeFileTool, {
     writeScopeRequired: true,
     destructive: true,

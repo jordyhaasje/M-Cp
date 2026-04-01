@@ -28,10 +28,9 @@ test("draftThemeArtifact - fails when linter finds issues", async (t) => {
   assert.strictEqual(result.errors[0].severity, "error");
 });
 
-test("draftThemeArtifact - success when linter passes (mocks Shopify Sandbox push)", async (t) => {
+test("draftThemeArtifact - success when linter passes (pushes directly to chosen theme)", async (t) => {
   let listThemesCalled = false;
   let upsertCalled = false;
-  let postThemesCalled = false;
 
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com",
@@ -54,24 +53,10 @@ test("draftThemeArtifact - success when linter passes (mocks Shopify Sandbox pus
         }
       };
     },
-    post: async (path, params) => {
-      postThemesCalled = true;
-      return {
-        body: {
-          theme: { id: 222, name: "Hazify Sandbox", role: "unpublished" }
-        }
-      };
-    },
-    rest: {
-      Theme: {
-        post: async () => {} // Just to prevent undefined error if it calls it
-      }
-    }
+    rest: {}
   };
 
-  // We mock upsertThemeFilesTool inside the execution context by overriding it if we want,
-  // but since we are modifying files, let's actually let it execute its inner fetch.
-  // Wait, upsertThemeFilesTool uses shopifyClient.graphql. We can mock its response.
+  // We are mocking shopifyClient.graphql so upsertThemeFiles resolves target.
   
   const extendedShopifyClient = {
     ...mockShopifyClient,
@@ -102,17 +87,7 @@ test("draftThemeArtifact - success when linter passes (mocks Shopify Sandbox pus
 
   const originalFetch = global.fetch;
   global.fetch = async (url, options = {}) => {
-    if (String(url).includes("/themes.json")) {
-       const resPayload = { theme: { id: 222, name: "Hazify Sandbox", role: "unpublished" } };
-       return {
-         ok: true,
-         status: 200,
-         json: async () => resPayload,
-         text: async () => JSON.stringify(resPayload)
-       };
-    }
-    
-    // For REST API upload or verification inside upsertThemeFilesTool if any
+    // For REST API upload or verification inside upsertThemeFiles if any
     const payload = options.body ? JSON.parse(String(options.body)) : {};
     const query = String(payload.query || "");
 
@@ -136,7 +111,11 @@ test("draftThemeArtifact - success when linter passes (mocks Shopify Sandbox pus
     if (query.includes("ThemeById") || query.includes("ThemeList")) {
       const resPayload = {
         data: {
-          theme: { id: "gid://shopify/OnlineStoreTheme/222", name: "Hazify Sandbox", role: "UNPUBLISHED" }
+          themes: {
+            nodes: [
+              { id: "gid://shopify/OnlineStoreTheme/111", name: "Main Theme", role: "MAIN" }
+            ]
+          }
         }
       };
       return {
@@ -169,8 +148,8 @@ test("draftThemeArtifact - success when linter passes (mocks Shopify Sandbox pus
 
     assert.strictEqual(result.success, true);
     assert.strictEqual(result.status, "preview_ready");
-    assert.strictEqual(result.sandboxThemeId, 222);
-    assert.ok(result.previewUrl.includes("preview_theme_id=222"));
+    assert.strictEqual(result.themeId, 111);
+    assert.ok(result.editorUrl.includes("admin/themes/111/editor"));
     
   } finally {
     global.fetch = originalFetch;

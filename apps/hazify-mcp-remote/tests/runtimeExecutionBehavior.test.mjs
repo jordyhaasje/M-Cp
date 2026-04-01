@@ -259,8 +259,14 @@ const postMcpRaw = async (body, headers = authHeaders) => {
 
 const postMcp = async (body, headers = authHeaders) => {
   const response = await postMcpRaw(body, headers);
-  assert.equal(response.status, 200, `Expected 200 for method ${body.method}`);
   const payload = await response.json();
+  if (payload.error) {
+    console.error("RPC Error:", JSON.stringify(payload.error));
+  }
+  if (payload.result?.isError) {
+    console.error("RPC Application Error:", JSON.stringify(payload.result.content));
+  }
+  assert.equal(response.status, 200, `Expected 200 for method ${body.method}`);
   assert.equal(payload.error, undefined, `Unexpected JSON-RPC error for method ${body.method}`);
   return payload;
 };
@@ -306,8 +312,8 @@ try {
       id: 22,
       method: "tools/call",
       params: {
-        name: "upsert-theme-file",
-        arguments: { themeId: 123, key: "sections/blocked.liquid", value: "<div>blocked</div>", confirmation: "UPSERT_THEME_FILE", auditReason: "Test audit reason" },
+        name: "draft-theme-artifact",
+        arguments: { themeId: 123, files: [{ key: "sections/blocked.liquid", value: "<div>blocked</div>" }] },
       },
     },
     readonlyAuthHeaders
@@ -364,8 +370,8 @@ try {
       id: 5,
       method: "tools/call",
       params: {
-        name: "upsert-theme-file",
-        arguments: { themeId: 123, key: "sections/one.liquid", value: "<div>one</div>", confirmation: "UPSERT_THEME_FILE", auditReason: "Test audit reason" },
+        name: "draft-theme-artifact",
+        arguments: { themeId: 123, files: [{ key: "sections/one.liquid", value: "<div>one</div>" }] },
       },
     }),
     postMcp({
@@ -373,8 +379,8 @@ try {
       id: 6,
       method: "tools/call",
       params: {
-        name: "upsert-theme-file",
-        arguments: { themeId: 123, key: "sections/two.liquid", value: "<div>two</div>", confirmation: "UPSERT_THEME_FILE", auditReason: "Test audit reason" },
+        name: "draft-theme-artifact",
+        arguments: { themeId: 123, files: [{ key: "sections/two.liquid", value: "<div>two</div>" }] },
       },
     }),
   ]);

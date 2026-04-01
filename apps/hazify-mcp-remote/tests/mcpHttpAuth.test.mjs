@@ -419,7 +419,7 @@ try {
     "get-products",
     "refund-order",
     "get-theme-files",
-    "upsert-theme-files",
+    "draft-theme-artifact",
     "verify-theme-files",
     "list_theme_import_tools",
   ]) {

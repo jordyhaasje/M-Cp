@@ -42,11 +42,10 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools. Beschikbare tools voor API-intera
 - **`analyze-reference-ui`**: Fetches en analyseert een externe URL als visuele referentie, stript agressief onnodige tags (<script>, svg, data-uri), en formatteert de HTML naar een extreem token-efficiënte, Pug-achtige Markdown representatie met strikt behoud van Classes en IDs voor UI / CSS component modeling.
 - **`clone-product-from-url`**: Clone a public Shopify product URL into your connected store with options, variants, prices and media.
 - **`create-product`**: Create a new product. When using productOptions, Shopify registers all option values but only creates one default variant (first value of each option, price $0). Use manage-product-variants with strategy=REMOVE_STANDALONE_VARIANT afterward to create all real variants with prices.
-- **`create-theme-section`**: Create a new OS 2.0 section file and place it directly into a supported JSON template or section group without first searching for an existing section.
 - **`delete-product`**: Delete a product
 - **`delete-product-variants`**: Delete one or more variants from a product
 - **`delete-theme-file`**: Delete a file from a Shopify theme (defaults to live theme role=main).
-- **`draft-theme-artifact`**: Scaffoldt en lints veilige code wijzigingen lokaal en pusht deze naar een realtime Sandbox theme. Het elimineert syntax errors door een strenge theme-check-node validatie cycle en zorgt dat live shops nooit breken.
+- **`draft-theme-artifact`**: DIT IS DE ENIGE TOOL OM THEME FILES AAN TE MAKEN OF TE UPDATEN. Scaffoldt en lints code wijzigingen lokaal via een virtuele gatekeeper. Naast een strenge theme-check-node security pass worden bestanden veilig in PostgreSQL gelogd, waarna ze (bij 100% goedkeuring) weggeschreven worden naar de live winkel (of op te snorren preview thema's).
 - **`get-customer-orders`**: Get orders for a specific customer
 - **`get-customers`**: Get customers or search by name/email
 - **`get-license-status`**: Return current license status, effective access, and MCP scope capabilities.
@@ -69,8 +68,6 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools. Beschikbare tools voor API-intera
 - **`update-order`**: Update an existing order with new information
 - **`update-order-tracking`**: Alias of set-order-tracking. Kept for compatibility.
 - **`update-product`**: Update an existing product's fields (title, description, status, tags, etc.)
-- **`upsert-theme-file`**: Create or update a single Shopify theme file, including new section/snippet/template/assets files when you already know the exact target key.
-- **`upsert-theme-files`**: Create or update multiple Shopify theme files in chunked batches, including new section/snippet/template/assets files when exact targets are already known.
 - **`verify-theme-files`**: Verify multiple theme files by expected metadata (size/checksumMd5).
 <!-- END: TOOLS_LIST -->
 

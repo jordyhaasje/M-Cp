@@ -5,11 +5,10 @@ import * as os from "os";
 import { check } from "@shopify/theme-check-node";
 import { getDbPool } from "../lib/db.js";
 import { requireShopifyClient } from "./_context.js";
-import { listThemes, getShopDomainFromClient, getAccessTokenFromClient, buildAdminRestUrl } from "../lib/themeFiles.js";
-import { upsertThemeFilesTool } from "./upsertThemeFiles.js";
+import { getShopDomainFromClient, upsertThemeFiles } from "../lib/themeFiles.js";
 
 export const toolName = "draft-theme-artifact";
-export const description = "Scaffoldt en lints veilige code wijzigingen lokaal en pusht deze naar een realtime Sandbox theme. Het elimineert syntax errors door een strenge theme-check-node validatie cycle en zorgt dat live shops nooit breken.";
+export const description = "DIT IS DE ENIGE TOOL OM THEME FILES AAN TE MAKEN OF TE UPDATEN. Scaffoldt en lints code wijzigingen lokaal via een virtuele gatekeeper. Naast een strenge theme-check-node security pass worden bestanden veilig in PostgreSQL gelogd, waarna ze (bij 100% goedkeuring) weggeschreven worden naar de live winkel (of op te snorren preview thema's).";
 
 export const inputSchema = z.object({
   files: z.array(
@@ -18,6 +17,8 @@ export const inputSchema = z.object({
       value: z.string().describe("De volledige inhoud / broncode voor deze sandbox preview")
     })
   ).max(10).describe("Maximale file batch is 10 items conform veiligheidsregels"),
+  themeId: z.string().or(z.number()).optional().describe("Doel thema ID. Gebruik themeRole='main' als je rechtstreeks de live store wilt aanpassen (default)."),
+  themeRole: z.enum(["main", "unpublished", "development"]).optional().default("main").describe("De target rol. Standaard op 'main' voor productie publicaties."),
   isStandalone: z.boolean().optional().describe("Mark as standalone workflow")
 });
 
@@ -36,7 +37,7 @@ export const draftThemeArtifact = {
     }
 
     const dbPool = getDbPool();
-    const { files } = args;
+    const { files, themeId, themeRole } = args;
 
     // Stap 1 (Database): Opslaan in theme_drafts met status pending
     let draftId = `mock-${Date.now()}`;
@@ -105,47 +106,16 @@ export const draftThemeArtifact = {
       await fs.rm(tmpDir, { recursive: true, force: true });
     } catch (rmErr) {}
 
-    // Stap 4 (Sandbox Push)
+    // Stap 4 (Target Push)
     try {
       const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
-      const availableThemes = await listThemes(shopifyClient, API_VERSION);
-      let sandboxTheme = availableThemes.find(t => t.name === "Hazify Sandbox");
-
-      if (!sandboxTheme) {
-        const token = getAccessTokenFromClient(shopifyClient);
-        const url = buildAdminRestUrl({
-          domain: getShopDomainFromClient(shopifyClient),
-          apiVersion: API_VERSION,
-          path: "themes.json"
-        });
-
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Shopify-Access-Token": token
-          },
-          body: JSON.stringify({ theme: { name: "Hazify Sandbox", role: "unpublished" } })
-        });
-        
-        if (!res.ok) {
-           throw new Error(`REST API returned ${res.status} ${res.statusText}`);
-        }
-        const createCall = await res.json();
-        
-        if (createCall && createCall.theme) {
-          sandboxTheme = createCall.theme;
-        } else {
-           throw new Error("Sandbox theme aanmaken faalde via JSON POST.");
-        }
-      }
-
-      await upsertThemeFilesTool.execute({
-        themeId: sandboxTheme.id,
+      
+      const upsertResult = await upsertThemeFiles(shopifyClient, API_VERSION, {
+        themeId: themeId ? String(themeId) : undefined,
+        themeRole,
         files: files.map(f => ({ key: f.key, value: f.value })),
-        auditReason: `Hazify Sandbox automated pipeline lint & deploy (${draftId})`,
-        confirmation: "UPSERT_THEME_FILES"
-      }, context);
+        verifyAfterWrite: false
+      });
 
       if (dbPool && process.env.DATABASE_URL) {
         await dbPool.query(
@@ -153,14 +123,16 @@ export const draftThemeArtifact = {
           ["preview_ready", draftId]
         );
       }
+      
+      const appliedThemeId = upsertResult.theme?.id || themeId;
 
       return {
         success: true,
         status: "preview_ready",
         draftId,
-        sandboxThemeId: sandboxTheme.id,
-        previewUrl: `https://${shopDomain}/?preview_theme_id=${sandboxTheme.id}`,
-        message: "Code is Succesvol geverifieerd (0 errors) en gepusht naar de afgeschermde Hazify Sandbox."
+        themeId: appliedThemeId,
+        editorUrl: `https://${shopDomain}/admin/themes/${appliedThemeId}/editor`,
+        message: "Code is Succesvol geverifieerd (0 errors) en gepusht naar het gekozen theme."
       };
     } catch (err) {
       if (dbPool && process.env.DATABASE_URL) {

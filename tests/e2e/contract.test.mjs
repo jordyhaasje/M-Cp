@@ -316,7 +316,7 @@ try {
     "refund-order",
     "search-theme-files",
     "get-theme-files",
-    "upsert-theme-files",
+    "draft-theme-artifact",
     "verify-theme-files",
     "list_theme_import_tools",
   ]) {
