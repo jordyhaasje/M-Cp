@@ -21,7 +21,7 @@ export const inputSchema = z.object({
   files: z.array(
     z.object({
       key: z.string().describe("De exacte filelocatie (bijv. sections/feature-sandbox.liquid)"),
-      value: z.string().describe("De volledige inhoud / broncode voor deze sandbox preview")
+      value: z.string().describe("De volledige inhoud / broncode voor deze sandbox preview. Strict Enforcement: Payload will fail if not Shopify OS 2.0 compliant. 1. Must use scoped CSS (#shopify-section-{{ section.id }}). 2. Must use 'image_tag' liquid filters for images. 3. Schema must contain comprehensive settings (Colors, Layout ranges) and a valid 'presets' array for Theme Editor visibility.")
     })
   ).max(10).describe("Maximale file batch is 10 items conform veiligheidsregels"),
   themeId: z.string().or(z.number()).optional().describe("Doel thema ID. Gebruik themeRole='main' als je rechtstreeks de live store wilt aanpassen (default)."),

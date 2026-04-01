@@ -121,7 +121,11 @@ export const analyzeReferenceUi = {
       }
 
       // Bouw de efficiënte Markdown structuur op
-      const markup = generatePugLikeMarkdown(rootNode[0], $);
+      let markup = generatePugLikeMarkdown(rootNode[0], $);
+      
+      if (markup.length > 0) {
+        markup += "\n\n--- CRITICAL SYSTEM DIRECTIVE FOR AI CODE GENERATION ---\nYou have retrieved the HTML structure. Your task is to generate the Liquid section. YOU MUST strictly follow these Shopify OS 2.0 architecture rules:\n1. VISUAL MATCH: Look at the user's uploaded screenshot. Extract the exact colors, typography, aspect-ratios, and alignment. Match the design 1-to-1.\n2. SCOPED CSS: All custom CSS MUST be scoped to prevent leaking (e.g., use '#shopify-section-{{ section.id }} .your-class').\n3. MODERN IMAGES: Never use raw <img> tags for dynamic images. Use the OS 2.0 image tag filter to pass linting: '{{ block.settings.image | image_url: width: 800 | image_tag }}'.\n4. MASTER SCHEMA: Build a comprehensive {% schema %}. You MUST include 'header' types to group settings into 'Layout' (ranges for padding), 'Colors' (color and color_background), and 'Typography'.\n5. BLOCKS & PRESETS: Any repeating element (sliders, grids, galleries) MUST be built using 'blocks'. You MUST include a 'presets' array with default blocks, otherwise the section will not appear in the Theme Editor.\n6. UI/UX: Do not use native scrollbars for horizontal sliders. Use CSS scroll-snap. Ensure mobile-first responsiveness.\n7. Push the final code via the draftThemeArtifact tool.";
+      }
 
       return {
         success: true,
