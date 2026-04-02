@@ -67,6 +67,36 @@ const counters = {
   maxMutatingCalls: 0,
 };
 
+const validSectionLiquid = `
+<style>
+  #shopify-section-{{ section.id }} .card {
+    display: grid;
+    padding: 24px;
+    border-radius: 18px;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .card {
+      padding: 16px;
+    }
+  }
+</style>
+
+<div class="card">{{ section.settings.heading }}</div>
+
+{% schema %}
+{
+  "name": "Runtime section",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "range", "id": "gap", "label": "Gap", "min": 0, "max": 40, "step": 4, "default": 16 },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Runtime section" }]
+}
+{% endschema %}
+`;
+
 global.fetch = async (url, options = {}) => {
   const stringUrl = String(url);
 
@@ -161,6 +191,45 @@ global.fetch = async (url, options = {}) => {
                     body: {
                       content: "<div>demo</div>",
                     },
+                  },
+                ],
+                userErrors: [],
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (query.includes("query ThemeFilesByIdMetadata")) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            theme: {
+              id: "gid://shopify/OnlineStoreTheme/123",
+              name: "Main Theme",
+              role: "MAIN",
+              processing: false,
+              createdAt: "2026-03-15T12:00:00Z",
+              updatedAt: "2026-03-15T12:00:00Z",
+              files: {
+                nodes: [
+                  {
+                    filename: "sections/one.liquid",
+                    checksumMd5: "checksum",
+                    contentType: "text/plain",
+                    createdAt: "2026-03-15T12:00:00Z",
+                    updatedAt: "2026-03-15T12:00:00Z",
+                    size: validSectionLiquid.length,
+                  },
+                  {
+                    filename: "sections/two.liquid",
+                    checksumMd5: "checksum",
+                    contentType: "text/plain",
+                    createdAt: "2026-03-15T12:00:00Z",
+                    updatedAt: "2026-03-15T12:00:00Z",
+                    size: validSectionLiquid.length,
                   },
                 ],
                 userErrors: [],
@@ -313,7 +382,7 @@ try {
       method: "tools/call",
       params: {
         name: "draft-theme-artifact",
-        arguments: { themeId: 123, files: [{ key: "sections/blocked.liquid", value: "<div>blocked</div>" }] },
+        arguments: { themeId: 123, files: [{ key: "sections/blocked.liquid", value: validSectionLiquid }] },
       },
     },
     readonlyAuthHeaders
@@ -371,7 +440,7 @@ try {
       method: "tools/call",
       params: {
         name: "draft-theme-artifact",
-        arguments: { themeId: 123, files: [{ key: "sections/one.liquid", value: "<div>one</div>" }] },
+        arguments: { themeId: 123, files: [{ key: "sections/one.liquid", value: validSectionLiquid }] },
       },
     }),
     postMcp({
@@ -380,7 +449,7 @@ try {
       method: "tools/call",
       params: {
         name: "draft-theme-artifact",
-        arguments: { themeId: 123, files: [{ key: "sections/two.liquid", value: "<div>two</div>" }] },
+        arguments: { themeId: 123, files: [{ key: "sections/two.liquid", value: validSectionLiquid }] },
       },
     }),
   ]);

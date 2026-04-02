@@ -7,6 +7,7 @@ import { createProduct } from "../src/tools/createProduct.js";
 import { deleteProduct } from "../src/tools/deleteProduct.js";
 import { deleteProductVariants } from "../src/tools/deleteProductVariants.js";
 import { deleteThemeFileTool } from "../src/tools/deleteThemeFile.js";
+import { applyThemeDraft } from "../src/tools/applyThemeDraft.js";
 import { getCustomerOrders } from "../src/tools/getCustomerOrders.js";
 import { getCustomers } from "../src/tools/getCustomers.js";
 import { getOrderById } from "../src/tools/getOrderById.js";
@@ -39,6 +40,7 @@ const shopifyScopedTools = [
     input: { productId: "gid://shopify/Product/1", variantIds: ["gid://shopify/ProductVariant/1"], confirmation: "DELETE_VARIANTS", reason: "test reason" },
   },
   { name: "delete-theme-file", tool: deleteThemeFileTool, input: { key: "sections/demo.liquid", confirmation: "DELETE_THEME_FILE", reason: "test reason" } },
+  { name: "apply-theme-draft", tool: applyThemeDraft, input: { draftId: "mock-1", confirmation: "APPLY_THEME_DRAFT", reason: "test reason" } },
   { name: "get-customer-orders", tool: getCustomerOrders, input: { customerId: "123" } },
   { name: "get-customers", tool: getCustomers, input: {} },
   { name: "get-order-by-id", tool: getOrderById, input: { orderId: "gid://shopify/Order/1" } },

@@ -9,6 +9,8 @@ import { updateOrder } from "../src/tools/updateOrder.js";
 import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
 import { listThemeImportTools } from "../src/tools/listThemeImportTools.js";
+import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
+import { applyThemeDraft } from "../src/tools/applyThemeDraft.js";
 
 const originalLookup = dns.lookup;
 const originalFetch = global.fetch;
@@ -126,6 +128,40 @@ try {
     expected: [{ key: "sections/test.liquid" }],
   });
   assert.equal(verifyBatchPayload.success, true, "verify-theme-files should accept expected metadata");
+
+  const draftPayload = draftThemeArtifact.schema.parse({
+    files: [
+      {
+        key: "sections/demo.liquid",
+        value: `
+{% stylesheet %}
+  #shopify-section-{{ section.id }} .demo { display: grid; padding: 24px; border-radius: 16px; }
+  @media screen and (max-width: 749px) { #shopify-section-{{ section.id }} .demo { padding: 16px; } }
+{% endstylesheet %}
+<div class="demo">{{ section.settings.heading }}</div>
+{% schema %}
+{
+  "name": "Demo",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "range", "id": "gap", "label": "Gap", "min": 0, "max": 40, "step": 4, "default": 16 },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Demo" }]
+}
+{% endschema %}
+`,
+      },
+    ],
+  });
+  assert.equal(draftPayload.themeRole, "development", "draft-theme-artifact should default to preview-safe development themes");
+
+  const applyPayload = applyThemeDraft.schema.parse({
+    draftId: "mock-1",
+    confirmation: "APPLY_THEME_DRAFT",
+    reason: "Promote approved preview",
+  });
+  assert.equal(applyPayload.themeRole, "main", "apply-theme-draft should default to explicit main apply target");
 
   const refundResult = await refundOrder.execute(
     refundOrder.schema.parse({

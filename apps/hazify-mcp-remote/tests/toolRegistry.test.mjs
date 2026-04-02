@@ -45,6 +45,7 @@ assert.strictEqual(
 );
 
 for (const criticalToolName of [
+  "apply-theme-draft",
   "get-orders",
   "get-order-by-id",
   "get-customers",
@@ -61,6 +62,7 @@ for (const criticalToolName of [
 }
 
 for (const expectedToolName of [
+  "apply-theme-draft",
   "draft-theme-artifact",
   "search-theme-files",
 ]) {
