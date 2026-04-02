@@ -62,6 +62,18 @@ export const draftThemeArtifact = {
             message: "Building Inspection Failed: Your code was rejected because it is too generic. It is missing mobile responsiveness (@media queries) AND/OR rich schema settings (range, color). Rewrite the code to match a premium 1-to-1 Shopify OS 2.0 section."
           };
         }
+
+        // CSS Complexity Check: De <style> block moet substantieel zijn
+        const hasGridOrFlex = val.includes("display: grid") || val.includes("display:grid") || val.includes("display: flex") || val.includes("display:flex");
+        const hasPadding = val.includes("padding:");
+        const hasBorderRadius = val.includes("border-radius:");
+        if (!hasGridOrFlex || !hasPadding || !hasBorderRadius) {
+          return {
+            success: false,
+            status: "inspection_failed",
+            message: "Building Inspection Failed: Your code was rejected. The CSS styling is too basic or primitive. You MUST write comprehensive custom CSS (using flex/grid, padding, border-radius, box-shadow) to perfectly match the premium reference UI."
+          };
+        }
       }
     }
 
