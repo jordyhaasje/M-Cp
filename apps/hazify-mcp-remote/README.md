@@ -1,4 +1,5 @@
 # Hazify MCP Remote
+Doelgroep: developers en coding agents.
 
 Remote Shopify MCP service op `/mcp` voor store-operaties via Shopify APIs.
 
@@ -6,10 +7,11 @@ Runtime: Node.js `>=22.12.0`.
 
 ## Scope
 - Wel: producten, klanten, orders, tracking, refunds, theme file CRUD.
-- Wel: batch theme file deploy/verificatie via `upsert-theme-files`, `get-theme-files`, `verify-theme-files`.
-- Wel: metadata/advisering voor externe theme-import tooling via `list_theme_import_tools` (zoals lokale Chrome MCP en Shopify Dev MCP).
-- Niet: section generatie/import.
-- Niet: browser automation (Chrome/Playwright/headless runtime).
+- Wel: guarded preview/apply flow via `draft-theme-artifact`, `apply-theme-draft`, `get-theme-file(s)` en `verify-theme-files`.
+- Wel: reference-analyse via `analyze-reference-ui`, optioneel verrijkt door de visual worker.
+- Wel: metadata/advisering voor externe review tooling via `list_theme_import_tools`.
+- Niet: automatische JSON template placement of blind live section-import.
+- Niet: browser automation binnen de hoofd-MCP runtime.
 
 ## Start (remote)
 ```bash
@@ -31,10 +33,9 @@ npm run --workspace @hazify/mcp-remote start:fallback:stdio
 - Shopify credentials worden niet via introspection gedeeld; remote haalt per token een interne Shopify access token op via `/v1/mcp/token/exchange`
 
 ## Externe theme-workflow
-`AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`
+`AI Client -> analyze-reference-ui -> draft-theme-artifact -> merchant review -> apply-theme-draft`
 
-Deze service voert geen browserinspectie, section-generatie of section-import uit.
-De service doet wel remote deploy/verificatie van vooraf voorbereide theme files.
+Deze service doet de guarded preview/apply flow en kan reference specs verrijken via een aparte visual worker.
 
 ## Tests
 ```bash

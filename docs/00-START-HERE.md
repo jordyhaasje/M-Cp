@@ -16,6 +16,7 @@ De monorepo is opgebouwd via npm workspaces. `src/` is de enige bron van waarhei
 
 - `apps/hazify-license-service/`: Node.js service voor account, OAuth, billing en token-exchange. (Entry: `src/server.js`)
 - `apps/hazify-mcp-remote/`: Remote MCP service via `/mcp`. (Entry: `src/index.js`)
+- `apps/hazify-visual-worker/`: Optionele visual-analysis service voor verrijkte reference specs achter een feature flag. (Entry: `src/server.js`)
 - `packages/shopify-core/`: Gedeelde Shopify logica (`normalizeShopDomain`, `REQUIRED_SHOPIFY_ADMIN_SCOPES`, en gecentraliseerde GraphQL error afhandeling via `assertNoUserErrors`).
 - `packages/mcp-common/`: Gedeelde utility functies en scope string afhandeling.
 - `docs/`: Alle actieve documentatie.

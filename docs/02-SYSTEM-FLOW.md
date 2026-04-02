@@ -30,18 +30,19 @@ De Remote MCP implementeert **géén eigen browser runtime of local generation**
 
 <!-- BEGIN: TOOLS_LIST -->
 - **`add-tracking-to-order`**: Alias of set-order-tracking. Kept for compatibility.
-- **`analyze-reference-ui`**: Fetches en analyseert een externe URL als visuele referentie, stript agressief onnodige tags (<script>, svg, data-uri), en formatteert de HTML naar een extreem token-efficiënte, Pug-achtige Markdown representatie met strikt behoud van Classes en IDs voor UI / CSS component modeling.
+- **`analyze-reference-ui`**: Fetch and analyze an external reference URL as compact DOM guidance for Shopify section generation. The tool strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, and adds a structured referenceSpec. When visual analysis is enabled it can enrich the result through the visual worker.
+- **`apply-theme-draft`**: Apply a previously drafted theme artifact to an explicit target theme. This is the promote/apply step after draft-theme-artifact has prepared and verified the files.
 - **`clone-product-from-url`**: Clone a public Shopify product URL into your connected store with options, variants, prices and media.
 - **`create-product`**: Create a new product. When using productOptions, Shopify registers all option values but only creates one default variant (first value of each option, price $0). Use manage-product-variants with strategy=REMOVE_STANDALONE_VARIANT afterward to create all real variants with prices.
 - **`delete-product`**: Delete a product
 - **`delete-product-variants`**: Delete one or more variants from a product
 - **`delete-theme-file`**: Delete a file from a Shopify theme (defaults to live theme role=main).
-- **`draft-theme-artifact`**: DIT IS DE ENIGE TOOL OM THEME FILES AAN TE MAKEN OF TE UPDATEN. Scaffoldt en lints code wijzigingen lokaal via een virtuele gatekeeper. Naast een strenge theme-check-node security pass worden bestanden veilig in PostgreSQL gelogd, waarna ze (bij 100% goedkeuring) weggeschreven worden naar de live winkel (of op te snorren preview thema's).
+- **`draft-theme-artifact`**: Draft and validate Shopify theme files through the guarded preview pipeline. This is the only supported remote create/update path for theme artifacts: files are inspected, linted, stored in theme_drafts, pushed to a preview-safe target by default, and verified after write before they are ready for merchant review.
 
 ⚠️ EXTREMELY CRITICAL STRICT CODE GENERATION RULES ⚠️
 Rule 1 (UI/UX): Code MUST represent modern, premium Shopify 2.0 UI. NEVER use visible native scrollbars (::-webkit-scrollbar { display: none; }). Use modern CSS (scroll-snap-type, display: grid, gap, aspect-ratio).
-Rule 2 (Dynamic Schema): NEVER hardcode texts, colors, or image URLs in the HTML. EVERY visual element MUST be bound to a setting in the {% schema %} (using color_picker, image_picker, text, richtext, range for padding/margins).
-Rule 3 (Blocks): Sliders, grids, and galleries MUST use the blocks architecture so merchants can add/remove items in the editor.
+Rule 2 (Dynamic Schema): NEVER hardcode texts, colors, or image URLs in the HTML. EVERY visual element MUST be bound to a setting in the {% schema %} (using color_picker, image_picker, text, richtext, range for spacing/layout controls).
+Rule 3 (Blocks): Sliders, grids, and galleries MUST use the blocks architecture so merchants can add/remove/reorder content in the editor.
 Rule 4 (Presets): Every section MUST have a complete presets array with default blocks so it appears in the Theme Editor.
 Rule 5 (Mobile First): Always include responsive CSS (media queries) so the layout adapts flawlessly to mobile.
 - **`get-customer-orders`**: Get orders for a specific customer
@@ -55,7 +56,7 @@ Rule 5 (Mobile First): Always include responsive CSS (media queries) so the layo
 - **`get-theme-file`**: Read a file from a Shopify theme (defaults to live theme role=main).
 - **`get-theme-files`**: Read multiple files from a Shopify theme with metadata-first default output.
 - **`get-themes`**: List available Shopify themes (including the live theme).
-- **`list_theme_import_tools`**: List metadata/advice for external tools used outside this remote MCP for visual review or external import workflows. Do not use this for normal native section creation inside the remote MCP.
+- **`list_theme_import_tools`**: List metadata/advice for external tools used outside this remote MCP for visual review workflows. Do not use this for the normal remote draft/apply flow.
 - **`manage-product-options`**: Create, update, or delete product options (e.g. Size, Color). Use action='create' to add options, 'update' to rename or add/remove values, 'delete' to remove options.
 - **`manage-product-variants`**: Create or update product variants. Omit variant id to create new, include id to update existing.
 - **`refund-order`**: Create a full or partial refund for an order using Shopify refundCreate.
@@ -69,12 +70,13 @@ Rule 5 (Mobile First): Always include responsive CSS (media queries) so the layo
 - **`verify-theme-files`**: Verify multiple theme files by expected metadata (size/checksumMd5).
 <!-- END: TOOLS_LIST -->
 
-1. **Native OS 2.0 Section Creation:** Maken en plaatsen van JSON gebaseerde OS 2.0 componenten gaat uitsluitend direct via `create-theme-section`.
-2. **Resolve en Edit:** Om tokenoverhead en trage readbacks te minimaliseren voor AI agents:
-   - Identificeer altijd eerst via `search-theme-files` voordat je een bestand opent of aanpast.
-   - Gebruik `get-theme-file` / `upsert-theme-file(s)` alléén als het bestand echt is bevestigd via de target resolves.
-4. **Externe review tooling**: metadata over lokale externe tools is opvraagbaar via `list_theme_import_tools`. Dit vertelt hoe external (local) review workflows moeten worden opgezet.
-5. **Visuele UI Scrapen (Referenties):** De MCP heeft een ingebouwde token-geoptimaliseerde scraper (`analyze-reference-ui`). Deze laadt websites in via `cheerio`, stript agressief zware elementen (zoals SVG, script, data-uri afbeeldingen) en retourneert class/id structuren als compacte Pug-achtige Markdown. Dit verhoogt de context window stabiliteit aanzienlijk bij referentie-onderzoek.
+1. **Resolve en Read First:** Om tokenoverhead en foutieve edits te minimaliseren:
+   - Identificeer altijd eerst via `search-theme-files` voordat je een bestand opent of wijzigt.
+   - Gebruik `get-theme-file` / `get-theme-files` pas nadat het juiste target-bestand is bevestigd.
+2. **Guarded Preview Flow:** Theme create/update loopt via `draft-theme-artifact`. Die tool inspecteert, lint en verifieert writes en schrijft standaard preview-first naar een `development` theme.
+3. **Explicit Apply Flow:** Live of ander target toepassen gebeurt pas via `apply-theme-draft` met expliciete bevestiging.
+4. **Externe review tooling:** Metadata over lokale externe tools is opvraagbaar via `list_theme_import_tools`. Dit is adviserend en geen vervanging voor de native draft/apply flow.
+5. **Visuele UI Scrapen (Referenties):** `analyze-reference-ui` gebruikt een lichte Cheerio-analyse en kan optioneel worden verrijkt via de visual worker. De output bevat compacte markup plus een gestructureerde `referenceSpec` voor hogere fidelity.
 6. **Theme Development Best Practices (LLM Instructies):**
    - **Stop Guessing:** AI-agents mogen NOOIT blind gokken naar bestandsnamen zoals 'base.css' of 'product.json'. Ze moeten verplicht `search-theme-files` gebruiken.
    - **Asset Registration:** Als de AI een nieuw CSS/JS asset aanmaakt, weet het dat Shopify dit niet automatisch inlaadt. Het moet expliciet gekoppeld worden in de layout (bijv. in `layout/theme.liquid` via `{{ 'filename.css' | asset_url | stylesheet_tag }}`).
@@ -85,9 +87,9 @@ Model: `AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/v
 
 De Remote MCP beschikt over diepliggende veiligheidsmechanismen tegen malformatie en LLM-hallucinaties:
 1. **Tenant Isolation:** Iedere integratie en tool call is strict geïsoleerd op de shop en tenant van de gekoppelde GraphQL/REST sessie. Cross-tenant data leakages door AI LLM-hallucineren is hiermee op netwerk- en applicatieniveau fundamenteel geblokkeerd.
-2. **Tool Hardening (Zod Validaties):** Gevaarlijke of destructieve mutaties vereisen expliciete `confirmation` strings en een `auditReason`. De exacte literals zijn: `"CREATE_THEME_SECTION"`, `"UPSERT_THEME_FILE"`, `"UPSERT_THEME_FILES"`, `"DELETE_THEME_FILE"`. Als de argumenten missen of invalid zijn, blokkeert Zod de API call. *(Voor AI-agents: "OpenAI safety check" errors tijdens writes betekenen vrijwel altijd een gefaalde Zod validatie. Controleer de schema-argumenten via `AGENTS.md`.)*
+2. **Tool Hardening (Zod Validaties):** Gevaarlijke of destructieve mutaties vereisen expliciete `confirmation` strings en een `reason`. Voor de theme-flow zijn dat nu `"APPLY_THEME_DRAFT"` en `"DELETE_THEME_FILE"`. Als argumenten missen of invalid zijn, blokkeert Zod de API call. *(Voor AI-agents: "OpenAI safety check" errors tijdens writes betekenen vrijwel altijd een gefaalde Zod validatie. Controleer de schema-argumenten via `AGENTS.md`.)*
 3. **Smart JSON Safeguard:** Via API JSON templates aanmaken of wijzigen (`templates/*.json` en `config/*.json`) is een harde blokkade, ter bescherming van homepage destructie. De LLM stuurt losse theme bestanden aan, waarna de merchant zélf via z'n Theme Editor kan plaatsen.
 4. **Core File Protection:** Kritieke infrastructuur-bestanden (zoals `layout/theme.liquid`) blokkeren API saves indien vitale tags, specifiek `{{ content_for_header }}` en `{{ content_for_layout }}`, ontbreken in de payload. Ze mogen bovendien nooit via integraties verwijderd worden.
-5. **API Rate Limiting & Batch Limits (Exponential Backoff):** De Shopify REST Asset API (gebruikt voor theme files) is onderhevig aan strenge request limits. Om Out-Of-Memory (OOM) crashes op de Railway server en timeouts te voorkomen, is er op alle opslag- en leesoperaties (zoals `upsert-theme-files`, `get-theme-files` en `verify-theme-files`) een **harde Zod-limiet van maximaal 10 bestanden** ingesteld per request. Theme-operaties hergebruiken voorts automatische interne  *Exponential Backoff* mechanismes om succes op bulk mutaties te garanderen en HTTP 429-errors netjes af te vangen.
+5. **API Rate Limiting & Batch Limits (Exponential Backoff):** Om OOM-crashes en timeouts op Railway te voorkomen, is er op alle theme opslag- en leesoperaties een **harde limiet van maximaal 10 bestanden** ingesteld per request. Theme-operaties hergebruiken automatische interne *Exponential Backoff* mechanismes om HTTP 429-errors netjes af te vangen.
 6. **Distributed Concurrency Locks:** Om concurrerende wijzigingen in single-files over meerdere applicatie-containers (op Railway) veilig te serialiseren, wordt er voor iedere theme schrijfoperatie een deterministische *PostgreSQL Advisory Lock* afgedwongen (i.p.v. memory-locks). Toekomstige draft-edits en staging logica steunen op the PostgreSQL `theme_drafts` backend tabel voor schaalbare integratie.
-7. **Defense in Depth (LLM Hallucinations):** Systeem-tools bevatten interne fallbacks (zoals de `content` -> `value` auto-mapping) én agressieve Zod schema validaties om veelvoorkomende parameter-fouten van LLM's te herstellen zonder dat de request stuk loopt.
+7. **Defense in Depth (LLM Hallucinations):** Systeem-tools combineren agressieve Zod schema-validaties, guarded preview writes, verify-after-write en draft-statusregistratie in `theme_drafts` om parameter-fouten en onveilige live writes tegen te houden.

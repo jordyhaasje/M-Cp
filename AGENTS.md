@@ -39,18 +39,19 @@ Gebruik altijd de `mcp__shopify-mcp__*` tools. Beschikbare tools voor API-intera
 
 <!-- BEGIN: TOOLS_LIST -->
 - **`add-tracking-to-order`**: Alias of set-order-tracking. Kept for compatibility.
-- **`analyze-reference-ui`**: Fetches en analyseert een externe URL als visuele referentie, stript agressief onnodige tags (<script>, svg, data-uri), en formatteert de HTML naar een extreem token-efficiënte, Pug-achtige Markdown representatie met strikt behoud van Classes en IDs voor UI / CSS component modeling.
+- **`analyze-reference-ui`**: Fetch and analyze an external reference URL as compact DOM guidance for Shopify section generation. The tool strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, and adds a structured referenceSpec. When visual analysis is enabled it can enrich the result through the visual worker.
+- **`apply-theme-draft`**: Apply a previously drafted theme artifact to an explicit target theme. This is the promote/apply step after draft-theme-artifact has prepared and verified the files.
 - **`clone-product-from-url`**: Clone a public Shopify product URL into your connected store with options, variants, prices and media.
 - **`create-product`**: Create a new product. When using productOptions, Shopify registers all option values but only creates one default variant (first value of each option, price $0). Use manage-product-variants with strategy=REMOVE_STANDALONE_VARIANT afterward to create all real variants with prices.
 - **`delete-product`**: Delete a product
 - **`delete-product-variants`**: Delete one or more variants from a product
 - **`delete-theme-file`**: Delete a file from a Shopify theme (defaults to live theme role=main).
-- **`draft-theme-artifact`**: DIT IS DE ENIGE TOOL OM THEME FILES AAN TE MAKEN OF TE UPDATEN. Scaffoldt en lints code wijzigingen lokaal via een virtuele gatekeeper. Naast een strenge theme-check-node security pass worden bestanden veilig in PostgreSQL gelogd, waarna ze (bij 100% goedkeuring) weggeschreven worden naar de live winkel (of op te snorren preview thema's).
+- **`draft-theme-artifact`**: Draft and validate Shopify theme files through the guarded preview pipeline. This is the only supported remote create/update path for theme artifacts: files are inspected, linted, stored in theme_drafts, pushed to a preview-safe target by default, and verified after write before they are ready for merchant review.
 
 ⚠️ EXTREMELY CRITICAL STRICT CODE GENERATION RULES ⚠️
 Rule 1 (UI/UX): Code MUST represent modern, premium Shopify 2.0 UI. NEVER use visible native scrollbars (::-webkit-scrollbar { display: none; }). Use modern CSS (scroll-snap-type, display: grid, gap, aspect-ratio).
-Rule 2 (Dynamic Schema): NEVER hardcode texts, colors, or image URLs in the HTML. EVERY visual element MUST be bound to a setting in the {% schema %} (using color_picker, image_picker, text, richtext, range for padding/margins).
-Rule 3 (Blocks): Sliders, grids, and galleries MUST use the blocks architecture so merchants can add/remove items in the editor.
+Rule 2 (Dynamic Schema): NEVER hardcode texts, colors, or image URLs in the HTML. EVERY visual element MUST be bound to a setting in the {% schema %} (using color_picker, image_picker, text, richtext, range for spacing/layout controls).
+Rule 3 (Blocks): Sliders, grids, and galleries MUST use the blocks architecture so merchants can add/remove/reorder content in the editor.
 Rule 4 (Presets): Every section MUST have a complete presets array with default blocks so it appears in the Theme Editor.
 Rule 5 (Mobile First): Always include responsive CSS (media queries) so the layout adapts flawlessly to mobile.
 - **`get-customer-orders`**: Get orders for a specific customer
@@ -64,7 +65,7 @@ Rule 5 (Mobile First): Always include responsive CSS (media queries) so the layo
 - **`get-theme-file`**: Read a file from a Shopify theme (defaults to live theme role=main).
 - **`get-theme-files`**: Read multiple files from a Shopify theme with metadata-first default output.
 - **`get-themes`**: List available Shopify themes (including the live theme).
-- **`list_theme_import_tools`**: List metadata/advice for external tools used outside this remote MCP for visual review or external import workflows. Do not use this for normal native section creation inside the remote MCP.
+- **`list_theme_import_tools`**: List metadata/advice for external tools used outside this remote MCP for visual review workflows. Do not use this for the normal remote draft/apply flow.
 - **`manage-product-options`**: Create, update, or delete product options (e.g. Size, Color). Use action='create' to add options, 'update' to rename or add/remove values, 'delete' to remove options.
 - **`manage-product-variants`**: Create or update product variants. Omit variant id to create new, include id to update existing.
 - **`refund-order`**: Create a full or partial refund for an order using Shopify refundCreate.
@@ -87,11 +88,14 @@ Rule 5 (Mobile First): Always include responsive CSS (media queries) so the layo
 
 ### Theme workflow (verplicht)
 1. Haal themes op met `get-themes` en bevestig live theme (`role=main`) of gebruik expliciet `themeId`.
-2. Gebruik `upsert-theme-file`/`delete-theme-file` alleen na expliciete validatie van target-bestand.
-   * **CRITICAL**: LLM's hebben de neiging om een `content` parameter te hallucineren. Dit is ten strengste verboden. Gebruik ALTIJD de verplichte `value` parameter voor het doorgeven van letterlijke bestandsinhoud (broncode/tekst) of `sectionLiquid` waar van toepassing.
-3. Verifieer writes altijd met `get-theme-file`.
-4. Voor nieuwe OS 2.0 sections op ondersteunde JSON targets: gebruik `create-theme-section`.
-5. Gebruik `list_theme_import_tools` alleen voor expliciete externe review/import discovery buiten de native remote MCP flow.
+2. Gebruik `search-theme-files` vóór `get-theme-file` om het juiste target-bestand of de juiste section eerst te bevestigen.
+3. Gebruik voor create/update van theme code uitsluitend `draft-theme-artifact`.
+   * **CRITICAL**: Default target is preview-first (`themeRole=development`). Schrijven naar `main` mag alleen expliciet.
+   * Gebruik ALTIJD de verplichte `value` inhoud per bestand; er bestaat geen ondersteunde patch-mode of `content` parameter.
+4. Verifieer writes direct via de `verify` output van `draft-theme-artifact` of aanvullend met `get-theme-file` / `verify-theme-files`.
+5. Gebruik `apply-theme-draft` alleen wanneer een eerder draft expliciet naar een gekozen target gepromoot moet worden.
+6. Gebruik `delete-theme-file` alleen na expliciete validatie van het target-bestand.
+7. Gebruik `list_theme_import_tools` alleen voor expliciete externe review discovery buiten de normale remote draft/apply flow.
 6. **Limits & Concurrency**: Om de Railway server te beschermen is er een harde limiet van **maximaal 10 bestanden** per verzoek bij het ophalen, updaten of doorzoeken van thema's. Schrijfacties worden bovendien beveiligd met een **File Lock** (mutex). Krijg je een melding dat een bestand "locked by another operation" is, wacht dan even en probeer het rustig opnieuw.
 
 
@@ -138,8 +142,8 @@ Bedenk geen eigen, complexe CSS of JavaScript als de gebruiker om standaard web-
 - Vraagt de klant om een mobiele slider waarbij 1 item tegelijk in beeld is? Verwijder dan de `grid--peek` class en gebruik in je CSS patch: `width: 100% !important; flex: 0 0 100% !important; scroll-snap-align: center;` binnen een mobiele `@media` query.
 - Vraagt de klant om een slider met dots? Gebruik de standaard Shopify `<slider-component>` structuur.
 
-**STAP 4: Chirurgisch Patchen**
-Gebruik `upsert-theme-file` in Patch Mode (`searchString` en `replaceString`). Overschrijf nooit het hele bestand. Zorg dat je wijzigingen voor mobiel altijd strikt scheidt van desktop via `@media screen and (max-width: 749px)`. Bevestig met de verplichte string `"UPSERT_THEME_FILE"`.
+**STAP 4: Chirurgisch Draften**
+Gebruik `draft-theme-artifact` met alleen de relevante bestanden. Lees eerst het bestaande bestand in, pas alleen de noodzakelijke code aan en stuur vervolgens het volledige, bijgewerkte bestand via de guarded draft-pipeline. Wijzig JSON templates of config-bestanden nooit automatisch om een section live te plaatsen.
 
 *Uitzondering:* Als de vraag van de gebruiker écht te vaag is (bijv. "Maak het mooier" of "Fix de knop" zonder verdere context), gebruik dan geen tools, maar vraag de gebruiker eerst om opheldering: "Op welke pagina staat deze knop en welke tekst staat erop, zodat ik het juiste bestand kan zoeken?"
 
@@ -149,34 +153,31 @@ Gebruik `upsert-theme-file` in Patch Mode (`searchString` en `replaceString`). O
 1. **Stop Guessing:** Gok NOOIT blind naar bestandsnamen (zoals 'base.css' of 'product.json'). Elk Shopify-thema is uniek. Gebruik altijd `search-theme-files` om de actuele bestandsstructuur te scannen.
 2. **Asset Registration:** Als je een nieuw asset (.css/.js) aanmaakt voor globale styling, onthoud dan dat Shopify dit NIET automatisch inlaadt. Je moet dit bestand expliciet koppelen in de layout (bijv. in `layout/theme.liquid` via `{{ 'filename.css' | asset_url | stylesheet_tag }}`).
 3. **Global Mutation Rule (Scope Protection):** Overschrijf NOOIT een bestaande, globale sectie (zoals `sections/image-with-text.liquid`) als de klant vraagt om een specifieke aanpassing op één pagina. In Shopify 2.0 breekt dit de styling op alle andere pagina's. 
-   - FOUT: Bestaande sectie direct overschrijven met `upsert-theme-file` of hardcoden met `{% if section.id == ... %}`.
-   - GOED (BEST PRACTICE): Gebruik ALTIJD de `create-theme-section` tool om een nieuwe, veilige custom variant te maken (bijv. `sections/image-with-text-custom.liquid`) óf voeg een checkbox/schema-instelling toe aan de bestaande sectie zonder de default layout te breken.
-4. **Save Tokens (Find & Replace):** Gebruik bij kleine aanpassingen in grote, bestaande bestanden (zoals base.css) NOOIT de `value` parameter om het hele bestand te herschrijven. Gebruik in plaats daarvan de parameters `searchString` en `replaceString` om alleen het specifieke blokje code te patchen.
+   - FOUT: Bestaande sectie direct overschrijven zonder eerst impact op andere templates te beoordelen, of hardcoden met `{% if section.id == ... %}`.
+   - GOED (BEST PRACTICE): Maak via `draft-theme-artifact` een nieuwe veilige custom variant (bijv. `sections/image-with-text-custom.liquid`) óf voeg een checkbox/schema-instelling toe aan de bestaande sectie zonder de default layout te breken.
+4. **Save Tokens (Scope Protection):** Gebruik `search-theme-files` om kleine, gerichte snippets te vinden voordat je een groot bestand volledig inleest. Houd draft-batches klein en wijzig nooit meer bestanden dan nodig.
 5. **De Geverifieerde Workflow (Lezen = Weten):** Gok NOOIT of een thema bepaalde instellingen heeft. Bij vragen over simpele visuele wijzigingen (zoals het aanpassen van kleuren of lettertypes), patch je niet direct de CSS. Lees eerst `config/settings_data.json` of het specifieke sectie-bestand uit. Controleer of dit een instelling is (zoals een `color_scheme` in het schema) die de klant gewoon in de Shopify Theme Editor kan aanpassen. Als dat zo is, voer dan **GEEN code-wijziging** uit, maar vertel de klant waar ze dit in hun dashboard kunnen vinden. Dit bespaart token-kosten en voorkomt het onnodig patchen van bestanden.
 
 ## Veiligheidsregels
 - Geen destructieve actie op aannames.
 - Bij ontbrekende data: eerst verifiëren, dan pas uitvoeren.
-- Voor destructieve en financiële mutaties (zoals `delete-product`, `delete-theme-file`, `upsert` overwrites, `refund-order` en `update-order`) dwingt de API een verplichte `confirmation` string (en vaak een `reason`) af. Lees het Zod-schema zorgvuldig en genereer deze fields nooit zonder doordachte "Chain of Thought" over de noodzaak. De exacte vereiste literals per theme-schrijf-tool zijn:
+- Voor destructieve en financiële mutaties (zoals `delete-product`, `delete-theme-file`, `apply-theme-draft`, `refund-order` en `update-order`) dwingt de API een verplichte `confirmation` string (en vaak een `reason`) af. Lees het Zod-schema zorgvuldig en genereer deze fields nooit zonder doordachte "Chain of Thought" over de noodzaak. De exacte vereiste literals per theme-tool zijn:
   | Tool | Vereiste `confirmation` literal |
   |---|---|
-  | `create-theme-section` | `"CREATE_THEME_SECTION"` |
-  | `upsert-theme-file` | `"UPSERT_THEME_FILE"` |
-  | `upsert-theme-files` | `"UPSERT_THEME_FILES"` |
+  | `apply-theme-draft` | `"APPLY_THEME_DRAFT"` |
   | `delete-theme-file` | `"DELETE_THEME_FILE"` |
 - Het wijzigen van `layout/theme.liquid` is kritiek. Zorg altijd dat `content_for_header` en `content_for_layout` behouden blijven. Verwijderen is intern geblokkeerd ter bescherming.
-- LLM's mogen NOOIT proberen secties "live" te zetten of de layout te wijzigen door JSON templates (zoals `templates/index.json` of bestanden in `config/`) aan te passen. Dit is strikt verboden wegens kans op homepage destructie. Een taak voor het maken van een section is direct voltooid zodra de losse bronbestanden (.liquid, .css, .js) succesvol via de API zijn aangemaakt in hun map. Instrueer de klant om de gemaakte sectie toe te voegen via de Shopify Theme Editor.
+- LLM's mogen NOOIT proberen secties live te plaatsen of de layout te wijzigen door JSON templates (zoals `templates/index.json` of bestanden in `config/`) automatisch aan te passen. Dit blijft strikt verboden wegens kans op homepage destructie. Een taak voor het maken van een section is voltooid zodra de losse bronbestanden veilig in een preview theme zijn aangemaakt; plaatsing in templates blijft een expliciete merchant- of vervolgactie.
 - Nooit refunds doen zonder expliciete validatie van bedrag en scope.
 - Productimport is niet klaar zonder gecontroleerde variant-media.
 - Trackingnummer/vervoerder nooit via `customAttributes` of losse metafields bijwerken; altijd fulfillment-tracking gebruiken.
-- Geen section-create uitvoeren zonder expliciete target-validatie; unsupported importflows blijven extern.
 - Deel geen gevoelige data buiten Shopify-context.
 
 ### OpenAI Safety Check Workaround
 Als je een foutmelding krijgt over "This tool call was blocked by OpenAI's safety checks" (bijvoorbeeld bij `search-theme-files` of `get-theme-file`), komt dit vaak doordat de payload te groot of onleesbaar is (zoals enorme geminificeerde bestanden), of doordat je zoekopdracht te breed was. 
 **Oplossing:** Maak je actie specifieker. Gebruik bij zoekopdrachten altijd strikte `filePatterns` of `scope`. Probeer niet de hele codebase in één keer te lezen.
 
-*(Let op bij schrijf-acties: Krijg je deze fout tijdens een upsert, dan heb je de Zod-validatie gefaald door bijv. `confirmation` te missen of `content` i.p.v. `value` te gebruiken.)*
+*(Let op bij schrijf-acties: Krijg je deze fout tijdens een draft/apply/delete actie, dan heb je meestal de Zod-validatie gefaald door bijv. een verplichte confirmation of een verplichte `value` te missen.)*
 
 ## Snelheidsmodus (als snelheid belangrijk is)
 1. Product uit URL: `clone-product-from-url`

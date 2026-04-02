@@ -1,0 +1,389 @@
+{
+  "generatedAt": "2026-04-02T21:22:01.889Z",
+  "tools": [
+    {
+      "name": "add-tracking-to-order",
+      "canonicalName": "set-order-tracking",
+      "description": "Alias of set-order-tracking. Kept for compatibility.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "analyze-reference-ui",
+      "canonicalName": "analyze-reference-ui",
+      "description": "Fetch and analyze an external reference URL as compact DOM guidance for Shopify section generation. The tool strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, and adds a structured referenceSpec. When visual analysis is enabled it can enrich the result through the visual worker.",
+      "requiresShopifyClient": false,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "apply-theme-draft",
+      "canonicalName": "apply-theme-draft",
+      "description": "Apply a previously drafted theme artifact to an explicit target theme. This is the promote/apply step after draft-theme-artifact has prepared and verified the files.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "clone-product-from-url",
+      "canonicalName": "clone-product-from-url",
+      "description": "Clone a public Shopify product URL into your connected store with options, variants, prices and media.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "create-product",
+      "canonicalName": "create-product",
+      "description": "Create a new product. When using productOptions, Shopify registers all option values but only creates one default variant (first value of each option, price $0). Use manage-product-variants with strategy=REMOVE_STANDALONE_VARIANT afterward to create all real variants with prices.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "delete-product",
+      "canonicalName": "delete-product",
+      "description": "Delete a product",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "delete-product-variants",
+      "canonicalName": "delete-product-variants",
+      "description": "Delete one or more variants from a product",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "delete-theme-file",
+      "canonicalName": "delete-theme-file",
+      "description": "Delete a file from a Shopify theme (defaults to live theme role=main).",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "draft-theme-artifact",
+      "canonicalName": "draft-theme-artifact",
+      "description": "Draft and validate Shopify theme files through the guarded preview pipeline. This is the only supported remote create/update path for theme artifacts: files are inspected, linted, stored in theme_drafts, pushed to a preview-safe target by default, and verified after write before they are ready for merchant review.\n\n⚠️ EXTREMELY CRITICAL STRICT CODE GENERATION RULES ⚠️\nRule 1 (UI/UX): Code MUST represent modern, premium Shopify 2.0 UI. NEVER use visible native scrollbars (::-webkit-scrollbar { display: none; }). Use modern CSS (scroll-snap-type, display: grid, gap, aspect-ratio).\nRule 2 (Dynamic Schema): NEVER hardcode texts, colors, or image URLs in the HTML. EVERY visual element MUST be bound to a setting in the {% schema %} (using color_picker, image_picker, text, richtext, range for spacing/layout controls).\nRule 3 (Blocks): Sliders, grids, and galleries MUST use the blocks architecture so merchants can add/remove/reorder content in the editor.\nRule 4 (Presets): Every section MUST have a complete presets array with default blocks so it appears in the Theme Editor.\nRule 5 (Mobile First): Always include responsive CSS (media queries) so the layout adapts flawlessly to mobile.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "get-customer-orders",
+      "canonicalName": "get-customer-orders",
+      "description": "Get orders for a specific customer",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "get-customers",
+      "canonicalName": "get-customers",
+      "description": "Get customers or search by name/email",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "get-license-status",
+      "canonicalName": "get-license-status",
+      "description": "Return current license status, effective access, and MCP scope capabilities.",
+      "requiresShopifyClient": false,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "get-order-by-id",
+      "canonicalName": "get-order-by-id",
+      "description": "READ-ONLY: fetch a specific order and tracking status. Does not update anything.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "get-orders",
+      "canonicalName": "get-orders",
+      "description": "READ-ONLY: get orders with optional filtering by status. Supports cursor pagination.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "get-product-by-id",
+      "canonicalName": "get-product-by-id",
+      "description": "Get a specific product by ID",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "get-products",
+      "canonicalName": "get-products",
+      "description": "Get all products or search by title",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "get-supported-tracking-companies",
+      "canonicalName": "get-supported-tracking-companies",
+      "description": "Get Shopify-supported tracking carriers that can be selected in the order fulfillment tracking UI",
+      "requiresShopifyClient": false,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "get-theme-file",
+      "canonicalName": "get-theme-file",
+      "description": "Read a file from a Shopify theme (defaults to live theme role=main).",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "get-theme-files",
+      "canonicalName": "get-theme-files",
+      "description": "Read multiple files from a Shopify theme with metadata-first default output.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "get-themes",
+      "canonicalName": "get-themes",
+      "description": "List available Shopify themes (including the live theme).",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "list_theme_import_tools",
+      "canonicalName": "list_theme_import_tools",
+      "description": "List metadata/advice for external tools used outside this remote MCP for visual review workflows. Do not use this for the normal remote draft/apply flow.",
+      "requiresShopifyClient": false,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "manage-product-options",
+      "canonicalName": "manage-product-options",
+      "description": "Create, update, or delete product options (e.g. Size, Color). Use action='create' to add options, 'update' to rename or add/remove values, 'delete' to remove options.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "manage-product-variants",
+      "canonicalName": "manage-product-variants",
+      "description": "Create or update product variants. Omit variant id to create new, include id to update existing.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "refund-order",
+      "canonicalName": "refund-order",
+      "description": "Create a full or partial refund for an order using Shopify refundCreate.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "search-theme-files",
+      "canonicalName": "search-theme-files",
+      "description": "Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    },
+    {
+      "name": "set-order-tracking",
+      "canonicalName": "set-order-tracking",
+      "description": "One-shot tracking update tool for LLMs: resolves order reference, updates fulfillment tracking, and returns verification-ready output.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "update-customer",
+      "canonicalName": "update-customer",
+      "description": "Update a customer's information",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "update-fulfillment-tracking",
+      "canonicalName": "update-fulfillment-tracking",
+      "description": "Update order shipment tracking in the actual fulfillment record (not custom attributes/metafields). fulfillmentId is optional; when omitted, the latest non-cancelled fulfillment is updated automatically.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "update-order",
+      "canonicalName": "update-order",
+      "description": "Update an existing order with new information",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "update-order-tracking",
+      "canonicalName": "set-order-tracking",
+      "description": "Alias of set-order-tracking. Kept for compatibility.",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "update-product",
+      "canonicalName": "update-product",
+      "description": "Update an existing product's fields (title, description, status, tags, etc.)",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": true,
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false
+      }
+    },
+    {
+      "name": "verify-theme-files",
+      "canonicalName": "verify-theme-files",
+      "description": "Verify multiple theme files by expected metadata (size/checksumMd5).",
+      "requiresShopifyClient": true,
+      "writeScopeRequired": false,
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true
+      }
+    }
+  ]
+}

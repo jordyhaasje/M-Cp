@@ -7,6 +7,8 @@ const docsIndexPath = path.join(docsDir, "README.md");
 const startHerePath = path.join(docsDir, "00-START-HERE.md");
 const rootReadmePath = path.join(repoRoot, "README.md");
 const agentsPath = path.join(repoRoot, "AGENTS.md");
+const remoteReadmePath = path.join(repoRoot, "apps/hazify-mcp-remote/README.md");
+const toolManifestPath = path.join(docsDir, "archive/artifacts/tool-manifest.json");
 
 const problems = [];
 
@@ -126,6 +128,18 @@ async function main() {
     readText(docsIndexPath),
     readText(startHerePath),
   ]);
+  const toolManifest = JSON.parse(await readText(toolManifestPath));
+  const toolNames = new Set((toolManifest.tools || []).map((tool) => tool.name));
+  const forbiddenToolMentions = [
+    "create-theme-section",
+    "upsert-theme-file",
+    "upsert-theme-files",
+  ];
+  const forbiddenPhrases = [
+    "section creation/placement in supported JSON targets",
+    "stript agressief zware elementen (zoals SVG",
+    "content -> value auto-mapping",
+  ];
 
   const actualActiveDocs = await listTopLevelDocs();
   const indexedDocs = extractSectionCodePaths(docsIndexContent, "Actief")
@@ -157,6 +171,7 @@ async function main() {
   const markdownFilesToCheck = [
     agentsPath,
     docsIndexPath,
+    remoteReadmePath,
     ...actualActiveDocs.map((file) => path.join(repoRoot, file)),
   ];
   for (const filePath of markdownFilesToCheck) {
@@ -165,6 +180,48 @@ async function main() {
       problems.push(`missing doelgroep line near top of ${toPosixPath(path.relative(repoRoot, filePath))}`);
     }
     await checkMarkdownLinks(filePath);
+
+    for (const legacyTool of forbiddenToolMentions) {
+      if (content.includes(legacyTool)) {
+        problems.push(
+          `${toPosixPath(path.relative(repoRoot, filePath))}: legacy tool mention detected: ${legacyTool}`
+        );
+      }
+    }
+
+    for (const phrase of forbiddenPhrases) {
+      if (content.includes(phrase)) {
+        problems.push(
+          `${toPosixPath(path.relative(repoRoot, filePath))}: stale workflow phrase detected: ${phrase}`
+        );
+      }
+    }
+
+    for (const match of content.matchAll(/`([a-z0-9_-]+)`/gi)) {
+      const token = match[1];
+      if (
+        token.includes("-") &&
+        (token.startsWith("get-") ||
+          token.startsWith("set-") ||
+          token.startsWith("update-") ||
+          token.startsWith("delete-") ||
+          token.startsWith("manage-") ||
+          token.startsWith("clone-") ||
+          token.startsWith("draft-") ||
+          token.startsWith("apply-") ||
+          token.startsWith("search-") ||
+          token.startsWith("refund-") ||
+          token.startsWith("analyze-") ||
+          token.startsWith("list_") ||
+          token.startsWith("add-"))
+      ) {
+        if (!toolNames.has(token)) {
+          problems.push(
+            `${toPosixPath(path.relative(repoRoot, filePath))}: verwijst naar onbekende tool: ${token}`
+          );
+        }
+      }
+    }
   }
 
   if (problems.length > 0) {
