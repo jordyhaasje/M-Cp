@@ -335,10 +335,24 @@ CREATE TABLE IF NOT EXISTS theme_drafts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   shop_domain TEXT NOT NULL,
   status TEXT NOT NULL,
-  files_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  files_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  reference_input_json JSONB,
+  reference_spec_json JSONB,
+  lint_report_json JSONB,
+  verify_result_json JSONB,
+  preview_theme_id BIGINT,
+  applied_theme_id BIGINT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE theme_drafts ALTER COLUMN files_json SET DEFAULT '[]'::jsonb;
+ALTER TABLE theme_drafts ADD COLUMN IF NOT EXISTS reference_input_json JSONB;
+ALTER TABLE theme_drafts ADD COLUMN IF NOT EXISTS reference_spec_json JSONB;
+ALTER TABLE theme_drafts ADD COLUMN IF NOT EXISTS lint_report_json JSONB;
+ALTER TABLE theme_drafts ADD COLUMN IF NOT EXISTS verify_result_json JSONB;
+ALTER TABLE theme_drafts ADD COLUMN IF NOT EXISTS preview_theme_id BIGINT;
+ALTER TABLE theme_drafts ADD COLUMN IF NOT EXISTS applied_theme_id BIGINT;
 `;
     await this.pool.query(sql);
   }

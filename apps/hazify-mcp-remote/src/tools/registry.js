@@ -4,6 +4,7 @@ import { createProduct } from "./createProduct.js";
 import { deleteProduct } from "./deleteProduct.js";
 import { deleteProductVariants } from "./deleteProductVariants.js";
 import { deleteThemeFileTool } from "./deleteThemeFile.js";
+import { applyThemeDraft } from "./applyThemeDraft.js";
 import { draftThemeArtifact } from "./draftThemeArtifact.js";
 
 import { getCustomerOrders } from "./getCustomerOrders.js";
@@ -202,6 +203,50 @@ const searchThemeFilesOutputSchema = z
   })
   .passthrough();
 
+const analyzeReferenceUiOutputSchema = z
+  .object({
+    success: z.boolean(),
+    url: z.string().nullable().optional(),
+    selector: z.string().nullable().optional(),
+    contentLength: z.number().optional(),
+    markup: z.string().optional(),
+    referenceSpec: passthroughObject().optional(),
+    analysisMode: z.string().optional(),
+    fidelityWarnings: z.array(z.string()).optional(),
+    sources: z.array(passthroughObject()).optional(),
+    error: z.string().optional(),
+  })
+  .passthrough();
+
+const draftThemeArtifactOutputSchema = z
+  .object({
+    success: z.boolean(),
+    status: z.string(),
+    draftId: z.string().optional(),
+    themeId: z.union([z.number(), z.string()]).nullable().optional(),
+    editorUrl: z.string().nullable().optional(),
+    message: z.string(),
+    verify: passthroughObject().optional(),
+    target: passthroughObject().optional(),
+    warnings: z.array(z.string()).optional(),
+    draft: passthroughObject().optional(),
+    errors: z.array(passthroughObject()).optional(),
+  })
+  .passthrough();
+
+const applyThemeDraftOutputSchema = z
+  .object({
+    success: z.boolean(),
+    status: z.string(),
+    draftId: z.string(),
+    theme: passthroughObject().nullable().optional(),
+    verify: passthroughObject().optional(),
+    message: z.string(),
+    editorUrl: z.string().nullable().optional(),
+    draft: passthroughObject().nullable().optional(),
+  })
+  .passthrough();
+
 const createAnnotations = ({ writeScopeRequired = false, destructive = false, idempotent } = {}) => ({
   readOnlyHint: !writeScopeRequired,
   destructiveHint: destructive,
@@ -293,8 +338,20 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
     requiresShopifyClient: false,
     outputSchema: getLicenseStatusOutputSchema,
   }),
-  defineToolManifest(analyzeReferenceUi, { requiresShopifyClient: false }),
-  defineToolManifest(draftThemeArtifact, { writeScopeRequired: true, idempotent: false }),
+  defineToolManifest(analyzeReferenceUi, {
+    requiresShopifyClient: false,
+    outputSchema: analyzeReferenceUiOutputSchema,
+  }),
+  defineToolManifest(draftThemeArtifact, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: draftThemeArtifactOutputSchema,
+  }),
+  defineToolManifest(applyThemeDraft, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: applyThemeDraftOutputSchema,
+  }),
 ];
 
 const buildAliasToolDefinitions = (canonicalDefinitions) => {
