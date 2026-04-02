@@ -24,6 +24,7 @@ Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazif
 - `PUBLIC_BASE_URL` en `MCP_PUBLIC_URL`.
 
 ### Remote MCP (Productievereisten)
+- `DATABASE_URL` is verplicht zodra je guarded theme draft/apply en PostgreSQL advisory locks in productie gebruikt.
 - `HAZIFY_MCP_INTROSPECTION_URL`
 - `HAZIFY_MCP_API_KEY` (moet sterke secret van >=16 tekens zijn)
 - `MCP_SESSION_MODE` is standaard **`stateless`**. Stateful deployment is alleen aanbevolen met sticky sessions (`MCP_STATEFUL_DEPLOYMENT_SAFE=true`).
@@ -31,6 +32,7 @@ Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazif
 - `HAZIFY_VISUAL_ANALYSIS_ENABLED=false` zolang de visual worker nog niet expliciet is geactiveerd.
 - `HAZIFY_VISUAL_WORKER_URL` voor hybrid reference analysis wanneer de feature flag actief is.
 - `HAZIFY_VISUAL_ANALYSIS_TIMEOUT_MS` voor externe analyse-tijdslimieten.
+- Alleen buiten productie mag de remote nog terugvallen op in-memory theme draft opslag.
 
 ### Visual Worker (Productievereisten)
 - `PORT` of `HAZIFY_VISUAL_WORKER_PORT`

@@ -30,6 +30,7 @@ npm run --workspace @hazify/mcp-remote start:fallback:stdio
 - OAuth metadata adverteert PKCE `S256`
 - MCP session mode default: `stateless` (`MCP_SESSION_MODE=stateless`)
 - `stateful` mode is opt-in (`MCP_SESSION_MODE=stateful`) en vereist sticky sessions of gedeelde session store
+- `DATABASE_URL` is in productie vereist voor `theme_drafts` persistence en PostgreSQL advisory locks op theme writes
 - Shopify credentials worden niet via introspection gedeeld; remote haalt per token een interne Shopify access token op via `/v1/mcp/token/exchange`
 
 ## Externe theme-workflow

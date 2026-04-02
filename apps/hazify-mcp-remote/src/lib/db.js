@@ -5,11 +5,35 @@ let pool = null;
 let themeDraftSchemaPromise = null;
 const inMemoryThemeDrafts = new Map();
 
+function allowInMemoryThemeDrafts() {
+  const nodeEnv = String(process.env.NODE_ENV || "").trim().toLowerCase();
+  if (nodeEnv === "production") {
+    return false;
+  }
+  return true;
+}
+
+function assertThemeDraftDatabaseAvailable() {
+  if (process.env.DATABASE_URL) {
+    return;
+  }
+  if (allowInMemoryThemeDrafts()) {
+    return;
+  }
+  throw new Error(
+    "DATABASE_URL is verplicht voor theme draft persistence en advisory locks in productie."
+  );
+}
+
 export function getDbPool() {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) {
-      console.warn('DATABASE_URL is niet ingesteld. Database lock / functionaliteit wordt overgeslagen als mocks actief zijn, anders zal dit falen.');
+      if (allowInMemoryThemeDrafts()) {
+        console.warn(
+          'DATABASE_URL is niet ingesteld. In-memory theme draft fallback is actief buiten productie.'
+        );
+      }
       return null;
     }
     const isLocalMock = process.env.NODE_ENV === 'test';
@@ -20,6 +44,7 @@ export function getDbPool() {
 
 async function ensureThemeDraftSchema() {
   if (!process.env.DATABASE_URL) {
+    assertThemeDraftDatabaseAvailable();
     return null;
   }
 
@@ -198,6 +223,7 @@ export async function getThemeDraftRecord(draftId) {
  */
 export async function tryAcquireThemeFileLock(themeId, fileKey) {
   if (!process.env.DATABASE_URL) {
+    assertThemeDraftDatabaseAvailable();
     // Return dummy lock in contexten zonder DB URL (zoals unit tests)
     return async () => {};
   }
