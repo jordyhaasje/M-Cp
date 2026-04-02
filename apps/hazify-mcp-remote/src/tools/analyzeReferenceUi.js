@@ -102,8 +102,8 @@ export const analyzeReferenceUi = {
       const html = await response.text();
       const $ = cheerio.load(html);
 
-      // Agressieve strip van onnodige content
-      $("script, style, svg, path, iframe, noscript, link, meta, head").remove();
+      // Agressieve strip van onnodige content (we behouden svg en path)
+      $("script, style, iframe, noscript, link, meta, head").remove();
       $("img[src^='data:']").remove();
 
       // Selecteer root
@@ -124,7 +124,7 @@ export const analyzeReferenceUi = {
       let markup = generatePugLikeMarkdown(rootNode[0], $);
       
       if (markup.length > 0) {
-        markup += "\n\n--- TAILORED SYSTEM DIRECTIVE (BASED ON DOM ANALYSIS) ---\nYou MUST strictly follow this tailored directive to generate the section code. Do not default to a minimalist schema.\n1. VISUAL MATCH: Look at the user's uploaded screenshot. Extract the exact hex codes for background/text, typography weights, and aspect-ratios. Match the design 1-to-1.\n2. SETTINGS DISCOVERY (MANDATORY): DOM complexity analysis requires tailored settings. You MUST create dynamic color/range/text settings in the {% schema %} to control:\n   - *If Slider/Grid:* Autoplay (boolean), show-arrows (boolean), show-dots (boolean), slide-interval (range), stack-on-mobile (toggle).\n   - *If Text Overlays:* Text alignment (select), text font-size (range), text color (color_picker).\n   - *Global Controls:* Background/text colors, aspect_ratio (select), object_fit (select), Primary vs Secondary Button style.\n3. Shopify OS 2.0 Compliance: Scoped CSS (#shopify-section-{{ section.id }}), image_tag filter, and a comprehensive 'presets' array with default blocks are MANDATORY for Editor visibility.\n4. Push via draftThemeArtifact tool.";
+        markup += "\n\n--- TAILORED SYSTEM DIRECTIVE (BASED ON DOM ANALYSIS) ---\nYou MUST strictly follow this tailored directive to generate the section code. Do not default to a minimalist schema.\n1. VISUAL MATCH: Look at the user's uploaded screenshot. Extract the exact hex codes for background/text, typography weights, and aspect-ratios. Match the design 1-to-1.\n2. SETTINGS DISCOVERY (MANDATORY): DOM complexity analysis requires tailored settings. You MUST create dynamic color/range/text settings in the {% schema %} to control:\n   - *If Slider/Grid:* Autoplay (boolean), show-arrows (boolean), show-dots (boolean), slide-interval (range), stack-on-mobile (toggle).\n   - *If Text Overlays:* Text alignment (select), text font-size (range), text color (color_picker).\n   - *Global Controls:* Background/text colors, aspect_ratio (select), object_fit (select), Primary vs Secondary Button style.\n3. Shopify OS 2.0 Compliance: Scoped CSS (#shopify-section-{{ section.id }}), image_tag filter, and a comprehensive 'presets' array with default blocks are MANDATORY for Editor visibility.\n4. ASSETS & ICONS: The HTML now contains the original <svg> tags. You MUST extract these exact <svg> elements and embed them directly into your Liquid code for 1-to-1 UI fidelity (arrows, icons, etc.). For standard images (<img>), continue using Shopify placeholder_svg_tag bound to an image_picker.\n5. Push via draftThemeArtifact tool.";
       }
 
       return {
