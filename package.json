@@ -20,8 +20,10 @@
     "start": "node scripts/start-service.mjs",
     "start:license": "npm run --workspace @hazify/license-service start",
     "start:mcp": "npm run --workspace @hazify/mcp-remote build && npm run --workspace @hazify/mcp-remote start:remote",
+    "start:visual-worker": "npm run --workspace @hazify/visual-worker start",
     "railway:link:mcp": "railway link -p Hazify-MCP-Remote -e production -s Hazify-MCP-Remote",
-    "railway:link:license": "railway link -p Hazify-License-Service -e production -s Hazify-License-Service"
+    "railway:link:license": "railway link -p Hazify-License-Service -e production -s Hazify-License-Service",
+    "railway:link:visual-worker": "railway link -p Hazify-MCP-Remote -e production -s Hazify-Visual-Worker"
   },
   "engines": {
     "node": ">=22.12.0"

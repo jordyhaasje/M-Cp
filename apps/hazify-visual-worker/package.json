@@ -1,0 +1,19 @@
+{
+  "name": "@hazify/visual-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Hazify visual reference analysis worker for enriched section cloning",
+  "scripts": {
+    "build": "node --check src/referenceAnalysis.js && node --check src/server.js",
+    "start": "node src/server.js",
+    "test": "node tests/run.mjs"
+  },
+  "dependencies": {
+    "@hazify/mcp-common": "file:../../packages/mcp-common",
+    "cheerio": "^1.2.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
