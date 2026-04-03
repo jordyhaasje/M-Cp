@@ -49,9 +49,10 @@ async function main() {
     workflows: {
       newSectionFromReference: {
         label: "Nieuwe section uit reference",
-        tools: ["analyze-reference-ui", "draft-theme-artifact"],
+        tools: ["prepare-section-from-reference", "draft-theme-artifact"],
+        diagnostics: ["analyze-reference-ui"],
         description:
-          "Gebruik deze flow voor een nieuwe section op basis van een reference URL en optionele image hints. Vermijd extra read-tools tenzij de gebruiker expliciet een bestaand bestand wil wijzigen.",
+          "Gebruik deze flow voor een nieuwe section op basis van een reference URL, optionele image hints en bij voorkeur een sectionHint voor subsection targeting. Vermijd extra read-tools tenzij de gebruiker expliciet een bestaand bestand wil wijzigen.",
       },
       existingThemeEdit: {
         label: "Bestaande theme edit",
@@ -66,6 +67,9 @@ async function main() {
       automaticTemplatePlacement: false,
       visualWorkerMode: "url-first-fallback",
       noLiquidInStylesheetOrJavascript: true,
+      defaultNewSectionTool: "prepare-section-from-reference",
+      analyzeReferenceUiRole: "diagnostic-only",
+      sectionHintRecommendedForMultiSectionPages: true,
     },
   };
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');

@@ -21,6 +21,7 @@ import { getThemes } from "./getThemes.js";
 import { listThemeImportTools } from "./listThemeImportTools.js";
 import { manageProductOptions } from "./manageProductOptions.js";
 import { manageProductVariants } from "./manageProductVariants.js";
+import { prepareSectionFromReference } from "./prepareSectionFromReference.js";
 import { refundOrder } from "./refundOrder.js";
 import { analyzeReferenceUi } from "./analyzeReferenceUi.js";
 import { searchThemeFilesTool } from "./searchThemeFiles.js";
@@ -215,12 +216,15 @@ const analyzeReferenceUiOutputSchema = z
     fidelityWarnings: z.array(z.string()).optional(),
     sources: z.array(passthroughObject()).optional(),
     sectionPlan: passthroughObject().optional(),
+    sectionBlueprint: passthroughObject().optional(),
+    selectionEvidence: passthroughObject().optional(),
     errorCode: z.string().nullable().optional(),
     retryable: z.boolean().optional(),
     nextAction: passthroughObject().optional(),
     suggestedFiles: z.array(passthroughObject()).optional(),
     requiredInputs: z.array(z.string()).optional(),
     generationHints: z.array(z.string()).optional(),
+    fidelityRisks: z.array(z.string()).optional(),
     usedVisualWorker: z.boolean().optional(),
     fidelityUpgradeApplied: z.boolean().optional(),
     workerWarnings: z.array(z.string()).optional(),
@@ -351,6 +355,10 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
   defineToolManifest(createGetLicenseStatusTool(getLicenseStatusExecute), {
     requiresShopifyClient: false,
     outputSchema: getLicenseStatusOutputSchema,
+  }),
+  defineToolManifest(prepareSectionFromReference, {
+    requiresShopifyClient: false,
+    outputSchema: analyzeReferenceUiOutputSchema,
   }),
   defineToolManifest(analyzeReferenceUi, {
     requiresShopifyClient: false,

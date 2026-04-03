@@ -35,6 +35,15 @@ const ReferenceSpecSchema = z
   })
   .passthrough();
 
+const SectionBlueprintSchema = z
+  .object({
+    version: z.number().int().positive().optional(),
+    archetype: z.string().optional(),
+    recommendedPrimaryFile: z.string().optional(),
+    mediaPolicy: z.object({}).passthrough().optional(),
+  })
+  .passthrough();
+
 const ThemeDraftFileSchema = z.object({
   key: z.string().min(1).describe("De exacte filelocatie (bijv. sections/feature-sandbox.liquid)"),
   value: z
@@ -51,6 +60,7 @@ export const inputSchema = z.object({
   isStandalone: z.boolean().optional().describe("Mark as standalone workflow"),
   referenceInput: ReferenceSourceSchema.optional().describe("Optionele brondata van reference analysis voor draft audit trail."),
   referenceSpec: ReferenceSpecSchema.optional().describe("Optionele gestructureerde referenceSpec voor draft audit trail."),
+  sectionBlueprint: SectionBlueprintSchema.optional().describe("Optionele blueprint of section-plan uit prepare-section-from-reference zodat de draft minder vrij hoeft te interpreteren."),
 });
 
 function extractSchemaJson(value) {
@@ -90,7 +100,17 @@ function containsLiquidInSpecialBlock(value, tagName) {
   return getSpecialBlockContents(value, tagName).some((block) => /({{)|({%)/.test(block));
 }
 
-function inspectSectionFile(file) {
+function collectRawImgTags(value) {
+  return Array.from(String(value || "").matchAll(/<img\b([^>]*)>/gi), (match) => match[1] || "");
+}
+
+function hasRawImgWithoutDimensions(value) {
+  return collectRawImgTags(value).some(
+    (attributes) => !/\bwidth\s*=\s*["'][^"']+["']/i.test(attributes) || !/\bheight\s*=\s*["'][^"']+["']/i.test(attributes)
+  );
+}
+
+function inspectSectionFile(file, { sectionBlueprint } = {}) {
   const value = String(file.value || "");
   const warnings = [];
   const suggestedFixes = [];
@@ -151,6 +171,29 @@ function inspectSectionFile(file) {
   const settings = Array.isArray(schema.settings) ? schema.settings : [];
   const blocks = Array.isArray(schema.blocks) ? schema.blocks : [];
   const presets = Array.isArray(schema.presets) ? schema.presets : [];
+  const archetype = String(sectionBlueprint?.archetype || "").trim();
+  const prefersImageTag = sectionBlueprint?.mediaPolicy?.preferImageTag !== false;
+
+  if (hasRawImgWithoutDimensions(value)) {
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_media",
+      retryable: true,
+      message:
+        "Building Inspection Failed: raw <img> tags zonder width en height veroorzaken instabiele Shopify sections. Gebruik image_url + image_tag of geef expliciete afmetingen mee.",
+      warnings,
+      suggestedFixes: [
+        prefersImageTag
+          ? "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen."
+          : "Geef expliciete width en height attributen mee aan elke raw <img> tag.",
+        archetype
+          ? `Houd de media-output afgestemd op blueprint archetype '${archetype}' in plaats van generieke afbeeldingstags.`
+          : "Gebruik image_picker, collection of andere Shopify resource settings voor merchant-editable media.",
+      ],
+      shouldNarrowScope: false,
+    };
+  }
 
   if (presets.length === 0) {
     return {
@@ -290,10 +333,34 @@ function uniqueStrings(values) {
 
 function suggestFixesFromLintErrors(lintErrors = []) {
   return uniqueStrings(
-    lintErrors
-      .slice(0, 5)
-      .map((error) => `${error.file}: ${error.message}`)
+    lintErrors.slice(0, 5).flatMap((error) => {
+      if (error.check === "ImgWidthAndHeight") {
+        return [
+          `${error.file}: gebruik image_url + image_tag in plaats van een raw <img> zonder betrouwbare afmetingen.`,
+          `${error.file}: als een raw <img> toch nodig is, voeg dan expliciete width en height attributen toe.`,
+        ];
+      }
+      return `${error.file}: ${error.message}`;
+    })
   );
+}
+
+function classifyLintErrors(lintErrors = [], files = []) {
+  if (lintErrors.some((error) => error.check === "ImgWidthAndHeight")) {
+    return {
+      errorCode: "lint_failed_img_dimensions",
+      retryable: true,
+      shouldNarrowScope: false,
+      suggestedFixes: suggestFixesFromLintErrors(lintErrors),
+    };
+  }
+
+  return {
+    errorCode: "lint_failed_liquid",
+    retryable: true,
+    shouldNarrowScope: files.length > 3,
+    suggestedFixes: suggestFixesFromLintErrors(lintErrors),
+  };
 }
 
 function classifyPreviewUploadError(error, files) {
@@ -336,7 +403,14 @@ export const draftThemeArtifact = {
   schema: inputSchema,
   execute: async (args, context = {}) => {
     const shopifyClient = requireShopifyClient(context);
-    const { files, themeId, themeRole, referenceInput, referenceSpec } = args;
+    const { files, themeId, themeRole, referenceInput, referenceSpec, sectionBlueprint } = args;
+    const effectiveReferenceSpec =
+      sectionBlueprint || referenceSpec
+        ? {
+            ...(referenceSpec || {}),
+            ...(sectionBlueprint ? { sectionBlueprint } : {}),
+          }
+        : null;
     const warnings = [];
     const suggestedFixes = [];
 
@@ -352,7 +426,7 @@ export const draftThemeArtifact = {
 
     for (const file of files) {
       if (file.key.endsWith(".liquid") && file.key.startsWith("sections/")) {
-        const inspection = inspectSectionFile(file);
+        const inspection = inspectSectionFile(file, { sectionBlueprint });
         if (!inspection.ok) {
           return buildFailureResponse({
             status: inspection.status,
@@ -376,7 +450,7 @@ export const draftThemeArtifact = {
       status: "pending",
       files,
       referenceInput: referenceInput || null,
-      referenceSpec: referenceSpec || null,
+      referenceSpec: effectiveReferenceSpec,
     });
     const draftId = draftRecord?.id || `mock-${Date.now()}`;
 
@@ -411,6 +485,7 @@ export const draftThemeArtifact = {
     }
 
     if (lintErrors) {
+      const classifiedLint = classifyLintErrors(lintErrors, files);
       draftRecord = await updateThemeDraftRecord(draftId, {
         status: "lint_failed",
         lintReport: {
@@ -428,10 +503,10 @@ export const draftThemeArtifact = {
         errors: lintErrors,
         warnings,
         draft: buildDraftPayload(draftRecord, { warnings }),
-        errorCode: "lint_failed_liquid",
-        retryable: true,
-        suggestedFixes: [...suggestedFixes, ...suggestFixesFromLintErrors(lintErrors)],
-        shouldNarrowScope: files.length > 3,
+        errorCode: classifiedLint.errorCode,
+        retryable: classifiedLint.retryable,
+        suggestedFixes: [...suggestedFixes, ...classifiedLint.suggestedFixes],
+        shouldNarrowScope: classifiedLint.shouldNarrowScope,
       });
     }
 

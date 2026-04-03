@@ -4,7 +4,7 @@ import { fetchWithSafeRedirects } from "../lib/urlSecurity.js";
 
 export const toolName = "analyze-reference-ui";
 export const description =
-  "Fetch and analyze an external reference URL as compact DOM guidance for Shopify section generation. The tool strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, adds a structured referenceSpec, and returns an actionable sectionPlan so LLMs can go directly into draft-theme-artifact. Image inputs are treated as hints only unless a future multimodal stage exists.";
+  "Low-level diagnostic reference analysis for Shopify section generation. The tool fetches an external URL as compact DOM guidance, strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, adds a structured referenceSpec, and returns an actionable sectionPlan. Prefer prepare-section-from-reference as the default entrypoint for new sections; use analyze-reference-ui directly for selector-scoped debugging or narrow reference inspection.";
 
 const ReferenceInputSchema = z
   .object({
@@ -394,7 +394,7 @@ function buildRecommendedSchemaSettings({ $, rootNode, referenceSpec }) {
 
 function buildGenerationHints({ readyForDraft, primaryFileKey, hasImageHints }) {
   const hints = [
-    "Nieuwe sections uit een reference gebruiken standaard alleen analyze-reference-ui gevolgd door draft-theme-artifact.",
+    "Nieuwe sections uit een reference gebruiken standaard prepare-section-from-reference gevolgd door draft-theme-artifact. Gebruik analyze-reference-ui alleen voor low-level diagnose of selector-scoping.",
     `Standaard file policy: maak alleen \`${primaryFileKey}\` tenzij hergebruik of vaste locale copy extra files echt vereist.`,
     "Pas geen templates/*.json of config/*.json aan; merchants plaatsen de section zelf via de Theme Editor.",
     "Gebruik blocks alleen voor herhaalde content en voeg altijd presets toe.",

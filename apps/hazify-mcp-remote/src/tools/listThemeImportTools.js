@@ -32,7 +32,8 @@ const listThemeImportTools = {
         remoteMcpExecutesImports: false,
         notes: [
           "Remote Hazify MCP supports guarded preview/apply theme file workflows through draft-theme-artifact and apply-theme-draft.",
-          "For new sections cloned from a reference, the default flow is analyze-reference-ui -> draft-theme-artifact.",
+          "For new sections cloned from a reference, the default flow is prepare-section-from-reference -> draft-theme-artifact.",
+          "Use analyze-reference-ui only for low-level debugging or explicit selector-scoped inspection.",
           "Image-only cloning is not yet supported as a standalone import path; use image inputs only as hints alongside a reference URL.",
           "Use this tool only when you explicitly need metadata about external visual review workflows (for example local Chrome MCP or Shopify Dev MCP).",
         ],

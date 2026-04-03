@@ -114,6 +114,7 @@ const contextFreeFiles = new Set([
   path.join(toolsDir, "getLicenseStatus.js"),
   path.join(toolsDir, "getSupportedTrackingCompanies.js"),
   path.join(toolsDir, "listThemeImportTools.js"),
+  path.join(toolsDir, "prepareSectionFromReference.js"),
   path.join(toolsDir, "registry.js"),
   path.join(toolsDir, "analyzeReferenceUi.js"),
 ]);

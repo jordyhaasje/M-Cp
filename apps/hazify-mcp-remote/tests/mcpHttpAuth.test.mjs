@@ -417,6 +417,7 @@ try {
     : [];
   for (const expectedTool of [
     "get-products",
+    "prepare-section-from-reference",
     "refund-order",
     "get-theme-files",
     "draft-theme-artifact",

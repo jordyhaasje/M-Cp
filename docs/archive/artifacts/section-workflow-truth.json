@@ -1,13 +1,16 @@
 {
-  "generatedAt": "2026-04-03T09:35:40.557Z",
+  "generatedAt": "2026-04-03T10:21:03.523Z",
   "workflows": {
     "newSectionFromReference": {
       "label": "Nieuwe section uit reference",
       "tools": [
-        "analyze-reference-ui",
+        "prepare-section-from-reference",
         "draft-theme-artifact"
       ],
-      "description": "Gebruik deze flow voor een nieuwe section op basis van een reference URL en optionele image hints. Vermijd extra read-tools tenzij de gebruiker expliciet een bestaand bestand wil wijzigen."
+      "diagnostics": [
+        "analyze-reference-ui"
+      ],
+      "description": "Gebruik deze flow voor een nieuwe section op basis van een reference URL, optionele image hints en bij voorkeur een sectionHint voor subsection targeting. Vermijd extra read-tools tenzij de gebruiker expliciet een bestaand bestand wil wijzigen."
     },
     "existingThemeEdit": {
       "label": "Bestaande theme edit",
@@ -24,6 +27,9 @@
     "imageOnlyCloneSupported": false,
     "automaticTemplatePlacement": false,
     "visualWorkerMode": "url-first-fallback",
-    "noLiquidInStylesheetOrJavascript": true
+    "noLiquidInStylesheetOrJavascript": true,
+    "defaultNewSectionTool": "prepare-section-from-reference",
+    "analyzeReferenceUiRole": "diagnostic-only",
+    "sectionHintRecommendedForMultiSectionPages": true
   }
 }

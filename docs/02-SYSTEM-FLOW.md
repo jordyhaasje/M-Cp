@@ -27,7 +27,7 @@ De service in `apps/hazify-mcp-remote/src/index.js` luistert op HTTP transport.
 ## 4. Toolcatalogus
 <!-- BEGIN: TOOLS_LIST -->
 - **`add-tracking-to-order`**: Alias of set-order-tracking. Kept for compatibility.
-- **`analyze-reference-ui`**: Fetch and analyze an external reference URL as compact DOM guidance for Shopify section generation. The tool strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, adds a structured referenceSpec, and returns an actionable sectionPlan so LLMs can go directly into draft-theme-artifact. Image inputs are treated as hints only unless a future multimodal stage exists.
+- **`analyze-reference-ui`**: Low-level diagnostic reference analysis for Shopify section generation. The tool fetches an external URL as compact DOM guidance, strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, adds a structured referenceSpec, and returns an actionable sectionPlan. Prefer prepare-section-from-reference as the default entrypoint for new sections; use analyze-reference-ui directly for selector-scoped debugging or narrow reference inspection.
 - **`apply-theme-draft`**: Apply a previously drafted theme artifact to an explicit target theme. This is the promote/apply step after draft-theme-artifact has prepared and verified the files.
 - **`clone-product-from-url`**: Clone a public Shopify product URL into your connected store with options, variants, prices and media.
 - **`create-product`**: Create a new product. When using productOptions, Shopify registers all option values but only creates one default variant (first value of each option, price $0). Use manage-product-variants with strategy=REMOVE_STANDALONE_VARIANT afterward to create all real variants with prices.
@@ -56,6 +56,7 @@ Rule 5 (Shopify Constraints): Do not place Liquid inside {% stylesheet %} or {% 
 - **`list_theme_import_tools`**: List metadata/advice for external tools used outside this remote MCP for visual review workflows. Do not use this for the normal remote draft/apply flow.
 - **`manage-product-options`**: Create, update, or delete product options (e.g. Size, Color). Use action='create' to add options, 'update' to rename or add/remove values, 'delete' to remove options.
 - **`manage-product-variants`**: Create or update product variants. Omit variant id to create new, include id to update existing.
+- **`prepare-section-from-reference`**: Default preparation tool for new Shopify sections from a reference URL. It identifies the intended subsection using an optional sectionHint or targetHeading, enriches the reference via analyze-reference-ui, and returns a strict sectionBlueprint plus a direct nextAction for draft-theme-artifact. Image inputs remain hints or QA context only.
 - **`refund-order`**: Create a full or partial refund for an order using Shopify refundCreate.
 - **`search-theme-files`**: Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern.
 - **`set-order-tracking`**: One-shot tracking update tool for LLMs: resolves order reference, updates fulfillment tracking, and returns verification-ready output.
@@ -69,10 +70,12 @@ Rule 5 (Shopify Constraints): Do not place Liquid inside {% stylesheet %} or {% 
 
 ## 5. Section Clone Workflows
 ### Nieuwe section uit reference
-- Flow: `analyze-reference-ui` -> `draft-theme-artifact`
+- Flow: `prepare-section-from-reference` -> `draft-theme-artifact`
 - Dit is de standaardflow voor een nieuwe section op basis van een reference URL.
-- Gebruik voor nieuwe sections uit een reference niet standaard `get-themes` of `search-theme-files`.
-- `analyze-reference-ui` retourneert nu `sectionPlan`, `suggestedFiles`, `generationHints`, `nextAction`, `errorCode` en `retryable`, zodat de LLM minder hoeft te gokken.
+- Gebruik voor nieuwe sections uit een reference niet standaard `get-themes`, `search-theme-files` of `get-theme-file`.
+- Geef bij multi-section pagina's bij voorkeur een `sectionHint` of `targetHeading` mee zodat de juiste subsection gekozen wordt.
+- `prepare-section-from-reference` retourneert nu `sectionPlan`, `sectionBlueprint`, `selectionEvidence`, `suggestedFiles`, `generationHints`, `nextAction`, `errorCode` en `retryable`, zodat de LLM minder hoeft te gokken.
+- Gebruik `analyze-reference-ui` alleen voor low-level diagnose of expliciete selector-scoping.
 - URL-first met image hint is de ondersteunde route.
 - Image-only cloning wordt nog niet ondersteund zonder extra multimodale stap.
 
@@ -85,7 +88,7 @@ Rule 5 (Shopify Constraints): Do not place Liquid inside {% stylesheet %} or {% 
 2. `draft-theme-artifact` inspecteert, lint en verifieert writes en schrijft standaard preview-first naar een `development` theme.
 3. Live of ander target toepassen gebeurt pas via `apply-theme-draft` met expliciete confirmation.
 4. `list_theme_import_tools` is adviserend voor externe tooling en geen vervanging voor de native draft/apply flow.
-5. `analyze-reference-ui` gebruikt een lichte Cheerio-analyse en kan optioneel worden verrijkt via de visual worker.
+5. `prepare-section-from-reference` gebruikt intern een lichte Cheerio-analyse plus optionele visual worker verrijking via `analyze-reference-ui`.
 6. De visual worker is URL-based fidelity-verrijking. Hij begrijpt nog geen image-only cloning.
 
 ## 7. Shopify-conforme File Policy

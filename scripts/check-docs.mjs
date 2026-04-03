@@ -194,10 +194,12 @@ async function main() {
       agentsPath,
       [
         workflowManifest.workflows.newSectionFromReference.label,
-        "`analyze-reference-ui` -> `draft-theme-artifact`",
+        "`prepare-section-from-reference` -> `draft-theme-artifact`",
         workflowManifest.workflows.existingThemeEdit.label,
         "`search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`",
-        "Gebruik voor nieuwe sections uit een reference niet standaard `get-themes` of `search-theme-files`.",
+        "Gebruik voor nieuwe sections uit een reference niet standaard `get-themes`, `search-theme-files` of `get-theme-file`.",
+        "Gebruik `analyze-reference-ui` alleen voor low-level diagnose of expliciete selector-scoping.",
+        "Geef op multi-section pagina's bij voorkeur een `sectionHint` of `targetHeading` mee.",
         "Image-only cloning wordt nog niet ondersteund zonder extra multimodale stap.",
         "Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.",
       ],
@@ -206,18 +208,20 @@ async function main() {
       path.join(repoRoot, "docs/02-SYSTEM-FLOW.md"),
       [
         workflowManifest.workflows.newSectionFromReference.label,
-        "`analyze-reference-ui` -> `draft-theme-artifact`",
+        "`prepare-section-from-reference` -> `draft-theme-artifact`",
         workflowManifest.workflows.existingThemeEdit.label,
         "`search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`",
         "URL-first met image hint",
+        "Gebruik `analyze-reference-ui` alleen voor low-level diagnose",
         "Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.",
       ],
     ],
     [
       remoteReadmePath,
       [
-        "`analyze-reference-ui` -> `draft-theme-artifact`",
+        "`prepare-section-from-reference` -> `draft-theme-artifact`",
         "URL-first met image hint",
+        "Geef bij pagina's met meerdere sections een `sectionHint` of `targetHeading` mee",
       ],
     ],
     [
@@ -227,6 +231,7 @@ async function main() {
         "Bestaande theme edit",
         "Image-only cloning wordt nog niet ondersteund zonder extra multimodale stap.",
         "Standaard maakt de LLM alleen `sections/<handle>.liquid`.",
+        "Gebruik een sectietitel of korte hint wanneer de reference-pagina meerdere sections bevat.",
       ],
     ],
   ]);

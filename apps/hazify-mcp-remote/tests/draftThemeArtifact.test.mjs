@@ -66,6 +66,62 @@ test("draftThemeArtifact - fails when linter finds issues", async (t) => {
   assert.strictEqual(result.errors[0].severity, "error");
 });
 
+test("draftThemeArtifact - rejects raw img tags without reliable dimensions before lint upload", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      sectionBlueprint: {
+        archetype: "collection-card-grid",
+        mediaPolicy: { preferImageTag: true },
+      },
+      files: [
+        {
+          key: "sections/raw-img.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .card { display: grid; padding: 24px; border-radius: 18px; }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .card { padding: 16px; }
+  }
+</style>
+<div class="card">
+  <img src="{{ section.settings.image | image_url: width: 1200 }}" alt="{{ section.settings.heading }}">
+</div>
+{% schema %}
+{
+  "name": "Raw image demo",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "image_picker", "id": "image", "label": "Image" },
+    { "type": "range", "id": "gap", "label": "Gap", "min": 0, "max": 40, "step": 4, "default": 16 },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Raw image demo" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "inspection_failed_media");
+  assert.ok(
+    result.suggestedFixes.some((entry) => entry.includes("image_tag")),
+    "media failures should steer the model toward Shopify image_tag rendering"
+  );
+});
+
 test("draftThemeArtifact - success when linter passes (pushes directly to chosen theme)", async (t) => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",

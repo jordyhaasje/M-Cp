@@ -9,7 +9,7 @@ Runtime: Node.js `>=22.12.0`.
 - Wel: producten, klanten, orders, tracking, refunds en theme file CRUD.
 - Wel: guarded preview/apply flow via `draft-theme-artifact`, `apply-theme-draft`, `get-theme-file(s)` en `verify-theme-files`.
 - Wel: reference-analyse via `analyze-reference-ui`, optioneel verrijkt door de visual worker.
-- Wel: compacte section clone flow voor nieuwe sections: `analyze-reference-ui` -> `draft-theme-artifact`.
+- Wel: compacte section clone flow voor nieuwe sections: `prepare-section-from-reference` -> `draft-theme-artifact`.
 - Niet: automatische JSON template placement of blind live section-import.
 - Niet: browser automation binnen de hoofd-MCP runtime.
 - Niet: image-only cloning als zelfstandige capability; gebruik URL-first met image hint.
@@ -36,8 +36,10 @@ npm run --workspace @hazify/mcp-remote start:fallback:stdio
 
 ## Section flows
 ### Nieuwe section uit reference
-- `analyze-reference-ui` -> `draft-theme-artifact`
-- `analyze-reference-ui` levert `sectionPlan`, `suggestedFiles`, `generationHints`, `errorCode`, `retryable` en `nextAction`
+- `prepare-section-from-reference` -> `draft-theme-artifact`
+- Geef bij pagina's met meerdere sections een `sectionHint` of `targetHeading` mee
+- `prepare-section-from-reference` levert `sectionPlan`, `sectionBlueprint`, `selectionEvidence`, `suggestedFiles`, `generationHints`, `errorCode`, `retryable` en `nextAction`
+- gebruik `analyze-reference-ui` alleen voor low-level diagnose of expliciete selector-scoping
 - standaard outputpolicy: één `sections/<handle>.liquid`
 - URL-first met image hint
 
