@@ -88,6 +88,7 @@ Rule 5 (Shopify Constraints): Do not place Liquid inside {% stylesheet %} or {% 
 - Flow: `prepare-section-from-reference` -> `draft-theme-artifact`
 - Gebruik voor nieuwe sections uit een reference niet standaard `get-themes`, `search-theme-files` of `get-theme-file`.
 - Geef op multi-section pagina's bij voorkeur een `sectionHint` of `targetHeading` mee.
+- Een `sectionHint` mag een heading, componentnaam of korte descriptor zijn; de prepare-flow matcht ook op ids/classes en interactieve layoutsignalen.
 - Vertrouw op `sectionPlan`, `sectionBlueprint`, `suggestedFiles`, `generationHints` en `nextAction` uit `prepare-section-from-reference`.
 - Gebruik `analyze-reference-ui` alleen voor low-level diagnose of expliciete selector-scoping.
 - Image-only cloning wordt nog niet ondersteund zonder extra multimodale stap.

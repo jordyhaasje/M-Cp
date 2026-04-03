@@ -75,6 +75,16 @@ function tokenize(value) {
     .filter(Boolean);
 }
 
+function getPrimaryContentRoot($) {
+  const scopedRoot = $("#MainContent, main[role='main'], main").first();
+  if (scopedRoot.length) {
+    return scopedRoot;
+  }
+
+  const body = $("body").first();
+  return body.length ? body : $.root();
+}
+
 function scoreTextMatch(candidate, hint) {
   const normalizedCandidate = normalizeText(candidate);
   const normalizedHint = normalizeText(hint);
@@ -223,8 +233,10 @@ function findSectionRoot($, node) {
   return $(node);
 }
 
-function collectHeadingCandidates($) {
-  return $("h1, h2, h3, h4, h5, h6")
+function collectHeadingCandidates($, scopeRoot = null) {
+  const searchRoot = scopeRoot?.length ? scopeRoot : getPrimaryContentRoot($);
+  return searchRoot
+    .find("h1, h2, h3, h4, h5, h6")
     .toArray()
     .map((node) => {
       const element = $(node);
@@ -239,17 +251,170 @@ function collectHeadingCandidates($) {
     .filter(Boolean);
 }
 
+function rootSignatureText($, root) {
+  const element = $(root);
+  const ownSignature = `${element.attr("id") || ""} ${element.attr("class") || ""}`;
+  const descendantSignature = element
+    .find("[id], [class]")
+    .slice(0, 24)
+    .toArray()
+    .map((node) => `${$(node).attr("id") || ""} ${$(node).attr("class") || ""}`)
+    .join(" ");
+
+  return `${ownSignature} ${descendantSignature}`.trim();
+}
+
+function collectHintCandidates($, scopeRoot = null) {
+  const searchRoot = scopeRoot?.length ? scopeRoot : getPrimaryContentRoot($);
+  const nodeSet = new Set();
+  const candidates = [];
+
+  const candidateSelectors = [
+    ".shopify-section",
+    "section",
+    "article",
+    "aside",
+    "div[id*='section']",
+    "div[class*='section']",
+    "div[id*='slider']",
+    "div[class*='slider']",
+    "div[id*='carousel']",
+    "div[class*='carousel']",
+    "div[id*='gallery']",
+    "div[class*='gallery']",
+    "div[id*='tabs']",
+    "div[class*='tabs']",
+    "div[id*='accordion']",
+    "div[class*='accordion']",
+    "div[id*='testimonial']",
+    "div[class*='testimonial']",
+    "div[id*='feature']",
+    "div[class*='feature']",
+  ];
+
+  searchRoot.find(candidateSelectors.join(",")).each((_, node) => {
+    if (!node || nodeSet.has(node)) {
+      return;
+    }
+    nodeSet.add(node);
+    candidates.push($(node));
+  });
+
+  collectHeadingCandidates($, searchRoot).forEach((candidate) => {
+    const root = findSectionRoot($, candidate.node);
+    if (!root.length) {
+      return;
+    }
+    const node = root[0];
+    if (nodeSet.has(node)) {
+      return;
+    }
+    nodeSet.add(node);
+    candidates.push(root);
+  });
+
+  return candidates.filter((candidate) => {
+    const textLength = truncate(candidate.text(), 2400).length;
+    const mediaCount = candidate.find("img, video, iframe, svg").length;
+    const childCount = candidate.children().length;
+    return textLength >= 24 || mediaCount >= 1 || childCount >= 2;
+  });
+}
+
+function scoreHintCandidate($, root, hint) {
+  const element = $(root);
+  const signatureText = rootSignatureText($, element);
+  const headings = element
+    .find("h1, h2, h3, h4, h5, h6")
+    .toArray()
+    .map((node) => truncate($(node).text(), 180))
+    .filter(Boolean);
+  const headingMatch = headings.length
+    ? Math.max(...headings.map((value) => scoreTextMatch(value, hint)))
+    : 0;
+  const signatureMatch = scoreTextMatch(signatureText, hint);
+  const textPreview = truncate(element.text(), 320);
+  const textMatch = scoreTextMatch(textPreview, hint);
+  const signature = normalizeText(signatureText);
+
+  const videoCount = element.find("video, iframe[src*='youtube'], iframe[src*='vimeo']").length;
+  const mediaCount = element.find("img, video, iframe").length;
+  const svgCount = element.find("svg").length;
+  const sliderKeywordHits = element.find(
+    "[class*='slider'], [class*='carousel'], [class*='swiper'], [class*='splide'], [class*='embla'], [class*='flickity'], [class*='glide'], [data-slider], [data-carousel]"
+  ).length;
+  const slideItemCount = element.find(
+    ".swiper-slide, [class*='slide'], [data-slide], [class*='slides'] > *, [class*='track'] > *"
+  ).length;
+  const prevButtonCount = element.find(
+    "button[class*='prev'], a[class*='prev'], [role='button'][class*='prev'], button[aria-label*='prev' i], a[aria-label*='prev' i]"
+  ).length;
+  const nextButtonCount = element.find(
+    "button[class*='next'], a[class*='next'], [role='button'][class*='next'], button[aria-label*='next' i], a[aria-label*='next' i]"
+  ).length;
+  const paginationCount = element.find(
+    "[class*='pagination'], [class*='dots'], [class*='dot'], [class*='bullet'], [class*='indicator']"
+  ).length;
+  const repeatedItemCount = element.find("[class*='card'], [class*='item'], [class*='tile'], li, article").length;
+
+  let shellPenalty = 0;
+  if (/(header|footer|announcement|newsletter|modal|popup|drawer|cart|subtotal|mini cart)/i.test(signature)) {
+    shellPenalty += 5;
+  }
+  if (/(page title|main page|section main page|rte|breadcrumb)/i.test(signature)) {
+    shellPenalty += 3.5;
+  }
+  if (element.find(".shopify-section").length >= 2) {
+    shellPenalty += 2;
+  }
+  if (mediaCount === 0 && sliderKeywordHits === 0 && repeatedItemCount <= 1) {
+    shellPenalty += 2;
+  }
+
+  const score =
+    headingMatch * 6 +
+    signatureMatch * 8 +
+    textMatch * 2 +
+    Math.min(videoCount, 4) * 2 +
+    Math.min(sliderKeywordHits, 8) * 1.5 +
+    Math.min(prevButtonCount + nextButtonCount, 4) * 1.25 +
+    Math.min(paginationCount, 6) * 0.75 +
+    Math.min(slideItemCount, 10) * 0.7 +
+    Math.min(mediaCount, 8) * 0.35 +
+    Math.min(svgCount, 10) * 0.15 +
+    Math.min(repeatedItemCount, 10) * 0.15 -
+    shellPenalty;
+
+  return {
+    root: element,
+    selector: buildNodeSelector($, element[0]),
+    heading: headings[0] || null,
+    score: Number(score.toFixed(2)),
+    reasons: {
+      headingMatch: Number(headingMatch.toFixed(2)),
+      signatureMatch: Number(signatureMatch.toFixed(2)),
+      textMatch: Number(textMatch.toFixed(2)),
+      videoCount,
+      sliderKeywordHits,
+      slideItemCount,
+      prevButtonCount,
+      nextButtonCount,
+      paginationCount,
+      mediaCount,
+      shellPenalty: Number(shellPenalty.toFixed(2)),
+    },
+  };
+}
+
 function selectRootFromHint($, hint) {
-  const scored = collectHeadingCandidates($)
-    .map((candidate) => ({
-      ...candidate,
-      score: scoreTextMatch(candidate.text, hint),
-    }))
-    .filter((candidate) => candidate.score > 0)
+  const scopeRoot = getPrimaryContentRoot($);
+  const scored = collectHintCandidates($, scopeRoot)
+    .map((candidate) => scoreHintCandidate($, candidate, hint))
+    .filter((candidate) => candidate.score > 0.75)
     .sort((left, right) => right.score - left.score);
 
   const best = scored[0] || null;
-  if (!best || best.score < 0.45) {
+  if (!best) {
     return {
       ok: false,
       errorCode: "section_hint_not_found",
@@ -258,36 +423,53 @@ function selectRootFromHint($, hint) {
       selectionEvidence: {
         strategy: "section_hint",
         hint,
-        candidateHeadings: scored.slice(0, 5).map((entry) => ({
-          text: entry.text,
-          score: Number(entry.score.toFixed(2)),
+        candidateSections: scored.slice(0, 5).map((entry) => ({
+          selector: entry.selector,
+          heading: entry.heading,
+          score: entry.score,
+          reasons: entry.reasons,
         })),
       },
       requiredInputs: ["sectionHint"],
     };
   }
 
-  const root = findSectionRoot($, best.node);
+  const second = scored[1] || null;
+  const ambiguous =
+    second &&
+    Math.abs(best.score - second.score) < 1 &&
+    second.reasons.signatureMatch >= 0.7 &&
+    best.reasons.signatureMatch >= 0.7;
+
   return {
     ok: true,
-    root,
+    root: best.root,
     selectionEvidence: {
       strategy: "section_hint",
       hint,
-      matchedHeading: best.text,
-      matchScore: Number(best.score.toFixed(2)),
-      selector: buildNodeSelector($, root[0]),
-      candidateHeadings: scored.slice(0, 5).map((entry) => ({
-        text: entry.text,
-        score: Number(entry.score.toFixed(2)),
+      matchedHeading: best.heading,
+      matchScore: best.score,
+      selector: best.selector,
+      candidateSections: scored.slice(0, 5).map((entry) => ({
+        selector: entry.selector,
+        heading: entry.heading,
+        score: entry.score,
+        reasons: entry.reasons,
       })),
+      ...(ambiguous
+        ? {
+            ambiguityWarning:
+              "Meerdere rijke subsections matchen deze hint. De hoogste score is gekozen, maar extra input kan fidelity verbeteren.",
+          }
+        : {}),
     },
   };
 }
 
 function selectSingleSection($) {
+  const scopeRoot = getPrimaryContentRoot($);
   const candidates = uniqueStrings(
-    collectHeadingCandidates($)
+    collectHeadingCandidates($, scopeRoot)
       .map((candidate) => {
         const root = findSectionRoot($, candidate.node);
         if (!root.length || root.is("body")) {
@@ -312,7 +494,7 @@ function selectSingleSection($) {
     };
   }
 
-  const availableHeadings = collectHeadingCandidates($).slice(0, 8).map((entry) => entry.text);
+  const availableHeadings = collectHeadingCandidates($, scopeRoot).slice(0, 8).map((entry) => entry.text);
   return {
     ok: false,
     errorCode: "section_hint_required",
@@ -926,6 +1108,9 @@ export const prepareSectionFromReference = {
         sectionHint
           ? `Gebruik de hint '${sectionHint}' om de contentstructuur en merchant settings op deze subsection afgestemd te houden.`
           : "Geen expliciete sectionHint meegegeven; baseer de section alleen op de geselecteerde subsection.",
+        selection.selectionEvidence?.ambiguityWarning
+          ? "De gekozen subsection kwam uit meerdere sterke kandidaten. Gebruik een extra cssSelector of een concretere visuele hint als pixel-nauwkeurigheid kritiek is."
+          : null,
       ]);
 
       return {
@@ -953,6 +1138,7 @@ export const prepareSectionFromReference = {
         fidelityRisks: uniqueStrings([
           ...(analysis.sectionPlan?.fidelityRisks || []),
           ...(analysis.referenceSpec?.fidelityGaps || []),
+          ...(selection.selectionEvidence?.ambiguityWarning ? [selection.selectionEvidence.ambiguityWarning] : []),
         ]),
         nextAction: mergeNextAction(analysis.nextAction, {
           url,

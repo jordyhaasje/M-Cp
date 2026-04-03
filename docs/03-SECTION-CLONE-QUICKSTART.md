@@ -16,6 +16,8 @@ Gebruik dit document voor een **korte prompt** richting een LLM die met de Hazif
 ## Belangrijk om te weten
 - Image-only cloning wordt nog niet ondersteund zonder extra multimodale stap.
 - Gebruik een sectietitel of korte hint wanneer de reference-pagina meerdere sections bevat.
+- Een hint mag in de praktijk een heading, componentnaam of korte descriptor zijn, zolang die de bedoelde subsection duidelijk onderscheidt.
+- De prepare-flow matcht hints niet alleen op headings, maar ook op section-signatures zoals ids, classes en interactieve layoutsignalen.
 - Standaard maakt de LLM alleen `sections/<handle>.liquid`.
 - De LLM mag geen `templates/*.json` of `config/*.json` aanpassen om een section live te plaatsen.
 - Merchants plaatsen de nieuwe section daarna zelf via de Shopify Theme Editor.

@@ -184,6 +184,38 @@ function extractStyleSignals(rawCss) {
   };
 }
 
+function extractAnimationSignals(rawCss) {
+  const css = String(rawCss || "");
+  const transitionDurations = Array.from(
+    css.matchAll(/transition-duration\s*:\s*([^;}{]+)/gi),
+    (match) => truncate(match[1], 80)
+  );
+  const timingFunctions = Array.from(
+    css.matchAll(/(?:transition|animation)-timing-function\s*:\s*([^;}{]+)/gi),
+    (match) => truncate(match[1], 80)
+  );
+  const transformPatterns = Array.from(
+    css.matchAll(/transform\s*:\s*([^;}{]+)/gi),
+    (match) => truncate(match[1], 120)
+  );
+  const hoverStates = Array.from(
+    css.matchAll(/([^,{]+):hover\b/gi),
+    (match) => truncate(match[1], 120)
+  );
+  const entranceEffects = Array.from(
+    css.matchAll(/(?:animation-name|@keyframes)\s*:?\s*([a-z0-9_-]+)/gi),
+    (match) => truncate(match[1], 80)
+  );
+
+  return {
+    transitionDurations: uniqueStrings(transitionDurations).slice(0, 12),
+    timingFunctions: uniqueStrings(timingFunctions).slice(0, 12),
+    transformPatterns: uniqueStrings(transformPatterns).slice(0, 12),
+    hoverStates: uniqueStrings(hoverStates).slice(0, 12),
+    entranceEffects: uniqueStrings(entranceEffects).slice(0, 12),
+  };
+}
+
 function defaultInteractiveFeatures() {
   return {
     hasSlider: false,
@@ -245,6 +277,278 @@ function defaultAnimationFeatures() {
   };
 }
 
+function buildNodeSelector($, node) {
+  const element = $(node);
+  if (!element.length) {
+    return null;
+  }
+
+  const id = element.attr("id");
+  if (id) {
+    return `#${id}`;
+  }
+
+  const tag = String(element.prop("tagName") || "").toLowerCase();
+  const classNames = (element.attr("class") || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  if (tag && classNames.length) {
+    return `${tag}.${classNames.join(".")}`;
+  }
+  if (tag) {
+    return tag;
+  }
+  return null;
+}
+
+function parseNumericAttrValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const numeric = Number.parseFloat(String(value));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function hasSemanticClassMatch(value, pattern) {
+  return String(value || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .some((token) => pattern.test(token));
+}
+
+function collectStaticInteractionSignals({ $, rootNode, inlineStyles = [], stylesheetUrls = [], scriptTexts = [], scriptUrls = [] }) {
+  const root = $(rootNode);
+  const html = root.html() || "";
+  const rootTokenCandidates = uniqueStrings(
+    [
+      root.attr("id") || "",
+      ...(root.attr("class") || "").split(/\s+/),
+      ...root
+        .find("[id], [class]")
+        .slice(0, 16)
+        .toArray()
+        .flatMap((node) => [$(node).attr("id") || "", ...($(node).attr("class") || "").split(/\s+/)]),
+    ]
+      .map((value) => String(value || "").trim())
+      .filter((value) => value.length >= 4)
+  );
+  const relevantScriptTexts = scriptTexts.filter((scriptText) => {
+    if (!rootTokenCandidates.length) {
+      return false;
+    }
+    const haystack = String(scriptText || "");
+    return rootTokenCandidates.some((token) => haystack.includes(token));
+  });
+  const combinedScriptText = relevantScriptTexts.join("\n");
+  const combinedCss = inlineStyles.join("\n");
+  const signature = `${root.attr("id") || ""} ${root.attr("class") || ""} ${html.slice(0, 12000)} ${combinedScriptText.slice(0, 12000)}`;
+
+  const interactiveFeatures = defaultInteractiveFeatures();
+  const sliderFeatures = defaultSliderFeatures();
+  const iconFeatures = defaultIconFeatures();
+  const controlFeatures = defaultControlFeatures();
+  const animationFeatures = {
+    ...defaultAnimationFeatures(),
+    ...extractAnimationSignals(combinedCss),
+  };
+
+  const videoNodes = root.find("video");
+  const videoSources = uniqueStrings(
+    videoNodes
+      .toArray()
+      .map((node) => $(node).attr("src") || $(node).attr("data-src"))
+      .filter(Boolean)
+  );
+  const iframeNodes = root.find("iframe[src]");
+  const sliderContainers = root.find(
+    [
+      ".swiper",
+      ".swiper-container",
+      "[class*='swiper']",
+      "[class*='slider']",
+      "[class*='carousel']",
+      "[class*='splide']",
+      "[class*='embla']",
+      "[class*='flickity']",
+      "[class*='glide']",
+      "[data-slider]",
+      "[data-carousel]",
+    ].join(",")
+  );
+  const explicitTrackNode = root
+    .find(".swiper-wrapper, [class*='wrapper'][class*='swiper'], [class*='track'], [class*='slides']")
+    .filter((_, node) => $(node).children().length >= 2)
+    .first();
+  const fallbackTrackNode = sliderContainers
+    .filter((_, node) => $(node).children().length >= 2)
+    .first();
+  const trackNode = explicitTrackNode.length ? explicitTrackNode : fallbackTrackNode;
+  const slideNodes = root
+    .find(".swiper-slide, [data-slide], [class]")
+    .filter((_, node) => {
+      if ($(node).is(".swiper-slide, [data-slide]")) {
+        return true;
+      }
+      const className = $(node).attr("class") || "";
+      return hasSemanticClassMatch(className, /(^|[_-])slides?([_-]|$)/i);
+    });
+  const prevButtons = root.find(
+    "button[class*='prev'], a[class*='prev'], [role='button'][class*='prev'], button[aria-label*='prev' i], a[aria-label*='prev' i]"
+  );
+  const nextButtons = root.find(
+    "button[class*='next'], a[class*='next'], [role='button'][class*='next'], button[aria-label*='next' i], a[aria-label*='next' i]"
+  );
+  const dotCandidates = root.find(
+    "[class*='dots'], [class*='dot'], [class*='pagination'], [class*='bullet'], [class*='indicator']"
+  );
+  const dotButtons = root.find("button, span, li").filter((_, node) => {
+    const element = $(node);
+    const signatureText = `${element.attr("class") || ""} ${element.attr("aria-label") || ""} ${truncate(element.text(), 40)}`;
+    return /(dot|dots|bullet|pagination|pager|indicator|slide\s+\d+)/i.test(signatureText);
+  });
+  const tabNodes = root.find("[role='tab'], [role='tablist'], [class*='tab']");
+  const accordionNodes = root.find("details, [aria-expanded], [class*='accordion'], [class*='faq']");
+  const svgNodes = root.find("svg");
+  const iconImages = root.find("[class*='icon'] img, [class*='logo'] img, [id*='icon'] img, [id*='logo'] img");
+
+  const datasetSources = sliderContainers
+    .toArray()
+    .flatMap((node) =>
+      Object.entries(node.attribs || {})
+        .filter(([name]) => name.startsWith("data-"))
+        .map(([name, value]) => ({ name, value }))
+    );
+
+  interactiveFeatures.hasSlider =
+    sliderContainers.length > 0 ||
+    slideNodes.length >= 2 ||
+    /swiper|splide|embla|flickity|glide|carousel|slider/i.test(signature);
+  interactiveFeatures.hasCarousel =
+    interactiveFeatures.hasSlider ||
+    prevButtons.length > 0 ||
+    nextButtons.length > 0 ||
+    dotCandidates.length > 0;
+  interactiveFeatures.hasTabs = tabNodes.length >= 2;
+  interactiveFeatures.hasAccordion = accordionNodes.length >= 1;
+  interactiveFeatures.hasAutoplay =
+    /autoplay|auto-play|marquee/i.test(signature) || datasetSources.some((entry) => /autoplay/i.test(entry.name));
+  interactiveFeatures.hasLoop =
+    /loop\s*:\s*true|loop\b/i.test(signature) || videoNodes.filter((_, node) => $(node).attr("loop") !== undefined).length > 0;
+  interactiveFeatures.hasScrollSnap =
+    /scroll-snap/i.test(combinedCss) ||
+    datasetSources.some((entry) => /snap/i.test(entry.name)) ||
+    /scroll-snap/i.test(signature);
+
+  sliderFeatures.visibleSlidesDesktop =
+    parseNumericAttrValue(root.find("[data-slider-view]").first().attr("data-slider-view")) ||
+    parseNumericAttrValue(root.find("[data-slides-per-view]").first().attr("data-slides-per-view"));
+  sliderFeatures.visibleSlidesTablet = parseNumericAttrValue(
+    root.find("[data-slider-view-tablet]").first().attr("data-slider-view-tablet")
+  );
+  sliderFeatures.visibleSlidesMobile = parseNumericAttrValue(
+    root.find("[data-slider-view-mobile]").first().attr("data-slider-view-mobile")
+  );
+  sliderFeatures.slideCount = Math.max(slideNodes.length, trackNode.length ? trackNode.children().length : 0);
+  sliderFeatures.slidesPerMove = sliderFeatures.slideCount > 1 ? 1 : null;
+  sliderFeatures.trackSelector = trackNode.length ? buildNodeSelector($, trackNode[0]) : null;
+  sliderFeatures.slideSelector = slideNodes.length ? buildNodeSelector($, slideNodes[0]) : null;
+  sliderFeatures.paginationStyle =
+    dotButtons.length >= 2
+      ? "dots"
+      : dotCandidates.length > 0
+      ? "pagination"
+      : null;
+  sliderFeatures.arrowStyle =
+    prevButtons.find("svg").length || nextButtons.find("svg").length
+      ? "svg-icon"
+      : /[<>\u2039\u203a\u2190\u2192]/.test(`${prevButtons.text()} ${nextButtons.text()}`)
+      ? "text-arrow"
+      : prevButtons.length || nextButtons.length
+      ? "button-label"
+      : null;
+  sliderFeatures.controlPlacement =
+    prevButtons.length || nextButtons.length || dotCandidates.length ? "inside-or-adjacent" : null;
+
+  controlFeatures.hasPrevButton = prevButtons.length > 0;
+  controlFeatures.hasNextButton = nextButtons.length > 0;
+  controlFeatures.hasDots = dotButtons.length >= 2 || dotCandidates.length >= 1;
+  controlFeatures.buttonLabels = uniqueStrings(
+    [...prevButtons.toArray(), ...nextButtons.toArray()]
+      .map((node) => truncate($(node).attr("aria-label") || $(node).text(), 80))
+      .filter(Boolean)
+  ).slice(0, 12);
+  controlFeatures.buttonIcons = uniqueStrings(
+    [...prevButtons.toArray(), ...nextButtons.toArray()].flatMap((node) => {
+      const element = $(node);
+      const values = [];
+      if (element.find("svg").length) {
+        values.push("svg");
+      }
+      const text = element.text() || "";
+      if (/[<\u2039\u2190]/.test(text)) {
+        values.push("arrow-left");
+      }
+      if (/[>\u203a\u2192]/.test(text)) {
+        values.push("arrow-right");
+      }
+      return values;
+    })
+  ).slice(0, 12);
+  controlFeatures.ariaLabels = uniqueStrings(
+    root
+      .find("[aria-label]")
+      .toArray()
+      .map((node) => truncate($(node).attr("aria-label"), 80))
+      .filter(Boolean)
+  ).slice(0, 16);
+  controlFeatures.paginationContainerSelector = dotCandidates.length
+    ? buildNodeSelector($, dotCandidates.first()[0])
+    : null;
+
+  iconFeatures.hasInlineSvg = svgNodes.length > 0;
+  iconFeatures.inlineSvgSnippets = svgNodes
+    .toArray()
+    .slice(0, 8)
+    .map((node) => truncate($.html(node), 900))
+    .filter(Boolean);
+  iconFeatures.iconImageSources = uniqueStrings(
+    iconImages
+      .toArray()
+      .map((node) => $(node).attr("src"))
+      .filter(Boolean)
+  ).slice(0, 12);
+  iconFeatures.iconPresentationMode = iconFeatures.hasInlineSvg
+    ? "inline-svg"
+    : iconFeatures.iconImageSources.length > 0
+    ? "image"
+    : null;
+  iconFeatures.logoAssets = uniqueStrings(
+    root
+      .find("[class*='logo'] img, [id*='logo'] img")
+      .toArray()
+      .map((node) => $(node).attr("src"))
+      .filter(Boolean)
+  ).slice(0, 12);
+  iconFeatures.decorativeIconCount = Math.max(0, svgNodes.length + iconImages.length - (prevButtons.find("svg, img").length + nextButtons.find("svg, img").length));
+  iconFeatures.functionalIconCount = prevButtons.find("svg, img").length + nextButtons.find("svg, img").length;
+
+  return {
+    structure: {
+      videoSources: videoSources.slice(0, 12),
+      iframeCount: iframeNodes.length,
+      dataAttributes: datasetSources.slice(0, 24),
+      scriptUrls: scriptUrls.slice(0, 12),
+    },
+    interactiveFeatures,
+    sliderFeatures,
+    iconFeatures,
+    controlFeatures,
+    animationFeatures,
+  };
+}
+
 function buildReferenceSpec({
   url,
   cssSelector,
@@ -254,6 +558,8 @@ function buildReferenceSpec({
   rootNode,
   stylesheetUrls,
   inlineStyles,
+  scriptTexts,
+  scriptUrls,
   sourcesNote,
 }) {
   const classes = uniqueStrings(
@@ -284,6 +590,14 @@ function buildReferenceSpec({
   );
 
   const styleSignals = extractStyleSignals(inlineStyles.join("\n"));
+  const staticSignals = collectStaticInteractionSignals({
+    $,
+    rootNode,
+    inlineStyles,
+    stylesheetUrls,
+    scriptTexts,
+    scriptUrls,
+  });
   const fidelityGaps = [];
   if (!stylesheetUrls.length) {
     fidelityGaps.push("No external stylesheets were captured in the lightweight analysis.");
@@ -311,20 +625,33 @@ function buildReferenceSpec({
       links: linkTargets.slice(0, 20),
       svgCount: $(rootNode).find("svg").length,
       textPreview: truncate($(rootNode).text(), 240),
+      ...staticSignals.structure,
     },
     markupPreview: truncate(markup, 1000),
     visualSignals: {
       stylesheetUrls: stylesheetUrls.slice(0, 12),
       ...styleSignals,
     },
-    interactiveFeatures: defaultInteractiveFeatures(),
-    sliderFeatures: defaultSliderFeatures(),
+    interactiveFeatures: {
+      ...defaultInteractiveFeatures(),
+      ...staticSignals.interactiveFeatures,
+    },
+    sliderFeatures: {
+      ...defaultSliderFeatures(),
+      ...staticSignals.sliderFeatures,
+    },
     iconFeatures: {
       ...defaultIconFeatures(),
-      hasInlineSvg: $(rootNode).find("svg").length > 0,
+      ...staticSignals.iconFeatures,
     },
-    controlFeatures: defaultControlFeatures(),
-    animationFeatures: defaultAnimationFeatures(),
+    controlFeatures: {
+      ...defaultControlFeatures(),
+      ...staticSignals.controlFeatures,
+    },
+    animationFeatures: {
+      ...defaultAnimationFeatures(),
+      ...staticSignals.animationFeatures,
+    },
     fidelityGaps,
   };
 }
@@ -911,6 +1238,25 @@ export const analyzeReferenceUi = {
       const inlineStyles = $("style")
         .toArray()
         .map((node) => $(node).html() || "");
+      const scriptTexts = $("script")
+        .toArray()
+        .map((node) => $(node).html() || "")
+        .filter(Boolean);
+      const scriptUrls = uniqueStrings(
+        $("script[src]")
+          .toArray()
+          .map((node) => {
+            const src = $(node).attr("src");
+            if (!src) {
+              return null;
+            }
+            try {
+              return new URL(src, url).toString();
+            } catch {
+              return null;
+            }
+          })
+      );
 
       $("script, style, iframe, noscript, link, meta, head").remove();
       $("img[src^='data:']").remove();
@@ -938,6 +1284,8 @@ export const analyzeReferenceUi = {
         rootNode: rootNode[0],
         stylesheetUrls,
         inlineStyles,
+        scriptTexts,
+        scriptUrls,
         sourcesNote: ["Lightweight analysis does not execute browser layout or JavaScript."],
       });
 

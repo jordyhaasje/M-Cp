@@ -145,6 +145,65 @@ test("prepareSectionFromReference - promotes carousel runtime signals into a sli
   assert.ok(result.sectionBlueprint.generationHints.some((hint) => hint.includes("slider/carouselgedrag")));
 });
 
+test("prepareSectionFromReference - prefers rich interactive section candidates over a shallow page-title wrapper", async () => {
+  const sectionStoreLikeHtml = `
+    <body>
+      <main id="MainContent">
+        <section id="shopify-section-template--main" class="shopify-section section-main-page">
+          <div class="main-page-title page-width">
+            <h1>Video Slider</h1>
+            <div class="rte"></div>
+          </div>
+        </section>
+
+        <div id="shopify-section-template--demo" class="shopify-section">
+          <div
+            class="slider-slider-template--demo swiper"
+            data-slider-view="3"
+            data-slider-view-mobile="1.5"
+            data-slider-view-tablet="2"
+          >
+            <div class="swiper-wrapper">
+              <div class="swiper-slide slider-slide-template--demo">
+                <video data-src="https://cdn.example.com/one.mp4" loop></video>
+                <p>Future</p>
+              </div>
+              <div class="swiper-slide slider-slide-template--demo">
+                <video data-src="https://cdn.example.com/two.mp4" loop></video>
+                <p>Functional</p>
+              </div>
+              <div class="swiper-slide slider-slide-template--demo">
+                <video data-src="https://cdn.example.com/three.mp4" loop></video>
+                <p>Premium</p>
+              </div>
+            </div>
+            <button class="slider-btn-prev-template--demo" aria-label="Previous slide"><svg></svg></button>
+            <button class="slider-btn-next-template--demo" aria-label="Next slide"><svg></svg></button>
+          </div>
+        </div>
+      </main>
+    </body>
+  `;
+
+  const result = await execute(
+    {
+      url: "https://example.com/video-slider",
+      sectionHint: "Video slider",
+    },
+    {
+      fetchReferenceHtml: async () => sectionStoreLikeHtml,
+    }
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(result.selector, "#shopify-section-template--demo");
+  assert.equal(result.sectionBlueprint.componentType, "carousel-slider");
+  assert.equal(result.sectionBlueprint.archetype, "carousel-slider");
+  assert.equal(result.referenceSpec.interactiveFeatures.hasSlider, true);
+  assert.equal(result.referenceSpec.controlFeatures.hasPrevButton, true);
+  assert.equal(result.referenceSpec.sliderFeatures.slideCount, 3);
+});
+
 test("prepareSectionFromReference - blocks ambiguous multi-section pages without a hint", async () => {
   const result = await execute(
     {

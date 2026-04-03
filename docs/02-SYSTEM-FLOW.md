@@ -74,6 +74,7 @@ Rule 5 (Shopify Constraints): Do not place Liquid inside {% stylesheet %} or {% 
 - Dit is de standaardflow voor een nieuwe section op basis van een reference URL.
 - Gebruik voor nieuwe sections uit een reference niet standaard `get-themes`, `search-theme-files` of `get-theme-file`.
 - Geef bij multi-section pagina's bij voorkeur een `sectionHint` of `targetHeading` mee zodat de juiste subsection gekozen wordt.
+- Een `sectionHint` mag een heading, componentnaam of korte descriptor zijn; de prepare-flow weegt headings, ids/classes en interactieve layoutsignalen mee om de beste subsection te kiezen.
 - `prepare-section-from-reference` retourneert nu `sectionPlan`, `sectionBlueprint`, `selectionEvidence`, `suggestedFiles`, `generationHints`, `nextAction`, `errorCode` en `retryable`, zodat de LLM minder hoeft te gokken.
 - `sectionBlueprint` bevat naast structuur nu ook `componentType`, `controlModel`, `animationModel`, `mediaModel` en `merchantEditableStyleModel`.
 - Gebruik `analyze-reference-ui` alleen voor low-level diagnose of expliciete selector-scoping.

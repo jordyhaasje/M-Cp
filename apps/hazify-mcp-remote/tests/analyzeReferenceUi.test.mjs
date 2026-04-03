@@ -205,6 +205,62 @@ test("analyzeReferenceUi - visual worker success enriches result", async () => {
   assert.ok(result.generationHints.some((hint) => hint.includes("slider/carouselgedrag")));
 });
 
+test("analyzeReferenceUi - static fallback detects slider and video signals without visual worker", async () => {
+  const mockHtml = `
+    <body>
+      <main id="MainContent">
+        <div id="shopify-section-template--demo" class="shopify-section">
+          <div
+            class="slider-slider-template--demo swiper"
+            data-slider-view="3"
+            data-slider-view-mobile="1.5"
+            data-slider-view-tablet="2"
+          >
+            <div class="swiper-wrapper">
+              <div class="swiper-slide slider-slide-template--demo">
+                <video data-src="https://cdn.example.com/one.mp4" loop></video>
+                <p>Future</p>
+              </div>
+              <div class="swiper-slide slider-slide-template--demo">
+                <video data-src="https://cdn.example.com/two.mp4" loop></video>
+                <p>Functional</p>
+              </div>
+              <div class="swiper-slide slider-slide-template--demo">
+                <video data-src="https://cdn.example.com/three.mp4" loop></video>
+                <p>Premium</p>
+              </div>
+            </div>
+            <button class="slider-btn-prev-template--demo" aria-label="Previous slide"><svg></svg></button>
+            <button class="slider-btn-next-template--demo" aria-label="Next slide"><svg></svg></button>
+          </div>
+          <script>
+            const slider = new Swiper('.slider-slider-template--demo', { loop: true });
+          </script>
+        </div>
+      </main>
+    </body>
+  `;
+
+  const result = await execute(
+    { url: "https://example.com/video-slider", cssSelector: "#shopify-section-template--demo" },
+    { fetchReferenceHtml: async () => mockHtml }
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(result.analysisMode, "cheerio");
+  assert.equal(result.usedVisualWorker, false);
+  assert.equal(result.referenceSpec.interactiveFeatures.hasSlider, true);
+  assert.equal(result.referenceSpec.interactiveFeatures.hasLoop, true);
+  assert.equal(result.referenceSpec.sliderFeatures.visibleSlidesDesktop, 3);
+  assert.equal(result.referenceSpec.sliderFeatures.visibleSlidesMobile, 1.5);
+  assert.equal(result.referenceSpec.sliderFeatures.slideCount, 3);
+  assert.equal(result.referenceSpec.controlFeatures.hasPrevButton, true);
+  assert.equal(result.referenceSpec.controlFeatures.hasNextButton, true);
+  assert.equal(result.referenceSpec.iconFeatures.hasInlineSvg, true);
+  assert.ok(result.referenceSpec.structure.videoSources.length >= 1);
+  assert.equal(result.sectionPlan.componentType, "carousel-slider");
+});
+
 test("analyzeReferenceUi - selector not found returns retry guidance", async () => {
   const result = await execute(
     { url: "https://example.com", cssSelector: ".missing" },
