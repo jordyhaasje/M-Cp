@@ -19,6 +19,7 @@ Gebruik dit document voor een **korte prompt** richting een LLM die met de Hazif
 - Standaard maakt de LLM alleen `sections/<handle>.liquid`.
 - De LLM mag geen `templates/*.json` of `config/*.json` aanpassen om een section live te plaatsen.
 - Merchants plaatsen de nieuwe section daarna zelf via de Shopify Theme Editor.
+- Voor URL-based references mag de visual worker runtime-signalen zoals sliders, arrows, dots, iconen en transities meenemen. Een afbeelding blijft daarbij alleen een extra hint.
 
 ## Simpele prompt voor een nieuwe section
 ```text

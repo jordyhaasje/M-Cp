@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-03T10:21:03.523Z",
+  "generatedAt": "2026-04-03T11:53:08.357Z",
   "tools": [
     {
       "name": "add-tracking-to-order",
@@ -16,7 +16,7 @@
     {
       "name": "analyze-reference-ui",
       "canonicalName": "analyze-reference-ui",
-      "description": "Low-level diagnostic reference analysis for Shopify section generation. The tool fetches an external URL as compact DOM guidance, strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, adds a structured referenceSpec, and returns an actionable sectionPlan. Prefer prepare-section-from-reference as the default entrypoint for new sections; use analyze-reference-ui directly for selector-scoped debugging or narrow reference inspection.",
+      "description": "Low-level diagnostic reference analysis for Shopify section generation. The tool fetches an external URL as compact DOM guidance, strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, adds a structured referenceSpec including interaction/control hints, and returns an actionable sectionPlan. Prefer prepare-section-from-reference as the default entrypoint for new sections; use analyze-reference-ui directly for selector-scoped debugging or narrow reference inspection.",
       "requiresShopifyClient": false,
       "writeScopeRequired": false,
       "annotations": {
@@ -280,7 +280,7 @@
     {
       "name": "prepare-section-from-reference",
       "canonicalName": "prepare-section-from-reference",
-      "description": "Default preparation tool for new Shopify sections from a reference URL. It identifies the intended subsection using an optional sectionHint or targetHeading, enriches the reference via analyze-reference-ui, and returns a strict sectionBlueprint plus a direct nextAction for draft-theme-artifact. Image inputs remain hints or QA context only.",
+      "description": "Default preparation tool for new Shopify sections from a reference URL. It identifies the intended subsection using an optional sectionHint or targetHeading, enriches the reference via analyze-reference-ui, and returns a component-aware sectionBlueprint with structure, controls, media, animation and layout hints plus a direct nextAction for draft-theme-artifact. Image inputs remain hints or QA context only.",
       "requiresShopifyClient": false,
       "writeScopeRequired": false,
       "annotations": {

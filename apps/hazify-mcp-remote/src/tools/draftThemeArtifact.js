@@ -110,6 +110,29 @@ function hasRawImgWithoutDimensions(value) {
   );
 }
 
+function collectSchemaSettingIds(schema) {
+  const ids = new Set();
+  const collect = (items) => {
+    for (const item of items || []) {
+      if (item?.id) {
+        ids.add(String(item.id));
+      }
+    }
+  };
+
+  collect(schema?.settings);
+  for (const block of schema?.blocks || []) {
+    collect(block?.settings);
+  }
+  return ids;
+}
+
+function hasInteractiveBehaviorCode(value) {
+  return /scroll-snap-type|scroll-snap-align|overflow-x\s*:\s*(?:auto|scroll)|transform\s*:\s*translate(?:3d|X)|scrollBy\(|scrollTo\(|addEventListener\(\s*['"]click['"]|requestAnimationFrame|setInterval\(|setTimeout\(|classList\.(?:add|remove|toggle)/i.test(
+    String(value || "")
+  );
+}
+
 function inspectSectionFile(file, { sectionBlueprint } = {}) {
   const value = String(file.value || "");
   const warnings = [];
@@ -172,7 +195,12 @@ function inspectSectionFile(file, { sectionBlueprint } = {}) {
   const blocks = Array.isArray(schema.blocks) ? schema.blocks : [];
   const presets = Array.isArray(schema.presets) ? schema.presets : [];
   const archetype = String(sectionBlueprint?.archetype || "").trim();
+  const componentType = String(sectionBlueprint?.componentType || archetype).trim();
   const prefersImageTag = sectionBlueprint?.mediaPolicy?.preferImageTag !== false;
+  const schemaSettingIds = collectSchemaSettingIds(schema);
+  const controlModel = sectionBlueprint?.controlModel || {};
+  const animationModel = sectionBlueprint?.animationModel || {};
+  const mediaModel = sectionBlueprint?.mediaModel || {};
 
   if (hasRawImgWithoutDimensions(value)) {
     return {
@@ -265,6 +293,49 @@ function inspectSectionFile(file, { sectionBlueprint } = {}) {
   if (!settingTypes.has("image_picker") && /<img\b|image_tag|svg/i.test(value)) {
     warnings.push("Reference lijkt media te gebruiken, maar schema bevat geen image_picker.");
     suggestedFixes.push("Voeg een image_picker toe wanneer imagery of logo's merchant-editable moeten zijn.");
+  }
+
+  if (/carousel-slider|testimonial-slider|logo-strip/.test(componentType)) {
+    const hasBehavior = hasInteractiveBehaviorCode(value);
+    const hasBlocks = blocks.length > 0;
+    const hasArrowSettings = !controlModel.hasArrows || schemaSettingIds.has("show_arrows");
+    const hasDotSettings = !controlModel.hasDots || schemaSettingIds.has("show_dots");
+    const hasTimingSetting =
+      !(animationModel.transitionDurations || []).length ||
+      schemaSettingIds.has("transition_duration") ||
+      schemaSettingIds.has("autoplay_interval");
+
+    if (!hasBlocks || !hasBehavior || !hasArrowSettings || !hasDotSettings || !hasTimingSetting) {
+      return {
+        ok: false,
+        status: "inspection_failed",
+        errorCode: "inspection_failed_interaction",
+        retryable: true,
+        message:
+          "Building Inspection Failed: de blueprint verwacht interactieve controls of slidergedrag, maar de section code mist nog een overtuigende interaction-laag.",
+        warnings,
+        suggestedFixes: uniqueStrings([
+          !hasBlocks ? "Gebruik blocks voor slides of herhaalbare items zodat merchants de inhoud kunnen beheren." : null,
+          !hasBehavior
+            ? "Voeg scroll-snap, overflow-x of een lichte JS-track toe zodat de slider niet als statisch grid eindigt."
+            : null,
+          !hasArrowSettings ? "Voeg een show_arrows setting en echte prev/next controls toe." : null,
+          !hasDotSettings ? "Voeg een show_dots setting en pagination/dots markup toe." : null,
+          !hasTimingSetting ? "Voeg transition_duration of autoplay_interval toe zodat animatiegedrag merchant-editable blijft." : null,
+        ]),
+        shouldNarrowScope: false,
+      };
+    }
+  }
+
+  if ((mediaModel.inlineSvgPresent || /icon-grid/.test(componentType)) && !settingTypes.has("image_picker")) {
+    warnings.push("Blueprint verwacht iconen of inline SVG presence, maar schema bevat geen image_picker voor overridebare icon/media.");
+    suggestedFixes.push("Voeg image_picker settings toe voor iconen, logo's of fallback media wanneer de reference visuele marks gebruikt.");
+  }
+
+  if ((animationModel.transitionDurations || []).length > 0 && !/transition|animation|transform/i.test(value)) {
+    warnings.push("Reference toont transitie- of animatiesignalen, maar de section code bevat daar nog weinig expliciete hooks voor.");
+    suggestedFixes.push("Neem transition-duration, easing en eventuele hover/entrance states mee in CSS of JS wanneer de reference daarop leunt.");
   }
 
   return {

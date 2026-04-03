@@ -193,6 +193,14 @@ export function assertPublicHttpsUrl(value) {
   return parsed;
 }
 
+export async function assertPublicHttpsUrlResolved(value) {
+  const parsed = assertPublicHttpsUrl(value);
+  if (!net.isIP(parsed.hostname)) {
+    await assertHostResolvesPublic(parsed.hostname);
+  }
+  return parsed;
+}
+
 async function assertHostResolvesPublic(hostname) {
   const results = await dns.lookup(hostname, { all: true });
   if (!results.length) {

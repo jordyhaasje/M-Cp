@@ -54,6 +54,97 @@ test("prepareSectionFromReference - selects hinted subsection and returns a coll
   );
 });
 
+test("prepareSectionFromReference - promotes carousel runtime signals into a slider blueprint", async () => {
+  const sliderHtml = `
+    <body>
+      <section class="reviews-slider">
+        <h2>Wat zeggen onze klanten?</h2>
+        <div class="slides">
+          <article class="slide">A</article>
+          <article class="slide">B</article>
+          <article class="slide">C</article>
+        </div>
+      </section>
+    </body>
+  `;
+
+  const result = await execute(
+    {
+      url: "https://example.com/reviews",
+      sectionHint: "Wat zeggen onze klanten?",
+    },
+    {
+      fetchReferenceHtml: async () => sliderHtml,
+      visualWorkerAnalyze: async () => ({
+        success: true,
+        referenceSpec: {
+          version: 3,
+          sources: [{ type: "url", url: "https://example.com/reviews" }],
+          selector: "body > section.reviews-slider:nth-of-type(1)",
+          structure: { textPreview: "Wat zeggen onze klanten?" },
+          visualSignals: {},
+          fidelityGaps: [],
+          interactiveFeatures: {
+            hasSlider: true,
+            hasCarousel: true,
+            hasTabs: false,
+            hasAccordion: false,
+            hasAutoplay: true,
+            hasLoop: false,
+            hasScrollSnap: true,
+          },
+          sliderFeatures: {
+            visibleSlidesDesktop: 3,
+            visibleSlidesTablet: 2,
+            visibleSlidesMobile: 1,
+            slideCount: 3,
+            slidesPerMove: 1,
+            trackSelector: ".slides",
+            slideSelector: ".slide",
+            paginationStyle: "dots",
+            arrowStyle: "svg-icon",
+            controlPlacement: "below",
+          },
+          iconFeatures: {
+            hasInlineSvg: false,
+            inlineSvgSnippets: [],
+            iconImageSources: [],
+            iconPresentationMode: null,
+            logoAssets: [],
+            decorativeIconCount: 0,
+            functionalIconCount: 0,
+          },
+          controlFeatures: {
+            hasPrevButton: true,
+            hasNextButton: true,
+            hasDots: true,
+            buttonLabels: ["Previous", "Next"],
+            buttonIcons: ["svg"],
+            ariaLabels: ["Previous slide", "Next slide"],
+            paginationContainerSelector: ".dots",
+          },
+          animationFeatures: {
+            transitionDurations: ["0.4s"],
+            timingFunctions: ["ease"],
+            transformPatterns: ["translate3d(0px, 0px, 0px)"],
+            hoverStates: [],
+            entranceEffects: ["fade-up"],
+          },
+        },
+        workerWarnings: [],
+        fidelityWarnings: [],
+      }),
+    }
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(result.sectionBlueprint.componentType, "testimonial-slider");
+  assert.equal(result.sectionBlueprint.controlModel.hasArrows, true);
+  assert.equal(result.sectionBlueprint.controlModel.hasDots, true);
+  assert.equal(result.sectionBlueprint.mediaModel.preferImageTag, true);
+  assert.ok(result.sectionBlueprint.generationHints.some((hint) => hint.includes("slider/carouselgedrag")));
+});
+
 test("prepareSectionFromReference - blocks ambiguous multi-section pages without a hint", async () => {
   const result = await execute(
     {
@@ -80,4 +171,3 @@ test("prepareSectionFromReference - blocks image-only requests without claiming 
   assert.equal(result.retryable, false);
   assert.ok(result.requiredInputs.includes("url"));
 });
-

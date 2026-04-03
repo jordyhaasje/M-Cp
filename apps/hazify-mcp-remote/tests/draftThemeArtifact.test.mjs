@@ -122,6 +122,79 @@ test("draftThemeArtifact - rejects raw img tags without reliable dimensions befo
   );
 });
 
+test("draftThemeArtifact - rejects slider blueprints that miss interaction scaffolding", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      sectionBlueprint: {
+        archetype: "carousel-slider",
+        componentType: "carousel-slider",
+        controlModel: {
+          hasArrows: true,
+          hasDots: true
+        },
+        animationModel: {
+          transitionDurations: ["0.4s"]
+        },
+        mediaPolicy: { preferImageTag: true }
+      },
+      files: [
+        {
+          key: "sections/slider-demo.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .slides {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<div class="slides">
+  {% for block in section.blocks %}
+    <article class="slide" {{ block.shopify_attributes }}>
+      <h3>{{ block.settings.title }}</h3>
+    </article>
+  {% endfor %}
+</div>
+{% schema %}
+{
+  "name": "Slider demo",
+  "blocks": [
+    {
+      "type": "slide",
+      "name": "Slide",
+      "settings": [
+        { "type": "text", "id": "title", "label": "Title", "default": "Hello" }
+      ]
+    }
+  ],
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "range", "id": "gap", "label": "Gap", "min": 0, "max": 40, "step": 4, "default": 16 },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Slider demo", "blocks": [{ "type": "slide" }] }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "inspection_failed_interaction");
+  assert.ok(result.suggestedFixes.some((entry) => entry.includes("show_arrows")));
+});
+
 test("draftThemeArtifact - success when linter passes (pushes directly to chosen theme)", async (t) => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",

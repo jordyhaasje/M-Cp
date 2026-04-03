@@ -5,7 +5,7 @@ import { analyzeReferenceUi } from "./analyzeReferenceUi.js";
 
 export const toolName = "prepare-section-from-reference";
 export const description =
-  "Default preparation tool for new Shopify sections from a reference URL. It identifies the intended subsection using an optional sectionHint or targetHeading, enriches the reference via analyze-reference-ui, and returns a strict sectionBlueprint plus a direct nextAction for draft-theme-artifact. Image inputs remain hints or QA context only.";
+  "Default preparation tool for new Shopify sections from a reference URL. It identifies the intended subsection using an optional sectionHint or targetHeading, enriches the reference via analyze-reference-ui, and returns a component-aware sectionBlueprint with structure, controls, media, animation and layout hints plus a direct nextAction for draft-theme-artifact. Image inputs remain hints or QA context only.";
 
 const PrepareSectionInputSchema = z
   .object({
@@ -344,9 +344,36 @@ function inferArchetype({ sectionHint, referenceSpec, root, $ }) {
   const comparisonRows = root.find("table tr").length;
   const cardLike = root.find("[class*='card'], [class*='tile'], [class*='item']").length;
   const textPreview = normalizeText(referenceSpec?.structure?.textPreview || "");
+  const interactiveFeatures = referenceSpec?.interactiveFeatures || {};
+  const controlFeatures = referenceSpec?.controlFeatures || {};
+  const iconFeatures = referenceSpec?.iconFeatures || {};
 
   if (comparisonRows >= 2 || /comparison|vergelijk/i.test(textPreview)) {
     return "comparison-table";
+  }
+
+  if (interactiveFeatures.hasTabs) {
+    return "tabs";
+  }
+
+  if (interactiveFeatures.hasAccordion) {
+    return "accordion";
+  }
+
+  if (
+    interactiveFeatures.hasSlider ||
+    interactiveFeatures.hasCarousel ||
+    controlFeatures.hasPrevButton ||
+    controlFeatures.hasNextButton ||
+    controlFeatures.hasDots
+  ) {
+    if (/review|testimonial|klant|ervaring/i.test(`${hint} ${textPreview}`)) {
+      return "testimonial-slider";
+    }
+    if ((iconFeatures.logoAssets || []).length >= 2 || /logo|brand/i.test(`${hint} ${textPreview}`)) {
+      return "logo-strip";
+    }
+    return "carousel-slider";
   }
 
   if (hint.includes("collect") || textPreview.includes("collect")) {
@@ -360,6 +387,13 @@ function inferArchetype({ sectionHint, referenceSpec, root, $ }) {
 
   if (images >= 2 && cardLike >= 2) {
     return "card-grid";
+  }
+
+  if (
+    (iconFeatures.hasInlineSvg || (iconFeatures.iconImageSources || []).length > 0) &&
+    (listItems >= 3 || cardLike >= 3)
+  ) {
+    return "icon-grid";
   }
 
   if (listItems >= 3) {
@@ -382,6 +416,8 @@ function createCommonSettings() {
     { id: "accent_color", type: "color", reason: "Accentkleur voor borders, pills of highlights." },
     { id: "section_padding_top", type: "range", reason: "Top spacing control." },
     { id: "section_padding_bottom", type: "range", reason: "Bottom spacing control." },
+    { id: "card_shadow", type: "range", reason: "Schaduwintensiteit voor cards of controls." },
+    { id: "card_radius", type: "range", reason: "Algemene radius voor kaarten, frames en controls." },
   ];
 }
 
@@ -404,7 +440,30 @@ function createBlueprint({ archetype, sectionHint, selectionEvidence, referenceS
     "Voeg minimaal één responsieve breakpoint of clamp()-hint toe wanneer de layout meerdere kolommen bevat.",
     "Houd merchant-editable kleuren en spacing in schema settings, niet hardcoded in de markup.",
   ];
-
+  const sliderFeatures = referenceSpec?.sliderFeatures || {};
+  const iconFeatures = referenceSpec?.iconFeatures || {};
+  const controlFeatures = referenceSpec?.controlFeatures || {};
+  const animationFeatures = referenceSpec?.animationFeatures || {};
+  const componentType = archetype;
+  const controlModel = {
+    hasArrows: Boolean(controlFeatures.hasPrevButton || controlFeatures.hasNextButton),
+    hasDots: Boolean(controlFeatures.hasDots),
+    arrowStyle: sliderFeatures.arrowStyle || null,
+    paginationStyle: sliderFeatures.paginationStyle || null,
+    placement: sliderFeatures.controlPlacement || null,
+  };
+  const animationModel = {
+    transitionDurations: animationFeatures.transitionDurations || [],
+    timingFunctions: animationFeatures.timingFunctions || [],
+    transformPatterns: animationFeatures.transformPatterns || [],
+    hoverStates: animationFeatures.hoverStates || [],
+    entranceEffects: animationFeatures.entranceEffects || [],
+  };
+  const mediaModel = {
+    preferImageTag: true,
+    inlineSvgPresent: Boolean(iconFeatures.hasInlineSvg),
+    iconPresentationMode: iconFeatures.iconPresentationMode || null,
+  };
   if (archetype === "collection-link-grid") {
     settings.push(
       { id: "columns_desktop", type: "range", reason: "Aantal kolommen op desktop." },
@@ -426,7 +485,7 @@ function createBlueprint({ archetype, sectionHint, selectionEvidence, referenceS
   } else if (archetype === "collection-card-grid") {
     settings.push(
       { id: "columns_desktop", type: "range", reason: "Aantal kolommen op desktop." },
-      { id: "card_radius", type: "range", reason: "Rounded corners for collection cards." }
+      { id: "image_ratio", type: "select", reason: "Verhouding van collectiebeelden of cards." }
     );
     blocks.push({
       type: "collection_card",
@@ -443,7 +502,6 @@ function createBlueprint({ archetype, sectionHint, selectionEvidence, referenceS
       "Maak geen product grid wanneer de reference over collecties gaat."
     );
   } else if (archetype === "comparison-table") {
-    settings.push({ id: "card_radius", type: "range", reason: "Rounded corners voor de comparison container." });
     blocks.push({
       type: "comparison_row",
       label: "Comparison row",
@@ -454,6 +512,109 @@ function createBlueprint({ archetype, sectionHint, selectionEvidence, referenceS
         { id: "secondary_value", type: "text", reason: "Waarde of icoonlabel voor de vergelijking." },
       ],
     });
+  } else if (archetype === "carousel-slider" || archetype === "testimonial-slider") {
+    settings.push(
+      { id: "columns_desktop", type: "range", reason: "Aantal zichtbare slides op desktop." },
+      { id: "slide_gap", type: "range", reason: "Afstand tussen slides." },
+      { id: "show_arrows", type: "checkbox", reason: "Toon of verberg navigatiepijlen." },
+      { id: "show_dots", type: "checkbox", reason: "Toon of verberg pagination dots." },
+      { id: "autoplay", type: "checkbox", reason: "Automatisch afspelen van slider." },
+      { id: "autoplay_interval", type: "range", reason: "Autoplay timing in milliseconden." },
+      { id: "transition_duration", type: "range", reason: "Animatieduur voor slide transitions." }
+    );
+    blocks.push({
+      type: archetype === "testimonial-slider" ? "testimonial_slide" : "slide",
+      label: archetype === "testimonial-slider" ? "Testimonial slide" : "Slide",
+      requiredSettings: ["title", "body", "image"],
+      schema: [
+        { id: "eyebrow", type: "text", reason: "Klein label of categorie boven de slide." },
+        { id: "title", type: "text", reason: "Primair slide heading." },
+        { id: "body", type: "richtext", reason: "Hoofdtekst of testimonial copy." },
+        { id: "image", type: "image_picker", reason: "Afbeelding of illustratie voor de slide." },
+        { id: "link", type: "url", reason: "Optionele doellink." },
+        ...(archetype === "testimonial-slider"
+          ? [
+              { id: "author", type: "text", reason: "Naam of bron van de testimonial." },
+              { id: "rating", type: "range", reason: "Ster- of scoreweergave." },
+            ]
+          : []),
+      ],
+    });
+    generationHints.push(
+      "De reference bevat slider/carouselgedrag. Gebruik scroll-snap of een lichte JS-controller om dezelfde interaction na te maken.",
+      "Neem pijlen en dots mee wanneer de reference die heeft, en maak hun zichtbaarheid merchant-editable.",
+      sliderFeatures.visibleSlidesDesktop
+        ? `Desktop toont ongeveer ${sliderFeatures.visibleSlidesDesktop} slide(s) tegelijk; gebruik dat als startpunt.`
+        : "Gebruik viewport-specifiek zichtbaar aantal slides dat overeenkomt met de reference.",
+      "Gebruik blocks voor slides zodat merchants inhoud kunnen toevoegen, verwijderen en reorderen."
+    );
+    lintSafetyRules.push(
+      "Slider-secties moeten ofwel scroll-snap/overflow-x gebruiken, of een duidelijke JS-track met next/prev controls bevatten."
+    );
+  } else if (archetype === "logo-strip") {
+    settings.push(
+      { id: "logo_scale", type: "range", reason: "Schaal van de merklogo's." },
+      { id: "columns_desktop", type: "range", reason: "Aantal zichtbare logo's op desktop." }
+    );
+    blocks.push({
+      type: "logo_item",
+      label: "Logo item",
+      requiredSettings: ["logo"],
+      schema: [
+        { id: "logo", type: "image_picker", reason: "Merklogo of partnerlogo." },
+        { id: "label", type: "text", reason: "Optioneel tekstlabel voor het logo." },
+        { id: "link", type: "url", reason: "Optionele externe of interne link." },
+      ],
+    });
+    generationHints.push(
+      "Behoud het ritme van de logo-strip en modelleer het als herhaalbare logo-items.",
+      "Als de reference horizontaal scrollt of autoplay gebruikt, maak dit gedrag configureerbaar in settings."
+    );
+  } else if (archetype === "icon-grid") {
+    settings.push({ id: "icon_size", type: "range", reason: "Grootte van iconen of badges." });
+    blocks.push({
+      type: "icon_item",
+      label: "Icon item",
+      requiredSettings: ["title", "icon"],
+      schema: [
+        { id: "title", type: "text", reason: "Titel of korte USP." },
+        { id: "body", type: "richtext", reason: "Optionele begeleidende tekst." },
+        { id: "icon", type: "image_picker", reason: "Icon, badge of logo." },
+      ],
+    });
+    generationHints.push(
+      "De reference gebruikt een icon-driven layout. Gebruik image_picker of gesaniteerde inline-SVG markup als vaste referentiebron.",
+      "Houd iconen, kleuren en spacing merchant-editable zodat de visuele stijl nauwkeurig bijgestuurd kan worden."
+    );
+  } else if (archetype === "tabs") {
+    settings.push(
+      { id: "show_tab_dividers", type: "checkbox", reason: "Visuele scheiding tussen tab-controls." },
+      { id: "tab_alignment", type: "select", reason: "Uitlijning van tabs." }
+    );
+    blocks.push({
+      type: "tab_panel",
+      label: "Tab panel",
+      requiredSettings: ["label", "title", "body"],
+      schema: [
+        { id: "label", type: "text", reason: "Tab label." },
+        { id: "title", type: "text", reason: "Heading in het panel." },
+        { id: "body", type: "richtext", reason: "Paneelinhoud." },
+        { id: "image", type: "image_picker", reason: "Optionele panel-afbeelding." },
+      ],
+    });
+    generationHints.push("Gebruik toegankelijke tabs met buttons en aria-controls, en houd states consistent met de reference.");
+  } else if (archetype === "accordion") {
+    settings.push({ id: "allow_multiple_open", type: "checkbox", reason: "Sta meerdere geopende accordion items toe." });
+    blocks.push({
+      type: "accordion_item",
+      label: "Accordion item",
+      requiredSettings: ["title", "body"],
+      schema: [
+        { id: "title", type: "text", reason: "Accordion heading." },
+        { id: "body", type: "richtext", reason: "Uitklapbare inhoud." },
+      ],
+    });
+    generationHints.push("Gebruik semantische details/summary of een gelijkwaardig toegankelijk accordion-patroon.");
   } else if (archetype === "feature-list") {
     blocks.push({
       type: "feature_item",
@@ -467,9 +628,20 @@ function createBlueprint({ archetype, sectionHint, selectionEvidence, referenceS
     });
   }
 
+  if (iconFeatures.hasInlineSvg) {
+    generationHints.push("Reference bevat inline SVG-markup. Preserveer icon presence en vormtaal in de gegenereerde section.");
+  }
+  if (controlModel.hasArrows || controlModel.hasDots) {
+    generationHints.push("Controls zoals pijlen en dots horen niet decoratief te zijn; modelleer ze als echte interactieve navigatie-elementen.");
+  }
+  if ((animationModel.transitionDurations || []).length > 0 || (animationModel.entranceEffects || []).length > 0) {
+    generationHints.push("Animation- en transition-signalen uit de reference moeten terugkomen in de section, maar instelbaar blijven via settings waar dat logisch is.");
+  }
+
   return {
     version: 1,
     archetype,
+    componentType,
     sectionHandle: handle,
     recommendedPrimaryFile: primaryFileKey,
     recommendedFileStrategy: "single-section-file",
@@ -492,9 +664,16 @@ function createBlueprint({ archetype, sectionHint, selectionEvidence, referenceS
       allowExtraFilesOnlyWhenJustified: true,
     },
     mediaPolicy: {
-      preferImageTag: true,
+      ...mediaModel,
       rawImgRequiresDimensions: true,
       imageHintsAreSupplemental: true,
+    },
+    controlModel,
+    animationModel,
+    mediaModel,
+    merchantEditableStyleModel: {
+      settings: uniqueStrings(settings.map((setting) => setting.id)),
+      rationale: "Essentiele styling voor fidelity moet door merchants verstelbaar blijven via schema settings.",
     },
   };
 }

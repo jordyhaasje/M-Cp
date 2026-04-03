@@ -139,10 +139,56 @@ test("analyzeReferenceUi - visual worker success enriches result", async () => {
       visualWorkerAnalyze: async () => ({
         success: true,
         referenceSpec: {
-          version: 2,
+          version: 3,
           sources: [{ type: "url", url: "https://example.com/product" }],
           selector: "body",
           fidelityGaps: ["worker gap"],
+          interactiveFeatures: {
+            hasSlider: true,
+            hasCarousel: true,
+            hasTabs: false,
+            hasAccordion: false,
+            hasAutoplay: true,
+            hasLoop: false,
+            hasScrollSnap: true,
+          },
+          sliderFeatures: {
+            visibleSlidesDesktop: 3,
+            visibleSlidesTablet: 2,
+            visibleSlidesMobile: 1,
+            slideCount: 5,
+            slidesPerMove: 1,
+            trackSelector: ".track",
+            slideSelector: ".slide",
+            paginationStyle: "dots",
+            arrowStyle: "svg-icon",
+            controlPlacement: "below",
+          },
+          iconFeatures: {
+            hasInlineSvg: true,
+            inlineSvgSnippets: ["<svg></svg>"],
+            iconImageSources: [],
+            iconPresentationMode: "inline-svg",
+            logoAssets: [],
+            decorativeIconCount: 1,
+            functionalIconCount: 0,
+          },
+          controlFeatures: {
+            hasPrevButton: true,
+            hasNextButton: true,
+            hasDots: true,
+            buttonLabels: ["Prev", "Next"],
+            buttonIcons: ["svg"],
+            ariaLabels: ["Prev slide", "Next slide"],
+            paginationContainerSelector: ".dots",
+          },
+          animationFeatures: {
+            transitionDurations: ["0.4s"],
+            timingFunctions: ["ease-out"],
+            transformPatterns: ["translate3d(0px,0px,0px)"],
+            hoverStates: [],
+            entranceEffects: ["fade-up"],
+          },
         },
         workerWarnings: ["worker note"],
         fidelityWarnings: ["worker fidelity warning"],
@@ -155,6 +201,8 @@ test("analyzeReferenceUi - visual worker success enriches result", async () => {
   assert.equal(result.usedVisualWorker, true);
   assert.equal(result.fidelityUpgradeApplied, true);
   assert.ok(result.workerWarnings.includes("worker note"));
+  assert.equal(result.sectionPlan.componentType, "carousel-slider");
+  assert.ok(result.generationHints.some((hint) => hint.includes("slider/carouselgedrag")));
 });
 
 test("analyzeReferenceUi - selector not found returns retry guidance", async () => {

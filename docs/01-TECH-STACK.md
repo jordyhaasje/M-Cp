@@ -11,7 +11,7 @@ De monorepo bevat drie Node.js runtime services (vereist Node.js `>=22.12.0`):
    De daadwerkelijke **Remote MCP service**. Draait op `/mcp` over HTTP transport. Voert guarded preview/apply van theme files uit en handelt store API operaties (producten, orders, klanten) af.
 
 3. **`apps/hazify-visual-worker`** (Entry: `src/server.js`)
-   Optionele verrijkingsservice voor reference-analyse. Draait buiten de hoofd-MCP en levert rijkere `referenceSpec` output voor moeilijke section-cloning cases.
+   Optionele verrijkingsservice voor reference-analyse. Draait buiten de hoofd-MCP en levert rijkere `referenceSpec` output voor moeilijke section-cloning cases, inclusief runtime layout-, control- en animation-signalen voor URL-based references.
 
 ## 2. Deploy Platform & Env Vars
 Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazify-MCP-Remote`). 
@@ -37,6 +37,8 @@ Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazif
 ### Visual Worker (Productievereisten)
 - `PORT` of `HAZIFY_VISUAL_WORKER_PORT`
 - Optioneel `HAZIFY_VISUAL_ANALYSIS_TIMEOUT_MS`
+- `HAZIFY_VISUAL_RUNTIME_TIMEOUT_MS` voor browser-runtime analyse per reference
+- `HAZIFY_VISUAL_RUNTIME_AFTER_LOAD_MS` om client-side hydration kort te laten settlen voor runtime snapshots
 - De service gebruikt dezelfde HTTPS/SSRF-guardrails als de reference-analyse in de MCP remote.
 
 ## 3. Persistence

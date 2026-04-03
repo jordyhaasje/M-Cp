@@ -1,8 +1,9 @@
 import * as cheerio from "cheerio";
 import { fetchWithSafeRedirects } from "@hazify/mcp-common";
+import { analyzeReferenceRuntime } from "./runtimeAnalysis.js";
 
 function uniqueStrings(values) {
-  return Array.from(new Set(values.filter(Boolean)));
+  return Array.from(new Set((values || []).filter(Boolean)));
 }
 
 function truncate(value, length = 180) {
@@ -58,6 +59,38 @@ function extractCssSignals(cssText) {
     typographySignals: uniqueStrings(typography).slice(0, 30),
     shadowSignals: uniqueStrings(shadows).slice(0, 20),
     radiusSignals: uniqueStrings(radii).slice(0, 20),
+  };
+}
+
+function extractAnimationSignals(cssText) {
+  const css = String(cssText || "");
+  const transitionDurations = Array.from(
+    css.matchAll(/transition-duration\s*:\s*([^;}{]+)/gi),
+    (match) => truncate(match[1], 80)
+  );
+  const timingFunctions = Array.from(
+    css.matchAll(/(?:transition|animation)-timing-function\s*:\s*([^;}{]+)/gi),
+    (match) => truncate(match[1], 80)
+  );
+  const transformPatterns = Array.from(
+    css.matchAll(/transform\s*:\s*([^;}{]+)/gi),
+    (match) => truncate(match[1], 120)
+  );
+  const hoverStates = Array.from(
+    css.matchAll(/([^,{]+):hover\b/gi),
+    (match) => truncate(match[1], 120)
+  );
+  const entranceEffects = Array.from(
+    css.matchAll(/(?:animation-name|@keyframes)\s*:?[\s]*([a-z0-9_-]+)/gi),
+    (match) => truncate(match[1], 80)
+  );
+
+  return {
+    transitionDurations: uniqueStrings(transitionDurations).slice(0, 12),
+    timingFunctions: uniqueStrings(timingFunctions).slice(0, 12),
+    transformPatterns: uniqueStrings(transformPatterns).slice(0, 12),
+    hoverStates: uniqueStrings(hoverStates).slice(0, 12),
+    entranceEffects: uniqueStrings(entranceEffects).slice(0, 12),
   };
 }
 
@@ -141,6 +174,67 @@ function summarizeInterestingNodes(rootNode, $, rules) {
   return nodes;
 }
 
+function defaultInteractiveFeatures() {
+  return {
+    hasSlider: false,
+    hasCarousel: false,
+    hasTabs: false,
+    hasAccordion: false,
+    hasAutoplay: false,
+    hasLoop: false,
+    hasScrollSnap: false,
+  };
+}
+
+function defaultSliderFeatures() {
+  return {
+    visibleSlidesDesktop: null,
+    visibleSlidesTablet: null,
+    visibleSlidesMobile: null,
+    slideCount: 0,
+    slidesPerMove: null,
+    trackSelector: null,
+    slideSelector: null,
+    paginationStyle: null,
+    arrowStyle: null,
+    controlPlacement: null,
+  };
+}
+
+function defaultIconFeatures() {
+  return {
+    hasInlineSvg: false,
+    inlineSvgSnippets: [],
+    iconImageSources: [],
+    iconPresentationMode: null,
+    logoAssets: [],
+    decorativeIconCount: 0,
+    functionalIconCount: 0,
+  };
+}
+
+function defaultControlFeatures() {
+  return {
+    hasPrevButton: false,
+    hasNextButton: false,
+    hasDots: false,
+    buttonLabels: [],
+    buttonIcons: [],
+    ariaLabels: [],
+    paginationContainerSelector: null,
+  };
+}
+
+function defaultAnimationFeatures() {
+  return {
+    transitionDurations: [],
+    timingFunctions: [],
+    transformPatterns: [],
+    hoverStates: [],
+    entranceEffects: [],
+  };
+}
+
 async function fetchText(url, context = {}) {
   if (typeof context.fetchText === "function") {
     return context.fetchText(url);
@@ -173,6 +267,10 @@ async function fetchStylesheetTexts(stylesheetUrls, context = {}) {
     }
   }
   return { sheets, fidelityWarnings };
+}
+
+function mergeUniqueStringArrays(...arrays) {
+  return uniqueStrings(arrays.flatMap((value) => value || []));
 }
 
 export async function analyzeReferencePayload(payload, context = {}) {
@@ -216,6 +314,7 @@ export async function analyzeReferencePayload(payload, context = {}) {
   const { sheets, fidelityWarnings } = await fetchStylesheetTexts(stylesheetUrls, context);
   const allCss = [...inlineStyles, ...sheets.map((sheet) => sheet.content)].join("\n");
   const visualSignals = extractCssSignals(allCss);
+  const animationSignals = extractAnimationSignals(allCss);
   const baseRules = parseSimpleCssRules(allCss);
   const mediaRules = collectMediaRules(allCss);
 
@@ -235,9 +334,79 @@ export async function analyzeReferencePayload(payload, context = {}) {
     }
   }
 
+  const interestingNodes = summarizeInterestingNodes(rootNode[0], $, baseRules);
+  const runtimeResult = await analyzeReferenceRuntime(
+    {
+      url,
+      cssSelector,
+      imageUrls,
+    },
+    context
+  );
+
+  const runtimeWarnings = [];
+  const runtimeLayoutSignals = runtimeResult.success ? runtimeResult.runtimeLayoutSignals || {} : {};
+  const interactiveFeatures = runtimeResult.success
+    ? {
+        ...defaultInteractiveFeatures(),
+        ...(runtimeResult.interactiveFeatures || {}),
+      }
+    : defaultInteractiveFeatures();
+  const sliderFeatures = runtimeResult.success
+    ? {
+        ...defaultSliderFeatures(),
+        ...(runtimeResult.sliderFeatures || {}),
+      }
+    : defaultSliderFeatures();
+  const iconFeatures = runtimeResult.success
+    ? {
+        ...defaultIconFeatures(),
+        ...(runtimeResult.iconFeatures || {}),
+        inlineSvgSnippets: uniqueStrings(runtimeResult.iconFeatures?.inlineSvgSnippets || []).slice(0, 8),
+        iconImageSources: uniqueStrings(runtimeResult.iconFeatures?.iconImageSources || []).slice(0, 12),
+        logoAssets: uniqueStrings(runtimeResult.iconFeatures?.logoAssets || []).slice(0, 12),
+      }
+    : {
+        ...defaultIconFeatures(),
+        hasInlineSvg: $(rootNode).find("svg").length > 0,
+      };
+  const controlFeatures = runtimeResult.success
+    ? {
+        ...defaultControlFeatures(),
+        ...(runtimeResult.controlFeatures || {}),
+        buttonLabels: uniqueStrings(runtimeResult.controlFeatures?.buttonLabels || []).slice(0, 12),
+        buttonIcons: uniqueStrings(runtimeResult.controlFeatures?.buttonIcons || []).slice(0, 12),
+        ariaLabels: uniqueStrings(runtimeResult.controlFeatures?.ariaLabels || []).slice(0, 12),
+      }
+    : defaultControlFeatures();
+  const animationFeatures = {
+    ...defaultAnimationFeatures(),
+    transitionDurations: mergeUniqueStringArrays(
+      animationSignals.transitionDurations,
+      runtimeResult.success ? runtimeResult.animationFeatures?.transitionDurations : []
+    ).slice(0, 12),
+    timingFunctions: mergeUniqueStringArrays(
+      animationSignals.timingFunctions,
+      runtimeResult.success ? runtimeResult.animationFeatures?.timingFunctions : []
+    ).slice(0, 12),
+    transformPatterns: mergeUniqueStringArrays(
+      animationSignals.transformPatterns,
+      runtimeResult.success ? runtimeResult.animationFeatures?.transformPatterns : []
+    ).slice(0, 12),
+    hoverStates: mergeUniqueStringArrays(animationSignals.hoverStates).slice(0, 12),
+    entranceEffects: mergeUniqueStringArrays(
+      animationSignals.entranceEffects,
+      runtimeResult.success ? runtimeResult.animationFeatures?.entranceEffects : []
+    ).slice(0, 12),
+  };
+
+  if (!runtimeResult.success) {
+    runtimeWarnings.push(runtimeResult.error || "Runtime visual analysis was unavailable; using static CSS enrichment only.");
+  }
+
   const referenceSpec = {
     ...(basicReferenceSpec && typeof basicReferenceSpec === "object" ? basicReferenceSpec : {}),
-    version: 2,
+    version: 3,
     sources: [
       { type: "url", url },
       ...imageUrls.map((imageUrl) => ({ type: "image", url: imageUrl })),
@@ -245,7 +414,7 @@ export async function analyzeReferencePayload(payload, context = {}) {
     selector: cssSelector || "body",
     structure: {
       ...(basicReferenceSpec?.structure || {}),
-      interestingNodes: summarizeInterestingNodes(rootNode[0], $, baseRules),
+      interestingNodes,
       svgCount: $(rootNode).find("svg").length,
       imageCount: $(rootNode).find("img").length,
     },
@@ -253,13 +422,19 @@ export async function analyzeReferencePayload(payload, context = {}) {
       ...(basicReferenceSpec?.visualSignals || {}),
       stylesheetUrls,
       ...visualSignals,
-      computedStyleCandidates: summarizeInterestingNodes(rootNode[0], $, baseRules).slice(0, 12),
+      computedStyleCandidates: interestingNodes.slice(0, 12),
       mediaRules: mediaRules.slice(0, 12),
+      runtimeLayoutSignals,
     },
+    interactiveFeatures,
+    sliderFeatures,
+    iconFeatures,
+    controlFeatures,
+    animationFeatures,
     fidelityGaps: uniqueStrings([
       ...(basicReferenceSpec?.fidelityGaps || []),
       ...fidelityWarnings,
-      "Visual worker enriches CSS/style signals but does not execute a full layout engine.",
+      ...runtimeWarnings,
       imageUrls.length > 0
         ? "Image inputs were passed through as hints only; the visual worker does not interpret image contents directly."
         : null,
@@ -272,6 +447,6 @@ export async function analyzeReferencePayload(payload, context = {}) {
     fidelityWarnings: referenceSpec.fidelityGaps,
     usedVisualWorker: true,
     fidelityUpgradeApplied: true,
-    workerWarnings: fidelityWarnings,
+    workerWarnings: uniqueStrings([...fidelityWarnings, ...runtimeWarnings]),
   };
 }

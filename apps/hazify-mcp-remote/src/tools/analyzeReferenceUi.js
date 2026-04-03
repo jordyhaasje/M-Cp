@@ -4,7 +4,7 @@ import { fetchWithSafeRedirects } from "../lib/urlSecurity.js";
 
 export const toolName = "analyze-reference-ui";
 export const description =
-  "Low-level diagnostic reference analysis for Shopify section generation. The tool fetches an external URL as compact DOM guidance, strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, adds a structured referenceSpec, and returns an actionable sectionPlan. Prefer prepare-section-from-reference as the default entrypoint for new sections; use analyze-reference-ui directly for selector-scoped debugging or narrow reference inspection.";
+  "Low-level diagnostic reference analysis for Shopify section generation. The tool fetches an external URL as compact DOM guidance, strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, adds a structured referenceSpec including interaction/control hints, and returns an actionable sectionPlan. Prefer prepare-section-from-reference as the default entrypoint for new sections; use analyze-reference-ui directly for selector-scoped debugging or narrow reference inspection.";
 
 const ReferenceInputSchema = z
   .object({
@@ -184,6 +184,67 @@ function extractStyleSignals(rawCss) {
   };
 }
 
+function defaultInteractiveFeatures() {
+  return {
+    hasSlider: false,
+    hasCarousel: false,
+    hasTabs: false,
+    hasAccordion: false,
+    hasAutoplay: false,
+    hasLoop: false,
+    hasScrollSnap: false,
+  };
+}
+
+function defaultSliderFeatures() {
+  return {
+    visibleSlidesDesktop: null,
+    visibleSlidesTablet: null,
+    visibleSlidesMobile: null,
+    slideCount: 0,
+    slidesPerMove: null,
+    trackSelector: null,
+    slideSelector: null,
+    paginationStyle: null,
+    arrowStyle: null,
+    controlPlacement: null,
+  };
+}
+
+function defaultIconFeatures() {
+  return {
+    hasInlineSvg: false,
+    inlineSvgSnippets: [],
+    iconImageSources: [],
+    iconPresentationMode: null,
+    logoAssets: [],
+    decorativeIconCount: 0,
+    functionalIconCount: 0,
+  };
+}
+
+function defaultControlFeatures() {
+  return {
+    hasPrevButton: false,
+    hasNextButton: false,
+    hasDots: false,
+    buttonLabels: [],
+    buttonIcons: [],
+    ariaLabels: [],
+    paginationContainerSelector: null,
+  };
+}
+
+function defaultAnimationFeatures() {
+  return {
+    transitionDurations: [],
+    timingFunctions: [],
+    transformPatterns: [],
+    hoverStates: [],
+    entranceEffects: [],
+  };
+}
+
 function buildReferenceSpec({
   url,
   cssSelector,
@@ -256,6 +317,14 @@ function buildReferenceSpec({
       stylesheetUrls: stylesheetUrls.slice(0, 12),
       ...styleSignals,
     },
+    interactiveFeatures: defaultInteractiveFeatures(),
+    sliderFeatures: defaultSliderFeatures(),
+    iconFeatures: {
+      ...defaultIconFeatures(),
+      hasInlineSvg: $(rootNode).find("svg").length > 0,
+    },
+    controlFeatures: defaultControlFeatures(),
+    animationFeatures: defaultAnimationFeatures(),
     fidelityGaps,
   };
 }
@@ -300,7 +369,7 @@ function inferSectionSlug({ url, cssSelector, $, rootNode }) {
   return "reference-section";
 }
 
-function detectBlockRecommendations($, rootNode) {
+function detectBlockRecommendations($, rootNode, referenceSpec) {
   if (!$ || !rootNode) {
     return [];
   }
@@ -310,6 +379,33 @@ function detectBlockRecommendations($, rootNode) {
   const tableRowCount = $(rootNode).find("table tr").length;
   const cardLikeCount = $(rootNode).find("[class*='card'], [class*='tile'], [class*='item']").length;
   const buttonCount = $(rootNode).find("a[href], button").length;
+  const interactiveFeatures = referenceSpec?.interactiveFeatures || defaultInteractiveFeatures();
+  const controlFeatures = referenceSpec?.controlFeatures || defaultControlFeatures();
+  const iconFeatures = referenceSpec?.iconFeatures || defaultIconFeatures();
+
+  if (interactiveFeatures.hasSlider || interactiveFeatures.hasCarousel) {
+    recommendations.push({
+      type: "slide",
+      reason: "Reference behaves like a slider/carousel. Model the repeated slides as blocks and preserve controls.",
+      suggestedSchema: ["image_picker", "text", "richtext", "url"],
+    });
+  }
+
+  if (interactiveFeatures.hasTabs) {
+    recommendations.push({
+      type: "tab_panel",
+      reason: "Reference contains tabbed content that should remain merchant-editable.",
+      suggestedSchema: ["text", "richtext", "image_picker"],
+    });
+  }
+
+  if (interactiveFeatures.hasAccordion) {
+    recommendations.push({
+      type: "accordion_item",
+      reason: "Reference contains expandable rows or FAQ-style content.",
+      suggestedSchema: ["text", "richtext"],
+    });
+  }
 
   if (listItemCount >= 2) {
     recommendations.push({
@@ -340,6 +436,22 @@ function detectBlockRecommendations($, rootNode) {
       type: "cta",
       reason: "Reference includes a clear call-to-action that should remain editable.",
       suggestedSchema: ["text", "url"],
+    });
+  }
+
+  if (iconFeatures.hasInlineSvg || iconFeatures.iconImageSources.length > 0) {
+    recommendations.push({
+      type: "icon_item",
+      reason: "Reference uses icons or logo marks that should stay editable per item.",
+      suggestedSchema: ["image_picker", "text", "richtext"],
+    });
+  }
+
+  if (controlFeatures.hasDots || controlFeatures.hasPrevButton || controlFeatures.hasNextButton) {
+    recommendations.push({
+      type: "control_settings",
+      reason: "Reference includes slider controls that should stay configurable in schema settings.",
+      suggestedSchema: ["checkbox", "range", "color"],
     });
   }
 
@@ -389,10 +501,43 @@ function buildRecommendedSchemaSettings({ $, rootNode, referenceSpec }) {
     });
   }
 
+  const interactiveFeatures = referenceSpec?.interactiveFeatures || defaultInteractiveFeatures();
+  const controlFeatures = referenceSpec?.controlFeatures || defaultControlFeatures();
+  const iconFeatures = referenceSpec?.iconFeatures || defaultIconFeatures();
+
+  if (interactiveFeatures.hasSlider || interactiveFeatures.hasCarousel) {
+    settings.push(
+      { id: "show_arrows", type: "checkbox", reason: "Toggle navigation arrows when the reference uses them." },
+      { id: "show_dots", type: "checkbox", reason: "Toggle pagination dots or bullets." },
+      { id: "autoplay", type: "checkbox", reason: "Allow merchants to keep or disable autoplay." },
+      { id: "autoplay_interval", type: "range", reason: "Autoplay timing for slider-like references." },
+      { id: "slide_gap", type: "range", reason: "Spacing between repeated slides or cards." }
+    );
+  }
+
+  if (interactiveFeatures.hasTabs) {
+    settings.push({ id: "tab_alignment", type: "select", reason: "Tab alignment for tabbed content sections." });
+  }
+
+  if (interactiveFeatures.hasAccordion) {
+    settings.push({ id: "allow_multiple_open", type: "checkbox", reason: "Accordion behavior toggle." });
+  }
+
+  if (iconFeatures.hasInlineSvg || iconFeatures.iconImageSources.length > 0) {
+    settings.push(
+      { id: "icon_tint", type: "color", reason: "Optional accent color for icons or marks." },
+      { id: "icon_size", type: "range", reason: "Size control for decorative or functional icons." }
+    );
+  }
+
+  if (controlFeatures.hasPrevButton || controlFeatures.hasNextButton) {
+    settings.push({ id: "control_color", type: "color", reason: "Navigation control styling." });
+  }
+
   return settings;
 }
 
-function buildGenerationHints({ readyForDraft, primaryFileKey, hasImageHints }) {
+function buildGenerationHints({ readyForDraft, primaryFileKey, hasImageHints, referenceSpec }) {
   const hints = [
     "Nieuwe sections uit een reference gebruiken standaard prepare-section-from-reference gevolgd door draft-theme-artifact. Gebruik analyze-reference-ui alleen voor low-level diagnose of selector-scoping.",
     `Standaard file policy: maak alleen \`${primaryFileKey}\` tenzij hergebruik of vaste locale copy extra files echt vereist.`,
@@ -402,10 +547,28 @@ function buildGenerationHints({ readyForDraft, primaryFileKey, hasImageHints }) 
     "Gebruik geen Liquid binnen {% stylesheet %} of {% javascript %}; gebruik <style> of CSS variables in markup als section.id-scoping nodig is.",
   ];
 
+  const interactiveFeatures = referenceSpec?.interactiveFeatures || defaultInteractiveFeatures();
+  const controlFeatures = referenceSpec?.controlFeatures || defaultControlFeatures();
+  const iconFeatures = referenceSpec?.iconFeatures || defaultIconFeatures();
+  const animationFeatures = referenceSpec?.animationFeatures || defaultAnimationFeatures();
+
   if (!readyForDraft) {
     hints.unshift("Image-only references zijn nog niet genoeg om betrouwbaar een section te genereren. Vraag om een reference URL.");
   } else if (hasImageHints) {
     hints.push("Gebruik de meegegeven image hints alleen als aanvullende visuele nuance naast de URL-analyse.");
+  }
+
+  if (interactiveFeatures.hasSlider || interactiveFeatures.hasCarousel) {
+    hints.push("De reference bevat slider/carouselgedrag. Preserveer slides, controls, scroll-snap of JS-gedreven beweging in de gegenereerde section.");
+  }
+  if (controlFeatures.hasPrevButton || controlFeatures.hasNextButton || controlFeatures.hasDots) {
+    hints.push("Neem arrows, dots of pagination-controls mee als merchant-editable gedrag wanneer de reference die gebruikt.");
+  }
+  if (iconFeatures.hasInlineSvg || iconFeatures.iconImageSources.length > 0) {
+    hints.push("De reference gebruikt iconen of logo's. Neem die niet als generieke placeholders over, maar modelleer ze als editbare block- of section media.");
+  }
+  if ((animationFeatures.transitionDurations || []).length > 0 || (animationFeatures.entranceEffects || []).length > 0) {
+    hints.push("De reference bevat animatie- of transitiesignalen. Houd die styling en interaction zoveel mogelijk aanpasbaar via settings.");
   }
 
   return hints;
@@ -423,12 +586,22 @@ function buildSectionPlan({
 }) {
   const slug = inferSectionSlug({ url, cssSelector, $, rootNode });
   const primaryFileKey = `sections/${slug}.liquid`;
-  const blockRecommendations = readyForDraft ? detectBlockRecommendations($, rootNode) : [];
+  const blockRecommendations = readyForDraft ? detectBlockRecommendations($, rootNode, referenceSpec) : [];
   const recommendedSchemaSettings = buildRecommendedSchemaSettings({ $, rootNode, referenceSpec });
   const fidelityRisks = uniqueStrings(referenceSpec?.fidelityGaps || []);
+  const interactiveFeatures = referenceSpec?.interactiveFeatures || defaultInteractiveFeatures();
+  const componentType =
+    interactiveFeatures.hasTabs
+      ? "tabs"
+      : interactiveFeatures.hasAccordion
+      ? "accordion"
+      : interactiveFeatures.hasSlider || interactiveFeatures.hasCarousel
+      ? "carousel-slider"
+      : "static-section";
 
   return {
     status: readyForDraft ? "ready_for_draft" : "blocked",
+    componentType,
     recommendedFileStrategy: "single-section-file",
     recommendedPrimaryFile: primaryFileKey,
     suggestedFiles: [
@@ -698,10 +871,11 @@ export const analyzeReferenceUi = {
           suggestedFiles: sectionPlan.suggestedFiles,
           requiredInputs: ["url"],
           generationHints: buildGenerationHints({
-            readyForDraft: false,
-            primaryFileKey: sectionPlan.recommendedPrimaryFile,
-            hasImageHints: imageUrls.length > 0,
-          }),
+          readyForDraft: false,
+          primaryFileKey: sectionPlan.recommendedPrimaryFile,
+          hasImageHints: imageUrls.length > 0,
+          referenceSpec,
+        }),
           usedVisualWorker: false,
           fidelityUpgradeApplied: false,
           workerWarnings: [],
@@ -854,6 +1028,7 @@ export const analyzeReferenceUi = {
           readyForDraft: true,
           primaryFileKey: sectionPlan.recommendedPrimaryFile,
           hasImageHints: imageUrls.length > 0,
+          referenceSpec,
         }),
         usedVisualWorker,
         fidelityUpgradeApplied,
