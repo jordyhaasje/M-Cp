@@ -8,7 +8,7 @@ Deze workspace bevat de productiecode voor:
 - Shopify productbeheer
 - Shopify orderbeheer en refunds
 - Shopify theme file beheer via API
-- Guarded preview/apply workflows voor Shopify theme editing
+- Gevalideerde preview/apply workflows voor Shopify theme editing
 
 ## Taal en toon
 - Standaardtaal: Nederlands
@@ -82,6 +82,7 @@ Every section must have a valid {% schema %} with presets
 ## Theme edit workflow
 ### Bestaande theme edit
 - Flow: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`
+- Gebruik deze flow voor bug fixes, CSS-wijzigingen, schema-aanpassingen en kleine gerichte uitbreidingen.
 - Zoek altijd eerst op zichtbare tekst, schema-naam of specifieke selectors.
 - Lees pas daarna het bestaande bestand in en draft alleen de noodzakelijke bestanden.
 
@@ -94,9 +95,9 @@ Every section must have a valid {% schema %} with presets
 6. Om Railway te beschermen is er een harde limiet van maximaal 10 bestanden per theme-request.
 
 ## Shopify-conforme file policy
-- Standaard maakt de LLM alleen `sections/<handle>.liquid`.
+- Beperk writes tot de noodzakelijke theme-bestanden; voor section-wijzigingen is dat meestal `sections/<handle>.liquid`.
 - Voeg alleen `snippets/` toe als markup of logica echt herhaald wordt.
-- Voeg alleen `blocks/` files toe als je bewust theme blocks nodig hebt; gewone section blocks blijven in dezelfde section.
+- Voeg alleen `blocks/` files toe als je bewust theme blocks nodig hebt.
 - Voeg alleen `locales/*.json` patches toe bij vaste, niet-merchant-editable UI strings.
 - Maak geen `templates/*.json` of `config/*.json` writes in deze flow.
 - Maak geen assets standaard; gebruik component-scoped CSS/JS in de section zelf.

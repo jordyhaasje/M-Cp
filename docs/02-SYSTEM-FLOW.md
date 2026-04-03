@@ -66,31 +66,24 @@ Every section must have a valid {% schema %} with presets
 - **`verify-theme-files`**: Verify multiple theme files by expected metadata (size/checksumMd5).
 <!-- END: TOOLS_LIST -->
 
-## 5. Bestaande theme edit
-- Flow: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`
-- Gebruik deze flow voor aanpassingen aan bestaande theme-bestanden of reeds bestaande sections.
-- Zoek eerst op zichtbare tekst, schema-naam of selectors.
-- Lees pas daarna het bestaande bestand in en draft alleen de noodzakelijke bestanden.
+## 5. Theme Editing Pipeline
+- Bestaande theme edit: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`
+1. Theme lezen via `get-theme-file`, `get-theme-files`, of `search-theme-files`.
+2. Theme create/update loopt via `draft-theme-artifact`.
+3. Live of ander target toepassen gebeurt via `apply-theme-draft` met expliciete confirmation.
+4. Verifieer writes via de `verify` output van `draft-theme-artifact` of aanvullend met `verify-theme-files`.
 
-## 6. Theme Import Beleid & Preview Pipeline
-1. Theme create/update loopt via `draft-theme-artifact`.
-2. `draft-theme-artifact` inspecteert, lint en verifieert writes en schrijft standaard preview-first naar een `development` theme.
-3. Live of ander target toepassen gebeurt pas via `apply-theme-draft` met expliciete confirmation.
-4. `delete-theme-file` is een aparte, expliciet bevestigde mutatie en vervangt de draft/apply flow niet.
-5. Maximaal 10 theme-bestanden per request.
-6. Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.
-7. `templates/*.json` en `config/*.json` writes blijven geblokkeerd in deze flow.
-8. Verifieer writes via de `verify` output van `draft-theme-artifact` of aanvullend met `get-theme-file`, `get-theme-files` of `verify-theme-files`.
-
-## 7. Shopify-conforme File Policy
-- Standaard maakt de LLM alleen `sections/<handle>.liquid`.
+## 6. Shopify-conforme File Policy
+- Beperk writes tot de noodzakelijke theme-bestanden; voor section-wijzigingen is dat meestal `sections/<handle>.liquid`.
 - Voeg alleen `snippets/` toe als markup of logica echt herhaald wordt.
 - Voeg alleen `blocks/` files toe als je bewust theme blocks nodig hebt.
 - Voeg alleen `locales/*.json` toe bij vaste, niet-merchant-editable UI strings.
 - Maak geen assets standaard; gebruik component-scoped CSS/JS in de section zelf.
+- Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.
+- `templates/*.json` en `config/*.json` writes blijven verboden in deze flow.
 - Merchant placement blijft via de Theme Editor; automatische template/config writes blijven verboden.
 
-## 8. Veiligheid, Rate Limiting & Tool Hardening
+## 7. Veiligheid, Rate Limiting & Tool Hardening
 1. **Tenant isolation:** Toolcalls blijven strikt aan de juiste shop en tenant gekoppeld.
 2. **Tool hardening:** Destructieve of financiële mutaties vereisen expliciete `confirmation` strings en vaak ook `reason`.
 3. **Core file protection:** `layout/theme.liquid` mag `content_for_header` en `content_for_layout` niet verliezen.

@@ -1,7 +1,7 @@
 # Start Here
 Doelgroep: nieuwe developers en coding agents.
 
-Dit is het startpunt voor de Hazify monorepo. Deze workspace draait de productiecode voor Hazify's remote MCP-integratie met Shopify.
+Dit is het startpunt voor de Hazify monorepo. Deze workspace bevat de productiecode voor de License Service, de Remote MCP en de bijbehorende documentatie en scripts.
 
 ## Leesvolgorde
 1. `docs/00-START-HERE.md` (Dit document)
@@ -16,9 +16,9 @@ De monorepo is opgebouwd via npm workspaces. `src/` is de enige bron van waarhei
 
 - `apps/hazify-license-service/`: Node.js service voor account, OAuth, billing en token-exchange. (Entry: `src/server.js`)
 - `apps/hazify-mcp-remote/`: Remote MCP service via `/mcp`. (Entry: `src/index.js`)
-- `packages/shopify-core/`: Gedeelde Shopify logica (`normalizeShopDomain`, `REQUIRED_SHOPIFY_ADMIN_SCOPES`, en gecentraliseerde GraphQL error afhandeling via `assertNoUserErrors`).
-- `packages/mcp-common/`: Gedeelde utility functies en scope string afhandeling.
 - `docs/`: Alle actieve documentatie.
+- `packages/`: Gedeelde packages voor Shopify-logica en MCP utilities.
+- `scripts/`: Repo-brede checks, docgeneratie en operationele helper-scripts.
 
 ## 3. Standaard Workflow & Runbook
 Zorg dat je na wijzigingen altijd de repo verifieert met de verplichte checks:
