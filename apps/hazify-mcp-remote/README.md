@@ -6,12 +6,13 @@ Remote Shopify MCP service op `/mcp` voor store-operaties via Shopify APIs.
 Runtime: Node.js `>=22.12.0`.
 
 ## Scope
-- Wel: producten, klanten, orders, tracking, refunds, theme file CRUD.
+- Wel: producten, klanten, orders, tracking, refunds en theme file CRUD.
 - Wel: guarded preview/apply flow via `draft-theme-artifact`, `apply-theme-draft`, `get-theme-file(s)` en `verify-theme-files`.
 - Wel: reference-analyse via `analyze-reference-ui`, optioneel verrijkt door de visual worker.
-- Wel: metadata/advisering voor externe review tooling via `list_theme_import_tools`.
+- Wel: compacte section clone flow voor nieuwe sections: `analyze-reference-ui` -> `draft-theme-artifact`.
 - Niet: automatische JSON template placement of blind live section-import.
 - Niet: browser automation binnen de hoofd-MCP runtime.
+- Niet: image-only cloning als zelfstandige capability; gebruik URL-first met image hint.
 
 ## Start (remote)
 ```bash
@@ -29,14 +30,25 @@ npm run --workspace @hazify/mcp-remote start:fallback:stdio
 - Origin allowlist check op requests met `Origin` header
 - OAuth metadata adverteert PKCE `S256`
 - MCP session mode default: `stateless` (`MCP_SESSION_MODE=stateless`)
-- `stateful` mode is opt-in (`MCP_SESSION_MODE=stateful`) en vereist sticky sessions of gedeelde session store
+- `stateful` mode is opt-in en vereist sticky sessions of gedeelde session store
 - `DATABASE_URL` is in productie vereist voor `theme_drafts` persistence en PostgreSQL advisory locks op theme writes
-- Shopify credentials worden niet via introspection gedeeld; remote haalt per token een interne Shopify access token op via `/v1/mcp/token/exchange`
+- Shopify credentials worden niet via introspection gedeeld; de remote haalt per token een interne Shopify access token op via `/v1/mcp/token/exchange`
 
-## Externe theme-workflow
-`AI Client -> analyze-reference-ui -> draft-theme-artifact -> merchant review -> apply-theme-draft`
+## Section flows
+### Nieuwe section uit reference
+- `analyze-reference-ui` -> `draft-theme-artifact`
+- `analyze-reference-ui` levert `sectionPlan`, `suggestedFiles`, `generationHints`, `errorCode`, `retryable` en `nextAction`
+- standaard outputpolicy: één `sections/<handle>.liquid`
+- URL-first met image hint
 
-Deze service doet de guarded preview/apply flow en kan reference specs verrijken via een aparte visual worker.
+### Bestaande theme edit
+- `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`
+
+## Shopify-conforme file policy
+- Standaard maakt de LLM alleen `sections/<handle>.liquid`
+- Gebruik snippets/blocks/locales alleen als daar een concrete reden voor is
+- Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`
+- Geen automatische template/config writes; merchants plaatsen sections zelf via de Theme Editor
 
 ## Tests
 ```bash

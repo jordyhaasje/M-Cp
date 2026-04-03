@@ -29,7 +29,7 @@ Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazif
 - `HAZIFY_MCP_API_KEY` (moet sterke secret van >=16 tekens zijn)
 - `MCP_SESSION_MODE` is standaard **`stateless`**. Stateful deployment is alleen aanbevolen met sticky sessions (`MCP_STATEFUL_DEPLOYMENT_SAFE=true`).
 - In-memory context cache `HAZIFY_MCP_CONTEXT_TTL_MS` (standaard 120.000 ms over HTTP).
-- `HAZIFY_VISUAL_ANALYSIS_ENABLED=false` zolang de visual worker nog niet expliciet is geactiveerd.
+- `HAZIFY_VISUAL_ANALYSIS_ENABLED` activeert gefaseerd URL-based visual enrichment. De fallback naar Cheerio moet altijd bruikbaar blijven.
 - `HAZIFY_VISUAL_WORKER_URL` voor hybrid reference analysis wanneer de feature flag actief is.
 - `HAZIFY_VISUAL_ANALYSIS_TIMEOUT_MS` voor externe analyse-tijdslimieten.
 - Alleen buiten productie mag de remote nog terugvallen op in-memory theme draft opslag.

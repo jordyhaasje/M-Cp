@@ -9,6 +9,7 @@ const rootReadmePath = path.join(repoRoot, "README.md");
 const agentsPath = path.join(repoRoot, "AGENTS.md");
 const remoteReadmePath = path.join(repoRoot, "apps/hazify-mcp-remote/README.md");
 const toolManifestPath = path.join(docsDir, "archive/artifacts/tool-manifest.json");
+const workflowManifestPath = path.join(docsDir, "archive/artifacts/section-workflow-truth.json");
 
 const problems = [];
 
@@ -123,12 +124,23 @@ async function checkMarkdownLinks(filePath) {
   }
 }
 
+function ensureRequiredPhrases(filePath, content, requiredPhrases) {
+  for (const phrase of requiredPhrases) {
+    if (!content.includes(phrase)) {
+      problems.push(
+        `${toPosixPath(path.relative(repoRoot, filePath))}: mist verplichte documentatie-waarheid: ${phrase}`
+      );
+    }
+  }
+}
+
 async function main() {
   const [docsIndexContent, startHereContent] = await Promise.all([
     readText(docsIndexPath),
     readText(startHerePath),
   ]);
   const toolManifest = JSON.parse(await readText(toolManifestPath));
+  const workflowManifest = JSON.parse(await readText(workflowManifestPath));
   const toolNames = new Set((toolManifest.tools || []).map((tool) => tool.name));
   const forbiddenToolMentions = [
     "create-theme-section",
@@ -139,6 +151,8 @@ async function main() {
     "section creation/placement in supported JSON targets",
     "stript agressief zware elementen (zoals SVG",
     "content -> value auto-mapping",
+    "image-only cloning is fully supported",
+    "screenshot-only cloning is fully supported",
   ];
 
   const actualActiveDocs = await listTopLevelDocs();
@@ -174,6 +188,49 @@ async function main() {
     remoteReadmePath,
     ...actualActiveDocs.map((file) => path.join(repoRoot, file)),
   ];
+
+  const workflowChecks = new Map([
+    [
+      agentsPath,
+      [
+        workflowManifest.workflows.newSectionFromReference.label,
+        "`analyze-reference-ui` -> `draft-theme-artifact`",
+        workflowManifest.workflows.existingThemeEdit.label,
+        "`search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`",
+        "Gebruik voor nieuwe sections uit een reference niet standaard `get-themes` of `search-theme-files`.",
+        "Image-only cloning wordt nog niet ondersteund zonder extra multimodale stap.",
+        "Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.",
+      ],
+    ],
+    [
+      path.join(repoRoot, "docs/02-SYSTEM-FLOW.md"),
+      [
+        workflowManifest.workflows.newSectionFromReference.label,
+        "`analyze-reference-ui` -> `draft-theme-artifact`",
+        workflowManifest.workflows.existingThemeEdit.label,
+        "`search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`",
+        "URL-first met image hint",
+        "Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.",
+      ],
+    ],
+    [
+      remoteReadmePath,
+      [
+        "`analyze-reference-ui` -> `draft-theme-artifact`",
+        "URL-first met image hint",
+      ],
+    ],
+    [
+      path.join(repoRoot, "docs/03-SECTION-CLONE-QUICKSTART.md"),
+      [
+        "Nieuwe section uit reference",
+        "Bestaande theme edit",
+        "Image-only cloning wordt nog niet ondersteund zonder extra multimodale stap.",
+        "Standaard maakt de LLM alleen `sections/<handle>.liquid`.",
+      ],
+    ],
+  ]);
+
   for (const filePath of markdownFilesToCheck) {
     const content = await readText(filePath);
     if (!hasTopAudienceLine(content)) {
@@ -221,6 +278,10 @@ async function main() {
           );
         }
       }
+    }
+
+    if (workflowChecks.has(filePath)) {
+      ensureRequiredPhrases(filePath, content, workflowChecks.get(filePath));
     }
   }
 

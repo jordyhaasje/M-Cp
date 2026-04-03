@@ -35,6 +35,7 @@ const result = await analyzeReferencePayload(
   {
     url: "https://example.com/page",
     cssSelector: ".hero",
+    imageUrls: ["https://example.com/hint.png"],
     basicReferenceSpec: {
       version: 1,
       fidelityGaps: ["base gap"],
@@ -49,5 +50,8 @@ assert.ok(result.referenceSpec.visualSignals.breakpointHints.includes(749));
 assert.ok(result.referenceSpec.visualSignals.colorTokens.some((token) => token.includes("rgba")));
 assert.ok(Array.isArray(result.referenceSpec.visualSignals.computedStyleCandidates));
 assert.ok(result.referenceSpec.fidelityGaps.length >= 1);
+assert.equal(result.usedVisualWorker, true);
+assert.equal(result.fidelityUpgradeApplied, true);
+assert.ok(result.referenceSpec.fidelityGaps.some((gap) => gap.includes("Image inputs")));
 
 console.log("All hazify-visual-worker tests passed");

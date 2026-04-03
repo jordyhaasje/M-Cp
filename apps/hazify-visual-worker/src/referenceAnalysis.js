@@ -185,6 +185,8 @@ export async function analyzeReferencePayload(payload, context = {}) {
     return {
       success: false,
       error: "url is verplicht voor visual analysis.",
+      errorCode: "visual_worker_requires_url",
+      workerWarnings: ["Visual worker supports URL-based enrichment only."],
     };
   }
 
@@ -258,6 +260,9 @@ export async function analyzeReferencePayload(payload, context = {}) {
       ...(basicReferenceSpec?.fidelityGaps || []),
       ...fidelityWarnings,
       "Visual worker enriches CSS/style signals but does not execute a full layout engine.",
+      imageUrls.length > 0
+        ? "Image inputs were passed through as hints only; the visual worker does not interpret image contents directly."
+        : null,
     ]),
   };
 
@@ -265,5 +270,8 @@ export async function analyzeReferencePayload(payload, context = {}) {
     success: true,
     referenceSpec,
     fidelityWarnings: referenceSpec.fidelityGaps,
+    usedVisualWorker: true,
+    fidelityUpgradeApplied: true,
+    workerWarnings: fidelityWarnings,
   };
 }

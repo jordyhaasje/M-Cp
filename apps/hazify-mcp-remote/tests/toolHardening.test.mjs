@@ -134,10 +134,10 @@ try {
       {
         key: "sections/demo.liquid",
         value: `
-{% stylesheet %}
+<style>
   #shopify-section-{{ section.id }} .demo { display: grid; padding: 24px; border-radius: 16px; }
   @media screen and (max-width: 749px) { #shopify-section-{{ section.id }} .demo { padding: 16px; } }
-{% endstylesheet %}
+</style>
 <div class="demo">{{ section.settings.heading }}</div>
 {% schema %}
 {
@@ -155,6 +155,38 @@ try {
     ],
   });
   assert.equal(draftPayload.themeRole, "development", "draft-theme-artifact should default to preview-safe development themes");
+
+  const invalidDraftResult = await draftThemeArtifact.execute(
+    draftThemeArtifact.schema.parse({
+      files: [
+        {
+          key: "sections/invalid-stylesheet.liquid",
+          value: `
+{% stylesheet %}
+  #shopify-section-{{ section.id }} .demo { padding: 24px; }
+{% endstylesheet %}
+<div class="demo">{{ section.settings.heading }}</div>
+{% schema %}
+{
+  "name": "Invalid demo",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Invalid demo" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+  assert.equal(invalidDraftResult.success, false);
+  assert.equal(invalidDraftResult.errorCode, "inspection_failed_css");
+  assert.ok(
+    invalidDraftResult.suggestedFixes.some((entry) => entry.includes("<style>")),
+    "draft-theme-artifact should explain how to fix Liquid inside {% stylesheet %}"
+  );
 
   const applyPayload = applyThemeDraft.schema.parse({
     draftId: "mock-1",

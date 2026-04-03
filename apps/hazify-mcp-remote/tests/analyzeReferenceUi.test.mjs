@@ -51,6 +51,10 @@ test("analyzeReferenceUi - basic token optimization", async (t) => {
   assert.ok(result.referenceSpec);
   assert.ok(Array.isArray(result.sources));
   assert.ok(result.referenceSpec.structure.svgCount >= 1);
+  assert.equal(result.sectionPlan.readyForDraft, true);
+  assert.equal(result.nextAction.tool, "draft-theme-artifact");
+  assert.equal(result.suggestedFiles[0].key, "sections/my-awesome-site.liquid");
+  assert.ok(result.generationHints.some((hint) => hint.includes("draft-theme-artifact")));
 });
 
 test("analyzeReferenceUi - with cssSelector focus", async (t) => {
@@ -91,6 +95,22 @@ test("analyzeReferenceUi - fetch failure", async (t) => {
   );
   assert.strictEqual(result.success, false);
   assert.ok(result.error.includes("404"));
+  assert.equal(result.errorCode, "reference_fetch_failed");
+  assert.equal(result.retryable, true);
+});
+
+test("analyzeReferenceUi - image only returns actionable blocked status", async () => {
+  const result = await execute({
+    imageUrls: ["https://example.com/reference.png"],
+  });
+
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.analysisMode, "image-hint-only");
+  assert.equal(result.errorCode, "image_only_not_supported");
+  assert.equal(result.retryable, false);
+  assert.equal(result.sectionPlan.readyForDraft, false);
+  assert.equal(result.nextAction.kind, "user_input_required");
+  assert.ok(result.requiredInputs.includes("url"));
 });
 
 test("analyzeReferenceUi - visual worker fallback keeps cheerio result", async () => {
@@ -107,4 +127,44 @@ test("analyzeReferenceUi - visual worker fallback keeps cheerio result", async (
   assert.strictEqual(result.success, true);
   assert.strictEqual(result.analysisMode, "cheerio-fallback");
   assert.ok(result.fidelityWarnings.some((warning) => warning.includes("worker offline")));
+  assert.equal(result.usedVisualWorker, false);
+  assert.ok(result.workerWarnings.some((warning) => warning.includes("worker offline")));
+});
+
+test("analyzeReferenceUi - visual worker success enriches result", async () => {
+  const result = await execute(
+    { url: "https://example.com/product" },
+    {
+      fetchReferenceHtml: async () => "<body><section class='hero'><h2>Hero</h2></section></body>",
+      visualWorkerAnalyze: async () => ({
+        success: true,
+        referenceSpec: {
+          version: 2,
+          sources: [{ type: "url", url: "https://example.com/product" }],
+          selector: "body",
+          fidelityGaps: ["worker gap"],
+        },
+        workerWarnings: ["worker note"],
+        fidelityWarnings: ["worker fidelity warning"],
+      }),
+    }
+  );
+
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.analysisMode, "hybrid");
+  assert.equal(result.usedVisualWorker, true);
+  assert.equal(result.fidelityUpgradeApplied, true);
+  assert.ok(result.workerWarnings.includes("worker note"));
+});
+
+test("analyzeReferenceUi - selector not found returns retry guidance", async () => {
+  const result = await execute(
+    { url: "https://example.com", cssSelector: ".missing" },
+    { fetchReferenceHtml: async () => "<body><div class='present'>ok</div></body>" }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "selector_not_found");
+  assert.equal(result.retryable, true);
+  assert.equal(result.nextAction.tool, "analyze-reference-ui");
 });

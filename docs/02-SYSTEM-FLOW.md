@@ -1,36 +1,33 @@
 # System Flow (Runtime & Integratie)
 Doelgroep: repo maintainers en AI-agents.
 
-Dit document beschrijft hoe aanvragen, authenticatie en store integraties op de actuele codebase functioneren.
+Dit document beschrijft hoe requests, authenticatie, section cloning en store-integraties op de actuele codebase functioneren.
 
 ## 1. Onboarding & Credentials
-1. Een gebruiker registreert zich op de License Service en koppelt zijn Shopify winkel via `shopAccessToken` of `shopClientId` / `shopClientSecret`.
-2. Validatie controleert op `REQUIRED_SHOPIFY_ADMIN_SCOPES` (inclusief `read_themes`, `write_themes`).
-3. Credentials en secrets blijven **100% server-side** op de License Service en worden nooit via de frontend aan de MCP client doorgegeven.
+1. Een gebruiker registreert zich op de License Service en koppelt Shopify via `shopAccessToken` of `shopClientId` / `shopClientSecret`.
+2. Validatie controleert op `REQUIRED_SHOPIFY_ADMIN_SCOPES`, inclusief `read_themes` en `write_themes`.
+3. Credentials en secrets blijven server-side op de License Service en worden nooit aan de MCP client doorgegeven.
 
-## 2. Authenticatie: OAuth PKCE (Voorkeur) & Fallback
+## 2. Authenticatie: OAuth PKCE & Fallback
 Vanaf 2026 ondersteunt Hazify native OAuth 2.0 PKCE.
 1. **Discovery:** Client ontdekt auth servers via `/.well-known/oauth-protected-resource`.
-2. **Authorize Flow:** `GET /oauth/authorize` levert de visuele login pagina. Toestemming (of weigering) gaat via een specifieke form submit op `POST /oauth/authorize`.
-   - De authorize submit (POST) onthoudt de *originele* OAuth-parameters, inclusief de `resource` parameter.
-   - Origin van `redirect_uri` wordt in de CSP `form-action` geladen, zodat redirects naar platforms zoals `https://chatgpt.com` netjes lukken.
-3. **Token:** `/oauth/token` wisselt autorisatiecode in voor access tokens.
-*(Fallback: API tools tokens gegenereerd op het web dashboard zijn bruikbaar voor pure API of legacy connectors.)*
+2. **Authorize flow:** `GET /oauth/authorize` levert de login pagina; `POST /oauth/authorize` handelt toestemming of weigering af.
+3. **Token:** `/oauth/token` wisselt de autorisatiecode in voor access tokens.
+
+Fallback: dashboard-tokens blijven bruikbaar voor pure API of legacy connectors.
 
 ## 3. Remote MCP Request Lifecycle (`/mcp`)
-De service (`mcp-remote/src/index.js`) luistert op het HTTP-transport.
-1. Een request bevat een token (via Bearer of `x-api-key`). Geen query parameters.
-2. Controle op `Origin` (indien meegeleverd) versus allowlist in `isOriginAllowed`.
-3. Verificatie via introspection aan de license service (`/v1/mcp/token/introspect`). Check licentiestatus en tool/mutation entitlements (`context.license.entitlements.tools`, etc).
-4. **Lazy Token Exchange:** Shopify-autorisatie (`/v1/mcp/token/exchange`) vindt alleen plaats vóór evaluatie van een tool die écht met Shopify moet babbelen. De aanroepen naar MCP's `initialize` en `tools/list` omzeilen dit en zijn zeer snel.
-5. De operatie wordt gelimiteerd door in-memory scopes (o.a. `mcp:tools:read` vs `mcp:tools:write`).
+De service in `apps/hazify-mcp-remote/src/index.js` luistert op HTTP transport.
+1. Een request bevat een token via `Authorization: Bearer` of `x-api-key`.
+2. Indien aanwezig wordt `Origin` gevalideerd tegen de allowlist.
+3. De remote doet token-introspectie via de License Service en controleert licentie, tool-entitlements en mutation scopes.
+4. Shopify token exchange gebeurt **lazy**: pas vlak voor een toolcall die Shopify echt nodig heeft.
+5. `initialize` en `tools/list` blijven daardoor snel en contextvrij.
 
-## 4. Theme Import Beleid & Tools
-De Remote MCP implementeert **géén eigen browser runtime of local generation**. 
-
+## 4. Toolcatalogus
 <!-- BEGIN: TOOLS_LIST -->
 - **`add-tracking-to-order`**: Alias of set-order-tracking. Kept for compatibility.
-- **`analyze-reference-ui`**: Fetch and analyze an external reference URL as compact DOM guidance for Shopify section generation. The tool strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, and adds a structured referenceSpec. When visual analysis is enabled it can enrich the result through the visual worker.
+- **`analyze-reference-ui`**: Fetch and analyze an external reference URL as compact DOM guidance for Shopify section generation. The tool strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, adds a structured referenceSpec, and returns an actionable sectionPlan so LLMs can go directly into draft-theme-artifact. Image inputs are treated as hints only unless a future multimodal stage exists.
 - **`apply-theme-draft`**: Apply a previously drafted theme artifact to an explicit target theme. This is the promote/apply step after draft-theme-artifact has prepared and verified the files.
 - **`clone-product-from-url`**: Clone a public Shopify product URL into your connected store with options, variants, prices and media.
 - **`create-product`**: Create a new product. When using productOptions, Shopify registers all option values but only creates one default variant (first value of each option, price $0). Use manage-product-variants with strategy=REMOVE_STANDALONE_VARIANT afterward to create all real variants with prices.
@@ -44,7 +41,7 @@ Rule 1 (UI/UX): Code MUST represent modern, premium Shopify 2.0 UI. NEVER use vi
 Rule 2 (Dynamic Schema): NEVER hardcode texts, colors, or image URLs in the HTML. EVERY visual element MUST be bound to a setting in the {% schema %} (using color_picker, image_picker, text, richtext, range for spacing/layout controls).
 Rule 3 (Blocks): Sliders, grids, and galleries MUST use the blocks architecture so merchants can add/remove/reorder content in the editor.
 Rule 4 (Presets): Every section MUST have a complete presets array with default blocks so it appears in the Theme Editor.
-Rule 5 (Mobile First): Always include responsive CSS (media queries) so the layout adapts flawlessly to mobile.
+Rule 5 (Shopify Constraints): Do not place Liquid inside {% stylesheet %} or {% javascript %}; use <style> or markup-level CSS variables when section.id scoping is required.
 - **`get-customer-orders`**: Get orders for a specific customer
 - **`get-customers`**: Get customers or search by name/email
 - **`get-license-status`**: Return current license status, effective access, and MCP scope capabilities.
@@ -70,26 +67,41 @@ Rule 5 (Mobile First): Always include responsive CSS (media queries) so the layo
 - **`verify-theme-files`**: Verify multiple theme files by expected metadata (size/checksumMd5).
 <!-- END: TOOLS_LIST -->
 
-1. **Resolve en Read First:** Om tokenoverhead en foutieve edits te minimaliseren:
-   - Identificeer altijd eerst via `search-theme-files` voordat je een bestand opent of wijzigt.
-   - Gebruik `get-theme-file` / `get-theme-files` pas nadat het juiste target-bestand is bevestigd.
-2. **Guarded Preview Flow:** Theme create/update loopt via `draft-theme-artifact`. Die tool inspecteert, lint en verifieert writes en schrijft standaard preview-first naar een `development` theme.
-3. **Explicit Apply Flow:** Live of ander target toepassen gebeurt pas via `apply-theme-draft` met expliciete bevestiging.
-4. **Externe review tooling:** Metadata over lokale externe tools is opvraagbaar via `list_theme_import_tools`. Dit is adviserend en geen vervanging voor de native draft/apply flow.
-5. **Visuele UI Scrapen (Referenties):** `analyze-reference-ui` gebruikt een lichte Cheerio-analyse en kan optioneel worden verrijkt via de visual worker. De output bevat compacte markup plus een gestructureerde `referenceSpec` voor hogere fidelity.
-6. **Theme Development Best Practices (LLM Instructies):**
-   - **Stop Guessing:** AI-agents mogen NOOIT blind gokken naar bestandsnamen zoals 'base.css' of 'product.json'. Ze moeten verplicht `search-theme-files` gebruiken.
-   - **Asset Registration:** Als de AI een nieuw CSS/JS asset aanmaakt, weet het dat Shopify dit niet automatisch inlaadt. Het moet expliciet gekoppeld worden in de layout (bijv. in `layout/theme.liquid` via `{{ 'filename.css' | asset_url | stylesheet_tag }}`).
+## 5. Section Clone Workflows
+### Nieuwe section uit reference
+- Flow: `analyze-reference-ui` -> `draft-theme-artifact`
+- Dit is de standaardflow voor een nieuwe section op basis van een reference URL.
+- Gebruik voor nieuwe sections uit een reference niet standaard `get-themes` of `search-theme-files`.
+- `analyze-reference-ui` retourneert nu `sectionPlan`, `suggestedFiles`, `generationHints`, `nextAction`, `errorCode` en `retryable`, zodat de LLM minder hoeft te gokken.
+- URL-first met image hint is de ondersteunde route.
+- Image-only cloning wordt nog niet ondersteund zonder extra multimodale stap.
 
-Model: `AI Client + local MCPs -> prepared theme files -> Hazify remote deploy/verify`
+### Bestaande theme edit
+- Flow: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`
+- Gebruik deze flow voor aanpassingen aan bestaande theme-bestanden of reeds bestaande sections.
 
-## 5. Veiligheid, Rate Limiting & Tool Hardening
+## 6. Theme Import Beleid & Preview Pipeline
+1. Theme create/update loopt via `draft-theme-artifact`.
+2. `draft-theme-artifact` inspecteert, lint en verifieert writes en schrijft standaard preview-first naar een `development` theme.
+3. Live of ander target toepassen gebeurt pas via `apply-theme-draft` met expliciete confirmation.
+4. `list_theme_import_tools` is adviserend voor externe tooling en geen vervanging voor de native draft/apply flow.
+5. `analyze-reference-ui` gebruikt een lichte Cheerio-analyse en kan optioneel worden verrijkt via de visual worker.
+6. De visual worker is URL-based fidelity-verrijking. Hij begrijpt nog geen image-only cloning.
 
-De Remote MCP beschikt over diepliggende veiligheidsmechanismen tegen malformatie en LLM-hallucinaties:
-1. **Tenant Isolation:** Iedere integratie en tool call is strict geïsoleerd op de shop en tenant van de gekoppelde GraphQL/REST sessie. Cross-tenant data leakages door AI LLM-hallucineren is hiermee op netwerk- en applicatieniveau fundamenteel geblokkeerd.
-2. **Tool Hardening (Zod Validaties):** Gevaarlijke of destructieve mutaties vereisen expliciete `confirmation` strings en een `reason`. Voor de theme-flow zijn dat nu `"APPLY_THEME_DRAFT"` en `"DELETE_THEME_FILE"`. Als argumenten missen of invalid zijn, blokkeert Zod de API call. *(Voor AI-agents: "OpenAI safety check" errors tijdens writes betekenen vrijwel altijd een gefaalde Zod validatie. Controleer de schema-argumenten via `AGENTS.md`.)*
-3. **Smart JSON Safeguard:** Via API JSON templates aanmaken of wijzigen (`templates/*.json` en `config/*.json`) is een harde blokkade, ter bescherming van homepage destructie. De LLM stuurt losse theme bestanden aan, waarna de merchant zélf via z'n Theme Editor kan plaatsen.
-4. **Core File Protection:** Kritieke infrastructuur-bestanden (zoals `layout/theme.liquid`) blokkeren API saves indien vitale tags, specifiek `{{ content_for_header }}` en `{{ content_for_layout }}`, ontbreken in de payload. Ze mogen bovendien nooit via integraties verwijderd worden.
-5. **API Rate Limiting & Batch Limits (Exponential Backoff):** Om OOM-crashes en timeouts op Railway te voorkomen, is er op alle theme opslag- en leesoperaties een **harde limiet van maximaal 10 bestanden** ingesteld per request. Theme-operaties hergebruiken automatische interne *Exponential Backoff* mechanismes om HTTP 429-errors netjes af te vangen.
-6. **Distributed Concurrency Locks:** Om concurrerende wijzigingen in single-files over meerdere applicatie-containers (op Railway) veilig te serialiseren, wordt er voor iedere theme schrijfoperatie een deterministische *PostgreSQL Advisory Lock* afgedwongen (i.p.v. memory-locks). Toekomstige draft-edits en staging logica steunen op the PostgreSQL `theme_drafts` backend tabel voor schaalbare integratie.
-7. **Defense in Depth (LLM Hallucinations):** Systeem-tools combineren agressieve Zod schema-validaties, guarded preview writes, verify-after-write en draft-statusregistratie in `theme_drafts` om parameter-fouten en onveilige live writes tegen te houden.
+## 7. Shopify-conforme File Policy
+- Standaard maakt de LLM alleen `sections/<handle>.liquid`.
+- Voeg alleen `snippets/` toe als markup of logica echt herhaald wordt.
+- Voeg alleen `blocks/` files toe als je bewust theme blocks nodig hebt.
+- Voeg alleen `locales/*.json` toe bij vaste, niet-merchant-editable UI strings.
+- Maak geen assets standaard; gebruik component-scoped CSS/JS in de section zelf.
+- Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.
+- Merchant placement blijft via de Theme Editor; automatische template/config writes blijven verboden.
+
+## 8. Veiligheid, Rate Limiting & Tool Hardening
+1. **Tenant isolation:** Toolcalls blijven strikt aan de juiste shop en tenant gekoppeld.
+2. **Tool hardening:** Destructieve of financiële mutaties vereisen expliciete `confirmation` strings en vaak ook `reason`.
+3. **JSON safeguard:** `templates/*.json` en `config/*.json` writes blijven geblokkeerd in de section-clone flow.
+4. **Core file protection:** `layout/theme.liquid` mag `content_for_header` en `content_for_layout` niet verliezen.
+5. **Batch limiet:** Maximaal 10 theme-bestanden per request.
+6. **Distributed locks:** Theme writes gebruiken PostgreSQL advisory locks om parallelle conflicts te voorkomen.
+7. **Reference observability:** De remote logt analysemodus, workergebruik, fallback-reden en latency-bucket voor `analyze-reference-ui`.

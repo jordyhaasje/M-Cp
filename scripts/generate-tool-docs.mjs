@@ -26,6 +26,7 @@ async function main() {
   const archiveDir = path.resolve(__dirname, '../docs/archive');
   const artifactsDir = path.resolve(__dirname, '../docs/archive/artifacts');
   const manifestPath = path.resolve(artifactsDir, 'tool-manifest.json');
+  const workflowManifestPath = path.resolve(artifactsDir, 'section-workflow-truth.json');
 
   const regex = /<!-- BEGIN: TOOLS_LIST -->[\s\S]*<!-- END: TOOLS_LIST -->/;
 
@@ -43,8 +44,34 @@ async function main() {
       annotations: tool.annotations || null,
     })),
   };
+  const workflowManifest = {
+    generatedAt: new Date().toISOString(),
+    workflows: {
+      newSectionFromReference: {
+        label: "Nieuwe section uit reference",
+        tools: ["analyze-reference-ui", "draft-theme-artifact"],
+        description:
+          "Gebruik deze flow voor een nieuwe section op basis van een reference URL en optionele image hints. Vermijd extra read-tools tenzij de gebruiker expliciet een bestaand bestand wil wijzigen.",
+      },
+      existingThemeEdit: {
+        label: "Bestaande theme edit",
+        tools: ["search-theme-files", "get-theme-file", "draft-theme-artifact"],
+        description:
+          "Gebruik deze flow wanneer de gebruiker een bestaand bestand of bestaande section in het theme wil aanpassen.",
+      },
+    },
+    policies: {
+      defaultFileStrategy: "single-section-file",
+      imageOnlyCloneSupported: false,
+      automaticTemplatePlacement: false,
+      visualWorkerMode: "url-first-fallback",
+      noLiquidInStylesheetOrJavascript: true,
+    },
+  };
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
   console.log(`Successfully updated ${path.relative(path.resolve(__dirname, '..'), manifestPath)}.`);
+  fs.writeFileSync(workflowManifestPath, JSON.stringify(workflowManifest, null, 2) + '\n', 'utf8');
+  console.log(`Successfully updated ${path.relative(path.resolve(__dirname, '..'), workflowManifestPath)}.`);
 
   for (const targetFile of targetFiles) {
     if (!fs.existsSync(targetFile)) {

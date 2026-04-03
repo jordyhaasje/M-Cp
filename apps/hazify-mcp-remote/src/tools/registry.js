@@ -214,6 +214,16 @@ const analyzeReferenceUiOutputSchema = z
     analysisMode: z.string().optional(),
     fidelityWarnings: z.array(z.string()).optional(),
     sources: z.array(passthroughObject()).optional(),
+    sectionPlan: passthroughObject().optional(),
+    errorCode: z.string().nullable().optional(),
+    retryable: z.boolean().optional(),
+    nextAction: passthroughObject().optional(),
+    suggestedFiles: z.array(passthroughObject()).optional(),
+    requiredInputs: z.array(z.string()).optional(),
+    generationHints: z.array(z.string()).optional(),
+    usedVisualWorker: z.boolean().optional(),
+    fidelityUpgradeApplied: z.boolean().optional(),
+    workerWarnings: z.array(z.string()).optional(),
     error: z.string().optional(),
   })
   .passthrough();
@@ -231,6 +241,10 @@ const draftThemeArtifactOutputSchema = z
     warnings: z.array(z.string()).optional(),
     draft: passthroughObject().optional(),
     errors: z.array(passthroughObject()).optional(),
+    errorCode: z.string().optional(),
+    retryable: z.boolean().optional(),
+    suggestedFixes: z.array(z.string()).optional(),
+    shouldNarrowScope: z.boolean().optional(),
   })
   .passthrough();
 

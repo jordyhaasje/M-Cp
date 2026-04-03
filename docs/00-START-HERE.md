@@ -7,7 +7,8 @@ Dit is het startpunt voor de Hazify monorepo. Deze workspace draait de productie
 1. `docs/00-START-HERE.md` (Dit document)
 2. `docs/01-TECH-STACK.md` (Architectuur, env vars, deployment)
 3. `docs/02-SYSTEM-FLOW.md` (Auth, OAuth, Runtime requests)
-4. `AGENTS.md` (Root - Operationele regels voor AI-agents, mutaties, tracking)
+4. `AGENTS.md` (Root - Interne maintainerregels voor AI-agents, mutaties, tracking)
+5. `docs/03-SECTION-CLONE-QUICKSTART.md` (Korte end-user / LLM promptgids voor section cloning)
 
 **Gouden regel:** Als documentatie en code elkaar tegenspreken, is de code *altijd* leidend. Update de documentatie in dezelfde wijziging.
 

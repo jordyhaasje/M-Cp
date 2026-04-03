@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-02T21:38:47.001Z",
+  "generatedAt": "2026-04-03T09:35:40.556Z",
   "tools": [
     {
       "name": "add-tracking-to-order",
@@ -16,7 +16,7 @@
     {
       "name": "analyze-reference-ui",
       "canonicalName": "analyze-reference-ui",
-      "description": "Fetch and analyze an external reference URL as compact DOM guidance for Shopify section generation. The tool strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, and adds a structured referenceSpec. When visual analysis is enabled it can enrich the result through the visual worker.",
+      "description": "Fetch and analyze an external reference URL as compact DOM guidance for Shopify section generation. The tool strips heavy tags, preserves structural IDs/classes and inline SVG markup, returns token-efficient Pug-like markup, adds a structured referenceSpec, and returns an actionable sectionPlan so LLMs can go directly into draft-theme-artifact. Image inputs are treated as hints only unless a future multimodal stage exists.",
       "requiresShopifyClient": false,
       "writeScopeRequired": false,
       "annotations": {
@@ -100,7 +100,7 @@
     {
       "name": "draft-theme-artifact",
       "canonicalName": "draft-theme-artifact",
-      "description": "Draft and validate Shopify theme files through the guarded preview pipeline. This is the only supported remote create/update path for theme artifacts: files are inspected, linted, stored in theme_drafts, pushed to a preview-safe target by default, and verified after write before they are ready for merchant review.\n\n⚠️ EXTREMELY CRITICAL STRICT CODE GENERATION RULES ⚠️\nRule 1 (UI/UX): Code MUST represent modern, premium Shopify 2.0 UI. NEVER use visible native scrollbars (::-webkit-scrollbar { display: none; }). Use modern CSS (scroll-snap-type, display: grid, gap, aspect-ratio).\nRule 2 (Dynamic Schema): NEVER hardcode texts, colors, or image URLs in the HTML. EVERY visual element MUST be bound to a setting in the {% schema %} (using color_picker, image_picker, text, richtext, range for spacing/layout controls).\nRule 3 (Blocks): Sliders, grids, and galleries MUST use the blocks architecture so merchants can add/remove/reorder content in the editor.\nRule 4 (Presets): Every section MUST have a complete presets array with default blocks so it appears in the Theme Editor.\nRule 5 (Mobile First): Always include responsive CSS (media queries) so the layout adapts flawlessly to mobile.",
+      "description": "Draft and validate Shopify theme files through the guarded preview pipeline. This is the only supported remote create/update path for theme artifacts: files are inspected, linted, stored in theme_drafts, pushed to a preview-safe target by default, and verified after write before they are ready for merchant review.\n\n⚠️ EXTREMELY CRITICAL STRICT CODE GENERATION RULES ⚠️\nRule 1 (UI/UX): Code MUST represent modern, premium Shopify 2.0 UI. NEVER use visible native scrollbars (::-webkit-scrollbar { display: none; }). Use modern CSS (scroll-snap-type, display: grid, gap, aspect-ratio).\nRule 2 (Dynamic Schema): NEVER hardcode texts, colors, or image URLs in the HTML. EVERY visual element MUST be bound to a setting in the {% schema %} (using color_picker, image_picker, text, richtext, range for spacing/layout controls).\nRule 3 (Blocks): Sliders, grids, and galleries MUST use the blocks architecture so merchants can add/remove/reorder content in the editor.\nRule 4 (Presets): Every section MUST have a complete presets array with default blocks so it appears in the Theme Editor.\nRule 5 (Shopify Constraints): Do not place Liquid inside {% stylesheet %} or {% javascript %}; use <style> or markup-level CSS variables when section.id scoping is required.",
       "requiresShopifyClient": true,
       "writeScopeRequired": true,
       "annotations": {
