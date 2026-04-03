@@ -417,12 +417,10 @@ try {
     : [];
   for (const expectedTool of [
     "get-products",
-    "prepare-section-from-reference",
     "refund-order",
     "get-theme-files",
     "draft-theme-artifact",
     "verify-theme-files",
-    "list_theme_import_tools",
   ]) {
     assert.equal(toolNames.includes(expectedTool), true, `tools/list should expose ${expectedTool}`);
   }

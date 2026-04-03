@@ -8,11 +8,8 @@ Runtime: Node.js `>=22.12.0`.
 ## Scope
 - Wel: producten, klanten, orders, tracking, refunds en theme file CRUD.
 - Wel: guarded preview/apply flow via `draft-theme-artifact`, `apply-theme-draft`, `get-theme-file(s)` en `verify-theme-files`.
-- Wel: reference-analyse via `analyze-reference-ui`, optioneel verrijkt door de visual worker met runtime layout-, control-, icon- en animation-signalen.
-- Wel: compacte section clone flow voor nieuwe sections: `prepare-section-from-reference` -> `draft-theme-artifact`.
-- Niet: automatische JSON template placement of blind live section-import.
+- Niet: automatische JSON template placement of blind live import.
 - Niet: browser automation binnen de hoofd-MCP runtime.
-- Niet: image-only cloning als zelfstandige capability; gebruik URL-first met image hint.
 
 ## Start (remote)
 ```bash
@@ -34,18 +31,11 @@ npm run --workspace @hazify/mcp-remote start:fallback:stdio
 - `DATABASE_URL` is in productie vereist voor `theme_drafts` persistence en PostgreSQL advisory locks op theme writes
 - Shopify credentials worden niet via introspection gedeeld; de remote haalt per token een interne Shopify access token op via `/v1/mcp/token/exchange`
 
-## Section flows
-### Nieuwe section uit reference
-- `prepare-section-from-reference` -> `draft-theme-artifact`
-- Geef bij pagina's met meerdere sections een `sectionHint` of `targetHeading` mee
-- `prepare-section-from-reference` levert `sectionPlan`, `sectionBlueprint`, `selectionEvidence`, `suggestedFiles`, `generationHints`, `errorCode`, `retryable` en `nextAction`
-- `sectionBlueprint` bevat nu ook `componentType`, `controlModel`, `animationModel`, `mediaModel` en `merchantEditableStyleModel`
-- gebruik `analyze-reference-ui` alleen voor low-level diagnose of expliciete selector-scoping
-- standaard outputpolicy: één `sections/<handle>.liquid`
-- URL-first met image hint
-
-### Bestaande theme edit
+## Theme edit flow
 - `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`
+- `draft-theme-artifact` valideert, lint en pusht standaard preview-first naar een development theme
+- `apply-theme-draft` promoveert een eerder goedgekeurde draft naar een expliciet target
+- `verify-theme-files` en `get-theme-file(s)` helpen bij verificatie en readback
 
 ## Shopify-conforme file policy
 - Standaard maakt de LLM alleen `sections/<handle>.liquid`

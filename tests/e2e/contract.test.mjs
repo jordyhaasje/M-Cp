@@ -313,13 +313,11 @@ try {
   const toolNames = toolsListBody.result.tools.map((tool) => String(tool?.name || ""));
   for (const expectedTool of [
     "get-products",
-    "prepare-section-from-reference",
     "refund-order",
     "search-theme-files",
     "get-theme-files",
     "draft-theme-artifact",
     "verify-theme-files",
-    "list_theme_import_tools",
   ]) {
     assert.equal(
       toolNames.includes(expectedTool),

@@ -18,7 +18,6 @@ import { getSupportedTrackingCompanies } from "../src/tools/getSupportedTracking
 import { getThemeFileTool } from "../src/tools/getThemeFile.js";
 import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import { getThemes } from "../src/tools/getThemes.js";
-import { listThemeImportTools } from "../src/tools/listThemeImportTools.js";
 import { manageProductOptions } from "../src/tools/manageProductOptions.js";
 import { manageProductVariants } from "../src/tools/manageProductVariants.js";
 import { refundOrder } from "../src/tools/refundOrder.js";
@@ -100,10 +99,6 @@ const carrierResult = await getSupportedTrackingCompanies.execute(
 );
 assert.ok(Array.isArray(carrierResult.returned), "carrier tool should be context-free and return data");
 
-const importToolsResult = await listThemeImportTools.execute(listThemeImportTools.schema.parse({}));
-assert.ok(Array.isArray(importToolsResult.tools), "theme import metadata tool should be context-free");
-assert.equal(importToolsResult.policy?.remoteMcpExecutesImports, false);
-
 const toolsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/tools");
 const toolFiles = (await fs.readdir(toolsDir))
   .filter((file) => file.endsWith(".js"))
@@ -113,10 +108,7 @@ const contextFreeFiles = new Set([
   path.join(toolsDir, "_context.js"),
   path.join(toolsDir, "getLicenseStatus.js"),
   path.join(toolsDir, "getSupportedTrackingCompanies.js"),
-  path.join(toolsDir, "listThemeImportTools.js"),
-  path.join(toolsDir, "prepareSectionFromReference.js"),
   path.join(toolsDir, "registry.js"),
-  path.join(toolsDir, "analyzeReferenceUi.js"),
 ]);
 
 for (const file of toolFiles) {

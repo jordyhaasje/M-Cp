@@ -6,9 +6,8 @@ Dit is het startpunt voor de Hazify monorepo. Deze workspace draait de productie
 ## Leesvolgorde
 1. `docs/00-START-HERE.md` (Dit document)
 2. `docs/01-TECH-STACK.md` (Architectuur, env vars, deployment)
-3. `docs/02-SYSTEM-FLOW.md` (Auth, OAuth, Runtime requests)
-4. `AGENTS.md` (Root - Interne maintainerregels voor AI-agents, mutaties, tracking)
-5. `docs/03-SECTION-CLONE-QUICKSTART.md` (Korte end-user / LLM promptgids voor section cloning)
+3. `docs/02-SYSTEM-FLOW.md` (Auth, OAuth, runtime requests en theme editing)
+4. `AGENTS.md` (Root - interne maintainerregels voor AI-agents, mutaties en workflows)
 
 **Gouden regel:** Als documentatie en code elkaar tegenspreken, is de code *altijd* leidend. Update de documentatie in dezelfde wijziging.
 
@@ -17,7 +16,6 @@ De monorepo is opgebouwd via npm workspaces. `src/` is de enige bron van waarhei
 
 - `apps/hazify-license-service/`: Node.js service voor account, OAuth, billing en token-exchange. (Entry: `src/server.js`)
 - `apps/hazify-mcp-remote/`: Remote MCP service via `/mcp`. (Entry: `src/index.js`)
-- `apps/hazify-visual-worker/`: Optionele visual-analysis service voor verrijkte reference specs achter een feature flag. (Entry: `src/server.js`)
 - `packages/shopify-core/`: Gedeelde Shopify logica (`normalizeShopDomain`, `REQUIRED_SHOPIFY_ADMIN_SCOPES`, en gecentraliseerde GraphQL error afhandeling via `assertNoUserErrors`).
 - `packages/mcp-common/`: Gedeelde utility functies en scope string afhandeling.
 - `docs/`: Alle actieve documentatie.

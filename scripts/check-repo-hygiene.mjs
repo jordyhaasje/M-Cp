@@ -10,8 +10,6 @@ const requiredDirs = [
   "packages/mcp-common",
   "packages/shopify-core",
   "docs",
-  "docs/archive",
-  "docs/archive/artifacts",
   "scripts",
   "tests",
   ".github",

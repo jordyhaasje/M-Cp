@@ -369,7 +369,7 @@ try {
     id: 21,
     method: "tools/call",
     params: {
-      name: "list_theme_import_tools",
+      name: "get-supported-tracking-companies",
       arguments: {},
     },
   });

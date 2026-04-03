@@ -7,14 +7,13 @@ const mode = String(process.env.HAZIFY_SERVICE_MODE || "mcp")
 const commands = {
   mcp: ["npm", ["run", "start:mcp"]],
   license: ["npm", ["run", "start:license"]],
-  "visual-worker": ["npm", ["run", "start:visual-worker"]],
 };
 
 const selected = commands[mode];
 
 if (!selected) {
   console.error(
-    `Ongeldige HAZIFY_SERVICE_MODE='${mode}'. Gebruik 'mcp', 'license' of 'visual-worker'.`
+    `Ongeldige HAZIFY_SERVICE_MODE='${mode}'. Gebruik 'mcp' of 'license'.`
   );
   process.exit(1);
 }

@@ -3,7 +3,6 @@ const licenseBaseUrl =
   "https://hazify-license-service-production.up.railway.app";
 const mcpBaseUrl =
   process.env.HAZIFY_MCP_BASE_URL || "https://hazify-mcp-remote-production.up.railway.app";
-const visualWorkerBaseUrl = process.env.HAZIFY_VISUAL_WORKER_BASE_URL || "";
 
 function toUrl(baseUrl, pathname) {
   return new URL(pathname, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).toString();
@@ -62,12 +61,5 @@ await expectStatus({
   },
   body: initializePayload,
 });
-
-if (visualWorkerBaseUrl) {
-  await expectStatus({
-    url: toUrl(visualWorkerBaseUrl, "/health"),
-    expectedStatus: 200,
-  });
-}
 
 console.log("Production smoke checks passed.");

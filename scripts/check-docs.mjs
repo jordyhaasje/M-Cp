@@ -1,15 +1,13 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { createHazifyToolRegistry } from "../apps/hazify-mcp-remote/src/tools/registry.js";
 
 const repoRoot = process.cwd();
 const docsDir = path.join(repoRoot, "docs");
 const docsIndexPath = path.join(docsDir, "README.md");
 const startHerePath = path.join(docsDir, "00-START-HERE.md");
-const rootReadmePath = path.join(repoRoot, "README.md");
 const agentsPath = path.join(repoRoot, "AGENTS.md");
 const remoteReadmePath = path.join(repoRoot, "apps/hazify-mcp-remote/README.md");
-const toolManifestPath = path.join(docsDir, "archive/artifacts/tool-manifest.json");
-const workflowManifestPath = path.join(docsDir, "archive/artifacts/section-workflow-truth.json");
 
 const problems = [];
 
@@ -139,9 +137,15 @@ async function main() {
     readText(docsIndexPath),
     readText(startHerePath),
   ]);
-  const toolManifest = JSON.parse(await readText(toolManifestPath));
-  const workflowManifest = JSON.parse(await readText(workflowManifestPath));
-  const toolNames = new Set((toolManifest.tools || []).map((tool) => tool.name));
+  const registry = createHazifyToolRegistry({ getLicenseStatusExecute: async () => ({}) });
+  const toolNames = new Set((registry.tools || []).map((tool) => tool.name));
+  const workflowManifest = {
+    workflows: {
+      existingThemeEdit: {
+        label: "Bestaande theme edit",
+      },
+    },
+  };
   const forbiddenToolMentions = [
     "create-theme-section",
     "upsert-theme-file",
@@ -161,7 +165,7 @@ async function main() {
     .sort();
   const orderedReadOrder = extractSectionCodePaths(startHereContent, "Leesvolgorde");
   const readOrderDocs = orderedReadOrder
-    .filter((value) => value.startsWith("docs/") && value.endsWith(".md") && !value.startsWith("docs/archive/"))
+    .filter((value) => value.startsWith("docs/") && value.endsWith(".md"))
     .sort();
 
   comparePathLists("docs/README.md", actualActiveDocs, indexedDocs);
@@ -193,45 +197,27 @@ async function main() {
     [
       agentsPath,
       [
-        workflowManifest.workflows.newSectionFromReference.label,
-        "`prepare-section-from-reference` -> `draft-theme-artifact`",
         workflowManifest.workflows.existingThemeEdit.label,
         "`search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`",
-        "Gebruik voor nieuwe sections uit een reference niet standaard `get-themes`, `search-theme-files` of `get-theme-file`.",
-        "Gebruik `analyze-reference-ui` alleen voor low-level diagnose of expliciete selector-scoping.",
-        "Geef op multi-section pagina's bij voorkeur een `sectionHint` of `targetHeading` mee.",
-        "Image-only cloning wordt nog niet ondersteund zonder extra multimodale stap.",
+        "Gebruik voor create/update van theme code uitsluitend `draft-theme-artifact`.",
         "Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.",
       ],
     ],
     [
       path.join(repoRoot, "docs/02-SYSTEM-FLOW.md"),
       [
-        workflowManifest.workflows.newSectionFromReference.label,
-        "`prepare-section-from-reference` -> `draft-theme-artifact`",
         workflowManifest.workflows.existingThemeEdit.label,
         "`search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`",
-        "URL-first met image hint",
-        "Gebruik `analyze-reference-ui` alleen voor low-level diagnose",
+        "Theme create/update loopt via `draft-theme-artifact`.",
         "Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.",
       ],
     ],
     [
       remoteReadmePath,
       [
-        "`prepare-section-from-reference` -> `draft-theme-artifact`",
-        "URL-first met image hint",
-        "Geef bij pagina's met meerdere sections een `sectionHint` of `targetHeading` mee",
-      ],
-    ],
-    [
-      path.join(repoRoot, "docs/03-SECTION-CLONE-QUICKSTART.md"),
-      [
-        "Nieuwe section uit reference",
-        "Bestaande theme edit",
-        "Image-only cloning wordt nog niet ondersteund zonder extra multimodale stap.",
-        "Standaard maakt de LLM alleen `sections/<handle>.liquid`.",
-        "Gebruik een sectietitel of korte hint wanneer de reference-pagina meerdere sections bevat.",
+        "`draft-theme-artifact`",
+        "`apply-theme-draft`",
+        "`search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`",
       ],
     ],
   ]);

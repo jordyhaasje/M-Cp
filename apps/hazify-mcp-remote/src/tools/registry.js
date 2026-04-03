@@ -18,12 +18,9 @@ import { getSupportedTrackingCompanies } from "./getSupportedTrackingCompanies.j
 import { getThemeFileTool } from "./getThemeFile.js";
 import { getThemeFilesTool } from "./getThemeFiles.js";
 import { getThemes } from "./getThemes.js";
-import { listThemeImportTools } from "./listThemeImportTools.js";
 import { manageProductOptions } from "./manageProductOptions.js";
 import { manageProductVariants } from "./manageProductVariants.js";
-import { prepareSectionFromReference } from "./prepareSectionFromReference.js";
 import { refundOrder } from "./refundOrder.js";
-import { analyzeReferenceUi } from "./analyzeReferenceUi.js";
 import { searchThemeFilesTool } from "./searchThemeFiles.js";
 import { setOrderTracking } from "./setOrderTracking.js";
 import { updateCustomer } from "./updateCustomer.js";
@@ -204,34 +201,6 @@ const searchThemeFilesOutputSchema = z
   })
   .passthrough();
 
-const analyzeReferenceUiOutputSchema = z
-  .object({
-    success: z.boolean(),
-    url: z.string().nullable().optional(),
-    selector: z.string().nullable().optional(),
-    contentLength: z.number().optional(),
-    markup: z.string().optional(),
-    referenceSpec: passthroughObject().optional(),
-    analysisMode: z.string().optional(),
-    fidelityWarnings: z.array(z.string()).optional(),
-    sources: z.array(passthroughObject()).optional(),
-    sectionPlan: passthroughObject().optional(),
-    sectionBlueprint: passthroughObject().optional(),
-    selectionEvidence: passthroughObject().optional(),
-    errorCode: z.string().nullable().optional(),
-    retryable: z.boolean().optional(),
-    nextAction: passthroughObject().optional(),
-    suggestedFiles: z.array(passthroughObject()).optional(),
-    requiredInputs: z.array(z.string()).optional(),
-    generationHints: z.array(z.string()).optional(),
-    fidelityRisks: z.array(z.string()).optional(),
-    usedVisualWorker: z.boolean().optional(),
-    fidelityUpgradeApplied: z.boolean().optional(),
-    workerWarnings: z.array(z.string()).optional(),
-    error: z.string().optional(),
-  })
-  .passthrough();
-
 const draftThemeArtifactOutputSchema = z
   .object({
     success: z.boolean(),
@@ -351,18 +320,9 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
     idempotent: false,
   }),
   defineToolManifest(verifyThemeFilesTool),
-  defineToolManifest(listThemeImportTools, { requiresShopifyClient: false }),
   defineToolManifest(createGetLicenseStatusTool(getLicenseStatusExecute), {
     requiresShopifyClient: false,
     outputSchema: getLicenseStatusOutputSchema,
-  }),
-  defineToolManifest(prepareSectionFromReference, {
-    requiresShopifyClient: false,
-    outputSchema: analyzeReferenceUiOutputSchema,
-  }),
-  defineToolManifest(analyzeReferenceUi, {
-    requiresShopifyClient: false,
-    outputSchema: analyzeReferenceUiOutputSchema,
   }),
   defineToolManifest(draftThemeArtifact, {
     writeScopeRequired: true,

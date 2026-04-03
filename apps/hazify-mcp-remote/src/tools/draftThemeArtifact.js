@@ -8,41 +8,17 @@ import { getShopDomainFromClient, upsertThemeFiles } from "../lib/themeFiles.js"
 import { requireShopifyClient } from "./_context.js";
 
 export const toolName = "draft-theme-artifact";
-export const description = `Draft and validate Shopify theme files through the guarded preview pipeline. This is the only supported remote create/update path for theme artifacts: files are inspected, linted, stored in theme_drafts, pushed to a preview-safe target by default, and verified after write before they are ready for merchant review.
+export const description = `Draft and validate Shopify theme files through the guarded preview pipeline. Use this to safely write or update theme files - fixes, modifications, and small additions. Files are inspected, linted, stored in theme_drafts, pushed to a preview-safe target by default, and verified after write.
 
-⚠️ EXTREMELY CRITICAL STRICT CODE GENERATION RULES ⚠️
-Rule 1 (UI/UX): Code MUST represent modern, premium Shopify 2.0 UI. NEVER use visible native scrollbars (::-webkit-scrollbar { display: none; }). Use modern CSS (scroll-snap-type, display: grid, gap, aspect-ratio).
-Rule 2 (Dynamic Schema): NEVER hardcode texts, colors, or image URLs in the HTML. EVERY visual element MUST be bound to a setting in the {% schema %} (using color_picker, image_picker, text, richtext, range for spacing/layout controls).
-Rule 3 (Blocks): Sliders, grids, and galleries MUST use the blocks architecture so merchants can add/remove/reorder content in the editor.
-Rule 4 (Presets): Every section MUST have a complete presets array with default blocks so it appears in the Theme Editor.
-Rule 5 (Shopify Constraints): Do not place Liquid inside {% stylesheet %} or {% javascript %}; use <style> or markup-level CSS variables when section.id scoping is required.`;
+Rules for valid Shopify Liquid:
+
+Do not place Liquid inside {% stylesheet %} or {% javascript %}
+
+Use <style> or markup-level CSS variables for section.id scoping
+
+Every section must have a valid {% schema %} with presets`;
 
 const ThemeRoleSchema = z.enum(["main", "unpublished", "development"]);
-
-const ReferenceSourceSchema = z
-  .object({
-    url: z.string().url().optional(),
-    cssSelector: z.string().optional(),
-    imageUrls: z.array(z.string().url()).max(8).optional(),
-  })
-  .partial();
-
-const ReferenceSpecSchema = z
-  .object({
-    version: z.number().int().positive().optional(),
-    sources: z.array(z.object({ type: z.string(), url: z.string().url() })).optional(),
-    fidelityGaps: z.array(z.string()).optional(),
-  })
-  .passthrough();
-
-const SectionBlueprintSchema = z
-  .object({
-    version: z.number().int().positive().optional(),
-    archetype: z.string().optional(),
-    recommendedPrimaryFile: z.string().optional(),
-    mediaPolicy: z.object({}).passthrough().optional(),
-  })
-  .passthrough();
 
 const ThemeDraftFileSchema = z.object({
   key: z.string().min(1).describe("De exacte filelocatie (bijv. sections/feature-sandbox.liquid)"),
@@ -58,9 +34,6 @@ export const inputSchema = z.object({
   themeId: z.string().or(z.number()).optional().describe("Optioneel expliciet doel theme ID. Laat weg om via themeRole te resolven."),
   themeRole: ThemeRoleSchema.default("development").describe("Preview target. Standaard wordt naar een development theme geschreven."),
   isStandalone: z.boolean().optional().describe("Mark as standalone workflow"),
-  referenceInput: ReferenceSourceSchema.optional().describe("Optionele brondata van reference analysis voor draft audit trail."),
-  referenceSpec: ReferenceSpecSchema.optional().describe("Optionele gestructureerde referenceSpec voor draft audit trail."),
-  sectionBlueprint: SectionBlueprintSchema.optional().describe("Optionele blueprint of section-plan uit prepare-section-from-reference zodat de draft minder vrij hoeft te interpreteren."),
 });
 
 function extractSchemaJson(value) {
@@ -110,30 +83,7 @@ function hasRawImgWithoutDimensions(value) {
   );
 }
 
-function collectSchemaSettingIds(schema) {
-  const ids = new Set();
-  const collect = (items) => {
-    for (const item of items || []) {
-      if (item?.id) {
-        ids.add(String(item.id));
-      }
-    }
-  };
-
-  collect(schema?.settings);
-  for (const block of schema?.blocks || []) {
-    collect(block?.settings);
-  }
-  return ids;
-}
-
-function hasInteractiveBehaviorCode(value) {
-  return /scroll-snap-type|scroll-snap-align|overflow-x\s*:\s*(?:auto|scroll)|transform\s*:\s*translate(?:3d|X)|scrollBy\(|scrollTo\(|addEventListener\(\s*['"]click['"]|requestAnimationFrame|setInterval\(|setTimeout\(|classList\.(?:add|remove|toggle)/i.test(
-    String(value || "")
-  );
-}
-
-function inspectSectionFile(file, { sectionBlueprint } = {}) {
+function inspectSectionFile(file) {
   const value = String(file.value || "");
   const warnings = [];
   const suggestedFixes = [];
@@ -149,7 +99,7 @@ function inspectSectionFile(file, { sectionBlueprint } = {}) {
       warnings,
       suggestedFixes: [
         "Verwijder templates/*.json of config/*.json uit deze draft batch.",
-        "Beperk nieuwe section-cloning standaard tot één file: sections/<handle>.liquid.",
+        "Beperk nieuwe section writes standaard tot één file: sections/<handle>.liquid.",
       ],
       shouldNarrowScope: true,
     };
@@ -194,13 +144,6 @@ function inspectSectionFile(file, { sectionBlueprint } = {}) {
   const settings = Array.isArray(schema.settings) ? schema.settings : [];
   const blocks = Array.isArray(schema.blocks) ? schema.blocks : [];
   const presets = Array.isArray(schema.presets) ? schema.presets : [];
-  const archetype = String(sectionBlueprint?.archetype || "").trim();
-  const componentType = String(sectionBlueprint?.componentType || archetype).trim();
-  const prefersImageTag = sectionBlueprint?.mediaPolicy?.preferImageTag !== false;
-  const schemaSettingIds = collectSchemaSettingIds(schema);
-  const controlModel = sectionBlueprint?.controlModel || {};
-  const animationModel = sectionBlueprint?.animationModel || {};
-  const mediaModel = sectionBlueprint?.mediaModel || {};
 
   if (hasRawImgWithoutDimensions(value)) {
     return {
@@ -212,12 +155,8 @@ function inspectSectionFile(file, { sectionBlueprint } = {}) {
         "Building Inspection Failed: raw <img> tags zonder width en height veroorzaken instabiele Shopify sections. Gebruik image_url + image_tag of geef expliciete afmetingen mee.",
       warnings,
       suggestedFixes: [
-        prefersImageTag
-          ? "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen."
-          : "Geef expliciete width en height attributen mee aan elke raw <img> tag.",
-        archetype
-          ? `Houd de media-output afgestemd op blueprint archetype '${archetype}' in plaats van generieke afbeeldingstags.`
-          : "Gebruik image_picker, collection of andere Shopify resource settings voor merchant-editable media.",
+        "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen.",
+        "Gebruik image_picker, collection of andere Shopify resource settings voor merchant-editable media.",
       ],
       shouldNarrowScope: false,
     };
@@ -268,7 +207,7 @@ function inspectSectionFile(file, { sectionBlueprint } = {}) {
       warnings,
       suggestedFixes: [
         "Voeg responsieve regels, spacing en een duidelijke layout primitive toe.",
-        "Gebruik grid/flex wanneer de reference een meerkoloms of card-based layout heeft.",
+        "Gebruik grid/flex wanneer de section een meerkoloms of card-based layout heeft.",
         "Geef de section een visuele afwerking zoals border-radius, borders of background treatment.",
       ],
       shouldNarrowScope: false,
@@ -287,55 +226,12 @@ function inspectSectionFile(file, { sectionBlueprint } = {}) {
     suggestedFixes.push("Voeg minimaal één range setting toe voor spacing of layoutcontrole.");
   }
   if (!settingTypes.has("color")) {
-    warnings.push("Schema mist een color setting voor merchant-editable styling. Dit is aanbevolen voor reference-based sections.");
+    warnings.push("Schema mist een color setting voor merchant-editable styling. Dit is aanbevolen voor theme editing.");
     suggestedFixes.push("Voeg color settings toe voor achtergrond, tekst of accentkleuren.");
   }
   if (!settingTypes.has("image_picker") && /<img\b|image_tag|svg/i.test(value)) {
-    warnings.push("Reference lijkt media te gebruiken, maar schema bevat geen image_picker.");
+    warnings.push("De section lijkt media te gebruiken, maar schema bevat geen image_picker.");
     suggestedFixes.push("Voeg een image_picker toe wanneer imagery of logo's merchant-editable moeten zijn.");
-  }
-
-  if (/carousel-slider|testimonial-slider|logo-strip/.test(componentType)) {
-    const hasBehavior = hasInteractiveBehaviorCode(value);
-    const hasBlocks = blocks.length > 0;
-    const hasArrowSettings = !controlModel.hasArrows || schemaSettingIds.has("show_arrows");
-    const hasDotSettings = !controlModel.hasDots || schemaSettingIds.has("show_dots");
-    const hasTimingSetting =
-      !(animationModel.transitionDurations || []).length ||
-      schemaSettingIds.has("transition_duration") ||
-      schemaSettingIds.has("autoplay_interval");
-
-    if (!hasBlocks || !hasBehavior || !hasArrowSettings || !hasDotSettings || !hasTimingSetting) {
-      return {
-        ok: false,
-        status: "inspection_failed",
-        errorCode: "inspection_failed_interaction",
-        retryable: true,
-        message:
-          "Building Inspection Failed: de blueprint verwacht interactieve controls of slidergedrag, maar de section code mist nog een overtuigende interaction-laag.",
-        warnings,
-        suggestedFixes: uniqueStrings([
-          !hasBlocks ? "Gebruik blocks voor slides of herhaalbare items zodat merchants de inhoud kunnen beheren." : null,
-          !hasBehavior
-            ? "Voeg scroll-snap, overflow-x of een lichte JS-track toe zodat de slider niet als statisch grid eindigt."
-            : null,
-          !hasArrowSettings ? "Voeg een show_arrows setting en echte prev/next controls toe." : null,
-          !hasDotSettings ? "Voeg een show_dots setting en pagination/dots markup toe." : null,
-          !hasTimingSetting ? "Voeg transition_duration of autoplay_interval toe zodat animatiegedrag merchant-editable blijft." : null,
-        ]),
-        shouldNarrowScope: false,
-      };
-    }
-  }
-
-  if ((mediaModel.inlineSvgPresent || /icon-grid/.test(componentType)) && !settingTypes.has("image_picker")) {
-    warnings.push("Blueprint verwacht iconen of inline SVG presence, maar schema bevat geen image_picker voor overridebare icon/media.");
-    suggestedFixes.push("Voeg image_picker settings toe voor iconen, logo's of fallback media wanneer de reference visuele marks gebruikt.");
-  }
-
-  if ((animationModel.transitionDurations || []).length > 0 && !/transition|animation|transform/i.test(value)) {
-    warnings.push("Reference toont transitie- of animatiesignalen, maar de section code bevat daar nog weinig expliciete hooks voor.");
-    suggestedFixes.push("Neem transition-duration, easing en eventuele hover/entrance states mee in CSS of JS wanneer de reference daarop leunt.");
   }
 
   return {
@@ -474,14 +370,7 @@ export const draftThemeArtifact = {
   schema: inputSchema,
   execute: async (args, context = {}) => {
     const shopifyClient = requireShopifyClient(context);
-    const { files, themeId, themeRole, referenceInput, referenceSpec, sectionBlueprint } = args;
-    const effectiveReferenceSpec =
-      sectionBlueprint || referenceSpec
-        ? {
-            ...(referenceSpec || {}),
-            ...(sectionBlueprint ? { sectionBlueprint } : {}),
-          }
-        : null;
+    const { files, themeId, themeRole } = args;
     const warnings = [];
     const suggestedFixes = [];
 
@@ -490,14 +379,25 @@ export const draftThemeArtifact = {
     }
 
     if (files.length > 1) {
-      warnings.push(
-        "Default file policy for new reference-based sections is one sections/<handle>.liquid file. Extra files should only be added when there is a concrete need."
-      );
+      warnings.push("Draft alleen de noodzakelijke bestanden. Gebruik meerdere files alleen wanneer daar een concrete reden voor is.");
     }
 
     for (const file of files) {
+      if (/^(templates|config)\//.test(file.key)) {
+        const inspection = inspectSectionFile(file);
+        return buildFailureResponse({
+          status: inspection.status,
+          message: inspection.message,
+          warnings: inspection.warnings || [],
+          errorCode: inspection.errorCode,
+          retryable: inspection.retryable,
+          suggestedFixes: inspection.suggestedFixes || [],
+          shouldNarrowScope: inspection.shouldNarrowScope || false,
+        });
+      }
+
       if (file.key.endsWith(".liquid") && file.key.startsWith("sections/")) {
-        const inspection = inspectSectionFile(file, { sectionBlueprint });
+        const inspection = inspectSectionFile(file);
         if (!inspection.ok) {
           return buildFailureResponse({
             status: inspection.status,
@@ -520,8 +420,8 @@ export const draftThemeArtifact = {
       shopDomain,
       status: "pending",
       files,
-      referenceInput: referenceInput || null,
-      referenceSpec: effectiveReferenceSpec,
+      referenceInput: null,
+      referenceSpec: null,
     });
     const draftId = draftRecord?.id || `mock-${Date.now()}`;
 

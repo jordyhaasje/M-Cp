@@ -8,7 +8,6 @@ import { updateFulfillmentTracking } from "../src/tools/updateFulfillmentTrackin
 import { updateOrder } from "../src/tools/updateOrder.js";
 import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
-import { listThemeImportTools } from "../src/tools/listThemeImportTools.js";
 import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
 import { applyThemeDraft } from "../src/tools/applyThemeDraft.js";
 
@@ -484,21 +483,6 @@ try {
       ),
     /Unsupported carrier 'Invalid Carrier'/
   );
-
-  const registryResult = await listThemeImportTools.execute({});
-  assert.ok(Array.isArray(registryResult.tools), "tool registry should return tools array");
-  const toolNames = registryResult.tools.map((tool) => tool.name);
-  assert.equal(
-    toolNames.includes("chrome_mcp_theme_review"),
-    true,
-    "registry should include Chrome MCP advisory metadata"
-  );
-  assert.equal(
-    toolNames.includes("shopify_dev_import_section"),
-    true,
-    "registry should include Shopify Dev MCP advisory metadata"
-  );
-  assert.equal(registryResult.policy?.remoteMcpExecutesImports, false);
 
   console.log("toolHardening.test.mjs passed");
 } finally {
