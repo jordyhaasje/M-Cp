@@ -586,16 +586,45 @@ async function runLicensedTool(tool, args) {
         throw new Error(`License gate blocked '${toolName}': ${decision.reason}`);
     }
     const executeTool = async () => {
+        const startedAt = Date.now();
+        logHttpEvent("mcp_http_tool_call_started", {
+            toolName,
+            tenantId: context.tenantId || null,
+            tokenId: context.tokenId || null,
+            shopifyDomain: context.shopifyDomain || null,
+            mutating,
+        });
         let effectiveContext = context;
-        if (toolRequiresShopifyClient(toolName) && !effectiveContext.shopifyClient) {
-            effectiveContext = await ensureRemoteShopifyClient(effectiveContext);
+        try {
+            if (toolRequiresShopifyClient(toolName) && !effectiveContext.shopifyClient) {
+                effectiveContext = await ensureRemoteShopifyClient(effectiveContext);
+            }
+            const executionContext = buildToolExecutionContext(effectiveContext);
+            if (!executionContext.shopifyClient && toolRequiresShopifyClient(toolName)) {
+                throw new Error("Missing Shopify client in request execution context");
+            }
+            const result = await tool.execute(args, executionContext);
+            logHttpEvent("mcp_http_tool_call_finished", {
+                toolName,
+                tenantId: context.tenantId || null,
+                tokenId: context.tokenId || null,
+                shopifyDomain: context.shopifyDomain || null,
+                durationMs: Date.now() - startedAt,
+                ...summarizeToolResultForLog(result),
+            });
+            return toMcpResponse(result);
         }
-        const executionContext = buildToolExecutionContext(effectiveContext);
-        if (!executionContext.shopifyClient && toolRequiresShopifyClient(toolName)) {
-            throw new Error("Missing Shopify client in request execution context");
+        catch (error) {
+            logHttpEvent("mcp_http_tool_call_failed", {
+                toolName,
+                tenantId: context.tenantId || null,
+                tokenId: context.tokenId || null,
+                shopifyDomain: context.shopifyDomain || null,
+                durationMs: Date.now() - startedAt,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            throw error;
         }
-        const result = await tool.execute(args, executionContext);
-        return toMcpResponse(result);
     };
     if (!mutating) {
         return executeTool();
@@ -709,6 +738,16 @@ const logHttpEvent = (event, details = {}) => {
         // Logging should never break MCP responses.
     }
 };
+const summarizeToolResultForLog = (result) => ({
+    success: typeof result?.success === "boolean" ? result.success : true,
+    status: typeof result?.status === "string" ? result.status : null,
+    errorCode: typeof result?.errorCode === "string" ? result.errorCode : null,
+    retryable: typeof result?.retryable === "boolean" ? result.retryable : null,
+    draftId: typeof result?.draftId === "string" ? result.draftId : null,
+    themeId: result?.themeId ?? null,
+    analysisId: typeof result?.analysisId === "string" ? result.analysisId : null,
+    nextTool: typeof result?.nextAction?.tool === "string" ? result.nextAction.tool : null,
+});
 const requestLogContext = (req) => ({
     method: req.method || null,
     path: req.originalUrl || req.url || null,
