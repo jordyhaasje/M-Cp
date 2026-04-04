@@ -1770,7 +1770,7 @@ export function renderDashboardPage() {
                         <div class="connect-icon-wrap"><img src="/assets/brands/perplexity.ico" alt="Perplexity" /></div>
                         <div>
                           <h4>Perplexity</h4>
-                          <p>Gebruik de remote connectorflow met OAuth en kies Streamable HTTP.</p>
+                          <p>Gebruik Perplexity alleen als remote connectors in jouw account beschikbaar zijn; houd JSON/command als fallback achter de hand.</p>
                         </div>
                       </div>
                       <button class="btn setup-btn" type="button" data-open-setup="perplexity">Connect</button>
@@ -2322,11 +2322,11 @@ export function renderDashboardPage() {
             return {
               client,
               title: 'Perplexity setup',
-              intro: 'Kies bij voorkeur OAuth. Gebruik JSON of command als fallback.',
+              intro: 'Gebruik de remote connectorflow alleen als die in jouw Perplexity-account zichtbaar is. Houd JSON of command als fallback achter de hand.',
               steps: [
-                'Open Connectors in Perplexity en voeg Custom Remote Connector toe.',
-                'Gebruik de URL hieronder en zet transport op Streamable HTTP.',
-                'Rond OAuth af, of gebruik JSON/Command fallback.',
+                'Controleer eerst of jouw Perplexity-account Custom Remote Connectors ondersteunt.',
+                'Als die optie beschikbaar is: voeg de URL hieronder toe en kies Streamable HTTP.',
+                'Als die optie ontbreekt of OAuth niet werkt: gebruik de JSON- of command-fallback.',
               ],
               formats: [
                 { key: 'streamable', label: 'Streamable URL', snippet: endpoint },
