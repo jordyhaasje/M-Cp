@@ -259,8 +259,6 @@ async function main() {
           token.startsWith("apply-") ||
           token.startsWith("search-") ||
           token.startsWith("refund-") ||
-          token.startsWith("analyze-") ||
-          token.startsWith("list_") ||
           token.startsWith("add-"))
       ) {
         if (!toolNames.has(token)) {

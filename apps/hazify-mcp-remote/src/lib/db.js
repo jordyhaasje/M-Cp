@@ -1,56 +1,90 @@
-import { createDatabasePool, tryAcquireAdvisoryLock } from '@hazify/db-core';
+import crypto from "crypto";
+import { createDatabasePool, tryAcquireAdvisoryLock } from "@hazify/db-core";
 
-// Singleton pool instance for the remote MCP
 let pool = null;
 let themeDraftSchemaPromise = null;
-const inMemoryThemeDrafts = new Map();
+let testPoolOverride = null;
 
-function allowInMemoryThemeDrafts() {
-  const nodeEnv = String(process.env.NODE_ENV || "").trim().toLowerCase();
-  if (nodeEnv === "production") {
-    return false;
+function hasDatabaseUrl() {
+  return Boolean(String(process.env.DATABASE_URL || "").trim());
+}
+
+function hasTestPoolOverride() {
+  return String(process.env.NODE_ENV || "").trim().toLowerCase() === "test" && Boolean(testPoolOverride);
+}
+
+function getPoolSource() {
+  if (hasDatabaseUrl()) {
+    return "database";
   }
-  return true;
+  if (hasTestPoolOverride()) {
+    return "test";
+  }
+  return null;
 }
 
 function assertThemeDraftDatabaseAvailable() {
-  if (process.env.DATABASE_URL) {
-    return;
-  }
-  if (allowInMemoryThemeDrafts()) {
+  if (getPoolSource()) {
     return;
   }
   throw new Error(
-    "DATABASE_URL is verplicht voor theme draft persistence en advisory locks in productie."
+    "DATABASE_URL is verplicht voor theme draft persistence en advisory locks. In tests moet expliciet een test pool override gezet worden."
   );
 }
 
-export function getDbPool() {
-  if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      if (allowInMemoryThemeDrafts()) {
-        console.warn(
-          'DATABASE_URL is niet ingesteld. In-memory theme draft fallback is actief buiten productie.'
-        );
-      }
-      return null;
-    }
-    const isLocalMock = process.env.NODE_ENV === 'test';
-    pool = createDatabasePool(connectionString, !isLocalMock);
+function serializeJson(value, { allowNull = false } = {}) {
+  if (value === undefined) {
+    return undefined;
   }
-  return pool;
+  if (value === null) {
+    return allowNull ? null : undefined;
+  }
+  return JSON.stringify(value);
 }
 
-async function ensureThemeDraftSchema() {
-  if (!process.env.DATABASE_URL) {
+export function setThemeDraftTestPoolOverride(nextPool) {
+  testPoolOverride = nextPool || null;
+  pool = null;
+  themeDraftSchemaPromise = null;
+}
+
+export function clearThemeDraftTestPoolOverride() {
+  testPoolOverride = null;
+  pool = null;
+  themeDraftSchemaPromise = null;
+}
+
+export function getDbPool() {
+  if (pool) {
+    return pool;
+  }
+
+  const source = getPoolSource();
+  if (!source) {
     assertThemeDraftDatabaseAvailable();
     return null;
   }
 
+  if (source === "test") {
+    pool = testPoolOverride;
+    return pool;
+  }
+
+  const connectionString = String(process.env.DATABASE_URL || "").trim();
+  const isLocalMock = process.env.NODE_ENV === "test";
+  pool = createDatabasePool(connectionString, !isLocalMock);
+  return pool;
+}
+
+async function ensureThemeDraftSchema() {
+  assertThemeDraftDatabaseAvailable();
+
   if (!themeDraftSchemaPromise) {
     const dbPool = getDbPool();
-    themeDraftSchemaPromise = dbPool.query(`
+    const source = getPoolSource();
+    const schemaSql =
+      source === "database"
+        ? `
       CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
       CREATE TABLE IF NOT EXISTS theme_drafts (
@@ -75,7 +109,25 @@ async function ensureThemeDraftSchema() {
       ALTER TABLE theme_drafts ADD COLUMN IF NOT EXISTS preview_theme_id BIGINT;
       ALTER TABLE theme_drafts ADD COLUMN IF NOT EXISTS applied_theme_id BIGINT;
       ALTER TABLE theme_drafts ALTER COLUMN files_json SET DEFAULT '[]'::jsonb;
-    `).catch((error) => {
+    `
+        : `
+      CREATE TABLE IF NOT EXISTS theme_drafts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        shop_domain TEXT NOT NULL,
+        status TEXT NOT NULL,
+        files_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        reference_input_json JSONB,
+        reference_spec_json JSONB,
+        lint_report_json JSONB,
+        verify_result_json JSONB,
+        preview_theme_id BIGINT,
+        applied_theme_id BIGINT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `;
+
+    themeDraftSchemaPromise = dbPool.query(schemaSql).catch((error) => {
       themeDraftSchemaPromise = null;
       throw error;
     });
@@ -102,37 +154,21 @@ export async function createThemeDraftRecord({
   previewThemeId = null,
 } = {}) {
   const dbPool = await ensureThemeDraftSchema();
-  if (!dbPool) {
-    const id = `mock-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-    const record = {
-      id,
-      shop_domain: shopDomain,
-      status,
-      files_json: Array.isArray(files) ? files : [],
-      reference_input_json: referenceInput,
-      reference_spec_json: referenceSpec,
-      lint_report_json: null,
-      verify_result_json: null,
-      preview_theme_id: previewThemeId,
-      applied_theme_id: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    inMemoryThemeDrafts.set(id, record);
-    return record;
-  }
+  const draftId = crypto.randomUUID();
 
   const result = await dbPool.query(
     `INSERT INTO theme_drafts (
+      id,
       shop_domain,
       status,
       files_json,
       reference_input_json,
       reference_spec_json,
       preview_theme_id
-    ) VALUES ($1, $2, $3, $4, $5, $6)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7)
     RETURNING *`,
     [
+      draftId,
       shopDomain,
       status,
       JSON.stringify(Array.isArray(files) ? files : []),
@@ -147,36 +183,16 @@ export async function createThemeDraftRecord({
 
 export async function updateThemeDraftRecord(draftId, updates = {}) {
   const dbPool = await ensureThemeDraftSchema();
-  if (!dbPool) {
-    const existing = inMemoryThemeDrafts.get(normalizeDraftId(draftId));
-    if (!existing) {
-      return null;
-    }
-    const next = {
-      ...existing,
-      ...(updates.status !== undefined ? { status: updates.status } : {}),
-      ...(updates.files !== undefined ? { files_json: updates.files } : {}),
-      ...(updates.referenceInput !== undefined ? { reference_input_json: updates.referenceInput } : {}),
-      ...(updates.referenceSpec !== undefined ? { reference_spec_json: updates.referenceSpec } : {}),
-      ...(updates.lintReport !== undefined ? { lint_report_json: updates.lintReport } : {}),
-      ...(updates.verifyResult !== undefined ? { verify_result_json: updates.verifyResult } : {}),
-      ...(updates.previewThemeId !== undefined ? { preview_theme_id: updates.previewThemeId } : {}),
-      ...(updates.appliedThemeId !== undefined ? { applied_theme_id: updates.appliedThemeId } : {}),
-      updated_at: new Date().toISOString(),
-    };
-    inMemoryThemeDrafts.set(normalizeDraftId(draftId), next);
-    return next;
-  }
 
   const assignments = [];
   const values = [];
   const mapping = {
     status: updates.status,
     files_json: updates.files ? JSON.stringify(updates.files) : undefined,
-    reference_input_json: updates.referenceInput ? JSON.stringify(updates.referenceInput) : updates.referenceInput === null ? null : undefined,
-    reference_spec_json: updates.referenceSpec ? JSON.stringify(updates.referenceSpec) : updates.referenceSpec === null ? null : undefined,
-    lint_report_json: updates.lintReport ? JSON.stringify(updates.lintReport) : updates.lintReport === null ? null : undefined,
-    verify_result_json: updates.verifyResult ? JSON.stringify(updates.verifyResult) : updates.verifyResult === null ? null : undefined,
+    reference_input_json: serializeJson(updates.referenceInput, { allowNull: true }),
+    reference_spec_json: serializeJson(updates.referenceSpec, { allowNull: true }),
+    lint_report_json: serializeJson(updates.lintReport, { allowNull: true }),
+    verify_result_json: serializeJson(updates.verifyResult, { allowNull: true }),
     preview_theme_id: updates.previewThemeId,
     applied_theme_id: updates.appliedThemeId,
   };
@@ -207,26 +223,14 @@ export async function updateThemeDraftRecord(draftId, updates = {}) {
 
 export async function getThemeDraftRecord(draftId) {
   const dbPool = await ensureThemeDraftSchema();
-  if (!dbPool) {
-    return inMemoryThemeDrafts.get(normalizeDraftId(draftId)) || null;
-  }
-
-  const result = await dbPool.query(
-    `SELECT * FROM theme_drafts WHERE id = $1`,
-    [normalizeDraftId(draftId)]
-  );
+  const result = await dbPool.query(`SELECT * FROM theme_drafts WHERE id = $1`, [
+    normalizeDraftId(draftId),
+  ]);
   return result.rows[0] || null;
 }
 
-/**
- * Convenience wrapper om een lock te krijgen voor een theme bestand.
- */
 export async function tryAcquireThemeFileLock(themeId, fileKey) {
-  if (!process.env.DATABASE_URL) {
-    assertThemeDraftDatabaseAvailable();
-    // Return dummy lock in contexten zonder DB URL (zoals unit tests)
-    return async () => {};
-  }
+  await ensureThemeDraftSchema();
   const dbPool = getDbPool();
   const lockKeyString = `theme:${themeId}:${fileKey}`;
   return tryAcquireAdvisoryLock(dbPool, lockKeyString);

@@ -10,9 +10,11 @@ import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
 import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
 import { applyThemeDraft } from "../src/tools/applyThemeDraft.js";
+import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
 const originalLookup = dns.lookup;
 const originalFetch = global.fetch;
+const themeDraftDb = createThemeDraftDbHarness();
 
 const sourceProductPayload = {
   title: "Source product",
@@ -488,4 +490,5 @@ try {
 } finally {
   dns.lookup = originalLookup;
   global.fetch = originalFetch;
+  await themeDraftDb.cleanup();
 }

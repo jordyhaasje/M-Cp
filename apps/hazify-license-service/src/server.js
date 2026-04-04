@@ -1,8 +1,7 @@
 import crypto from "crypto";
-import fs from "fs/promises";
 import http from "http";
 import path from "path";
-import { URL } from "url";
+import { URL, fileURLToPath } from "url";
 import { MCP_SCOPE_TOOLS, normalizeBaseUrl, normalizeMcpScopeString, sha256Hex } from "@hazify/mcp-common";
 import {
   exchangeShopifyClientCredentials,
@@ -13,10 +12,10 @@ import {
 import {
   ACCOUNT_SESSION_COOKIE,
   APP_ROOT,
-  IS_PRODUCTION,
   SHOPIFY_CREDENTIAL_VALIDATION_TIMEOUT_MS,
   VALID_LICENSE_STATUSES as VALID_STATUSES,
   config,
+  reloadRuntimeConfig,
 } from "./config/runtime.js";
 import {
   applyStripeSubscriptionSnapshot,
@@ -83,17 +82,14 @@ import { createOAuthHandlers } from "./routes/oauth.js";
 
 const RATE_BUCKETS = new Map();
 
-const storage = createStorageAdapter(config);
-await storage.init();
-// Process-memory working set remains the active state for this instance.
-// Correctness depends on single-writer enforcement at storage level.
-let db = await loadDb();
-db = await maybeBootstrapPostgresFromLegacyJson(db);
+let storage = null;
+let db = null;
 let writeQueue = Promise.resolve();
 let storageClosed = false;
+let server = null;
 
 async function closeStorage() {
-  if (storageClosed) {
+  if (storageClosed || !storage) {
     return;
   }
   storageClosed = true;
@@ -116,7 +112,6 @@ function generateLicenseKey() {
 function createAccountAccessToken() {
   return `hzacct_${crypto.randomBytes(24).toString("hex")}`;
 }
-
 
 function ensureFreeLicenseRecord(licenseKey) {
   const key = String(licenseKey || "").trim();
@@ -178,82 +173,6 @@ async function loadDb() {
   }
 
   return safeState;
-}
-
-function snapshotRecordCount(state = {}) {
-  const keys = [
-    "licenses",
-    "tenants",
-    "mcpTokens",
-    "oauthClients",
-    "oauthAuthCodes",
-    "oauthRefreshTokens",
-    "accounts",
-    "accountSessions",
-  ];
-  return keys.reduce((total, key) => {
-    const bucket = state[key];
-    if (!bucket || typeof bucket !== "object") {
-      return total;
-    }
-    return total + Object.keys(bucket).length;
-  }, 0);
-}
-
-async function maybeBootstrapPostgresFromLegacyJson(currentState) {
-  if (!config.databaseUrl) {
-    return currentState;
-  }
-  if (snapshotRecordCount(currentState) > 0) {
-    return currentState;
-  }
-
-  let legacyRaw;
-  try {
-    legacyRaw = await fs.readFile(config.dbPath, "utf8");
-  } catch {
-    return currentState;
-  }
-
-  let legacyParsed;
-  try {
-    legacyParsed = JSON.parse(legacyRaw);
-  } catch {
-    return currentState;
-  }
-
-  const legacySnapshot = {
-    licenses: legacyParsed.licenses && typeof legacyParsed.licenses === "object" ? legacyParsed.licenses : {},
-    tenants: legacyParsed.tenants && typeof legacyParsed.tenants === "object" ? legacyParsed.tenants : {},
-    mcpTokens: legacyParsed.mcpTokens && typeof legacyParsed.mcpTokens === "object" ? legacyParsed.mcpTokens : {},
-    oauthClients:
-      legacyParsed.oauthClients && typeof legacyParsed.oauthClients === "object" ? legacyParsed.oauthClients : {},
-    oauthAuthCodes:
-      legacyParsed.oauthAuthCodes && typeof legacyParsed.oauthAuthCodes === "object"
-        ? legacyParsed.oauthAuthCodes
-        : {},
-    oauthRefreshTokens:
-      legacyParsed.oauthRefreshTokens && typeof legacyParsed.oauthRefreshTokens === "object"
-        ? legacyParsed.oauthRefreshTokens
-        : {},
-    accounts: legacyParsed.accounts && typeof legacyParsed.accounts === "object" ? legacyParsed.accounts : {},
-    accountSessions:
-      legacyParsed.accountSessions && typeof legacyParsed.accountSessions === "object"
-        ? legacyParsed.accountSessions
-        : {},
-  };
-
-  if (snapshotRecordCount(legacySnapshot) === 0) {
-    return currentState;
-  }
-
-  await storage.persistState(legacySnapshot);
-  const reloaded = await loadDb();
-  logEvent("storage_bootstrap_from_json", {
-    source: config.dbPath,
-    recordsImported: snapshotRecordCount(reloaded),
-  });
-  return reloaded;
 }
 
 async function persistDb() {
@@ -1175,178 +1094,187 @@ async function stripeRequest(method, pathname, params) {
   return data;
 }
 
-const publicUiHandlers = createPublicUiHandlers({
-  appRoot: APP_ROOT,
-  onboardingLogoPath: config.onboardingLogoPath,
-  json,
-  redirectTo,
-  renderOnboardingLandingPage,
-  renderLoginPage,
-  renderSignupPage,
-  renderDashboardPage,
-  resolveAccountSession,
-  redeemAccountLicenseFromQuery,
-  safeRedirectPath,
-});
+let publicUiHandlers = null;
+let dashboardHandlers = null;
+let accountHandlers = null;
+let licenseBillingHandlers = null;
+let adminHandlers = null;
+let oauthHandlers = null;
 
-const dashboardHandlers = createDashboardHandlers({
-  db,
-  config,
-  json,
-  nowIso,
-  persistDb,
-  buildDashboardPayload,
-  requireAccountSession,
-  resolveTenantForAccount,
-  readBody,
-  applyRateLimit,
-  createMcpTokenForTenant,
-  oauthConnectionKeyFromRefreshRecord,
-  listTenantsForAccount,
-});
+function initializeHandlers() {
+  publicUiHandlers = createPublicUiHandlers({
+    appRoot: APP_ROOT,
+    onboardingLogoPath: config.onboardingLogoPath,
+    json,
+    redirectTo,
+    renderOnboardingLandingPage,
+    renderLoginPage,
+    renderSignupPage,
+    renderDashboardPage,
+    resolveAccountSession,
+    redeemAccountLicenseFromQuery,
+    safeRedirectPath,
+  });
 
-const accountHandlers = createAccountHandlers({
-  db,
-  config,
-  json,
-  nowIso,
-  persistDb,
-  applyRateLimit,
-  requireAccountSession,
-  resolveAccountSession,
-  readBody,
-  randomId,
-  createAccountAccessToken,
-  generateLicenseKey,
-  createPasswordDigest,
-  verifyPasswordDigest,
-  normalizeAccountEmail,
-  normalizeOptionalEmail,
-  findAccountByEmail,
-  ensureAccountLicenseRecord,
-  accountPublicPayload,
-  createAccountSession,
-  buildCookieHeader,
-  accountSessionCookie: ACCOUNT_SESSION_COOKIE,
-  isRequestSecure,
-  setCookie,
-  positiveNumber,
-  clientIp,
-  hashToken,
-  addDays,
-  buildDashboardPayload,
-  validateTenantShopifyPayload,
-  validateShopifyCredentialsLive,
-  isLicenseUsableForOnboarding,
-  findTenantByLicenseKey,
-  ensureTenantRecordShape,
-  buildTenantShopifyRecord,
-  createMcpTokenForTenant,
-  resolvedMcpPublicUrl,
-  canonicalLicense,
-  resolveTenantForAccount,
-  listTenantMcpTokens,
-  listTenantsForAccount,
-  maybeAdoptAccountLicense,
-});
+  dashboardHandlers = createDashboardHandlers({
+    db,
+    config,
+    json,
+    nowIso,
+    persistDb,
+    buildDashboardPayload,
+    requireAccountSession,
+    resolveTenantForAccount,
+    readBody,
+    applyRateLimit,
+    createMcpTokenForTenant,
+    oauthConnectionKeyFromRefreshRecord,
+    listTenantsForAccount,
+  });
 
-const licenseBillingHandlers = createLicenseBillingHandlers({
-  db,
-  config,
-  json,
-  nowIso,
-  persistDb,
-  applyRateLimit,
-  readBody,
-  validateClientPayload,
-  ensureFreeLicenseRecord,
-  ensureLicenseRecordShape,
-  canBindFingerprint,
-  canonicalLicense,
-  billingDisabledPayload,
-  resolveConfiguredPriceId,
-  resolvePaymentLink,
-  isStripeModePaymentLink,
-  isStripeSecretForMode,
-  generateLicenseKey,
-  requestBaseUrl,
-  appendQueryParamsToUrl,
-  stripeRequest,
-  verifyStripeSignature,
-  findLicenseByStripe,
-  applyStripeSubscriptionSnapshot,
-  hashToken,
-  requireMcpApiKey,
-  requireAdmin,
-  billingReadiness,
-  maskSecret,
-  exchangeShopifyClientCredentials,
-  logEvent,
-  normalizeOptionalEmail,
-});
+  accountHandlers = createAccountHandlers({
+    db,
+    config,
+    json,
+    nowIso,
+    persistDb,
+    applyRateLimit,
+    requireAccountSession,
+    resolveAccountSession,
+    readBody,
+    randomId,
+    createAccountAccessToken,
+    generateLicenseKey,
+    createPasswordDigest,
+    verifyPasswordDigest,
+    normalizeAccountEmail,
+    normalizeOptionalEmail,
+    findAccountByEmail,
+    ensureAccountLicenseRecord,
+    accountPublicPayload,
+    createAccountSession,
+    buildCookieHeader,
+    accountSessionCookie: ACCOUNT_SESSION_COOKIE,
+    isRequestSecure,
+    setCookie,
+    positiveNumber,
+    clientIp,
+    hashToken,
+    addDays,
+    buildDashboardPayload,
+    validateTenantShopifyPayload,
+    validateShopifyCredentialsLive,
+    isLicenseUsableForOnboarding,
+    findTenantByLicenseKey,
+    ensureTenantRecordShape,
+    buildTenantShopifyRecord,
+    createMcpTokenForTenant,
+    resolvedMcpPublicUrl,
+    canonicalLicense,
+    resolveTenantForAccount,
+    listTenantMcpTokens,
+    listTenantsForAccount,
+    maybeAdoptAccountLicense,
+  });
 
-const adminHandlers = createAdminHandlers({
-  appRoot: APP_ROOT,
-  db,
-  config,
-  validStatuses: VALID_STATUSES,
-  json,
-  nowIso,
-  persistDb,
-  requireAdmin,
-  readBody,
-  randomId,
-  generateLicenseKey,
-  canonicalLicense,
-  defaultLicenseSubscription,
-  defaultTenantSubscriptionProfile,
-  defaultEntitlements,
-  ensureLicenseRecordShape,
-  ensureTenantRecordShape,
-  validateTenantShopifyPayload,
-  validateShopifyCredentialsLive,
-  buildTenantShopifyRecord,
-  createMcpTokenForTenant,
-  revokeTenantAuthArtifacts,
-  storage,
-  logEvent,
-});
+  licenseBillingHandlers = createLicenseBillingHandlers({
+    db,
+    config,
+    json,
+    nowIso,
+    persistDb,
+    applyRateLimit,
+    readBody,
+    validateClientPayload,
+    ensureFreeLicenseRecord,
+    ensureLicenseRecordShape,
+    canBindFingerprint,
+    canonicalLicense,
+    billingDisabledPayload,
+    resolveConfiguredPriceId,
+    resolvePaymentLink,
+    isStripeModePaymentLink,
+    isStripeSecretForMode,
+    generateLicenseKey,
+    requestBaseUrl,
+    appendQueryParamsToUrl,
+    stripeRequest,
+    verifyStripeSignature,
+    findLicenseByStripe,
+    applyStripeSubscriptionSnapshot,
+    hashToken,
+    requireMcpApiKey,
+    requireAdmin,
+    billingReadiness,
+    maskSecret,
+    exchangeShopifyClientCredentials,
+    logEvent,
+    normalizeOptionalEmail,
+  });
 
-const oauthHandlers = createOAuthHandlers({
-  db,
-  config,
-  json,
-  nowIso,
-  persistDb,
-  applyRateLimit,
-  readBody,
-  buildOauthMetadata,
-  requestBaseUrl,
-  normalizeBaseUrl,
-  oauthJsonError,
-  readJsonOrFormBody,
-  validateOAuthClientAuthentication,
-  verifyPkceCodeVerifier,
-  appendQueryParamsToUrl,
-  normalizeStringArray,
-  isAllowedRedirectUri,
-  randomId,
-  hashToken,
-  safeTimingEqual,
-  addSeconds,
-  addDays,
-  positiveNumber,
-  createMcpTokenForTenant,
-  resolveAccountSession,
-  safeRedirectPath,
-  redirectTo,
-  renderOAuthAuthorizePage: renderOAuthAuthorizePageV2,
-  renderOAuthReconnectPage,
-  ensureFreeLicenseRecord,
-  isLicenseUsableForOnboarding,
-  normalizeShopDomain,
-  logEvent,
-});
+  adminHandlers = createAdminHandlers({
+    appRoot: APP_ROOT,
+    db,
+    config,
+    validStatuses: VALID_STATUSES,
+    json,
+    nowIso,
+    persistDb,
+    requireAdmin,
+    readBody,
+    randomId,
+    generateLicenseKey,
+    canonicalLicense,
+    defaultLicenseSubscription,
+    defaultTenantSubscriptionProfile,
+    defaultEntitlements,
+    ensureLicenseRecordShape,
+    ensureTenantRecordShape,
+    validateTenantShopifyPayload,
+    validateShopifyCredentialsLive,
+    buildTenantShopifyRecord,
+    createMcpTokenForTenant,
+    revokeTenantAuthArtifacts,
+    storage,
+    logEvent,
+  });
+
+  oauthHandlers = createOAuthHandlers({
+    db,
+    config,
+    json,
+    nowIso,
+    persistDb,
+    applyRateLimit,
+    readBody,
+    buildOauthMetadata,
+    requestBaseUrl,
+    normalizeBaseUrl,
+    oauthJsonError,
+    readJsonOrFormBody,
+    validateOAuthClientAuthentication,
+    verifyPkceCodeVerifier,
+    appendQueryParamsToUrl,
+    normalizeStringArray,
+    isAllowedRedirectUri,
+    randomId,
+    hashToken,
+    safeTimingEqual,
+    addSeconds,
+    addDays,
+    positiveNumber,
+    createMcpTokenForTenant,
+    resolveAccountSession,
+    safeRedirectPath,
+    redirectTo,
+    renderOAuthAuthorizePage: renderOAuthAuthorizePageV2,
+    renderOAuthReconnectPage,
+    ensureFreeLicenseRecord,
+    isLicenseUsableForOnboarding,
+    normalizeShopDomain,
+    logEvent,
+  });
+}
 
 function ensureAccountLicenseRecord(account) {
   let license = db.licenses[account.licenseKey];
@@ -1380,7 +1308,8 @@ function routeNotFound(res) {
   return json(res, 404, { error: "not_found" });
 }
 
-const server = http.createServer(async (req, res) => {
+function createHttpServer() {
+  return http.createServer(async (req, res) => {
   try {
     const method = req.method || "GET";
     const url = new URL(req.url || "/", `http://localhost:${config.port}`);
@@ -1570,26 +1499,51 @@ const server = http.createServer(async (req, res) => {
       message: error instanceof Error ? error.message : String(error),
     });
   }
-});
-
-server.on("close", () => {
-  closeStorage().catch((error) => {
-    console.error("Failed to close storage cleanly:", error);
   });
-});
+}
 
-server.listen(config.port, () => {
-  console.log(`hazify-license-service listening on :${config.port}`);
-  if (config.databaseUrl) {
-    console.log("Storage: PostgreSQL (DATABASE_URL)");
-  } else {
-    console.log(`Storage: JSON file (${config.dbPath})`);
-    if (String(process.env.NODE_ENV || "").toLowerCase() === "production") {
-      console.warn(
-        "WARNING: DATABASE_URL ontbreekt in productie; account- en OAuth-data zijn dan niet persistent bij redeploy/restart."
-      );
-    }
+export async function startLicenseService({ port = config.port } = {}) {
+  if (server?.listening) {
+    return { server };
   }
-});
+
+  reloadRuntimeConfig();
+  storageClosed = false;
+  storage = createStorageAdapter(config);
+  await storage.init();
+  db = await loadDb();
+  writeQueue = Promise.resolve();
+  initializeHandlers();
+
+  server = createHttpServer();
+  server.on("close", () => {
+    closeStorage().catch((error) => {
+      console.error("Failed to close storage cleanly:", error);
+    });
+    server = null;
+  });
+
+  const listenPort = Number(port || config.port);
+  await new Promise((resolve) => {
+    server.listen(listenPort, resolve);
+  });
+
+  console.log(`hazify-license-service listening on :${listenPort}`);
+  console.log("Storage: PostgreSQL (DATABASE_URL)");
+
+  return { server };
+}
+
+function isExecutedDirectly() {
+  const entryPath = process.argv[1];
+  if (!entryPath) {
+    return false;
+  }
+  return path.resolve(entryPath) === path.resolve(fileURLToPath(import.meta.url));
+}
+
+if (isExecutedDirectly()) {
+  await startLicenseService();
+}
 
 export { server };

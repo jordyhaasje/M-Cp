@@ -34,6 +34,7 @@ function createStorageHarness() {
     encryptionKey: "unit-test-encryption-key",
     singleWriterEnforced: false,
     pool,
+    testSchemaCompatibility: true,
   });
   return { storage, queryLog };
 }

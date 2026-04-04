@@ -106,7 +106,6 @@ const introspectionServer = http.createServer(async (req, res) => {
 await new Promise((resolve) => introspectionServer.listen(introspectionPort, "127.0.0.1", resolve));
 
 const previousEnv = {
-  HAZIFY_MCP_TRANSPORT: process.env.HAZIFY_MCP_TRANSPORT,
   HAZIFY_MCP_HTTP_HOST: process.env.HAZIFY_MCP_HTTP_HOST,
   PORT: process.env.PORT,
   HAZIFY_MCP_INTROSPECTION_URL: process.env.HAZIFY_MCP_INTROSPECTION_URL,
@@ -116,7 +115,6 @@ const previousEnv = {
   MCP_SESSION_MODE: process.env.MCP_SESSION_MODE,
 };
 
-process.env.HAZIFY_MCP_TRANSPORT = "http";
 process.env.HAZIFY_MCP_HTTP_HOST = "127.0.0.1";
 process.env.PORT = String(mcpPort);
 process.env.HAZIFY_MCP_INTROSPECTION_URL = `http://127.0.0.1:${introspectionPort}`;

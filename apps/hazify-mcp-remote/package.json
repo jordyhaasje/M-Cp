@@ -14,9 +14,8 @@
     "build": "node scripts/copy-src-to-dist.mjs ./src ./dist",
     "prestart": "npm run build",
     "start": "node dist/index.js",
-    "start:http": "node dist/index.js --transport=http",
-    "start:remote": "node dist/index.js --transport=http",
-    "start:fallback:stdio": "node dist/index.js --transport=stdio",
+    "start:http": "node dist/index.js",
+    "start:remote": "node dist/index.js",
     "test": "node tests/run.mjs"
   },
   "keywords": [
@@ -39,6 +38,9 @@
     "graphql-request": "^5.1.0",
     "minimist": "^1.2.8",
     "zod": "^3.21.4"
+  },
+  "devDependencies": {
+    "pg-mem": "^3.0.5"
   },
   "files": [
     "dist",

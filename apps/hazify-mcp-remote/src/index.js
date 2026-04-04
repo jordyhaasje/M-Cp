@@ -4,7 +4,6 @@ import crypto from "crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import {
     MCP_SCOPE_TOOLS,
@@ -24,29 +23,15 @@ import dotenv from "dotenv";
 import { GraphQLClient } from "graphql-request";
 import minimist from "minimist";
 import { createHazifyToolRegistry, registerHazifyTools } from "./tools/registry.js";
-import { ShopifyAuth } from "./lib/shopifyAuth.js";
-import { LicenseManager } from "./lib/licenseManager.js";
-import { createMachineFingerprint } from "./lib/machineFingerprint.js";
 // Parse command line arguments
 const argv = minimist(process.argv.slice(2));
 // Load environment variables from .env file (if it exists)
 dotenv.config();
-const TRANSPORT = String(argv.transport || process.env.HAZIFY_MCP_TRANSPORT || "http").toLowerCase();
-const IS_HTTP_TRANSPORT = TRANSPORT === "http" || TRANSPORT === "streamable-http";
 const HTTP_HOST = argv.host || process.env.HAZIFY_MCP_HTTP_HOST || "0.0.0.0";
 const HTTP_PORT = Number(argv.port || process.env.PORT || process.env.HAZIFY_MCP_HTTP_PORT || 8788);
-// Define environment variables - from command line or .env file
-const SHOPIFY_ACCESS_TOKEN = argv.accessToken || process.env.SHOPIFY_ACCESS_TOKEN;
-const SHOPIFY_CLIENT_ID = argv.clientId || process.env.SHOPIFY_CLIENT_ID;
-const SHOPIFY_CLIENT_SECRET = argv.clientSecret || process.env.SHOPIFY_CLIENT_SECRET;
-const MYSHOPIFY_DOMAIN = argv.domain || process.env.MYSHOPIFY_DOMAIN;
-const HAZIFY_LICENSE_KEY = argv.licenseKey || process.env.HAZIFY_LICENSE_KEY;
-const HAZIFY_LICENSE_API_BASE_URL = argv.licenseApiBaseUrl || process.env.HAZIFY_LICENSE_API_BASE_URL;
-const HAZIFY_LICENSE_GRACE_HOURS = Number(argv.licenseGraceHours || process.env.HAZIFY_LICENSE_GRACE_HOURS || 72);
-const HAZIFY_LICENSE_HEARTBEAT_HOURS = Number(argv.licenseHeartbeatHours || process.env.HAZIFY_LICENSE_HEARTBEAT_HOURS || 6);
 const HAZIFY_MCP_INTROSPECTION_URL = argv.mcpIntrospectionUrl || process.env.HAZIFY_MCP_INTROSPECTION_URL;
 const HAZIFY_MCP_API_KEY = argv.mcpApiKey || process.env.HAZIFY_MCP_API_KEY;
-const DEFAULT_CONTEXT_TTL_MS = IS_HTTP_TRANSPORT ? 120000 : 0;
+const DEFAULT_CONTEXT_TTL_MS = 120000;
 const HAZIFY_MCP_CONTEXT_TTL_MS = Number(
     argv.mcpContextTtlMs || process.env.HAZIFY_MCP_CONTEXT_TTL_MS || DEFAULT_CONTEXT_TTL_MS
 );
@@ -57,7 +42,6 @@ const MCP_SESSION_MODE = String(argv.sessionMode || process.env.MCP_SESSION_MODE
 const MCP_STATEFUL_DEPLOYMENT_SAFE = String(argv.statefulDeploymentSafe || process.env.MCP_STATEFUL_DEPLOYMENT_SAFE || "")
     .trim()
     .toLowerCase() === "true";
-const useClientCredentials = !!(SHOPIFY_CLIENT_ID && SHOPIFY_CLIENT_SECRET);
 const SERVER_VERSION = "1.1.0";
 const API_VERSION = argv.apiVersion || process.env.SHOPIFY_API_VERSION || "2026-01";
 const requestContextStore = new AsyncLocalStorage();
@@ -67,100 +51,21 @@ if (!["stateless", "stateful"].includes(MCP_SESSION_MODE)) {
     console.error("Error: MCP_SESSION_MODE must be 'stateless' or 'stateful'.");
     process.exit(1);
 }
-if (!IS_HTTP_TRANSPORT) {
-    // Store in process.env for backwards compatibility
-    process.env.MYSHOPIFY_DOMAIN = MYSHOPIFY_DOMAIN;
+if (!HAZIFY_MCP_INTROSPECTION_URL || !HAZIFY_MCP_API_KEY) {
+    console.error("Error: HTTP transport requires MCP introspection config.");
+    console.error("Provide:");
+    console.error("  --mcpIntrospectionUrl=https://... or HAZIFY_MCP_INTROSPECTION_URL");
+    console.error("  --mcpApiKey=... or HAZIFY_MCP_API_KEY");
+    process.exit(1);
 }
-if (IS_HTTP_TRANSPORT) {
-    if (!HAZIFY_MCP_INTROSPECTION_URL || !HAZIFY_MCP_API_KEY) {
-        console.error("Error: HTTP transport requires MCP introspection config.");
-        console.error("Provide:");
-        console.error("  --mcpIntrospectionUrl=https://... or HAZIFY_MCP_INTROSPECTION_URL");
-        console.error("  --mcpApiKey=... or HAZIFY_MCP_API_KEY");
-        process.exit(1);
-    }
-    if (MCP_SESSION_MODE === "stateful" && String(process.env.NODE_ENV || "").toLowerCase() === "production" && !MCP_STATEFUL_DEPLOYMENT_SAFE) {
-        console.error("Error: stateful MCP session mode in production requires explicit confirmation.");
-        console.error("Set MCP_STATEFUL_DEPLOYMENT_SAFE=true only when sticky sessions or shared session store are guaranteed.");
-        process.exit(1);
-    }
-    if (String(process.env.NODE_ENV || "").toLowerCase() === "production" && String(HAZIFY_MCP_API_KEY || "").trim().length < 16) {
-        console.error("Error: HAZIFY_MCP_API_KEY must be set to a strong secret in production.");
-        process.exit(1);
-    }
+if (MCP_SESSION_MODE === "stateful" && String(process.env.NODE_ENV || "").toLowerCase() === "production" && !MCP_STATEFUL_DEPLOYMENT_SAFE) {
+    console.error("Error: stateful MCP session mode in production requires explicit confirmation.");
+    console.error("Set MCP_STATEFUL_DEPLOYMENT_SAFE=true only when sticky sessions or shared session store are guaranteed.");
+    process.exit(1);
 }
-else {
-    if (!HAZIFY_LICENSE_KEY || !HAZIFY_LICENSE_API_BASE_URL) {
-        console.error("Error: Hazify license config is required.");
-        console.error("Provide:");
-        console.error("  --licenseKey=... or HAZIFY_LICENSE_KEY");
-        console.error("  --licenseApiBaseUrl=https://... or HAZIFY_LICENSE_API_BASE_URL");
-        process.exit(1);
-    }
-    // Validate required environment variables
-    if (!SHOPIFY_ACCESS_TOKEN && !useClientCredentials) {
-        console.error("Error: Authentication credentials are required.");
-        console.error("");
-        console.error("Option 1 — Static access token (legacy apps):");
-        console.error("  --accessToken=shpat_xxxxx");
-        console.error("");
-        console.error("Option 2 — Client credentials (Dev Dashboard apps, Jan 2026+):");
-        console.error("  --clientId=your_client_id --clientSecret=your_client_secret");
-        process.exit(1);
-    }
-    if (!MYSHOPIFY_DOMAIN) {
-        console.error("Error: MYSHOPIFY_DOMAIN is required.");
-        console.error("Please provide it via command line argument or .env file.");
-        console.error("  Command line: --domain=your-store.myshopify.com");
-        process.exit(1);
-    }
-}
-let localShopifyClient = null;
-let licenseManager = null;
-let auth = null;
-if (!IS_HTTP_TRANSPORT) {
-    licenseManager = new LicenseManager({
-        licenseKey: HAZIFY_LICENSE_KEY,
-        apiBaseUrl: HAZIFY_LICENSE_API_BASE_URL.replace(/\/+$/, ""),
-        graceHours: Number.isFinite(HAZIFY_LICENSE_GRACE_HOURS) && HAZIFY_LICENSE_GRACE_HOURS > 0 ? HAZIFY_LICENSE_GRACE_HOURS : 72,
-        heartbeatHours: Number.isFinite(HAZIFY_LICENSE_HEARTBEAT_HOURS) && HAZIFY_LICENSE_HEARTBEAT_HOURS > 0 ? HAZIFY_LICENSE_HEARTBEAT_HOURS : 6,
-        machineFingerprint: createMachineFingerprint(),
-        mcpVersion: SERVER_VERSION,
-        requestTimeoutMs: 10000,
-    });
-    try {
-        await licenseManager.initialize();
-    }
-    catch (error) {
-        console.error("License validation failed:", error instanceof Error ? error.message : String(error));
-        process.exit(1);
-    }
-    // Resolve access token (client credentials or static)
-    let accessToken;
-    if (useClientCredentials) {
-        auth = new ShopifyAuth({
-            clientId: SHOPIFY_CLIENT_ID,
-            clientSecret: SHOPIFY_CLIENT_SECRET,
-            shopDomain: MYSHOPIFY_DOMAIN,
-        });
-        accessToken = await auth.initialize();
-    }
-    else {
-        accessToken = SHOPIFY_ACCESS_TOKEN;
-    }
-    process.env.SHOPIFY_ACCESS_TOKEN = accessToken;
-    // Create Shopify GraphQL client
-    const shopifyClient = new GraphQLClient(`https://${MYSHOPIFY_DOMAIN}/admin/api/${API_VERSION}/graphql.json`, {
-        headers: {
-            "X-Shopify-Access-Token": accessToken,
-            "Content-Type": "application/json"
-        }
-    });
-    // Let the auth manager hot-swap the token header on refresh
-    if (auth) {
-        auth.setGraphQLClient(shopifyClient);
-    }
-    localShopifyClient = shopifyClient;
+if (String(process.env.NODE_ENV || "").toLowerCase() === "production" && String(HAZIFY_MCP_API_KEY || "").trim().length < 16) {
+    console.error("Error: HAZIFY_MCP_API_KEY must be set to a strong secret in production.");
+    process.exit(1);
 }
 // Set up MCP server
 const createServerInstance = () => new McpServer({
@@ -466,13 +371,13 @@ const runSerializedByKey = async (key, work) => {
     }
 };
 const buildToolExecutionContext = (context = null) => freezeExecutionContext({
-    tenantId: String(context?.tenantId || "stdio-local"),
+    tenantId: String(context?.tenantId || "unknown"),
     tokenHash: context?.tokenHash || null,
     tokenId: context?.tokenId || null,
     licenseKey: context?.licenseKey || null,
     license: context?.license || {},
     shopifyDomain: context?.shopifyDomain || null,
-    shopifyClient: context?.shopifyClient || localShopifyClient || null,
+    shopifyClient: context?.shopifyClient || null,
     grantedScope: context?.grantedScope || null,
     scopeCapabilities: context?.scopeCapabilities || defaultMcpScopeCapabilities,
     targetResource: context?.targetResource || null,
@@ -486,34 +391,6 @@ const createInsufficientScopeError = (toolName, requiredScope = MCP_SCOPE_TOOLS_
     return error;
 };
 const createGetLicenseStatusExecute = () => async (_input, explicitContext = null) => {
-    if (!IS_HTTP_TRANSPORT) {
-        return {
-            license: licenseManager.getStatus(),
-            access: {
-                read: true,
-                write: true,
-                readReason: "local stdio execution",
-                writeReason: "local stdio execution",
-            },
-            mcpScope: {
-                grantedScope: null,
-                read: true,
-                write: true,
-                legacyFullAccess: true,
-                source: "local-stdio",
-            },
-            tenant: {
-                id: "stdio-local",
-                licenseKey: HAZIFY_LICENSE_KEY,
-                shopDomain: MYSHOPIFY_DOMAIN,
-            },
-            server: {
-                name: "Hazify MCP",
-                version: SERVER_VERSION,
-                transport: "stdio",
-            },
-        };
-    }
     const context = explicitContext || requestContextStore.getStore();
     if (!context) {
         throw new Error("Missing request context");
@@ -565,15 +442,6 @@ const createGetLicenseStatusExecute = () => async (_input, explicitContext = nul
 async function runLicensedTool(tool, args) {
     const toolName = tool.name;
     const mutating = Boolean(tool.writeScopeRequired);
-    if (!IS_HTTP_TRANSPORT) {
-        await licenseManager.assertToolAllowed(toolName, { mutating });
-        const executionContext = buildToolExecutionContext();
-        if (!executionContext.shopifyClient && toolRequiresShopifyClient(toolName)) {
-            throw new Error("Missing Shopify client in stdio execution context");
-        }
-        const result = await tool.execute(args, executionContext);
-        return toMcpResponse(result);
-    }
     const context = requestContextStore.getStore();
     if (!context) {
         throw new Error("Missing request context");
@@ -639,7 +507,6 @@ const createHazifyServer = () => {
     registerHazifyTools(server, hazifyToolRegistry, (tool, args) => runLicensedTool(tool, args));
     return server;
 };
-const stdioServer = !IS_HTTP_TRANSPORT ? createHazifyServer() : null;
 let shuttingDown = false;
 let httpServer = null;
 const shutdown = async () => {
@@ -648,12 +515,6 @@ const shutdown = async () => {
     }
     shuttingDown = true;
     try {
-        if (auth) {
-            auth.destroy();
-        }
-        if (licenseManager) {
-            await licenseManager.destroy();
-        }
         if (httpServer) {
             await new Promise((resolve) => httpServer.close(resolve));
         }
@@ -841,17 +702,7 @@ const isRequestOriginAllowed = (req) => {
         allowedOrigins: HAZIFY_MCP_ALLOWED_ORIGINS
     });
 };
-if (!IS_HTTP_TRANSPORT) {
-    // Start stdio server
-    const transport = new StdioServerTransport();
-    stdioServer
-        .connect(transport)
-        .then(() => { })
-        .catch((error) => {
-        console.error("Failed to start Shopify MCP Server:", error);
-    });
-}
-else {
+{
     const app = createMcpExpressApp({ host: HTTP_HOST });
     app.use((req, res, next) => {
         res.setHeader("X-Content-Type-Options", "nosniff");

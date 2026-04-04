@@ -1,8 +1,10 @@
 import assert from "assert";
 import crypto from "crypto";
 import { getThemeFiles, upsertThemeFiles, verifyThemeFiles } from "../src/lib/themeFiles.js";
+import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
 const originalFetch = global.fetch;
+const themeDraftDb = createThemeDraftDbHarness();
 
 const themeGraphqlId = "gid://shopify/OnlineStoreTheme/123";
 const fixedNow = "2026-03-15T12:00:00Z";
@@ -274,4 +276,5 @@ try {
   console.log("themeFilesBatch.test.mjs passed");
 } finally {
   global.fetch = originalFetch;
+  await themeDraftDb.cleanup();
 }

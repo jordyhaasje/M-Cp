@@ -16,11 +16,6 @@ Runtime: Node.js `>=22.12.0`.
 npm run --workspace @hazify/mcp-remote start:remote
 ```
 
-## Start (stdio fallback)
-```bash
-npm run --workspace @hazify/mcp-remote start:fallback:stdio
-```
-
 ## Security defaults
 - Alleen `Authorization: Bearer` of `x-api-key`
 - Query-token niet toegestaan
@@ -28,7 +23,7 @@ npm run --workspace @hazify/mcp-remote start:fallback:stdio
 - OAuth metadata adverteert PKCE `S256`
 - MCP session mode default: `stateless` (`MCP_SESSION_MODE=stateless`)
 - `stateful` mode is opt-in en vereist sticky sessions of gedeelde session store
-- `DATABASE_URL` is in productie vereist voor `theme_drafts` persistence en PostgreSQL advisory locks op theme writes
+- `DATABASE_URL` is vereist voor `theme_drafts` persistence en PostgreSQL advisory locks op theme writes
 - Shopify credentials worden niet via introspection gedeeld; de remote haalt per token een interne Shopify access token op via `/v1/mcp/token/exchange`
 
 ## Theme edit flow

@@ -1,9 +1,6 @@
 import assert from "assert";
-import { once } from "events";
 import net from "net";
-import os from "os";
-import path from "path";
-import { fileURLToPath, pathToFileURL } from "url";
+import { startLicenseServiceTestServer } from "./helpers/serviceHarness.mjs";
 
 async function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -23,50 +20,13 @@ async function getFreePort() {
   });
 }
 
-async function waitForListening(server, timeoutMs = 10000) {
-  if (server.listening) {
-    return;
-  }
-  await Promise.race([
-    once(server, "listening"),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Timed out waiting for the test server to start")), timeoutMs)
-    ),
-  ]);
-}
-
 function extractCookie(response) {
   const setCookie = response.headers.get("set-cookie");
   return setCookie ? setCookie.split(";")[0] || "" : "";
 }
 
-const testDir = path.dirname(fileURLToPath(import.meta.url));
-const packageRoot = path.resolve(testDir, "..");
-const licenseModulePath = path.resolve(packageRoot, "src/server.js");
 const port = await getFreePort();
 const baseUrl = `http://127.0.0.1:${port}`;
-const tempDbPath = path.join(
-  os.tmpdir(),
-  `hazify-account-license-binding-${Date.now()}-${Math.random().toString(16).slice(2)}.json`
-);
-
-const previousEnv = {
-  NODE_ENV: process.env.NODE_ENV,
-  PORT: process.env.PORT,
-  LICENSE_DB_PATH: process.env.LICENSE_DB_PATH,
-  HAZIFY_FREE_MODE: process.env.HAZIFY_FREE_MODE,
-  ADMIN_API_KEY: process.env.ADMIN_API_KEY,
-  MCP_API_KEY: process.env.MCP_API_KEY,
-  PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL,
-  MCP_PUBLIC_URL: process.env.MCP_PUBLIC_URL,
-  STRIPE_MODE: process.env.STRIPE_MODE,
-  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
-  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
-  STRIPE_MONTHLY_PRICE_ID: process.env.STRIPE_MONTHLY_PRICE_ID,
-  CHECKOUT_SUCCESS_URL: process.env.CHECKOUT_SUCCESS_URL,
-  CHECKOUT_CANCEL_URL: process.env.CHECKOUT_CANCEL_URL,
-  MAX_BODY_BYTES: process.env.MAX_BODY_BYTES,
-};
 
 const originalFetch = global.fetch;
 let capturedStripeCheckoutBody = null;
@@ -125,28 +85,26 @@ global.fetch = async (input, init = {}) => {
   return originalFetch(input, init);
 };
 
-let licenseServer;
+let harness;
 
 try {
-  process.env.NODE_ENV = "test";
-  process.env.PORT = String(port);
-  process.env.LICENSE_DB_PATH = tempDbPath;
-  process.env.HAZIFY_FREE_MODE = "false";
-  process.env.ADMIN_API_KEY = "admin-test-key";
-  process.env.MCP_API_KEY = "mcp-test-key";
-  process.env.PUBLIC_BASE_URL = baseUrl;
-  process.env.MCP_PUBLIC_URL = "https://mcp.example.test/mcp";
-  process.env.STRIPE_MODE = "test";
-  process.env.STRIPE_SECRET_KEY = "sk_test_account_binding";
-  process.env.STRIPE_WEBHOOK_SECRET = "whsec_account_binding";
-  process.env.STRIPE_MONTHLY_PRICE_ID = "price_test_monthly";
-  process.env.CHECKOUT_SUCCESS_URL = `${baseUrl}/onboarding?payment=success`;
-  process.env.CHECKOUT_CANCEL_URL = `${baseUrl}/onboarding?payment=cancel`;
-  process.env.MAX_BODY_BYTES = "1048576";
-
-  const licenseModule = await import(`${pathToFileURL(licenseModulePath).href}?binding=${Date.now()}`);
-  licenseServer = licenseModule.server;
-  await waitForListening(licenseServer);
+  harness = await startLicenseServiceTestServer({
+    port,
+    publicBaseUrl: baseUrl,
+    mcpPublicUrl: "https://mcp.example.test/mcp",
+    env: {
+      HAZIFY_FREE_MODE: "false",
+      ADMIN_API_KEY: "admin-test-key",
+      MCP_API_KEY: "mcp-test-key",
+      STRIPE_MODE: "test",
+      STRIPE_SECRET_KEY: "sk_test_account_binding",
+      STRIPE_WEBHOOK_SECRET: "whsec_account_binding",
+      STRIPE_MONTHLY_PRICE_ID: "price_test_monthly",
+      CHECKOUT_SUCCESS_URL: `${baseUrl}/onboarding?payment=success`,
+      CHECKOUT_CANCEL_URL: `${baseUrl}/onboarding?payment=cancel`,
+    },
+    cacheBuster: `binding=${Date.now()}`,
+  });
 
   const paidLicenseKey = "HZY-TEST-PAID-LICENSE";
   const createLicenseResponse = await fetch(`${baseUrl}/v1/admin/license/create`, {
@@ -270,14 +228,7 @@ try {
   );
 } finally {
   global.fetch = originalFetch;
-  if (licenseServer) {
-    await new Promise((resolve) => licenseServer.close(resolve));
-  }
-  for (const [key, value] of Object.entries(previousEnv)) {
-    if (value === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
-    }
+  if (harness) {
+    await harness.cleanup();
   }
 }

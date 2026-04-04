@@ -3,8 +3,14 @@ import assert from "node:assert";
 import crypto from "node:crypto";
 import { applyThemeDraft } from "../src/tools/applyThemeDraft.js";
 import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
+import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
 const execute = draftThemeArtifact.execute;
+const themeDraftDb = createThemeDraftDbHarness();
+
+test.after(async () => {
+  await themeDraftDb.cleanup();
+});
 const goodSectionLiquid = `
 <style>
   #shopify-section-{{ section.id }} .card {

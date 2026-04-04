@@ -1,9 +1,8 @@
 import assert from "assert";
-import fs from "fs/promises";
 import net from "net";
-import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
+import { startLicenseServiceTestServer } from "../../apps/hazify-license-service/tests/helpers/serviceHarness.mjs";
 
 async function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -48,29 +47,22 @@ function extractCookie(response) {
 }
 
 const repoRoot = process.cwd();
-const licenseModulePath = path.resolve(repoRoot, "apps/hazify-license-service/src/server.js");
 const mcpModulePath = path.resolve(repoRoot, "apps/hazify-mcp-remote/src/index.js");
 
 const licensePort = await getFreePort();
 const mcpPort = await getFreePort();
 const licenseBaseUrl = `http://127.0.0.1:${licensePort}`;
 const mcpBaseUrl = `http://127.0.0.1:${mcpPort}`;
-const tempDbPath = path.join(
-  os.tmpdir(),
-  `hazify-contract-e2e-${Date.now()}-${Math.random().toString(16).slice(2)}.json`
-);
 
 const previousEnv = {
   NODE_ENV: process.env.NODE_ENV,
   PORT: process.env.PORT,
-  LICENSE_DB_PATH: process.env.LICENSE_DB_PATH,
   HAZIFY_FREE_MODE: process.env.HAZIFY_FREE_MODE,
   ADMIN_API_KEY: process.env.ADMIN_API_KEY,
   MCP_API_KEY: process.env.MCP_API_KEY,
   PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL,
   MCP_PUBLIC_URL: process.env.MCP_PUBLIC_URL,
   MAX_BODY_BYTES: process.env.MAX_BODY_BYTES,
-  HAZIFY_MCP_TRANSPORT: process.env.HAZIFY_MCP_TRANSPORT,
   HAZIFY_MCP_HTTP_HOST: process.env.HAZIFY_MCP_HTTP_HOST,
   HAZIFY_MCP_HTTP_PORT: process.env.HAZIFY_MCP_HTTP_PORT,
   HAZIFY_MCP_INTROSPECTION_URL: process.env.HAZIFY_MCP_INTROSPECTION_URL,
@@ -124,25 +116,24 @@ global.fetch = async (input, init = {}) => {
 
 let licenseServer;
 let mcpServer;
+let licenseHarness;
 
 try {
   process.env.NODE_ENV = "test";
 
-  process.env.PORT = String(licensePort);
-  process.env.LICENSE_DB_PATH = tempDbPath;
-  process.env.HAZIFY_FREE_MODE = "true";
-  process.env.ADMIN_API_KEY = "admin-e2e-key";
-  process.env.MCP_API_KEY = "mcp-e2e-key";
-  process.env.PUBLIC_BASE_URL = licenseBaseUrl;
-  process.env.MCP_PUBLIC_URL = `${mcpBaseUrl}/mcp`;
-  process.env.MAX_BODY_BYTES = "1048576";
+  licenseHarness = await startLicenseServiceTestServer({
+    port: licensePort,
+    publicBaseUrl: licenseBaseUrl,
+    mcpPublicUrl: `${mcpBaseUrl}/mcp`,
+    env: {
+      HAZIFY_FREE_MODE: "true",
+      ADMIN_API_KEY: "admin-e2e-key",
+      MCP_API_KEY: "mcp-e2e-key",
+    },
+    cacheBuster: `contract=${Date.now()}`,
+  });
+  licenseServer = licenseHarness.server;
 
-  const licenseModule = await import(`${pathToFileURL(licenseModulePath).href}?contract=${Date.now()}`);
-  licenseServer = licenseModule.server;
-
-  await waitFor(`${licenseBaseUrl}/health`);
-
-  process.env.HAZIFY_MCP_TRANSPORT = "http";
   process.env.HAZIFY_MCP_HTTP_HOST = "127.0.0.1";
   process.env.PORT = String(mcpPort);
   process.env.HAZIFY_MCP_HTTP_PORT = String(mcpPort);
@@ -369,6 +360,9 @@ try {
   if (licenseServer && licenseServer.listening) {
     await new Promise((resolve) => licenseServer.close(resolve));
   }
+  if (licenseHarness) {
+    await licenseHarness.cleanup();
+  }
 
   global.fetch = originalFetch;
 
@@ -380,5 +374,4 @@ try {
     }
   }
 
-  await fs.rm(tempDbPath, { force: true });
 }

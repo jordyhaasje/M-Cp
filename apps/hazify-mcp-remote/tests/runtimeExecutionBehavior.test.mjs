@@ -2,6 +2,7 @@ import assert from "assert";
 import net from "net";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
+import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
 async function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -56,6 +57,7 @@ const mcpPort = await getFreePort();
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const introspectionBase = "http://license.test.local";
 const mcpBaseUrl = `http://127.0.0.1:${mcpPort}`;
+const themeDraftDb = createThemeDraftDbHarness();
 
 const originalFetch = global.fetch;
 const counters = {
@@ -282,7 +284,7 @@ global.fetch = async (url, options = {}) => {
 };
 
 const previousEnv = {
-  HAZIFY_MCP_TRANSPORT: process.env.HAZIFY_MCP_TRANSPORT,
+  NODE_ENV: process.env.NODE_ENV,
   HAZIFY_MCP_HTTP_HOST: process.env.HAZIFY_MCP_HTTP_HOST,
   PORT: process.env.PORT,
   HAZIFY_MCP_INTROSPECTION_URL: process.env.HAZIFY_MCP_INTROSPECTION_URL,
@@ -292,7 +294,7 @@ const previousEnv = {
   HAZIFY_MCP_CONTEXT_TTL_MS: process.env.HAZIFY_MCP_CONTEXT_TTL_MS,
 };
 
-process.env.HAZIFY_MCP_TRANSPORT = "http";
+process.env.NODE_ENV = "test";
 process.env.HAZIFY_MCP_HTTP_HOST = "127.0.0.1";
 process.env.PORT = String(mcpPort);
 process.env.HAZIFY_MCP_INTROSPECTION_URL = introspectionBase;
@@ -463,6 +465,7 @@ try {
   }
 
   global.fetch = originalFetch;
+  await themeDraftDb.cleanup();
 
   for (const [key, value] of Object.entries(previousEnv)) {
     if (value === undefined) {

@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { isDeepStrictEqual } from "util";
 import { Pool } from "pg";
-import { createInitialState } from "./json-storage.js";
+import { createInitialState } from "./state-shape.js";
 
 function toJson(value, fallback = null) {
   if (value === null || value === undefined) {
@@ -112,6 +112,7 @@ export class PostgresStorage {
     singleWriterEnforced = true,
     singleWriterLockKey = 19450603,
     pool = null,
+    testSchemaCompatibility = false,
   }) {
     this.pool =
       pool ||
@@ -126,6 +127,7 @@ export class PostgresStorage {
     this.singleWriterLockKey = Number(singleWriterLockKey);
     this.writerLockClient = null;
     this.closed = false;
+    this.testSchemaCompatibility = Boolean(testSchemaCompatibility);
   }
 
   async init() {
@@ -184,6 +186,152 @@ export class PostgresStorage {
   }
 
   async ensureSchema() {
+    if (this.testSchemaCompatibility) {
+      const testSchemaStatements = [
+        `CREATE TABLE IF NOT EXISTS licenses (
+          license_key TEXT,
+          status TEXT,
+          contact_email TEXT,
+          entitlements_json JSONB,
+          subscription_json JSONB,
+          max_activations INTEGER,
+          bound_fingerprints_json JSONB,
+          stripe_customer_id TEXT,
+          stripe_subscription_id TEXT,
+          created_at TIMESTAMPTZ,
+          updated_at TIMESTAMPTZ,
+          past_due_since TIMESTAMPTZ,
+          canceled_at TIMESTAMPTZ
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_licenses_key ON licenses(license_key)`,
+        `CREATE TABLE IF NOT EXISTS tenants (
+          tenant_id TEXT,
+          license_key TEXT,
+          label TEXT,
+          shop_domain TEXT,
+          shop_access_token_enc TEXT,
+          shop_client_id_enc TEXT,
+          shop_client_secret_enc TEXT,
+          subscription_json JSONB,
+          created_at TIMESTAMPTZ,
+          updated_at TIMESTAMPTZ
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_tenants_key ON tenants(tenant_id)`,
+        `CREATE TABLE IF NOT EXISTS accounts (
+          account_id TEXT,
+          email TEXT,
+          name TEXT,
+          password_salt TEXT,
+          password_hash TEXT,
+          license_key TEXT,
+          status TEXT,
+          created_at TIMESTAMPTZ,
+          updated_at TIMESTAMPTZ,
+          last_login_at TIMESTAMPTZ
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_accounts_key ON accounts(account_id)`,
+        `CREATE TABLE IF NOT EXISTS account_sessions (
+          session_id TEXT,
+          account_id TEXT,
+          token_hash TEXT,
+          status TEXT,
+          created_at TIMESTAMPTZ,
+          updated_at TIMESTAMPTZ,
+          expires_at TIMESTAMPTZ,
+          last_used_at TIMESTAMPTZ,
+          user_agent TEXT,
+          ip_hash TEXT
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_account_sessions_key ON account_sessions(session_id)`,
+        `CREATE TABLE IF NOT EXISTS mcp_tokens (
+          token_id TEXT,
+          tenant_id TEXT,
+          license_key TEXT,
+          token_hash TEXT,
+          name TEXT,
+          oauth_client_id TEXT,
+          oauth_refresh_token_id TEXT,
+          oauth_token_family_id TEXT,
+          scope TEXT,
+          target_resource TEXT,
+          status TEXT,
+          created_at TIMESTAMPTZ,
+          updated_at TIMESTAMPTZ,
+          last_used_at TIMESTAMPTZ,
+          expires_at TIMESTAMPTZ
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_mcp_tokens_key ON mcp_tokens(token_id)`,
+        `CREATE TABLE IF NOT EXISTS oauth_clients (
+          client_id TEXT,
+          client_name TEXT,
+          redirect_uris_json JSONB,
+          grant_types_json JSONB,
+          response_types_json JSONB,
+          token_endpoint_auth_method TEXT,
+          scope TEXT,
+          client_secret_hash TEXT,
+          status TEXT,
+          created_at TIMESTAMPTZ,
+          updated_at TIMESTAMPTZ
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_oauth_clients_key ON oauth_clients(client_id)`,
+        `CREATE TABLE IF NOT EXISTS oauth_auth_codes (
+          code TEXT,
+          client_id TEXT,
+          tenant_id TEXT,
+          license_key TEXT,
+          redirect_uri TEXT,
+          scope TEXT,
+          target_resource TEXT,
+          code_challenge TEXT,
+          code_challenge_method TEXT,
+          status TEXT,
+          created_at TIMESTAMPTZ,
+          expires_at TIMESTAMPTZ,
+          used_at TIMESTAMPTZ
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_oauth_auth_codes_key ON oauth_auth_codes(code)`,
+        `CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+          refresh_token_id TEXT,
+          token_hash TEXT,
+          client_id TEXT,
+          tenant_id TEXT,
+          license_key TEXT,
+          family_id TEXT,
+          parent_refresh_token_id TEXT,
+          replaced_by_refresh_token_id TEXT,
+          scope TEXT,
+          target_resource TEXT,
+          status TEXT,
+          revoked_at TIMESTAMPTZ,
+          replay_detected_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ,
+          updated_at TIMESTAMPTZ,
+          expires_at TIMESTAMPTZ
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_oauth_refresh_tokens_key ON oauth_refresh_tokens(refresh_token_id)`,
+        `CREATE TABLE IF NOT EXISTS theme_drafts (
+          id UUID,
+          shop_domain TEXT,
+          status TEXT,
+          files_json JSONB,
+          reference_input_json JSONB,
+          reference_spec_json JSONB,
+          lint_report_json JSONB,
+          verify_result_json JSONB,
+          preview_theme_id BIGINT,
+          applied_theme_id BIGINT,
+          created_at TIMESTAMPTZ,
+          updated_at TIMESTAMPTZ
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_theme_drafts_key ON theme_drafts(id)`,
+      ];
+      for (const statement of testSchemaStatements) {
+        await this.pool.query(statement);
+      }
+      return;
+    }
+
     const sql = `
 CREATE TABLE IF NOT EXISTS licenses (
   license_key TEXT PRIMARY KEY,

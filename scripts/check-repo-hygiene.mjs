@@ -17,10 +17,19 @@ const requiredDirs = [
 
 const forbiddenRootDirs = ["archive", "templates"];
 const forbiddenRepoDirs = [
+  "apps/hazify-license-service/data",
   "apps/hazify-license-service/packages",
   "apps/hazify-mcp-remote/packages",
 ];
-const forbiddenRepoFiles = ["apps/hazify-license-service/server.js"];
+const forbiddenRepoFiles = [
+  "apps/hazify-license-service/server.js",
+  "apps/hazify-license-service/src/repositories/json-storage.js",
+  "apps/hazify-license-service/scripts/migrate-json-to-postgres.mjs",
+  "apps/hazify-mcp-remote/src/lib/licenseManager.js",
+  "apps/hazify-mcp-remote/src/lib/machineFingerprint.js",
+  "apps/hazify-mcp-remote/src/lib/shopifyAuth.js",
+  "test-tmp.mjs",
+];
 const junkFileNames = new Set([".DS_Store", "Thumbs.db"]);
 const ignoredDirNames = new Set([".git", "node_modules"]);
 

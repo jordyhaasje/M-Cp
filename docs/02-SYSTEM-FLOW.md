@@ -17,12 +17,13 @@ Vanaf 2026 ondersteunt Hazify native OAuth 2.0 PKCE.
 Fallback: dashboard-tokens blijven bruikbaar voor pure API of legacy connectors.
 
 ## 3. Remote MCP Request Lifecycle (`/mcp`)
-De service in `apps/hazify-mcp-remote/src/index.js` luistert op HTTP transport.
+De service in `apps/hazify-mcp-remote/src/index.js` luistert alleen op Streamable HTTP.
 1. Een request bevat een token via `Authorization: Bearer` of `x-api-key`.
 2. Indien aanwezig wordt `Origin` gevalideerd tegen de allowlist.
 3. De remote doet token-introspectie via de License Service en controleert licentie, tool-entitlements en mutation scopes.
 4. Shopify token exchange gebeurt **lazy**: pas vlak voor een toolcall die Shopify echt nodig heeft.
-5. `initialize` en `tools/list` blijven daardoor snel en contextvrij.
+5. Theme draft persistence en file locks lopen via PostgreSQL; er is geen runtime fallback naar in-memory opslag.
+6. `initialize` en `tools/list` blijven daardoor snel en contextvrij.
 
 ## 4. Toolcatalogus
 <!-- BEGIN: TOOLS_LIST -->

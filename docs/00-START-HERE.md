@@ -1,7 +1,7 @@
 # Start Here
 Doelgroep: nieuwe developers en coding agents.
 
-Dit is het startpunt voor de Hazify monorepo. Deze workspace bevat de productiecode voor de License Service, de Remote MCP en de bijbehorende documentatie en scripts.
+Dit is het startpunt voor de Hazify monorepo. Deze workspace bevat de productiecode voor de Postgres-only License Service, de HTTP-only Remote MCP en de bijbehorende documentatie en scripts.
 
 ## Leesvolgorde
 1. `docs/00-START-HERE.md` (Dit document)

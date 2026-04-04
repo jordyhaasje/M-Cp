@@ -3,6 +3,10 @@ Doelgroep: coding agents / Codex maintainers.
 
 Dit bestand is interne maintainer-documentatie voor de Hazify monorepo.
 
+Actuele infrastructuurwaarheid:
+- `apps/hazify-license-service` is Postgres-only.
+- `apps/hazify-mcp-remote` is HTTP-only en gebruikt PostgreSQL voor `theme_drafts` en advisory locks.
+
 ## Doel
 Deze workspace bevat de productiecode voor:
 - Shopify productbeheer

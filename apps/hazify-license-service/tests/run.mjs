@@ -1,3 +1,5 @@
+process.env.NODE_ENV = "test";
+
 await import("./oauth-security.test.mjs");
 await import("./oauthIssuerPath.test.mjs");
 await import("./oauth-helpers.test.mjs");

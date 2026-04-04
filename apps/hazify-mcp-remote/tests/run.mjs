@@ -1,4 +1,5 @@
-await import("./licenseManager.test.mjs");
+process.env.NODE_ENV = "test";
+
 await import("./urlSecurity.test.mjs");
 await import("./statefulProductionGuard.test.mjs");
 await import("./mcpHttpAuth.test.mjs");

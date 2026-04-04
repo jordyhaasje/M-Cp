@@ -1,10 +1,7 @@
 import assert from "assert";
 import crypto from "crypto";
-import fs from "fs/promises";
-import os from "os";
-import path from "path";
 import net from "net";
-import { fileURLToPath, pathToFileURL } from "url";
+import { startLicenseServiceTestServer } from "./helpers/serviceHarness.mjs";
 
 function hashToken(value) {
   return crypto.createHash("sha256").update(value, "utf8").digest("hex");
@@ -40,24 +37,7 @@ async function getFreePort() {
   });
 }
 
-async function waitForHealth(url, timeoutMs = 10000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // retry
-    }
-    await new Promise((resolve) => setTimeout(resolve, 120));
-  }
-  throw new Error(`Timed out waiting for ${url}`);
-}
-
 const port = await getFreePort();
-const tempDbPath = path.join(os.tmpdir(), `hazify-oauth-test-${Date.now()}-${Math.random()}.json`);
 
 const accountId = "acct_test_1";
 const licenseKey = "HZY-TEST-OAUTH-SECURITY";
@@ -141,43 +121,25 @@ const seededState = {
   },
 };
 
-await fs.writeFile(tempDbPath, JSON.stringify(seededState, null, 2), "utf8");
-
-const testDir = path.dirname(fileURLToPath(import.meta.url));
-const serviceCwd = path.resolve(testDir, "..");
 const baseUrl = `http://127.0.0.1:${port}`;
-const previousEnv = {
-  PORT: process.env.PORT,
-  LICENSE_DB_PATH: process.env.LICENSE_DB_PATH,
-  HAZIFY_FREE_MODE: process.env.HAZIFY_FREE_MODE,
-  ADMIN_API_KEY: process.env.ADMIN_API_KEY,
-  MCP_API_KEY: process.env.MCP_API_KEY,
-  PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL,
-  MCP_PUBLIC_URL: process.env.MCP_PUBLIC_URL,
-  MAX_BODY_BYTES: process.env.MAX_BODY_BYTES,
-  LICENSE_GRACE_HOURS: process.env.LICENSE_GRACE_HOURS,
-  READ_ONLY_GRACE_DAYS: process.env.READ_ONLY_GRACE_DAYS,
-};
 
-let serverInstance = null;
+let harness = null;
 
 try {
-  process.env.PORT = String(port);
-  process.env.LICENSE_DB_PATH = tempDbPath;
-  process.env.HAZIFY_FREE_MODE = "true";
-  process.env.ADMIN_API_KEY = "admin-test-key";
-  process.env.MCP_API_KEY = "mcp-test-key";
-  process.env.PUBLIC_BASE_URL = baseUrl;
-  process.env.MCP_PUBLIC_URL = `${baseUrl}/mcp`;
-  process.env.MAX_BODY_BYTES = "1048576";
-  process.env.LICENSE_GRACE_HOURS = "0.00003";
-  process.env.READ_ONLY_GRACE_DAYS = "0.000002";
-
-  const serverModuleUrl = `${pathToFileURL(path.join(serviceCwd, "src", "server.js")).href}?test=${Date.now()}`;
-  const serverModule = await import(serverModuleUrl);
-  serverInstance = serverModule.server;
-
-  await waitForHealth(`${baseUrl}/health`);
+  harness = await startLicenseServiceTestServer({
+    port,
+    publicBaseUrl: baseUrl,
+    mcpPublicUrl: `${baseUrl}/mcp`,
+    seedState: seededState,
+    env: {
+      HAZIFY_FREE_MODE: "true",
+      ADMIN_API_KEY: "admin-test-key",
+      MCP_API_KEY: "mcp-test-key",
+      LICENSE_GRACE_HOURS: "0.00003",
+      READ_ONLY_GRACE_DAYS: "0.000002",
+    },
+    cacheBuster: `oauth-security=${Date.now()}`,
+  });
 
   const metadataResponse = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`);
   assert.equal(metadataResponse.status, 200, "metadata endpoint should respond");
@@ -1031,17 +993,7 @@ try {
 
   console.log("oauth-security.test.mjs passed");
 } finally {
-  if (serverInstance && serverInstance.listening) {
-    await new Promise((resolve) => serverInstance.close(resolve));
+  if (harness) {
+    await harness.cleanup();
   }
-
-  for (const [key, value] of Object.entries(previousEnv)) {
-    if (value === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
-    }
-  }
-
-  await fs.rm(tempDbPath, { force: true });
 }

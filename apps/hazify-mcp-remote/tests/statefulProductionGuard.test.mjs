@@ -9,7 +9,6 @@ const entryUrl = pathToFileURL(path.resolve(testDir, "../src/index.js")).href;
 const childEnv = {
   ...process.env,
   NODE_ENV: "production",
-  HAZIFY_MCP_TRANSPORT: "http",
   HAZIFY_MCP_HTTP_HOST: "127.0.0.1",
   PORT: "63888",
   HAZIFY_MCP_INTROSPECTION_URL: "http://127.0.0.1:65500",

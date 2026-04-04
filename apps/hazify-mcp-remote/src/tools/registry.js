@@ -179,10 +179,6 @@ const setOrderTrackingOutputSchema = z
   })
   .passthrough();
 
-
-
-
-
 const searchThemeFilesOutputSchema = z
   .object({
     theme: themeSummarySchema,
