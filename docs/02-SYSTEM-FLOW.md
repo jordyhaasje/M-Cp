@@ -34,13 +34,13 @@ De service in `apps/hazify-mcp-remote/src/index.js` luistert alleen op Streamabl
 - **`delete-product`**: Delete a product
 - **`delete-product-variants`**: Delete one or more variants from a product
 - **`delete-theme-file`**: Delete a file from a Shopify theme. themeRole of themeId is verplicht — vraag de gebruiker welk thema.
-- **`draft-theme-artifact`**: Draft and validate Shopify theme files through the guarded pipeline.
+- **`draft-theme-artifact`**: Draft and validate Shopify theme files through the guarded pipeline. Supports surgical edits via `patch` (searchString/replaceString) to save tokens and prevent full-file truncation.
 
 Modes:
 - mode="create": Volledige inspectie voor nieuwe sections (schema, presets, CSS kwaliteit verplicht). Templates/config geblokkeerd.
-- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON validatie.
+- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON validatie. Bevat proactieve **truncation protection** (blokkeert writes bij >50% dataverlies of verlies van verplichte JSON-velden).
 
-Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liquid bescherming.
+Beide modes: Liquid-in-stylesheet check, **resilient theme-check linting** (fouten zoals MissingSnippet zijn gedegradeerd naar warnings), layout/theme.liquid bescherming.
 
 Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als dit niet is opgegeven.
 
@@ -74,11 +74,11 @@ Use <style> or markup-level CSS variables for section.id scoping
 <!-- END: TOOLS_LIST -->
 
 ## 5. Theme Editing Pipeline
-- Bestaande theme edit: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact` (mode="edit")
-1. Theme lezen via `get-theme-file`, `get-theme-files`, of `search-theme-files`.
-2. Theme create/update loopt via `draft-theme-artifact`. De gebruiker bepaalt altijd het doelthema. Zonder explicite themeRole of themeId faalt de call.
+- Bestaande theme edit: `search-theme-files` -> `draft-theme-artifact` (mode="edit", via `patch`)
+1. Zoek de gewenste code met `search-theme-files` om een betrouwbare `searchString` te verkrijgen.
+2. Voer de edit uit via `draft-theme-artifact` in `mode="edit"`. Gebruik bij voorkeur de `patch` property voor kleine wijzigingen om token-verbruik te beperken en truncation te voorkomen.
 3. Live of ander target toepassen gebeurt via `apply-theme-draft` met expliciete confirmation.
-4. Verifieer writes via de `verify` output van `draft-theme-artifact` of aanvullend met `verify-theme-files`.
+4. Verifieer writes via de `verify` output van `draft-theme-artifact` of aanvullend met `verify-theme-files` of `get-theme-file`.
 
 ## 6. Shopify-conforme File Policy
 - Beperk writes tot de noodzakelijke theme-bestanden; voor section-wijzigingen is dat meestal `sections/<handle>.liquid`.
@@ -94,4 +94,6 @@ Use <style> or markup-level CSS variables for section.id scoping
 1. **Tenant isolation:** Toolcalls blijven strikt aan de juiste shop en tenant gekoppeld.
 2. **Tool hardening:** Destructieve of financiële mutaties vereisen expliciete `confirmation` strings en vaak ook `reason`.
 3. **Core file protection:** `layout/theme.liquid` mag `content_for_header` en `content_for_layout` niet verliezen.
-4. **Distributed locks:** Theme writes gebruiken PostgreSQL advisory locks om parallelle conflicts te voorkomen.
+4. **Truncation Protection:** In `mode="edit"` blokkeert de pipeline automatisch schrijfacties die leiden tot >50% bestandverkleining of verlies van kritieke JSON-velden (zoals `sections` in templates).
+5. **Linter Resilience:** De `theme-check` linter is zo afgesteld dat externe ontbrekende snippet-fouten de write niet blokkeren, maar als warnings worden weergegeven.
+6. **Distributed locks:** Theme writes gebruiken PostgreSQL advisory locks om parallelle conflicts te voorkomen.
