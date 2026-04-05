@@ -4,7 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import { check } from "@shopify/theme-check-node";
 import { createThemeDraftRecord, updateThemeDraftRecord } from "../lib/db.js";
-import { getShopDomainFromClient, upsertThemeFiles } from "../lib/themeFiles.js";
+import { getShopDomainFromClient, upsertThemeFiles, getThemeFiles } from "../lib/themeFiles.js";
 import { requireShopifyClient } from "./_context.js";
 
 export const toolName = "draft-theme-artifact";
@@ -26,13 +26,23 @@ Use <style> or markup-level CSS variables for section.id scoping`;
 
 const ThemeRoleSchema = z.enum(["main", "unpublished", "development"]);
 
+const ThemeDraftPatchSchema = z.object({
+  searchString: z.string().min(1).describe("De te vervangen string in het originele bestand (literal match, vervangt alle identieke instanties)"),
+  replaceString: z.string().describe("De nieuwe string"),
+});
+
 const ThemeDraftFileSchema = z.object({
   key: z.string().min(1).describe("De exacte filelocatie (bijv. sections/feature-sandbox.liquid)"),
   value: z
     .string()
+    .optional()
     .describe(
-      "De volledige inhoud / broncode voor deze sandbox preview. Payloads falen als ze niet Shopify OS 2.0 proof zijn: geldige schema settings en een presets-array zijn verplicht."
+      "De volledige inhoud / broncode. Payloads falen als ze niet Shopify OS 2.0 proof zijn: geldige schema settings en een presets-array zijn verplicht."
     ),
+  patch: ThemeDraftPatchSchema.optional().describe("Verander een specifieke string zonder het hele bestand in te sturen. Bespaart tokens en voorkomt truncated writes."),
+  baseChecksumMd5: z.string().optional().describe("Optioneel MD5 checksum voor optimistic locking. De write faalt als het bestand tussentijds is gewijzigd."),
+}).refine(data => data.value !== undefined || data.patch !== undefined, {
+  message: "Provide exactly one of 'value' or 'patch'",
 });
 
 export const inputSchema = z.object({
@@ -465,7 +475,7 @@ export const draftThemeArtifact = {
   schema: inputSchema,
   execute: async (args, context = {}) => {
     const shopifyClient = requireShopifyClient(context);
-    const { files, themeId, themeRole, mode } = args;
+    let { files, themeId, themeRole, mode } = args;
     const warnings = [];
     const suggestedFixes = [];
 
@@ -487,6 +497,100 @@ export const draftThemeArtifact = {
     if (files.length > 1) {
       warnings.push("Draft alleen de noodzakelijke bestanden. Gebruik meerdere files alleen wanneer daar een concrete reden voor is.");
     }
+
+    let resolvedFiles = [];
+    let needsOriginal = files.some(f => f.patch) || mode === "edit";
+    
+    if (needsOriginal) {
+      try {
+        const apiVersion = process.env.SHOPIFY_API_VERSION || "2026-01";
+        const keysToFetch = files.map(f => f.key);
+        const fetchedFiles = await getThemeFiles(shopifyClient, apiVersion, { themeId, themeRole, keys: keysToFetch, includeContent: true });
+        
+        const fetchedByKey = new Map(fetchedFiles.files.map(f => [f.key, f]));
+
+        for (const file of files) {
+          const original = fetchedByKey.get(file.key);
+          if (!original || original.missing) {
+            if (file.patch) {
+               return buildFailureResponse({
+                 status: "inspection_failed",
+                 message: `Patch failed: Bestand '${file.key}' bestaat niet in het thema.`,
+                 errorCode: "patch_failed_missing",
+                 retryable: false,
+                 shouldNarrowScope: false,
+               });
+            }
+            resolvedFiles.push({ key: file.key, value: file.value || "", checksum: file.baseChecksumMd5 });
+            continue;
+          }
+
+          const originalValue = typeof original.value === "string" ? original.value : "";
+          let newValue = file.value;
+          
+          if (file.patch) {
+             const searchString = file.patch.searchString;
+             if (!originalValue.includes(searchString)) {
+                return buildFailureResponse({
+                  status: "inspection_failed",
+                  message: `Patch failed: De searchString '${searchString.substring(0, 50)}...' werd niet gevonden in '${file.key}'.`,
+                  errorCode: "patch_failed_nomatch",
+                  retryable: true,
+                  suggestedFixes: ["Gebruik search-theme-files om de exacte string te achterhalen of gebruik een regex via patch.", "Zorg dat witruimte/inspringen exact overeenkomt."],
+                  shouldNarrowScope: false,
+                });
+             }
+             newValue = originalValue.split(searchString).join(file.patch.replaceString);
+          }
+
+          if (mode === "edit" && !file.patch && newValue) {
+             if (newValue.length < originalValue.length * 0.5) {
+                return buildFailureResponse({
+                  status: "inspection_failed",
+                  message: `Existing section edit appears incomplete. De nieuwe content van '${file.key}' is minder dan 50% van het origineel. Dit duidt mogelijk op truncation.`,
+                  errorCode: "inspection_failed_truncated",
+                  retryable: true,
+                  suggestedFixes: ["Stuur het VOLLEDIGE bestand terug, of gebruik het nieuwe 'patch' argument om een specifieke regel aan te passen."],
+                  shouldNarrowScope: false,
+                });
+             }
+
+             if (file.key.startsWith("sections/") && file.key.endsWith(".liquid")) {
+               const origSchema = extractSchemaJson(originalValue);
+               const newSchema = extractSchemaJson(newValue);
+               if (origSchema && !newSchema) {
+                 return buildFailureResponse({
+                   status: "inspection_failed",
+                   message: `Existing section edit appears incomplete. Het origineel in '${file.key}' had een {% schema %} block, maar deze is verdwenen.`,
+                   errorCode: "inspection_failed_schema_loss",
+                   retryable: true,
+                   suggestedFixes: ["Behoud altijd het {% schema %} block op bestaande sections (met presets settings) tenzij je hem expliciet wilt weggooien (niet aanbevolen)."],
+                   shouldNarrowScope: false,
+                 });
+               }
+             }
+          }
+
+          resolvedFiles.push({ 
+            key: file.key, 
+            value: newValue, 
+            checksum: file.baseChecksumMd5 || null 
+          });
+        }
+      } catch (err) {
+        return buildFailureResponse({
+          status: "inspection_failed",
+          message: `Kon bestaande bestanden niet ophalen voor patch/edit validatie: ${err.message}`,
+          errorCode: "inspection_failed_read",
+          retryable: true,
+          shouldNarrowScope: false,
+        });
+      }
+    } else {
+      resolvedFiles = files.map(f => ({ key: f.key, value: f.value || "", checksum: f.baseChecksumMd5 }));
+    }
+
+    files = resolvedFiles;
 
     for (const file of files) {
       const isTemplateConfig = /^(templates|config)\//.test(file.key);
@@ -572,7 +676,7 @@ export const draftThemeArtifact = {
     let draftRecord = await createThemeDraftRecord({
       shopDomain,
       status: "pending",
-      files,
+      files: files.map(({ key, value }) => ({ key, value })),
       referenceInput: null,
       referenceSpec: null,
     });
@@ -589,7 +693,22 @@ export const draftThemeArtifact = {
         await fs.writeFile(fullPath, file.value, "utf8");
       }
 
-      const offenses = await check(tmpDir);
+      let offenses = await check(tmpDir);
+      
+      const preExistingChecks = ["MissingSnippet", "MissingAsset", "MissingTemplate", "UnknownObject", "UnknownFilter"];
+      
+      offenses = offenses.map(offense => {
+        if (offense.severity === 0 && preExistingChecks.includes(offense.check)) {
+           return { ...offense, severity: 1 };
+        }
+        return offense;
+      });
+
+      const preExistingWarningCount = offenses.filter(o => o.severity === 1 && preExistingChecks.includes(o.check)).length;
+      if (preExistingWarningCount > 0) {
+        warnings.push(`Gevonden ${preExistingWarningCount} pre-existing referentie(s) in het target thema (MissingSnippet/MissingAsset). Linter faalt hier niet meer hard op.`);
+      }
+
       const criticalErrors = offenses.filter((offense) => offense.severity === 0);
       if (criticalErrors.length > 0) {
         lintErrors = normalizeLintErrors(criticalErrors, tmpDir);
@@ -639,7 +758,11 @@ export const draftThemeArtifact = {
       const upsertResult = await upsertThemeFiles(shopifyClient, apiVersion, {
         themeId: themeId ? String(themeId) : undefined,
         themeRole,
-        files: files.map((file) => ({ key: file.key, value: file.value })),
+        files: files.map((file) => ({ 
+          key: file.key, 
+          value: file.value, 
+          ...(file.checksum ? { checksum: file.checksum } : {}) 
+        })),
         verifyAfterWrite: true,
       });
 

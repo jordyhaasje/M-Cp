@@ -13,7 +13,7 @@ const GetThemeFilesInputSchema = z
       .array(z.string().min(1))
       .min(1)
       .max(10)
-      .describe("Theme file keys, e.g. ['sections/hero.liquid', 'assets/theme.css'] (hard limit: 10 files max)"),
+      .describe("EXACT, VOLLEDIGE file paths, e.g. ['sections/hero.liquid']. GEEN GLOBBING OF WILDCARDS (*). Gebruik search-theme-files als je een path niet zeker weet (hard limit: 10)."),
     includeContent: z.boolean().default(false).describe("Include file content (value/attachment) in response"),
   })
   .superRefine((input, ctx) => {
@@ -29,7 +29,7 @@ const GetThemeFilesInputSchema = z
 
 const getThemeFilesTool = {
   name: "get-theme-files",
-  description: "Read multiple files from a Shopify theme with metadata-first default output.",
+  description: "Read EXACT files from a Shopify theme. GEEN GLOBBING. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path.",
   schema: GetThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

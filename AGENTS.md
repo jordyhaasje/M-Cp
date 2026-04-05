@@ -91,11 +91,13 @@ Use <style> or markup-level CSS variables for section.id scoping
 
 ## Theme edit workflow
 ### Bestaande theme edit
-- Flow: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact` (mode="edit")
-- Gebruik `mode="edit"` voor bug fixes, CSS-wijzigingen, spacing aanpassingen, kleurwijzigingen en schema-aanpassingen.
-- Gebruik `mode="create"` alleen voor volledig nieuwe sections.
-- Zoek altijd eerst op zichtbare tekst, schema-naam of specifieke selectors.
-- Lees pas daarna het bestaande bestand in en draft alleen de noodzakelijke bestanden.
+- Flow: `search-theme-files` -> `draft-theme-artifact` (mode="edit", patch object)
+- Gebruik **ALTIJD** de `patch` property in `draft-theme-artifact` voor wijzigingen binnen een bestand (bijv. class naam toevoegen, spacing, colors, kleine logic fixes). Dit bespaart drastisch token-verlies en voorkomt file truncations.
+- Gebruik alleen de `value` property bij edits als je het *volledige* bestand hebt ingelezen en heel de structuur drastisch verandert.
+- Gebruik `mode="edit"` voor bestaande sections of settings.
+- Gebruik `mode="create"` alleen voor volledig nieuwe sections zonder bestaande inhoud.
+- Zoek altijd eerst op zichtbare tekst of specifieke selectors met `search-theme-files`. Dit geeft je direct de `searchString` voor je patch.
+- Lees volledige bestanden met `get-theme-files` **ALLEEN** als je de volledige file analyse echt nodig hebt.
 
 ## Theme workflow
 1. **De gebruiker bepaalt altijd op welk thema geschreven wordt.**

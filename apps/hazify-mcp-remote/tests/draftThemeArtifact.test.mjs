@@ -342,24 +342,115 @@ test("draftThemeArtifact - rejects invalid json template writes in edit mode", a
     request: async () => {}
   };
 
-  const result = await execute(
-    draftThemeArtifact.schema.parse({
-      themeId: 111,
-      mode: "edit",
-      files: [
-        {
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    console.log("Mock fetched url:", url);
+    if (url.includes("/assets.json")) {
+      const jsonValue = {
+        asset: {
           key: "templates/index.json",
-          value: JSON.stringify({ sections: {} }) // missing 'order' array
+          value: JSON.stringify({ sections: {}, order: [] }),
+          checksum: "mock"
         }
-      ]
-    }),
-    { shopifyClient: mockShopifyClient }
-  );
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => jsonValue,
+        text: async () => JSON.stringify(jsonValue)
+      };
+    }
+    
+    if (url.includes("/themes/111.json")) {
+      const jsonValue = {
+        theme: {
+          id: 111,
+          name: "Dev Theme",
+          role: "development"
+        }
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => jsonValue,
+        text: async () => JSON.stringify(jsonValue)
+      };
+    }
 
-  assert.equal(result.success, false);
-  assert.equal(result.status, "inspection_failed");
-  assert.equal(result.errorCode, "inspection_failed_json");
-  assert.ok(result.message.includes("'order' array"));
+    const payload = options.body && typeof options.body === "string" ? JSON.parse(options.body) : {};
+    const query = String(payload.query || "");
+
+    if (query.includes("ThemeById")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            theme: {
+              id: "gid://shopify/OnlineStoreTheme/111",
+              name: "Dev Theme",
+              role: "DEVELOPMENT",
+            }
+          }
+        }),
+        text: async () => "{}"
+      };
+    }
+
+    if (query.includes("ThemeFilesById")) {
+      const value = JSON.stringify({ sections: {}, order: [] });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            theme: {
+              id: "gid://shopify/OnlineStoreTheme/111",
+              name: "Dev Theme",
+              role: "DEVELOPMENT",
+              files: {
+                nodes: [
+                  {
+                    filename: "templates/index.json",
+                    checksumMd5: "mock-checksum",
+                    contentType: "application/json",
+                    size: Buffer.byteLength(value, "utf8"),
+                    body: { content: value }
+                  }
+                ],
+                userErrors: []
+              }
+            }
+          }
+        }),
+        text: async () => "{}"
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}), text: async () => "{}" };
+  };
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        files: [
+          {
+            key: "templates/index.json",
+            value: JSON.stringify({ sections: {} }) // missing 'order' array
+          }
+        ]
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.equal(result.errorCode, "inspection_failed_json");
+    assert.ok(result.message.includes("'order' array"));
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
 
 test("draftThemeArtifact - success when linter passes (pushes directly to chosen theme)", async (t) => {
