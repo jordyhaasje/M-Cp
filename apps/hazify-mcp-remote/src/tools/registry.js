@@ -230,6 +230,106 @@ const applyThemeDraftOutputSchema = z
   })
   .passthrough();
 
+const getProductsOutputSchema = z
+  .object({
+    products: z.array(
+      z.object({ id: z.string(), title: z.string() }).passthrough()
+    ),
+  })
+  .passthrough();
+
+const getProductByIdOutputSchema = z
+  .object({
+    product: z.object({ id: z.string(), title: z.string() }).passthrough(),
+  })
+  .passthrough();
+
+const productMutationOutputSchema = z
+  .object({
+    product: z.object({ id: z.string(), title: z.string() }).passthrough(),
+  })
+  .passthrough();
+
+const deleteProductOutputSchema = z
+  .object({ deletedProductId: z.string() })
+  .passthrough();
+
+const deleteProductVariantsOutputSchema = z
+  .object({ deletedVariantIds: z.array(z.string()) })
+  .passthrough();
+
+const updateOrderOutputSchema = z
+  .object({
+    order: z.object({ id: z.string(), name: z.string() }).passthrough(),
+    resolvedOrder: passthroughObject(),
+  })
+  .passthrough();
+
+const getCustomerOrdersOutputSchema = z
+  .object({
+    orders: z.array(
+      z.object({ id: z.string(), name: z.string() }).passthrough()
+    ),
+  })
+  .passthrough();
+
+const updateCustomerOutputSchema = z
+  .object({
+    customer: z.object({ id: z.string() }).passthrough(),
+  })
+  .passthrough();
+
+const manageProductVariantsOutputSchema = z
+  .object({
+    variants: z.array(
+      z.object({ id: z.string() }).passthrough()
+    ),
+  })
+  .passthrough();
+
+const manageProductOptionsOutputSchema = z
+  .object({
+    product: z.object({ id: z.string() }).passthrough(),
+  })
+  .passthrough();
+
+const refundOrderOutputSchema = z
+  .object({
+    refund: z.object({ id: z.string() }).passthrough(),
+    order: z.object({ id: z.string(), name: z.string() }).passthrough().nullable(),
+    resolvedOrder: passthroughObject(),
+    audit: passthroughObject(),
+  })
+  .passthrough();
+
+const cloneProductOutputSchema = z
+  .object({
+    product: z.object({ id: z.string(), title: z.string() }).passthrough(),
+  })
+  .passthrough();
+
+const getThemesOutputSchema = z
+  .object({
+    themes: z.array(themeSummarySchema),
+  })
+  .passthrough();
+
+const deleteThemeFileOutputSchema = z
+  .object({
+    action: z.literal("deleted"),
+    theme: themeSummarySchema,
+    deletedKey: z.string(),
+  })
+  .passthrough();
+
+const verifyThemeFilesOutputSchema = z
+  .object({
+    theme: themeSummarySchema,
+    results: z.array(passthroughObject()),
+    summary: passthroughObject(),
+  })
+  .passthrough();
+
 const createAnnotations = ({ writeScopeRequired = false, destructive = false, idempotent } = {}) => ({
   readOnlyHint: !writeScopeRequired,
   destructiveHint: destructive,
@@ -263,12 +363,16 @@ const defineAliasManifest = (name, sourceTool, options = {}) =>
   );
 
 const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
-  defineToolManifest(getProducts),
-  defineToolManifest(getProductById),
+  defineToolManifest(getProducts, { outputSchema: getProductsOutputSchema }),
+  defineToolManifest(getProductById, { outputSchema: getProductByIdOutputSchema }),
   defineToolManifest(getCustomers, { outputSchema: getCustomersOutputSchema }),
   defineToolManifest(getOrders, { outputSchema: getOrdersOutputSchema }),
   defineToolManifest(getOrderById, { outputSchema: getOrderByIdOutputSchema }),
-  defineToolManifest(updateOrder, { writeScopeRequired: true, idempotent: false }),
+  defineToolManifest(updateOrder, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: updateOrderOutputSchema,
+  }),
   defineToolManifest(updateFulfillmentTracking, {
     writeScopeRequired: true,
     idempotent: false,
@@ -280,29 +384,56 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
     outputSchema: setOrderTrackingOutputSchema,
   }),
   defineToolManifest(getSupportedTrackingCompanies, { requiresShopifyClient: false }),
-  defineToolManifest(getCustomerOrders),
-  defineToolManifest(updateCustomer, { writeScopeRequired: true, idempotent: false }),
-  defineToolManifest(createProduct, { writeScopeRequired: true, idempotent: false }),
-  defineToolManifest(updateProduct, { writeScopeRequired: true, idempotent: false }),
-  defineToolManifest(manageProductVariants, { writeScopeRequired: true, idempotent: false }),
-  defineToolManifest(manageProductOptions, { writeScopeRequired: true, idempotent: false }),
+  defineToolManifest(getCustomerOrders, { outputSchema: getCustomerOrdersOutputSchema }),
+  defineToolManifest(updateCustomer, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: updateCustomerOutputSchema,
+  }),
+  defineToolManifest(createProduct, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: productMutationOutputSchema,
+  }),
+  defineToolManifest(updateProduct, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: productMutationOutputSchema,
+  }),
+  defineToolManifest(manageProductVariants, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: manageProductVariantsOutputSchema,
+  }),
+  defineToolManifest(manageProductOptions, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: manageProductOptionsOutputSchema,
+  }),
   defineToolManifest(deleteProduct, {
     writeScopeRequired: true,
     destructive: true,
     idempotent: false,
+    outputSchema: deleteProductOutputSchema,
   }),
   defineToolManifest(deleteProductVariants, {
     writeScopeRequired: true,
     destructive: true,
     idempotent: false,
+    outputSchema: deleteProductVariantsOutputSchema,
   }),
   defineToolManifest(refundOrder, {
     writeScopeRequired: true,
     destructive: true,
     idempotent: false,
+    outputSchema: refundOrderOutputSchema,
   }),
-  defineToolManifest(cloneProductFromUrl, { writeScopeRequired: true, idempotent: false }),
-  defineToolManifest(getThemes),
+  defineToolManifest(cloneProductFromUrl, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: cloneProductOutputSchema,
+  }),
+  defineToolManifest(getThemes, { outputSchema: getThemesOutputSchema }),
 
   defineToolManifest(searchThemeFilesTool, {
     outputSchema: searchThemeFilesOutputSchema,
@@ -314,8 +445,9 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
     writeScopeRequired: true,
     destructive: true,
     idempotent: false,
+    outputSchema: deleteThemeFileOutputSchema,
   }),
-  defineToolManifest(verifyThemeFilesTool),
+  defineToolManifest(verifyThemeFilesTool, { outputSchema: verifyThemeFilesOutputSchema }),
   defineToolManifest(createGetLicenseStatusTool(getLicenseStatusExecute), {
     requiresShopifyClient: false,
     outputSchema: getLicenseStatusOutputSchema,

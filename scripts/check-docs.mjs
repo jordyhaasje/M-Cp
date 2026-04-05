@@ -199,7 +199,7 @@ async function main() {
       [
         workflowManifest.workflows.existingThemeEdit.label,
         "`search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`",
-        "Gebruik voor create/update van theme code uitsluitend `draft-theme-artifact`.",
+        "De gebruiker bepaalt altijd op welk thema geschreven wordt.",
         "Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.",
       ],
     ],

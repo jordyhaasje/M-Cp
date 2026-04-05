@@ -49,16 +49,22 @@ Gebruik altijd de actieve MCP tools uit de gedeelde registry. Beschikbare tools 
 - **`create-product`**: Create a new product. When using productOptions, Shopify registers all option values but only creates one default variant (first value of each option, price $0). Use manage-product-variants with strategy=REMOVE_STANDALONE_VARIANT afterward to create all real variants with prices.
 - **`delete-product`**: Delete a product
 - **`delete-product-variants`**: Delete one or more variants from a product
-- **`delete-theme-file`**: Delete a file from a Shopify theme (defaults to live theme role=main).
-- **`draft-theme-artifact`**: Draft and validate Shopify theme files through the guarded preview pipeline. Use this to safely write or update theme files - fixes, modifications, and small additions. Files are inspected, linted, stored in theme_drafts, pushed to a preview-safe target by default, and verified after write.
+- **`delete-theme-file`**: Delete a file from a Shopify theme. themeRole of themeId is verplicht — vraag de gebruiker welk thema.
+- **`draft-theme-artifact`**: Draft and validate Shopify theme files through the guarded pipeline.
+
+Modes:
+- mode="create": Volledige inspectie voor nieuwe sections (schema, presets, CSS kwaliteit verplicht). Templates/config geblokkeerd.
+- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON validatie.
+
+Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liquid bescherming.
+
+Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als dit niet is opgegeven.
 
 Rules for valid Shopify Liquid:
 
 Do not place Liquid inside {% stylesheet %} or {% javascript %}
 
 Use <style> or markup-level CSS variables for section.id scoping
-
-Every section must have a valid {% schema %} with presets
 - **`get-customer-orders`**: Get orders for a specific customer
 - **`get-customers`**: Get customers or search by name/email
 - **`get-license-status`**: Return current license status, effective access, and MCP scope capabilities.
@@ -85,27 +91,41 @@ Every section must have a valid {% schema %} with presets
 
 ## Theme edit workflow
 ### Bestaande theme edit
-- Flow: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`
-- Gebruik deze flow voor bug fixes, CSS-wijzigingen, schema-aanpassingen en kleine gerichte uitbreidingen.
+- Flow: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact` (mode="edit")
+- Gebruik `mode="edit"` voor bug fixes, CSS-wijzigingen, spacing aanpassingen, kleurwijzigingen en schema-aanpassingen.
+- Gebruik `mode="create"` alleen voor volledig nieuwe sections.
 - Zoek altijd eerst op zichtbare tekst, schema-naam of specifieke selectors.
 - Lees pas daarna het bestaande bestand in en draft alleen de noodzakelijke bestanden.
 
 ## Theme workflow
-1. Gebruik voor create/update van theme code uitsluitend `draft-theme-artifact`.
-2. `draft-theme-artifact` schrijft standaard preview-first naar `themeRole=development`.
-3. Gebruik `apply-theme-draft` alleen wanneer een eerder draft expliciet naar een gekozen target gepromoot moet worden.
-4. Gebruik `delete-theme-file` alleen na expliciete validatie van het target-bestand.
-5. Verifieer writes direct via de `verify` output van `draft-theme-artifact` of aanvullend met `get-theme-file`, `get-theme-files` of `verify-theme-files`.
-6. Om Railway te beschermen is er een harde limiet van maximaal 10 bestanden per theme-request.
+1. **De gebruiker bepaalt altijd op welk thema geschreven wordt.**
+2. **Als de gebruiker geen thema opgeeft, VRAAG dit expliciet.** Gebruik nooit een stille default.
+3. Gebruik `mode="edit"` voor wijzigingen aan bestaande bestanden (CSS fixes, spacing, kleuren, settings).
+4. Gebruik `mode="create"` voor nieuwe sections (volledige inspectie: schema, presets, CSS kwaliteit).
+5. Gebruik `apply-theme-draft` alleen wanneer een eerder draft expliciet naar een ander theme gepromoot moet worden.
+6. Gebruik `delete-theme-file` alleen na expliciete validatie van het target-bestand. themeRole/themeId is verplicht.
+7. Verifieer writes direct via de `verify` output van `draft-theme-artifact` of aanvullend met `get-theme-file`, `get-theme-files` of `verify-theme-files`.
+8. Om Railway te beschermen is er een harde limiet van maximaal 10 bestanden per theme-request.
 
 ## Shopify-conforme file policy
-- Beperk writes tot de noodzakelijke theme-bestanden; voor section-wijzigingen is dat meestal `sections/<handle>.liquid`.
+
+### mode="create" (nieuwe sections)
+- Beperk writes tot `sections/<handle>.liquid`.
 - Voeg alleen `snippets/` toe als markup of logica echt herhaald wordt.
 - Voeg alleen `blocks/` files toe als je bewust theme blocks nodig hebt.
 - Voeg alleen `locales/*.json` patches toe bij vaste, niet-merchant-editable UI strings.
-- Maak geen `templates/*.json` of `config/*.json` writes in deze flow.
+- Templates/config zijn GEBLOKKEERD in create mode.
 - Maak geen assets standaard; gebruik component-scoped CSS/JS in de section zelf.
+
+### mode="edit" (bestaande bestanden wijzigen)
+- Templates en config zijn TOEGESTAAN met automatische JSON validatie.
+- Gebruik edit mode voor CSS fixes, spacing aanpassingen, kleurwijzigingen, en setting updates.
+- `config/settings_data.json` wordt gevalideerd op het verplichte `current` object.
+- `templates/*.json` wordt gevalideerd op verplichte `sections` en `order` structuur.
+
+### Altijd geldig (beide modes)
 - Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.
+- `layout/theme.liquid`: `content_for_header` en `content_for_layout` mogen nooit verdwijnen.
 
 ## Product-import regels
 1. Gebruik bij URL-import eerst `clone-product-from-url`.
@@ -129,7 +149,8 @@ Every section must have a valid {% schema %} with presets
 - Bij ontbrekende data: eerst verifiëren, dan pas uitvoeren.
 - Voor destructieve en financiële mutaties (zoals `delete-product`, `delete-theme-file`, `apply-theme-draft`, `refund-order` en `update-order`) dwingt de API verplichte `confirmation` strings en vaak een `reason` af.
 - `layout/theme.liquid` blijft kritiek; `content_for_header` en `content_for_layout` mogen nooit verdwijnen.
-- LLM's mogen secties niet automatisch live plaatsen of templates/config aanpassen om placement af te dwingen.
+- LLM's mogen secties niet automatisch live plaatsen; de gebruiker bepaalt altijd het doelthema.
+- Templates/config writes zijn alleen toegestaan in `mode="edit"` en worden automatisch gevalideerd op JSON structuur.
 - Deel geen gevoelige data buiten Shopify-context.
 
 ## OpenAI Safety Check Workaround

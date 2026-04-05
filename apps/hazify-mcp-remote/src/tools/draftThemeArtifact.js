@@ -8,15 +8,21 @@ import { getShopDomainFromClient, upsertThemeFiles } from "../lib/themeFiles.js"
 import { requireShopifyClient } from "./_context.js";
 
 export const toolName = "draft-theme-artifact";
-export const description = `Draft and validate Shopify theme files through the guarded preview pipeline. Use this to safely write or update theme files - fixes, modifications, and small additions. Files are inspected, linted, stored in theme_drafts, pushed to a preview-safe target by default, and verified after write.
+export const description = `Draft and validate Shopify theme files through the guarded pipeline.
+
+Modes:
+- mode="create": Volledige inspectie voor nieuwe sections (schema, presets, CSS kwaliteit verplicht). Templates/config geblokkeerd.
+- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON validatie.
+
+Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liquid bescherming.
+
+Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als dit niet is opgegeven.
 
 Rules for valid Shopify Liquid:
 
 Do not place Liquid inside {% stylesheet %} or {% javascript %}
 
-Use <style> or markup-level CSS variables for section.id scoping
-
-Every section must have a valid {% schema %} with presets`;
+Use <style> or markup-level CSS variables for section.id scoping`;
 
 const ThemeRoleSchema = z.enum(["main", "unpublished", "development"]);
 
@@ -32,7 +38,8 @@ const ThemeDraftFileSchema = z.object({
 export const inputSchema = z.object({
   files: z.array(ThemeDraftFileSchema).min(1).max(10).describe("Maximale file batch is 10 items conform veiligheidsregels"),
   themeId: z.string().or(z.number()).optional().describe("Optioneel expliciet doel theme ID. Laat weg om via themeRole te resolven."),
-  themeRole: ThemeRoleSchema.default("development").describe("Preview target. Standaard wordt naar een development theme geschreven."),
+  themeRole: ThemeRoleSchema.optional().describe("Target theme role. Verplicht als themeId niet is opgegeven. Vraag de gebruiker welk thema."),
+  mode: z.enum(["create", "edit"]).default("create").describe("'create' = nieuw section met volledige inspectie (schema, presets, CSS kwaliteit). 'edit' = bestaand bestand fixen met lichtere checks."),
   isStandalone: z.boolean().optional().describe("Mark as standalone workflow"),
 });
 
@@ -83,6 +90,94 @@ function hasRawImgWithoutDimensions(value) {
   );
 }
 
+function inspectConfigFile(file) {
+  let parsed;
+  try {
+    parsed = JSON.parse(file.value);
+  } catch (e) {
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_json",
+      retryable: true,
+      message: `Config bestand '${file.key}' bevat ongeldige JSON: ${e.message}`,
+      warnings: [],
+      suggestedFixes: ["Controleer de JSON syntax en probeer opnieuw."],
+      shouldNarrowScope: false,
+    };
+  }
+
+  if (file.key === "config/settings_data.json") {
+    if (!parsed || typeof parsed.current !== "object") {
+      return {
+        ok: false,
+        status: "inspection_failed",
+        errorCode: "inspection_failed_json",
+        retryable: true,
+        message: "settings_data.json moet een 'current' object bevatten (Shopify vereiste).",
+        warnings: [],
+        suggestedFixes: ["Voeg een 'current' object toe aan de root van settings_data.json."],
+        shouldNarrowScope: false,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    warnings: [`⚠️ Config write (${file.key}): wijzigingen zijn direct zichtbaar op het thema.`],
+    suggestedFixes: [],
+  };
+}
+
+function inspectTemplateFile(file) {
+  let parsed;
+  try {
+    parsed = JSON.parse(file.value);
+  } catch (e) {
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_json",
+      retryable: true,
+      message: `Template bestand '${file.key}' bevat ongeldige JSON: ${e.message}`,
+      warnings: [],
+      suggestedFixes: ["Controleer de JSON syntax en probeer opnieuw."],
+      shouldNarrowScope: false,
+    };
+  }
+
+  if (!parsed || typeof parsed.sections !== "object") {
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_json",
+      retryable: true,
+      message: `Template '${file.key}' moet een 'sections' object bevatten (Shopify vereiste).`,
+      warnings: [],
+      suggestedFixes: ["Voeg een 'sections' object toe aan de root van het template JSON bestand."],
+      shouldNarrowScope: false,
+    };
+  }
+  if (!Array.isArray(parsed.order)) {
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_json",
+      retryable: true,
+      message: `Template '${file.key}' moet een 'order' array bevatten (Shopify vereiste).`,
+      warnings: [],
+      suggestedFixes: ["Voeg een 'order' array toe die de section-volgorde definieert."],
+      shouldNarrowScope: false,
+    };
+  }
+
+  return {
+    ok: true,
+    warnings: [`⚠️ Template write (${file.key}): dit wijzigt de pagina-layout direct.`],
+    suggestedFixes: [],
+  };
+}
+
 function inspectSectionFile(file) {
   const value = String(file.value || "");
   const warnings = [];
@@ -95,11 +190,11 @@ function inspectSectionFile(file) {
       errorCode: "inspection_failed_schema",
       retryable: false,
       message:
-        "Template/config writes zijn niet toegestaan in deze flow. Draft alleen losse theme bronbestanden en laat placement via de Theme Editor lopen.",
+        "Template/config writes zijn niet toegestaan in create mode. Gebruik mode='edit' voor wijzigingen aan bestaande template/config bestanden.",
       warnings,
       suggestedFixes: [
-        "Verwijder templates/*.json of config/*.json uit deze draft batch.",
-        "Beperk nieuwe section writes standaard tot één file: sections/<handle>.liquid.",
+        "Gebruik mode='edit' als je een bestaand template of config bestand wilt wijzigen.",
+        "Beperk nieuwe section writes in create mode tot sections/<handle>.liquid.",
       ],
       shouldNarrowScope: true,
     };
@@ -370,12 +465,23 @@ export const draftThemeArtifact = {
   schema: inputSchema,
   execute: async (args, context = {}) => {
     const shopifyClient = requireShopifyClient(context);
-    const { files, themeId, themeRole } = args;
+    const { files, themeId, themeRole, mode } = args;
     const warnings = [];
     const suggestedFixes = [];
 
+    if (!themeId && !themeRole) {
+      return buildFailureResponse({
+        status: "missing_theme_target",
+        message: "Geef aan op welk thema je wilt schrijven via themeRole ('main', 'development', 'unpublished') of themeId. Vraag dit aan de gebruiker als het niet is opgegeven.",
+        errorCode: "missing_theme_target",
+        retryable: true,
+        suggestedFixes: ["Vraag de gebruiker: 'Op welk thema wil je dit toepassen?'"],
+        shouldNarrowScope: false,
+      });
+    }
+
     if (!themeId && themeRole === "main") {
-      warnings.push("Preview draft is writing to the live main theme because themeRole=main was explicitly requested.");
+      warnings.push("⚠️ Je schrijft naar het LIVE main thema. Wijzigingen zijn direct zichtbaar voor klanten.");
     }
 
     if (files.length > 1) {
@@ -383,21 +489,26 @@ export const draftThemeArtifact = {
     }
 
     for (const file of files) {
-      if (/^(templates|config)\//.test(file.key)) {
-        const inspection = inspectSectionFile(file);
-        return buildFailureResponse({
-          status: inspection.status,
-          message: inspection.message,
-          warnings: inspection.warnings || [],
-          errorCode: inspection.errorCode,
-          retryable: inspection.retryable,
-          suggestedFixes: inspection.suggestedFixes || [],
-          shouldNarrowScope: inspection.shouldNarrowScope || false,
-        });
-      }
+      const isTemplateConfig = /^(templates|config)\//.test(file.key);
+      const isSectionFile = file.key.endsWith(".liquid") && file.key.startsWith("sections/");
 
-      if (file.key.endsWith(".liquid") && file.key.startsWith("sections/")) {
-        const inspection = inspectSectionFile(file);
+      if (isTemplateConfig) {
+        if (mode === "create") {
+          const inspection = inspectSectionFile(file);
+          return buildFailureResponse({
+            status: inspection.status,
+            message: inspection.message,
+            warnings: inspection.warnings || [],
+            errorCode: inspection.errorCode,
+            retryable: inspection.retryable,
+            suggestedFixes: inspection.suggestedFixes || [],
+            shouldNarrowScope: inspection.shouldNarrowScope || false,
+          });
+        }
+        // edit mode: JSON validatie voor templates/config
+        const inspection = file.key.startsWith("config/")
+          ? inspectConfigFile(file)
+          : inspectTemplateFile(file);
         if (!inspection.ok) {
           return buildFailureResponse({
             status: inspection.status,
@@ -411,7 +522,49 @@ export const draftThemeArtifact = {
         }
         warnings.push(...(inspection.warnings || []));
         suggestedFixes.push(...(inspection.suggestedFixes || []));
+      } else if (isSectionFile) {
+        if (mode === "create") {
+          // Create mode: volledige inspectie (schema, presets, CSS kwaliteit)
+          const inspection = inspectSectionFile(file);
+          if (!inspection.ok) {
+            return buildFailureResponse({
+              status: inspection.status,
+              message: inspection.message,
+              warnings: inspection.warnings || [],
+              errorCode: inspection.errorCode,
+              retryable: inspection.retryable,
+              suggestedFixes: inspection.suggestedFixes || [],
+              shouldNarrowScope: inspection.shouldNarrowScope || false,
+            });
+          }
+          warnings.push(...(inspection.warnings || []));
+          suggestedFixes.push(...(inspection.suggestedFixes || []));
+        } else {
+          // Edit mode: alleen Liquid-in-special-block check (geen presets/CSS kwaliteit)
+          const value = String(file.value || "");
+          if (containsLiquidInSpecialBlock(value, "stylesheet") || containsLiquidInSpecialBlock(value, "javascript")) {
+            return buildFailureResponse({
+              status: "inspection_failed",
+              message: "Liquid binnen {% stylesheet %} of {% javascript %} is niet toegestaan. Gebruik <style> of markup-level CSS variables.",
+              errorCode: "inspection_failed_css",
+              retryable: true,
+              suggestedFixes: [
+                "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
+                "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten.",
+              ],
+              shouldNarrowScope: false,
+            });
+          }
+          // Schema parse proberen als waarschuwing (geen blokkade in edit mode)
+          if (value.includes("{% schema %}")) {
+            const { error } = parseSectionSchema(value);
+            if (error) {
+              warnings.push(`Schema parse waarschuwing: ${error}`);
+            }
+          }
+        }
       }
+      // Snippets, assets, locales: geen aanvullende inspectie nodig
     }
 
     const shopDomain = getShopDomainFromClient(shopifyClient);

@@ -155,10 +155,11 @@ try {
       },
     ],
   });
-  assert.equal(draftPayload.themeRole, "development", "draft-theme-artifact should default to preview-safe development themes");
+  assert.equal(draftPayload.themeRole, undefined, "draft-theme-artifact should no longer default to preview-safe development themes");
 
   const invalidDraftResult = await draftThemeArtifact.execute(
     draftThemeArtifact.schema.parse({
+      themeId: 111,
       files: [
         {
           key: "sections/invalid-stylesheet.liquid",

@@ -33,16 +33,22 @@ De service in `apps/hazify-mcp-remote/src/index.js` luistert alleen op Streamabl
 - **`create-product`**: Create a new product. When using productOptions, Shopify registers all option values but only creates one default variant (first value of each option, price $0). Use manage-product-variants with strategy=REMOVE_STANDALONE_VARIANT afterward to create all real variants with prices.
 - **`delete-product`**: Delete a product
 - **`delete-product-variants`**: Delete one or more variants from a product
-- **`delete-theme-file`**: Delete a file from a Shopify theme (defaults to live theme role=main).
-- **`draft-theme-artifact`**: Draft and validate Shopify theme files through the guarded preview pipeline. Use this to safely write or update theme files - fixes, modifications, and small additions. Files are inspected, linted, stored in theme_drafts, pushed to a preview-safe target by default, and verified after write.
+- **`delete-theme-file`**: Delete a file from a Shopify theme. themeRole of themeId is verplicht — vraag de gebruiker welk thema.
+- **`draft-theme-artifact`**: Draft and validate Shopify theme files through the guarded pipeline.
+
+Modes:
+- mode="create": Volledige inspectie voor nieuwe sections (schema, presets, CSS kwaliteit verplicht). Templates/config geblokkeerd.
+- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON validatie.
+
+Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liquid bescherming.
+
+Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als dit niet is opgegeven.
 
 Rules for valid Shopify Liquid:
 
 Do not place Liquid inside {% stylesheet %} or {% javascript %}
 
 Use <style> or markup-level CSS variables for section.id scoping
-
-Every section must have a valid {% schema %} with presets
 - **`get-customer-orders`**: Get orders for a specific customer
 - **`get-customers`**: Get customers or search by name/email
 - **`get-license-status`**: Return current license status, effective access, and MCP scope capabilities.
@@ -68,9 +74,9 @@ Every section must have a valid {% schema %} with presets
 <!-- END: TOOLS_LIST -->
 
 ## 5. Theme Editing Pipeline
-- Bestaande theme edit: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`
+- Bestaande theme edit: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact` (mode="edit")
 1. Theme lezen via `get-theme-file`, `get-theme-files`, of `search-theme-files`.
-2. Theme create/update loopt via `draft-theme-artifact`.
+2. Theme create/update loopt via `draft-theme-artifact`. De gebruiker bepaalt altijd het doelthema. Zonder explicite themeRole of themeId faalt de call.
 3. Live of ander target toepassen gebeurt via `apply-theme-draft` met expliciete confirmation.
 4. Verifieer writes via de `verify` output van `draft-theme-artifact` of aanvullend met `verify-theme-files`.
 
@@ -81,8 +87,8 @@ Every section must have a valid {% schema %} with presets
 - Voeg alleen `locales/*.json` toe bij vaste, niet-merchant-editable UI strings.
 - Maak geen assets standaard; gebruik component-scoped CSS/JS in de section zelf.
 - Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.
-- `templates/*.json` en `config/*.json` writes blijven verboden in deze flow.
-- Merchant placement blijft via de Theme Editor; automatische template/config writes blijven verboden.
+- `templates/*.json` en `config/*.json` writes zijn alleen toegestaan in `mode="edit"` en worden onderworpen aan strikte JSON validatie (met controle op verplichte `sections`/`order`/`current` datastructuren). In `mode="create"` blijven deze verboden.
+- Merchant placement van nieuwe secties blijft bij voorkeur via de Theme Editor plaatsvinden indien er geen bestaande flow is.
 
 ## 7. Veiligheid, Rate Limiting & Tool Hardening
 1. **Tenant isolation:** Toolcalls blijven strikt aan de juiste shop en tenant gekoppeld.
