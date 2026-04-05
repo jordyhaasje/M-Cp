@@ -24,12 +24,14 @@ npm run --workspace @hazify/mcp-remote start:remote
 - MCP session mode default: `stateless` (`MCP_SESSION_MODE=stateless`)
 - `stateful` mode is opt-in en vereist sticky sessions of gedeelde session store
 - `DATABASE_URL` is vereist voor `theme_drafts` persistence en PostgreSQL advisory locks op theme writes
+- **Truncation Protection**: In `mode="edit"` blokkeert de pipeline automatisch schrijfacties die leiden tot >50% bestandverkleining of verlies van kritieke JSON-velden
+- **Linter Resilience**: `theme-check` fouten zoals MissingSnippet zijn gedegradeerd naar warnings om onnodige blokkades bij deel-edits te voorkomen
 - Shopify credentials worden niet via introspection gedeeld; de remote haalt per token een interne Shopify access token op via `/v1/mcp/token/exchange`
 
 ## Theme edit flow
-- `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`
-- Gebruik deze flow voor bug fixes, CSS-wijzigingen, schema-aanpassingen en kleine gerichte uitbreidingen
-- `draft-theme-artifact` valideert, lint en pusht standaard preview-first naar een development theme
+- `search-theme-files` -> `draft-theme-artifact` (mode="edit", via `patch`)
+- Gebruik bij voorkeur de `patch` property voor kleine wijzigingen om token-verbruik te beperken en truncation te voorkomen
+- `draft-theme-artifact` valideert, lint en pusht standaard preview-first naar een development theme. Bevat automatische JSON-structuur validatie voor templates/config.
 - `apply-theme-draft` promoveert een eerder goedgekeurde draft naar een expliciet target
 - `verify-theme-files` en `get-theme-file(s)` helpen bij verificatie en readback
 
