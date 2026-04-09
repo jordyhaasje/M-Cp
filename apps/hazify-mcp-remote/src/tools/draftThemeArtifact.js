@@ -31,6 +31,12 @@ const ThemeDraftPatchSchema = z.object({
   replaceString: z.string().describe("De nieuwe string"),
 });
 
+const ThemeDraftPatchesSchema = z
+  .array(ThemeDraftPatchSchema)
+  .min(1)
+  .max(10)
+  .describe("Voer meerdere patches sequentieel uit binnen hetzelfde bestand. Gebruik dit wanneer een bestaand bestand meerdere losse wijzigingen nodig heeft.");
+
 const ThemeDraftFileSchema = z.object({
   key: z.string().min(1).describe("De exacte filelocatie (bijv. sections/feature-sandbox.liquid)"),
   value: z
@@ -40,9 +46,15 @@ const ThemeDraftFileSchema = z.object({
       "De volledige inhoud / broncode. Payloads falen als ze niet Shopify OS 2.0 proof zijn: geldige schema settings en een presets-array zijn verplicht."
     ),
   patch: ThemeDraftPatchSchema.optional().describe("Verander een specifieke string zonder het hele bestand in te sturen. Bespaart tokens en voorkomt truncated writes."),
+  patches: ThemeDraftPatchesSchema.optional(),
   baseChecksumMd5: z.string().optional().describe("Optioneel MD5 checksum voor optimistic locking. De write faalt als het bestand tussentijds is gewijzigd."),
-}).refine(data => data.value !== undefined || data.patch !== undefined, {
-  message: "Provide exactly one of 'value' or 'patch'",
+}).refine((data) => {
+  const hasValue = data.value !== undefined;
+  const hasPatch = data.patch !== undefined;
+  const hasPatches = Array.isArray(data.patches) && data.patches.length > 0;
+  return hasValue || hasPatch || hasPatches;
+}, {
+  message: "Provide exactly one of 'value', 'patch', or 'patches'",
 });
 
 export const inputSchema = z.object({
@@ -75,6 +87,37 @@ function parseSectionSchema(value) {
       error: `Invalid schema JSON: ${error.message}`,
     };
   }
+}
+
+function findFirstDuplicate(values) {
+  const seen = new Set();
+  for (const value of values) {
+    if (seen.has(value)) {
+      return value;
+    }
+    seen.add(value);
+  }
+  return null;
+}
+
+function normalizeDraftFile(file) {
+  const patches = Array.isArray(file.patches) && file.patches.length > 0
+    ? file.patches
+    : file.patch
+      ? [file.patch]
+      : [];
+
+  return {
+    ...file,
+    patches,
+  };
+}
+
+function getDraftFileModeCount(file) {
+  const hasValue = file.value !== undefined;
+  const hasPatch = file.patch !== undefined;
+  const hasPatches = Array.isArray(file.patches) && file.patches.length > 0;
+  return [hasValue, hasPatch, hasPatches].filter(Boolean).length;
 }
 
 function getSpecialBlockContents(value, tagName) {
@@ -469,6 +512,38 @@ function classifyPreviewUploadError(error, files) {
   };
 }
 
+function getUpsertFailures(upsertResult) {
+  return Array.isArray(upsertResult?.results)
+    ? upsertResult.results.filter((result) => result?.status && result.status !== "applied")
+    : [];
+}
+
+function classifyPreviewUpsertFailures(upsertResult, files) {
+  const failures = getUpsertFailures(upsertResult);
+  const hasPreconditionFailure = failures.some((result) => result.status === "failed_precondition");
+  const failedKeys = failures.map((result) => result.key).filter(Boolean);
+  const firstFailureMessage = failures[0]?.error?.message || "Onbekende preview write-fout.";
+
+  return {
+    failures,
+    message: hasPreconditionFailure
+      ? `Na linten is de preview niet toegepast omdat de conflict-safe write check faalde: ${firstFailureMessage}`
+      : `Na linten is de preview niet volledig toegepast: ${firstFailureMessage}`,
+    errorCode: hasPreconditionFailure ? "preview_failed_precondition" : "preview_upload_failed",
+    retryable: true,
+    shouldNarrowScope: files.length > 3,
+    suggestedFixes: hasPreconditionFailure
+      ? uniqueStrings([
+          "Lees het doelbestand opnieuw in en gebruik de nieuwste checksum voordat je opnieuw schrijft.",
+          failedKeys.length > 0 ? `Controleer of deze file(s) tussentijds zijn gewijzigd: ${failedKeys.join(", ")}.` : null,
+        ])
+      : uniqueStrings([
+          "Controleer de Shopify write-resultaten en probeer de draft opnieuw.",
+          failedKeys.length > 0 ? `Isoleer eerst deze file(s): ${failedKeys.join(", ")}.` : null,
+        ]),
+  };
+}
+
 export const draftThemeArtifact = {
   name: toolName,
   description,
@@ -498,8 +573,41 @@ export const draftThemeArtifact = {
       warnings.push("Draft alleen de noodzakelijke bestanden. Gebruik meerdere files alleen wanneer daar een concrete reden voor is.");
     }
 
+    const duplicateKey = findFirstDuplicate(files.map((file) => String(file.key || "").trim()).filter(Boolean));
+    if (duplicateKey) {
+      return buildFailureResponse({
+        status: "inspection_failed",
+        message: `Elk files[].key moet uniek zijn binnen één draft-theme-artifact request. Dubbele key: '${duplicateKey}'.`,
+        errorCode: "inspection_failed_duplicate_key",
+        retryable: true,
+        suggestedFixes: [
+          `Combineer alle wijzigingen voor '${duplicateKey}' in één files[] entry.`,
+          "Gebruik 'patches' om meerdere patches sequentieel binnen hetzelfde bestand uit te voeren.",
+        ],
+        shouldNarrowScope: false,
+      });
+    }
+
+    files = files.map(normalizeDraftFile);
+
+    for (const file of files) {
+      if (getDraftFileModeCount(file) !== 1) {
+        return buildFailureResponse({
+          status: "inspection_failed",
+          message: `Bestand '${file.key}' moet precies één van 'value', 'patch' of 'patches' gebruiken.`,
+          errorCode: "inspection_failed_patch_mode",
+          retryable: true,
+          suggestedFixes: [
+            "Gebruik 'value' voor een volledige rewrite van één bestand.",
+            "Gebruik 'patch' voor één gerichte vervanging, of 'patches' voor meerdere vervangingen in dezelfde file.",
+          ],
+          shouldNarrowScope: false,
+        });
+      }
+    }
+
     let resolvedFiles = [];
-    let needsOriginal = files.some(f => f.patch) || mode === "edit";
+    let needsOriginal = files.some((f) => f.patches.length > 0) || mode === "edit";
     
     if (needsOriginal) {
       try {
@@ -512,7 +620,7 @@ export const draftThemeArtifact = {
         for (const file of files) {
           const original = fetchedByKey.get(file.key);
           if (!original || original.missing) {
-            if (file.patch) {
+            if (file.patches.length > 0) {
                return buildFailureResponse({
                  status: "inspection_failed",
                  message: `Patch failed: Bestand '${file.key}' bestaat niet in het thema.`,
@@ -528,22 +636,25 @@ export const draftThemeArtifact = {
           const originalValue = typeof original.value === "string" ? original.value : "";
           let newValue = file.value;
           
-          if (file.patch) {
-             const searchString = file.patch.searchString;
-             if (!originalValue.includes(searchString)) {
+          if (file.patches.length > 0) {
+             newValue = originalValue;
+             for (const [index, patch] of file.patches.entries()) {
+               const searchString = patch.searchString;
+               if (!newValue.includes(searchString)) {
                 return buildFailureResponse({
                   status: "inspection_failed",
-                  message: `Patch failed: De searchString '${searchString.substring(0, 50)}...' werd niet gevonden in '${file.key}'.`,
+                  message: `Patch ${index + 1} failed: De searchString '${searchString.substring(0, 50)}...' werd niet gevonden in '${file.key}'.`,
                   errorCode: "patch_failed_nomatch",
                   retryable: true,
                   suggestedFixes: ["Gebruik search-theme-files om de exacte string te achterhalen of gebruik een regex via patch.", "Zorg dat witruimte/inspringen exact overeenkomt."],
                   shouldNarrowScope: false,
                 });
+               }
+               newValue = newValue.split(searchString).join(patch.replaceString);
              }
-             newValue = originalValue.split(searchString).join(file.patch.replaceString);
           }
 
-          if (mode === "edit" && !file.patch && newValue) {
+          if (mode === "edit" && file.patches.length === 0 && newValue) {
              if (newValue.length < originalValue.length * 0.5) {
                 return buildFailureResponse({
                   status: "inspection_failed",
@@ -765,6 +876,34 @@ export const draftThemeArtifact = {
         })),
         verifyAfterWrite: true,
       });
+
+      const failedPreviewWrites = getUpsertFailures(upsertResult);
+      if (failedPreviewWrites.length > 0 || Number(upsertResult?.summary?.applied || 0) !== files.length) {
+        const classified = classifyPreviewUpsertFailures(upsertResult, files);
+        draftRecord = await updateThemeDraftRecord(draftId, {
+          status: "preview_failed",
+          verifyResult: {
+            summary: upsertResult.verifySummary || null,
+            results: upsertResult.results || [],
+          },
+        });
+        return buildFailureResponse({
+          status: "preview_failed",
+          draftId,
+          message: classified.message,
+          warnings,
+          errors: failedPreviewWrites,
+          draft: buildDraftPayload(draftRecord, {
+            verifySummary: upsertResult.verifySummary || null,
+            verifyResults: upsertResult.results || [],
+            warnings,
+          }),
+          errorCode: classified.errorCode,
+          retryable: classified.retryable,
+          suggestedFixes: [...suggestedFixes, ...classified.suggestedFixes],
+          shouldNarrowScope: classified.shouldNarrowScope,
+        });
+      }
 
       draftRecord = await updateThemeDraftRecord(draftId, {
         status: "preview_applied",

@@ -64,6 +64,7 @@ for (const criticalToolName of [
 for (const expectedToolName of [
   "apply-theme-draft",
   "draft-theme-artifact",
+  "patch-theme-file",
   "search-theme-files",
 ]) {
   assert.ok(registry.byName.has(expectedToolName), `${expectedToolName} should be present in the shared registry`);

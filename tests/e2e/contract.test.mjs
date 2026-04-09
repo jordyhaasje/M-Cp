@@ -304,6 +304,7 @@ try {
   const toolNames = toolsListBody.result.tools.map((tool) => String(tool?.name || ""));
   for (const expectedTool of [
     "get-products",
+    "patch-theme-file",
     "refund-order",
     "search-theme-files",
     "get-theme-files",

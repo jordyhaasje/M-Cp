@@ -415,6 +415,7 @@ try {
     : [];
   for (const expectedTool of [
     "get-products",
+    "patch-theme-file",
     "refund-order",
     "get-theme-files",
     "draft-theme-artifact",

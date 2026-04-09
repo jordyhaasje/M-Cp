@@ -34,13 +34,13 @@ De service in `apps/hazify-mcp-remote/src/index.js` luistert alleen op Streamabl
 - **`delete-product`**: Delete a product
 - **`delete-product-variants`**: Delete one or more variants from a product
 - **`delete-theme-file`**: Delete a file from a Shopify theme. themeRole of themeId is verplicht — vraag de gebruiker welk thema.
-- **`draft-theme-artifact`**: Draft and validate Shopify theme files through the guarded pipeline. Supports surgical edits via `patch` (searchString/replaceString) to save tokens and prevent full-file truncation.
+- **`draft-theme-artifact`**: Draft and validate Shopify theme files through the guarded pipeline.
 
 Modes:
 - mode="create": Volledige inspectie voor nieuwe sections (schema, presets, CSS kwaliteit verplicht). Templates/config geblokkeerd.
-- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON validatie. Bevat proactieve **truncation protection** (blokkeert writes bij >50% dataverlies of verlies van verplichte JSON-velden).
+- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON validatie.
 
-Beide modes: Liquid-in-stylesheet check, **resilient theme-check linting** (fouten zoals MissingSnippet zijn gedegradeerd naar warnings), layout/theme.liquid bescherming.
+Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liquid bescherming.
 
 Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als dit niet is opgegeven.
 
@@ -58,10 +58,11 @@ Use <style> or markup-level CSS variables for section.id scoping
 - **`get-products`**: Get all products or search by title
 - **`get-supported-tracking-companies`**: Get Shopify-supported tracking carriers that can be selected in the order fulfillment tracking UI
 - **`get-theme-file`**: Read a file from a Shopify theme (defaults to live theme role=main).
-- **`get-theme-files`**: Read multiple files from a Shopify theme with metadata-first default output.
+- **`get-theme-files`**: Read EXACT files from a Shopify theme. GEEN GLOBBING. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path.
 - **`get-themes`**: List available Shopify themes (including the live theme).
 - **`manage-product-options`**: Create, update, or delete product options (e.g. Size, Color). Use action='create' to add options, 'update' to rename or add/remove values, 'delete' to remove options.
 - **`manage-product-variants`**: Create or update product variants. Omit variant id to create new, include id to update existing.
+- **`patch-theme-file`**: Patch one existing theme file with one or more literal replacements. Prefer this for narrow single-file edits in existing snippets, sections, assets, config, or templates when you already know the exact target file.
 - **`refund-order`**: Create a full or partial refund for an order using Shopify refundCreate.
 - **`search-theme-files`**: Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern.
 - **`set-order-tracking`**: One-shot tracking update tool for LLMs: resolves order reference, updates fulfillment tracking, and returns verification-ready output.
@@ -74,11 +75,14 @@ Use <style> or markup-level CSS variables for section.id scoping
 <!-- END: TOOLS_LIST -->
 
 ## 5. Theme Editing Pipeline
-- Bestaande theme edit: `search-theme-files` -> `draft-theme-artifact` (mode="edit", via `patch`)
+- Bestaande theme edit: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`
+- Theme create/update loopt via `draft-theme-artifact`.
 1. Zoek de gewenste code met `search-theme-files` om een betrouwbare `searchString` te verkrijgen.
-2. Voer de edit uit via `draft-theme-artifact` in `mode="edit"`. Gebruik bij voorkeur de `patch` property voor kleine wijzigingen om token-verbruik te beperken en truncation te voorkomen.
-3. Live of ander target toepassen gebeurt via `apply-theme-draft` met expliciete confirmation.
-4. Verifieer writes via de `verify` output van `draft-theme-artifact` of aanvullend met `verify-theme-files` of `get-theme-file`.
+2. Lees daarna met `get-theme-file` alleen het exacte doelbestand in dat je gaat aanpassen.
+3. Voer de edit uit via `draft-theme-artifact` in `mode="edit"`. Gebruik bij voorkeur `patch` voor één gerichte wijziging of `patches` voor meerdere sequentiële wijzigingen in hetzelfde bestand om token-verbruik te beperken en truncation te voorkomen.
+   Voor kleine single-file edits op bestaande bestanden kan ook `patch-theme-file` worden gebruikt.
+4. Live of ander target toepassen gebeurt via `apply-theme-draft` met expliciete confirmation.
+5. Verifieer writes via de `verify` output van `draft-theme-artifact` of aanvullend met `verify-theme-files` of `get-theme-file`.
 
 ## 6. Shopify-conforme File Policy
 - Beperk writes tot de noodzakelijke theme-bestanden; voor section-wijzigingen is dat meestal `sections/<handle>.liquid`.

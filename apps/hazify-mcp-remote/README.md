@@ -29,9 +29,11 @@ npm run --workspace @hazify/mcp-remote start:remote
 - Shopify credentials worden niet via introspection gedeeld; de remote haalt per token een interne Shopify access token op via `/v1/mcp/token/exchange`
 
 ## Theme edit flow
-- `search-theme-files` -> `draft-theme-artifact` (mode="edit", via `patch`)
-- Gebruik bij voorkeur de `patch` property voor kleine wijzigingen om token-verbruik te beperken en truncation te voorkomen
-- `draft-theme-artifact` valideert, lint en pusht standaard preview-first naar een development theme. Bevat automatische JSON-structuur validatie voor templates/config.
+- `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`
+- Gebruik `get-theme-file` om na search alleen het exacte doelbestand volledig in te lezen
+- Gebruik bij voorkeur `patch` voor één gerichte wijziging of `patches` voor meerdere sequentiële wijzigingen in hetzelfde bestand om token-verbruik te beperken en truncation te voorkomen
+- Gebruik `patch-theme-file` voor kleine, bestaande single-file edits wanneer je het exacte targetbestand al weet
+- `draft-theme-artifact` valideert, lint en pusht naar het expliciet gekozen target theme. Bevat automatische JSON-structuur validatie voor templates/config.
 - `apply-theme-draft` promoveert een eerder goedgekeurde draft naar een expliciet target
 - `verify-theme-files` en `get-theme-file(s)` helpen bij verificatie en readback
 

@@ -10,6 +10,7 @@ import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
 import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
 import { applyThemeDraft } from "../src/tools/applyThemeDraft.js";
+import { patchThemeFileTool } from "../src/tools/patchThemeFile.js";
 import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
 const originalLookup = dns.lookup;
@@ -156,6 +157,30 @@ try {
     ],
   });
   assert.equal(draftPayload.themeRole, undefined, "draft-theme-artifact should no longer default to preview-safe development themes");
+
+  const draftPatchesPayload = draftThemeArtifact.schema.safeParse({
+    files: [
+      {
+        key: "sections/demo.liquid",
+        patches: [
+          {
+            searchString: "Demo",
+            replaceString: "Updated demo",
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(draftPatchesPayload.success, true, "draft-theme-artifact should accept patches[] for one file");
+
+  const patchThemeFilePayload = patchThemeFileTool.schema.safeParse({
+    key: "snippets/product-info.liquid",
+    patch: {
+      searchString: "{%- when 'title' -%}",
+      replaceString: "{%- when 'title' -%}\n  {%- render 'review-badge-inline', product: product -%}",
+    },
+  });
+  assert.equal(patchThemeFilePayload.success, true, "patch-theme-file should accept a single-file literal patch");
 
   const invalidDraftResult = await draftThemeArtifact.execute(
     draftThemeArtifact.schema.parse({

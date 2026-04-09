@@ -28,6 +28,12 @@ function normalizeStoredFiles(value) {
   return [];
 }
 
+function getUpsertFailures(upsertResult) {
+  return Array.isArray(upsertResult?.results)
+    ? upsertResult.results.filter((result) => result?.status && result.status !== "applied")
+    : [];
+}
+
 const applyThemeDraft = {
   name: "apply-theme-draft",
   description:
@@ -52,6 +58,49 @@ const applyThemeDraft = {
       files: files.map((file) => ({ key: file.key, value: file.value })),
       verifyAfterWrite: true,
     });
+
+    const failedApplyWrites = getUpsertFailures(upsertResult);
+    if (failedApplyWrites.length > 0 || Number(upsertResult?.summary?.applied || 0) !== files.length) {
+      const updatedDraft = await updateThemeDraftRecord(input.draftId, {
+        status: "apply_failed",
+        verifyResult: {
+          summary: upsertResult.verifySummary || null,
+          results: upsertResult.results || [],
+        },
+      });
+      return {
+        success: false,
+        status: "apply_failed",
+        draftId: input.draftId,
+        theme: upsertResult.theme
+          ? {
+              id: upsertResult.theme.id,
+              name: upsertResult.theme.name,
+              role: upsertResult.theme.role,
+            }
+          : null,
+        verify: {
+          summary: upsertResult.verifySummary || null,
+          results: upsertResult.results || [],
+        },
+        message:
+          failedApplyWrites[0]?.error?.message ||
+          "Het draft kon niet volledig op het gekozen target worden toegepast.",
+        errorCode: failedApplyWrites.some((result) => result.status === "failed_precondition")
+          ? "apply_failed_precondition"
+          : "apply_failed",
+        retryable: true,
+        draft: updatedDraft
+          ? {
+              id: updatedDraft.id,
+              status: updatedDraft.status,
+              previewThemeId: updatedDraft.preview_theme_id ?? null,
+              appliedThemeId: updatedDraft.applied_theme_id ?? null,
+              updatedAt: updatedDraft.updated_at ?? null,
+            }
+          : null,
+      };
+    }
 
     const updatedDraft = await updateThemeDraftRecord(input.draftId, {
       status: "applied",

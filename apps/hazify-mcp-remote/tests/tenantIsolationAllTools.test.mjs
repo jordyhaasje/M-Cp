@@ -20,6 +20,7 @@ import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import { getThemes } from "../src/tools/getThemes.js";
 import { manageProductOptions } from "../src/tools/manageProductOptions.js";
 import { manageProductVariants } from "../src/tools/manageProductVariants.js";
+import { patchThemeFileTool } from "../src/tools/patchThemeFile.js";
 import { refundOrder } from "../src/tools/refundOrder.js";
 import { setOrderTracking } from "../src/tools/setOrderTracking.js";
 import { updateCustomer } from "../src/tools/updateCustomer.js";
@@ -46,6 +47,17 @@ const shopifyScopedTools = [
   { name: "get-orders", tool: getOrders, input: {} },
   { name: "get-product-by-id", tool: getProductById, input: { productId: "gid://shopify/Product/1" } },
   { name: "get-products", tool: getProducts, input: {} },
+  {
+    name: "patch-theme-file",
+    tool: patchThemeFileTool,
+    input: {
+      key: "snippets/product-info.liquid",
+      patch: {
+        searchString: "{%- when 'title' -%}",
+        replaceString: "{%- when 'title' -%}\n  <span>Patched</span>",
+      },
+    },
+  },
   { name: "get-theme-file", tool: getThemeFileTool, input: { key: "sections/demo.liquid" } },
   { name: "get-theme-files", tool: getThemeFilesTool, input: { keys: ["sections/demo.liquid"] } },
   { name: "get-themes", tool: getThemes, input: {} },

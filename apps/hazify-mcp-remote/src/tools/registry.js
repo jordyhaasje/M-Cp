@@ -20,6 +20,7 @@ import { getThemeFilesTool } from "./getThemeFiles.js";
 import { getThemes } from "./getThemes.js";
 import { manageProductOptions } from "./manageProductOptions.js";
 import { manageProductVariants } from "./manageProductVariants.js";
+import { patchThemeFileTool } from "./patchThemeFile.js";
 import { refundOrder } from "./refundOrder.js";
 import { searchThemeFilesTool } from "./searchThemeFiles.js";
 import { setOrderTracking } from "./setOrderTracking.js";
@@ -437,6 +438,11 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
 
   defineToolManifest(searchThemeFilesTool, {
     outputSchema: searchThemeFilesOutputSchema,
+  }),
+  defineToolManifest(patchThemeFileTool, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: draftThemeArtifactOutputSchema,
   }),
   defineToolManifest(getThemeFileTool, { outputSchema: getThemeFileOutputSchema }),
   defineToolManifest(getThemeFilesTool, { outputSchema: getThemeFilesOutputSchema }),
