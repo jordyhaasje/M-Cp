@@ -1,0 +1,14 @@
+{
+  "name": "@hazify/db-core",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared database core tools for Postgres locks and connections",
+  "main": "src/index.js",
+  "dependencies": {
+    "pg": "^8.11.3"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
