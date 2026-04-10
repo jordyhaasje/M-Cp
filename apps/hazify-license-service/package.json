@@ -11,8 +11,8 @@
     "test": "node tests/run.mjs"
   },
   "dependencies": {
-    "@hazify/mcp-common": "file:../../packages/mcp-common",
-    "@hazify/shopify-core": "file:../../packages/shopify-core",
+    "@hazify/mcp-common": "file:./packages/mcp-common",
+    "@hazify/shopify-core": "file:./packages/shopify-core",
     "pg": "^8.19.0"
   },
   "devDependencies": {

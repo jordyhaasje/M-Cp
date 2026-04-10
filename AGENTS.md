@@ -23,7 +23,8 @@ Deze workspace bevat de productiecode voor:
 - Documentatie staat in `docs/`
 - MCP-servercode staat in `apps/hazify-mcp-remote/`
 - License API service staat in `apps/hazify-license-service/`
-- Gedeelde packages staan in `packages/`
+- Canonical gedeelde packages staan in `packages/`
+- Railway deploy mirrors voor runtime-kritieke packages staan bewust onder `apps/hazify-license-service/packages/` en `apps/hazify-mcp-remote/packages/`
 - Root scripts staan in `scripts/`
 
 ## Codex inleesvolgorde
@@ -74,10 +75,11 @@ Use <style> or markup-level CSS variables for section.id scoping
 - **`get-products`**: Get all products or search by title
 - **`get-supported-tracking-companies`**: Get Shopify-supported tracking carriers that can be selected in the order fulfillment tracking UI
 - **`get-theme-file`**: Read a file from a Shopify theme (defaults to live theme role=main).
-- **`get-theme-files`**: Read multiple files from a Shopify theme with metadata-first default output.
+- **`get-theme-files`**: Read EXACT files from a Shopify theme. GEEN GLOBBING. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path.
 - **`get-themes`**: List available Shopify themes (including the live theme).
 - **`manage-product-options`**: Create, update, or delete product options (e.g. Size, Color). Use action='create' to add options, 'update' to rename or add/remove values, 'delete' to remove options.
 - **`manage-product-variants`**: Create or update product variants. Omit variant id to create new, include id to update existing.
+- **`patch-theme-file`**: Patch one existing theme file with one or more literal replacements. Prefer this for narrow single-file edits in existing snippets, sections, assets, config, or templates when you already know the exact target file.
 - **`refund-order`**: Create a full or partial refund for an order using Shopify refundCreate.
 - **`search-theme-files`**: Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern.
 - **`set-order-tracking`**: One-shot tracking update tool for LLMs: resolves order reference, updates fulfillment tracking, and returns verification-ready output.
@@ -91,13 +93,14 @@ Use <style> or markup-level CSS variables for section.id scoping
 
 ## Theme edit workflow
 ### Bestaande theme edit
-- Flow: `search-theme-files` -> `draft-theme-artifact` (mode="edit", patch object)
-- Gebruik **ALTIJD** de `patch` property in `draft-theme-artifact` voor wijzigingen binnen een bestand (bijv. class naam toevoegen, spacing, colors, kleine logic fixes). Dit bespaart drastisch token-verlies en voorkomt file truncations.
+- Flow: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact` (mode="edit", patch object)
+- Gebruik bij voorkeur `patch` voor één gerichte wijziging in een bestaand bestand en `patches` voor meerdere sequentiële wijzigingen in hetzelfde bestand. Dit bespaart drastisch token-verlies en voorkomt file truncations.
+- Gebruik `patch-theme-file` bij voorkeur voor kleine single-file edits op bestaande snippets/sections wanneer de exacte file al bekend is. Dit houdt writes kleiner en voorspelbaarder.
 - Gebruik alleen de `value` property bij edits als je het *volledige* bestand hebt ingelezen en heel de structuur drastisch verandert.
 - Gebruik `mode="edit"` voor bestaande sections of settings.
 - Gebruik `mode="create"` alleen voor volledig nieuwe sections zonder bestaande inhoud.
 - Zoek altijd eerst op zichtbare tekst of specifieke selectors met `search-theme-files`. Dit geeft je direct de `searchString` voor je patch.
-- Lees volledige bestanden met `get-theme-files` **ALLEEN** als je de volledige file analyse echt nodig hebt.
+- Lees daarna met `get-theme-file` het exacte doelbestand in. Gebruik `get-theme-files` **ALLEEN** als je bewust meerdere exacte bestanden moet analyseren.
 
 ## Theme workflow
 1. **De gebruiker bepaalt altijd op welk thema geschreven wordt.**

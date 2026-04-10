@@ -10,6 +10,8 @@ De monorepo bevat twee Node.js runtime services (vereist Node.js `>=22.12.0`):
 2. **`apps/hazify-mcp-remote`** (Entry: `src/index.js`)
    De daadwerkelijke **Remote MCP service**. Draait op `/mcp` over Streamable HTTP. Leest, zoekt en verifieert theme files, voert de gevalideerde draft/apply pipeline uit voor theme edits, en handelt store API operaties (producten, orders, klanten) af.
 
+Canonical shared packages staan in `packages/`. Voor Railway app-only deploys worden de runtime-kritieke packages bewust gespiegeld onder `apps/hazify-license-service/packages/` en `apps/hazify-mcp-remote/packages/`, zodat `file:` dependencies binnen de service-context resolvebaar blijven.
+
 ## 2. Deploy Platform & Env Vars
 Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazify-MCP-Remote`).
 

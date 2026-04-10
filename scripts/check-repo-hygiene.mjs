@@ -7,6 +7,11 @@ const problems = [];
 const requiredDirs = [
   "apps/hazify-license-service",
   "apps/hazify-mcp-remote",
+  "apps/hazify-license-service/packages/mcp-common",
+  "apps/hazify-license-service/packages/shopify-core",
+  "apps/hazify-mcp-remote/packages/db-core",
+  "apps/hazify-mcp-remote/packages/mcp-common",
+  "apps/hazify-mcp-remote/packages/shopify-core",
   "packages/mcp-common",
   "packages/shopify-core",
   "docs",
@@ -16,11 +21,7 @@ const requiredDirs = [
 ];
 
 const forbiddenRootDirs = ["archive", "templates"];
-const forbiddenRepoDirs = [
-  "apps/hazify-license-service/data",
-  "apps/hazify-license-service/packages",
-  "apps/hazify-mcp-remote/packages",
-];
+const forbiddenRepoDirs = ["apps/hazify-license-service/data"];
 const forbiddenRepoFiles = [
   "apps/hazify-license-service/server.js",
   "apps/hazify-license-service/src/repositories/json-storage.js",
@@ -32,6 +33,23 @@ const forbiddenRepoFiles = [
 ];
 const junkFileNames = new Set([".DS_Store", "Thumbs.db"]);
 const ignoredDirNames = new Set([".git", "node_modules"]);
+const allowedMirrorEntries = new Map([
+  [
+    "apps/hazify-license-service/packages",
+    new Set(["mcp-common", "shopify-core"]),
+  ],
+  [
+    "apps/hazify-mcp-remote/packages",
+    new Set(["db-core", "mcp-common", "shopify-core"]),
+  ],
+]);
+const canonicalMirrorPairs = [
+  ["packages/mcp-common", "apps/hazify-license-service/packages/mcp-common"],
+  ["packages/shopify-core", "apps/hazify-license-service/packages/shopify-core"],
+  ["packages/db-core", "apps/hazify-mcp-remote/packages/db-core"],
+  ["packages/mcp-common", "apps/hazify-mcp-remote/packages/mcp-common"],
+  ["packages/shopify-core", "apps/hazify-mcp-remote/packages/shopify-core"],
+];
 
 function toPosixPath(value) {
   return value.split(path.sep).join("/");
@@ -68,6 +86,64 @@ async function walk(dirPath) {
   }
 }
 
+async function listDirNames(dirPath) {
+  const entries = await fs.readdir(path.join(repoRoot, dirPath), { withFileTypes: true });
+  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+}
+
+async function listRelativeFiles(dirPath, baseDir = dirPath) {
+  const absoluteDirPath = path.join(repoRoot, dirPath);
+  const entries = await fs.readdir(absoluteDirPath, { withFileTypes: true });
+  const files = [];
+
+  for (const entry of entries) {
+    const childRelativePath = path.posix.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await listRelativeFiles(childRelativePath, baseDir)));
+      continue;
+    }
+    files.push(path.posix.relative(baseDir, childRelativePath));
+  }
+
+  return files.sort();
+}
+
+async function compareMirrorContents(canonicalDir, mirrorDir) {
+  const [canonicalFiles, mirrorFiles] = await Promise.all([
+    listRelativeFiles(canonicalDir),
+    listRelativeFiles(mirrorDir),
+  ]);
+  const canonicalSet = new Set(canonicalFiles);
+  const mirrorSet = new Set(mirrorFiles);
+
+  for (const file of canonicalFiles) {
+    if (!mirrorSet.has(file)) {
+      problems.push(`deploy mirror mist bestand: ${mirrorDir}/${file}`);
+    }
+  }
+
+  for (const file of mirrorFiles) {
+    if (!canonicalSet.has(file)) {
+      problems.push(`deploy mirror heeft onverwacht bestand: ${mirrorDir}/${file}`);
+    }
+  }
+
+  for (const file of canonicalFiles) {
+    if (!mirrorSet.has(file)) {
+      continue;
+    }
+
+    const [canonicalContent, mirrorContent] = await Promise.all([
+      fs.readFile(path.join(repoRoot, canonicalDir, file), "utf8"),
+      fs.readFile(path.join(repoRoot, mirrorDir, file), "utf8"),
+    ]);
+
+    if (canonicalContent !== mirrorContent) {
+      problems.push(`deploy mirror loopt uit sync: ${mirrorDir}/${file} != ${canonicalDir}/${file}`);
+    }
+  }
+}
+
 async function main() {
   for (const dir of requiredDirs) {
     if (!(await pathExists(dir))) {
@@ -91,6 +167,26 @@ async function main() {
     if (await pathExists(file)) {
       problems.push(`verboden legacy bestand aanwezig: ${file}`);
     }
+  }
+
+  for (const [mirrorRoot, allowedEntries] of allowedMirrorEntries.entries()) {
+    if (!(await pathExists(mirrorRoot))) {
+      continue;
+    }
+
+    const actualEntries = await listDirNames(mirrorRoot);
+    for (const entry of actualEntries) {
+      if (!allowedEntries.has(entry)) {
+        problems.push(`onverwachte deploy mirror aanwezig: ${mirrorRoot}/${entry}/`);
+      }
+    }
+  }
+
+  for (const [canonicalDir, mirrorDir] of canonicalMirrorPairs) {
+    if (!(await pathExists(canonicalDir)) || !(await pathExists(mirrorDir))) {
+      continue;
+    }
+    await compareMirrorContents(canonicalDir, mirrorDir);
   }
 
   await walk(repoRoot);
