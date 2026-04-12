@@ -220,7 +220,7 @@ try {
     confirmation: "APPLY_THEME_DRAFT",
     reason: "Promote approved preview",
   });
-  assert.equal(applyPayload.themeRole, "main", "apply-theme-draft should default to explicit main apply target");
+  assert.equal(applyPayload.themeRole, undefined, "apply-theme-draft should require an explicit target instead of defaulting to main");
 
   const refundResult = await refundOrder.execute(
     refundOrder.schema.parse({

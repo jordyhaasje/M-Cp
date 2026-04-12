@@ -2,7 +2,7 @@ import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { draftThemeArtifact } from "./draftThemeArtifact.js";
 
-const ThemeRoleSchema = z.enum(["main", "unpublished", "development"]);
+const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 
 const ThemePatchSchema = z.object({
   searchString: z
@@ -44,7 +44,7 @@ const PatchThemeFileInputSchema = z
 const patchThemeFileTool = {
   name: "patch-theme-file",
   description:
-    "Patch one existing theme file with one or more literal replacements. Prefer this for narrow single-file edits in existing snippets, sections, assets, config, or templates when you already know the exact target file.",
+    "Patch one existing theme file with one or more literal replacements. Prefer this for narrow single-file edits in existing snippets, sections, assets, config, or templates when you already know the exact target file. Geef altijd themeId of themeRole mee.",
   schema: PatchThemeFileInputSchema,
   execute: async (input, context = {}) => {
     requireShopifyClient(context);

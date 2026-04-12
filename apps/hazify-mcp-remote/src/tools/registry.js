@@ -256,7 +256,15 @@ const deleteProductOutputSchema = z
   .passthrough();
 
 const deleteProductVariantsOutputSchema = z
-  .object({ deletedVariantIds: z.array(z.string()) })
+  .object({
+    product: z
+      .object({
+        id: z.string(),
+        title: z.string(),
+        remainingVariants: z.array(passthroughObject()),
+      })
+      .passthrough(),
+  })
   .passthrough();
 
 const updateOrderOutputSchema = z
@@ -282,9 +290,8 @@ const updateCustomerOutputSchema = z
 
 const manageProductVariantsOutputSchema = z
   .object({
-    variants: z.array(
-      z.object({ id: z.string() }).passthrough()
-    ),
+    created: z.array(passthroughObject()),
+    updated: z.array(passthroughObject()),
   })
   .passthrough();
 
@@ -331,6 +338,13 @@ const verifyThemeFilesOutputSchema = z
   })
   .passthrough();
 
+const humanizeToolTitle = (name) =>
+  String(name || "")
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
 const createAnnotations = ({ writeScopeRequired = false, destructive = false, idempotent } = {}) => ({
   readOnlyHint: !writeScopeRequired,
   destructiveHint: destructive,
@@ -339,6 +353,7 @@ const createAnnotations = ({ writeScopeRequired = false, destructive = false, id
 
 const defineToolManifest = (tool, options = {}) => ({
   name: tool.name,
+  title: options.title || humanizeToolTitle(options.canonicalName || tool.name),
   canonicalName: options.canonicalName || tool.name,
   description: options.description || tool.description,
   inputSchema: options.inputSchema || tool.inputSchema || tool.schema || z.object({}),
@@ -503,6 +518,7 @@ const createHazifyToolRegistry = ({ getLicenseStatusExecute }) => {
 const registerHazifyTools = (server, registry, executeTool) => {
   for (const tool of registry.tools) {
     const definition = {
+      title: tool.title,
       description: tool.description,
       inputSchema: tool.inputSchema,
       annotations: tool.annotations,

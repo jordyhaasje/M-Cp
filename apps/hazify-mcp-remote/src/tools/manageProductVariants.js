@@ -22,7 +22,7 @@ const ManageProductVariantsInputSchema = z.object({
     variants: z.array(VariantSchema).min(1).describe("Variants to create or update"),
     strategy: z
         .enum(["DEFAULT", "REMOVE_STANDALONE_VARIANT", "PRESERVE_STANDALONE_VARIANT"])
-        .optional()
+        .default("DEFAULT")
         .describe("Strategy for handling the standalone 'Default Title' variant when creating. DEFAULT removes it automatically."),
 });
 // Will be initialized in index.ts

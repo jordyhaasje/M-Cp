@@ -2,40 +2,50 @@ import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
 import { assertNoUserErrors } from "@hazify/shopify-core";
 import { z } from "zod";
-// Input schema for manageProductOptions
-const ManageProductOptionsInputSchema = z.object({
+const ProductOptionCreateSchema = z.object({
+    name: z.string().describe("Option name, e.g. 'Size' or 'Color'"),
+    position: z.number().optional().describe("Position of the option (1-based)"),
+    values: z
+        .array(z.string())
+        .optional()
+        .describe("Option values, e.g. ['Small', 'Medium', 'Large']"),
+});
+
+const ManageProductOptionsBaseSchema = z.object({
     productId: z.string().min(1).describe("Shopify product GID"),
-    action: z.enum(["create", "update", "delete"]),
-    // For create
-    options: z
-        .array(z.object({
-        name: z.string().describe("Option name, e.g. 'Size' or 'Color'"),
-        position: z.number().optional().describe("Position of the option (1-based)"),
-        values: z
+});
+
+// Input schema for manageProductOptions
+const ManageProductOptionsInputSchema = z.discriminatedUnion("action", [
+    ManageProductOptionsBaseSchema.extend({
+        action: z.literal("create"),
+        options: z
+            .array(ProductOptionCreateSchema)
+            .min(1)
+            .describe("Options to create (action=create)"),
+    }),
+    ManageProductOptionsBaseSchema.extend({
+        action: z.literal("update"),
+        optionId: z.string().min(1).describe("Option GID to update (action=update)"),
+        name: z.string().optional().describe("New name for the option (action=update)"),
+        position: z.number().optional().describe("New position (action=update)"),
+        valuesToAdd: z
             .array(z.string())
             .optional()
-            .describe("Option values, e.g. ['Small', 'Medium', 'Large']"),
-    }))
-        .optional()
-        .describe("Options to create (action=create)"),
-    // For update
-    optionId: z.string().optional().describe("Option GID to update (action=update)"),
-    name: z.string().optional().describe("New name for the option (action=update)"),
-    position: z.number().optional().describe("New position (action=update)"),
-    valuesToAdd: z
-        .array(z.string())
-        .optional()
-        .describe("Values to add (action=update)"),
-    valuesToDelete: z
-        .array(z.string())
-        .optional()
-        .describe("Value GIDs to delete (action=update)"),
-    // For delete
-    optionIds: z
-        .array(z.string())
-        .optional()
-        .describe("Option GIDs to delete (action=delete)"),
-});
+            .describe("Values to add (action=update)"),
+        valuesToDelete: z
+            .array(z.string())
+            .optional()
+            .describe("Value GIDs to delete (action=update)"),
+    }),
+    ManageProductOptionsBaseSchema.extend({
+        action: z.literal("delete"),
+        optionIds: z
+            .array(z.string())
+            .min(1)
+            .describe("Option GIDs to delete (action=delete)"),
+    }),
+]);
 // Will be initialized in index.ts
 const PRODUCT_OPTIONS_FRAGMENT = gql `
   fragment ProductOptionsFields on Product {

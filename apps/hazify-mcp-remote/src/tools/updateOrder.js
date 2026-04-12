@@ -532,7 +532,7 @@ const buildFulfillmentCreateLineItems = (fulfillmentOrders) => {
 };
 const updateOrder = {
     name: "update-order",
-    description: "Update an existing order with new information",
+    description: "Update an existing order with new information. Gebruik voor shipment tracking bij voorkeur set-order-tracking of update-fulfillment-tracking; gebruik deze tool niet als primaire tracking workflow.",
     schema: UpdateOrderInputSchema,
     // Add initialize method to set up the GraphQL client
     execute: async (input, context = {}) => {

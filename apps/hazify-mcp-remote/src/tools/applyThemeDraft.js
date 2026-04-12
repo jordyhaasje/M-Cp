@@ -3,12 +3,12 @@ import { getThemeDraftRecord, updateThemeDraftRecord } from "../lib/db.js";
 import { getShopDomainFromClient, upsertThemeFiles } from "../lib/themeFiles.js";
 import { requireShopifyClient } from "./_context.js";
 
-const ThemeRoleSchema = z.enum(["main", "unpublished", "development"]);
+const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 
 const ApplyThemeDraftInputSchema = z.object({
   draftId: z.string().min(1).describe("Theme draft ID returned by draft-theme-artifact."),
   themeId: z.coerce.number().int().positive().optional().describe("Optional explicit target theme ID."),
-  themeRole: ThemeRoleSchema.default("main").describe("Target theme role when themeId is omitted."),
+  themeRole: ThemeRoleSchema.optional().describe("Target theme role when themeId is omitted. Verplicht als themeId niet is opgegeven; vraag de gebruiker welk thema bedoeld wordt."),
   confirmation: z.literal("APPLY_THEME_DRAFT").describe("Verplicht type: 'APPLY_THEME_DRAFT' ter bevestiging."),
   reason: z.string().min(5).describe("Auditable reden voor het toepassen van dit draft."),
 });
@@ -37,10 +37,13 @@ function getUpsertFailures(upsertResult) {
 const applyThemeDraft = {
   name: "apply-theme-draft",
   description:
-    "Apply a previously drafted theme artifact to an explicit target theme. This is the promote/apply step after draft-theme-artifact has prepared and verified the files.",
+    "Apply a previously drafted theme artifact to an explicit target theme. This is the promote/apply step after draft-theme-artifact has prepared and verified the files. themeId of themeRole is verplicht; kies nooit stilzwijgend een live target.",
   schema: ApplyThemeDraftInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);
+    if (!input.themeId && !input.themeRole) {
+      throw new Error("Geef themeId of themeRole op. Vraag de gebruiker expliciet op welk thema het draft toegepast moet worden.");
+    }
     const draftRecord = await getThemeDraftRecord(input.draftId);
     if (!draftRecord) {
       throw new Error(`Theme draft '${input.draftId}' kon niet worden gevonden.`);

@@ -18,13 +18,18 @@ Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liqui
 
 Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als dit niet is opgegeven.
 
+Theme-aware section regels:
+- Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
+- Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
+- Als de gebruiker een nieuwe section ook op een homepage/productpagina geplaatst wil hebben, maak eerst sections/<handle>.liquid in mode="create" en doe daarna een aparte mode="edit" call voor templates/*.json of config/settings_data.json op het expliciet gekozen thema.
+
 Rules for valid Shopify Liquid:
 
 Do not place Liquid inside {% stylesheet %} or {% javascript %}
 
 Use <style> or markup-level CSS variables for section.id scoping`;
 
-const ThemeRoleSchema = z.enum(["main", "unpublished", "development"]);
+const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 
 const ThemeDraftPatchSchema = z.object({
   searchString: z.string().min(1).describe("De te vervangen string in het originele bestand (literal match, vervangt alle identieke instanties)"),
@@ -87,6 +92,117 @@ function parseSectionSchema(value) {
       error: `Invalid schema JSON: ${error.message}`,
     };
   }
+}
+
+function collectSchemaSettings(schema) {
+  const sectionSettings = Array.isArray(schema?.settings) ? schema.settings : [];
+  const blockSettings = Array.isArray(schema?.blocks)
+    ? schema.blocks.flatMap((block) =>
+        Array.isArray(block?.settings) ? block.settings : []
+      )
+    : [];
+  return [...sectionSettings, ...blockSettings].filter(Boolean);
+}
+
+function collectSchemaSettingTypes(schema) {
+  return new Set(
+    collectSchemaSettings(schema).map((setting) => String(setting?.type || ""))
+  );
+}
+
+function collectColorSchemeGroupIds(node, ids = new Set()) {
+  if (Array.isArray(node)) {
+    for (const value of node) {
+      collectColorSchemeGroupIds(value, ids);
+    }
+    return ids;
+  }
+
+  if (!node || typeof node !== "object") {
+    return ids;
+  }
+
+  if (node.type === "color_scheme_group" && typeof node.id === "string" && node.id.trim()) {
+    ids.add(node.id.trim());
+  }
+
+  for (const value of Object.values(node)) {
+    collectColorSchemeGroupIds(value, ids);
+  }
+
+  return ids;
+}
+
+function hasThemeSettingDataForIds(settingsData, ids = []) {
+  if (!settingsData || typeof settingsData !== "object" || ids.length === 0) {
+    return false;
+  }
+
+  const current = settingsData.current && typeof settingsData.current === "object" ? settingsData.current : {};
+  const presets = settingsData.presets && typeof settingsData.presets === "object" ? settingsData.presets : {};
+
+  return ids.some((id) => {
+    if (Object.prototype.hasOwnProperty.call(current, id) && current[id] != null) {
+      return true;
+    }
+
+    return Object.values(presets).some(
+      (preset) =>
+        preset &&
+        typeof preset === "object" &&
+        Object.prototype.hasOwnProperty.call(preset, id) &&
+        preset[id] != null
+    );
+  });
+}
+
+function inspectThemeColorSchemeSupport(settingsSchemaValue, settingsDataValue) {
+  let parsedSettingsSchema;
+  let parsedSettingsData;
+
+  try {
+    parsedSettingsSchema = JSON.parse(String(settingsSchemaValue || ""));
+  } catch (error) {
+    return {
+      ok: false,
+      reason: `config/settings_schema.json bevat ongeldige JSON: ${error.message}`,
+      missing: "settings_schema",
+    };
+  }
+
+  try {
+    parsedSettingsData = JSON.parse(String(settingsDataValue || ""));
+  } catch (error) {
+    return {
+      ok: false,
+      reason: `config/settings_data.json bevat ongeldige JSON: ${error.message}`,
+      missing: "settings_data",
+    };
+  }
+
+  const colorSchemeGroupIds = Array.from(collectColorSchemeGroupIds(parsedSettingsSchema));
+  if (colorSchemeGroupIds.length === 0) {
+    return {
+      ok: false,
+      reason:
+        "Het doeltheme mist een color_scheme_group definitie in config/settings_schema.json.",
+      missing: "settings_schema",
+    };
+  }
+
+  if (!hasThemeSettingDataForIds(parsedSettingsData, colorSchemeGroupIds)) {
+    return {
+      ok: false,
+      reason:
+        "Het doeltheme mist color scheme data in config/settings_data.json voor de beschikbare color_scheme_group settings.",
+      missing: "settings_data",
+    };
+  }
+
+  return {
+    ok: true,
+    ids: colorSchemeGroupIds,
+  };
 }
 
 function findFirstDuplicate(values) {
@@ -289,7 +405,7 @@ function inspectSectionFile(file) {
     };
   }
 
-  const settings = Array.isArray(schema.settings) ? schema.settings : [];
+  const settings = collectSchemaSettings(schema);
   const blocks = Array.isArray(schema.blocks) ? schema.blocks : [];
   const presets = Array.isArray(schema.presets) ? schema.presets : [];
 
@@ -327,12 +443,24 @@ function inspectSectionFile(file) {
     };
   }
 
-  const settingTypes = new Set([
-    ...settings.map((setting) => String(setting?.type || "")),
-    ...blocks.flatMap((block) =>
-      Array.isArray(block?.settings) ? block.settings.map((setting) => String(setting?.type || "")) : []
-    ),
-  ]);
+  const settingTypes = collectSchemaSettingTypes(schema);
+
+  if (settingTypes.has("color_scheme_group")) {
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_schema",
+      retryable: true,
+      message:
+        "Building Inspection Failed: color_scheme_group hoort in config/settings_schema.json en niet in een section schema.",
+      warnings,
+      suggestedFixes: [
+        "Verwijder color_scheme_group uit de section schema settings.",
+        "Gebruik in sections alleen color_scheme wanneer het theme al globale color schemes heeft.",
+      ],
+      shouldNarrowScope: false,
+    };
+  }
 
   const hasScopedCss = /{%\s*stylesheet\s*%}|<style\b/i.test(value);
   const hasResponsive = /@media\b|clamp\(/i.test(value);
@@ -380,6 +508,22 @@ function inspectSectionFile(file) {
   if (!settingTypes.has("image_picker") && /<img\b|image_tag|svg/i.test(value)) {
     warnings.push("De section lijkt media te gebruiken, maar schema bevat geen image_picker.");
     suggestedFixes.push("Voeg een image_picker toe wanneer imagery of logo's merchant-editable moeten zijn.");
+  }
+  if (settingTypes.has("video_url") && !settingTypes.has("video")) {
+    warnings.push(
+      "Schema gebruikt video_url. Dit ondersteunt externe YouTube/Vimeo URLs; gebruik type 'video' voor merchant-uploaded videobestanden."
+    );
+    suggestedFixes.push(
+      "Gebruik een video setting in plaats van video_url wanneer de gebruiker een video moet uploaden in het theme."
+    );
+  }
+  if (blocks.length > 0 && !/block\.shopify_attributes/.test(value)) {
+    warnings.push(
+      "Schema bevat blocks, maar de markup mist block.shopify_attributes. Daardoor werkt drag-and-drop in de Theme Editor minder betrouwbaar."
+    );
+    suggestedFixes.push(
+      "Voeg {{ block.shopify_attributes }} toe op de block wrapper in loops over section.blocks."
+    );
   }
 
   return {
@@ -544,6 +688,66 @@ function classifyPreviewUpsertFailures(upsertResult, files) {
   };
 }
 
+async function validateThemeCompatibilityForSections({
+  files,
+  shopifyClient,
+  apiVersion,
+  themeId,
+  themeRole,
+}) {
+  const sectionFilesUsingColorScheme = files.filter((file) => {
+    if (!(file.key.startsWith("sections/") && file.key.endsWith(".liquid"))) {
+      return false;
+    }
+
+    const { schema, error } = parseSectionSchema(file.value);
+    if (error || !schema) {
+      return false;
+    }
+
+    return collectSchemaSettingTypes(schema).has("color_scheme");
+  });
+
+  if (sectionFilesUsingColorScheme.length === 0) {
+    return { ok: true };
+  }
+
+  const draftFileValues = new Map(
+    files.map((file) => [file.key, String(file.value || "")])
+  );
+  const requiredKeys = ["config/settings_schema.json", "config/settings_data.json"];
+  const missingKeys = requiredKeys.filter((key) => !draftFileValues.has(key));
+
+  if (missingKeys.length > 0) {
+    const fetched = await getThemeFiles(shopifyClient, apiVersion, {
+      themeId,
+      themeRole,
+      keys: missingKeys,
+      includeContent: true,
+    });
+
+    for (const file of fetched.files || []) {
+      if (!file?.missing) {
+        draftFileValues.set(file.key, String(file.value || ""));
+      }
+    }
+  }
+
+  const settingsSchemaValue = draftFileValues.get("config/settings_schema.json");
+  const settingsDataValue = draftFileValues.get("config/settings_data.json");
+
+  if (!settingsSchemaValue || !settingsDataValue) {
+    return {
+      ok: false,
+      reason:
+        "Deze section gebruikt color_scheme, maar de pipeline kon config/settings_schema.json en config/settings_data.json niet allebei lezen op het doeltheme.",
+      missing: !settingsSchemaValue ? "settings_schema" : "settings_data",
+    };
+  }
+
+  return inspectThemeColorSchemeSupport(settingsSchemaValue, settingsDataValue);
+}
+
 export const draftThemeArtifact = {
   name: toolName,
   description,
@@ -702,6 +906,44 @@ export const draftThemeArtifact = {
     }
 
     files = resolvedFiles;
+
+    try {
+      const themeCompatibility = await validateThemeCompatibilityForSections({
+        files,
+        shopifyClient,
+        apiVersion: process.env.SHOPIFY_API_VERSION || "2026-01",
+        themeId,
+        themeRole,
+      });
+
+      if (!themeCompatibility.ok) {
+        return buildFailureResponse({
+          status: "inspection_failed",
+          message: `Building Inspection Failed: deze section gebruikt een color_scheme setting, maar het doeltheme is daar niet compatibel mee. ${themeCompatibility.reason}`,
+          warnings,
+          errorCode: "inspection_failed_color_scheme_theme_support",
+          retryable: true,
+          suggestedFixes: [
+            "Gebruik in de section eenvoudige color settings wanneer het theme nog geen globale color schemes ondersteunt.",
+            "Of patch eerst config/settings_schema.json met een color_scheme_group en voeg de bijbehorende data toe in config/settings_data.json via mode='edit'.",
+          ],
+          shouldNarrowScope: false,
+        });
+      }
+    } catch (error) {
+      return buildFailureResponse({
+        status: "inspection_failed",
+        message: `Kon theme-compatibiliteit niet controleren voor color_scheme settings: ${error.message}`,
+        warnings,
+        errorCode: "inspection_failed_read",
+        retryable: true,
+        suggestedFixes: [
+          "Controleer of het doeltheme bereikbaar is en de config files gelezen kunnen worden.",
+          "Gebruik themeId wanneer themeRole niet eenduidig resolveert.",
+        ],
+        shouldNarrowScope: false,
+      });
+    }
 
     for (const file of files) {
       const isTemplateConfig = /^(templates|config)\//.test(file.key);

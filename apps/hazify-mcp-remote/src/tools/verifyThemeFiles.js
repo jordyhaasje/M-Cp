@@ -34,7 +34,7 @@ const VerifyThemeFilesInputSchema = z
 
 const verifyThemeFilesTool = {
   name: "verify-theme-files",
-  description: "Verify multiple theme files by expected metadata (size/checksumMd5).",
+  description: "Verify multiple theme files by expected metadata (size/checksumMd5). Minimaal geldig voorbeeld: { expected: [{ key: 'sections/hero.liquid', checksumMd5: '...' }] }.",
   schema: VerifyThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

@@ -69,3 +69,27 @@ for (const expectedToolName of [
 ]) {
   assert.ok(registry.byName.has(expectedToolName), `${expectedToolName} should be present in the shared registry`);
 }
+
+assert.equal(
+  registry.byName.get("draft-theme-artifact").title,
+  "Draft Theme Artifact",
+  "registry should expose human-friendly tool titles"
+);
+
+registry.byName.get("manage-product-variants").outputSchema.parse({
+  created: [
+    {
+      id: "gid://shopify/ProductVariant/1",
+      title: "Small",
+    },
+  ],
+  updated: [],
+});
+
+registry.byName.get("delete-product-variants").outputSchema.parse({
+  product: {
+    id: "gid://shopify/Product/1",
+    title: "Demo product",
+    remainingVariants: [],
+  },
+});

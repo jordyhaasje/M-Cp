@@ -34,6 +34,7 @@ const CreateProductInputSchema = z.object({
             .optional()
             .describe("Option values"),
     }))
+        .max(3)
         .optional()
         .describe("Product options to create inline (max 3)"),
     collectionsToJoin: z

@@ -34,8 +34,10 @@ npm run --workspace @hazify/mcp-remote start:remote
 - Gebruik bij voorkeur `patch` voor één gerichte wijziging of `patches` voor meerdere sequentiële wijzigingen in hetzelfde bestand om token-verbruik te beperken en truncation te voorkomen
 - Gebruik `patch-theme-file` voor kleine, bestaande single-file edits wanneer je het exacte targetbestand al weet
 - `draft-theme-artifact` valideert, lint en pusht naar het expliciet gekozen target theme. Bevat automatische JSON-structuur validatie voor templates/config.
-- `apply-theme-draft` promoveert een eerder goedgekeurde draft naar een expliciet target
+- `apply-theme-draft` promoveert een eerder goedgekeurde draft alleen naar een expliciet target; er is geen write-default naar live
 - `verify-theme-files` en `get-theme-file(s)` helpen bij verificatie en readback
+- Gebruik in nieuwe sections `video` voor merchant-uploaded video bestanden; `video_url` is alleen voor externe YouTube/Vimeo bronnen
+- Gebruik `color_scheme` alleen wanneer het doeltheme al globale color schemes heeft in `config/settings_schema.json` en `config/settings_data.json`
 
 ## Shopify-conforme file policy
 - Beperk writes tot de noodzakelijke theme-bestanden; voor section-wijzigingen is dat meestal `sections/<handle>.liquid`

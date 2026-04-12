@@ -56,7 +56,7 @@ Interne service-to-service token exchange (`/v1/mcp/token/exchange`) levert de S
 - `src/lib/` - pure helpers voor tijd, OAuth, cookies en protocolgedrag
 - `src/routes/` - routeclusters voor `public-ui`, `dashboard`, `account`, `license-billing`, `admin` en `oauth`
 - `src/services/` - billing/readiness helpers en account-sessies
-- `src/repositories/` - opslaglaag (JSON/Postgres adapter)
+- `src/repositories/` - opslaglaag (Postgres-only persistence, geen JSON-adapter)
 - `src/views/` - dashboard, login en onboarding HTML renderers
 
 ## Tests

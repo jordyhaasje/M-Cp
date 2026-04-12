@@ -178,6 +178,161 @@ test("draftThemeArtifact - rejects sections without presets", async () => {
   assert.ok(result.suggestedFixes.some((entry) => entry.includes("preset")));
 });
 
+test("draftThemeArtifact - rejects color_scheme sections when the target theme has no global color schemes", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const originalFetch = global.fetch;
+  global.fetch = async (_url, options = {}) => {
+    const payload = options.body ? JSON.parse(String(options.body)) : {};
+    const query = String(payload.query || "");
+    const themeId = String(payload.variables?.themeId || "");
+    const numericThemeId = Number(themeId.match(/\/(\d+)$/)?.[1] || 111);
+
+    if (query.includes("ThemeById")) {
+      const resPayload = {
+        data: {
+          theme: {
+            id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+            name: "Dev Theme",
+            role: "DEVELOPMENT",
+            processing: false,
+            createdAt: "2026-04-02T00:00:00Z",
+            updatedAt: "2026-04-02T00:00:00Z"
+          }
+        }
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => resPayload,
+        text: async () => JSON.stringify(resPayload)
+      };
+    }
+
+    if (query.includes("ThemeFilesByIdWithContent")) {
+      const settingsSchemaValue = JSON.stringify([
+        {
+          name: "Theme settings",
+          settings: [
+            { type: "color", id: "accent", label: "Accent" }
+          ]
+        }
+      ]);
+      const settingsDataValue = JSON.stringify({
+        current: {
+          accent: "#111111"
+        }
+      });
+      const resPayload = {
+        data: {
+          theme: {
+            id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+            name: "Dev Theme",
+            role: "DEVELOPMENT",
+            processing: false,
+            createdAt: "2026-04-02T00:00:00Z",
+            updatedAt: "2026-04-02T00:00:00Z",
+            files: {
+              nodes: [
+                {
+                  filename: "config/settings_schema.json",
+                  checksumMd5: checksumMd5Base64(settingsSchemaValue),
+                  contentType: "application/json",
+                  createdAt: "2026-04-02T00:00:00Z",
+                  updatedAt: "2026-04-02T00:00:00Z",
+                  size: Buffer.byteLength(settingsSchemaValue, "utf8"),
+                  body: { content: settingsSchemaValue }
+                },
+                {
+                  filename: "config/settings_data.json",
+                  checksumMd5: checksumMd5Base64(settingsDataValue),
+                  contentType: "application/json",
+                  createdAt: "2026-04-02T00:00:00Z",
+                  updatedAt: "2026-04-02T00:00:00Z",
+                  size: Buffer.byteLength(settingsDataValue, "utf8"),
+                  body: { content: settingsDataValue }
+                }
+              ],
+              userErrors: []
+            }
+          }
+        }
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => resPayload,
+        text: async () => JSON.stringify(resPayload)
+      };
+    }
+
+    throw new Error(`Unexpected GraphQL query in color_scheme compatibility test: ${query}`);
+  };
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        files: [
+          {
+            key: "sections/video-header.liquid",
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .hero {
+    display: grid;
+    padding: 24px;
+    border-radius: 18px;
+    background: var(--hero-background);
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .hero {
+      padding: 16px;
+    }
+  }
+</style>
+
+<section class="hero" style="--hero-background: {{ section.settings.color_scheme.settings.background }}">
+  {{ section.settings.heading }}
+</section>
+
+{% schema %}
+{
+  "name": "Video header",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "color_scheme", "id": "color_scheme", "label": "Color scheme" },
+    { "type": "video", "id": "background_video", "label": "Background video" }
+  ],
+  "presets": [{ "name": "Video header" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, "inspection_failed_color_scheme_theme_support");
+    assert.match(result.message, /color_scheme/i);
+    assert.ok(
+      result.suggestedFixes.some((entry) => entry.includes("settings_schema.json")),
+      "color scheme compatibility failures should point to the global theme config"
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("draftThemeArtifact - blocks template/config writes in create mode", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -1148,6 +1303,32 @@ test("applyThemeDraft - applies an existing draft to an explicit target theme", 
   } finally {
     global.fetch = originalFetch;
   }
+});
+
+test("applyThemeDraft - requires an explicit target theme", async () => {
+  await assert.rejects(
+    () =>
+      applyThemeDraft.execute(
+        applyThemeDraft.schema.parse({
+          draftId: "mock-1",
+          confirmation: "APPLY_THEME_DRAFT",
+          reason: "Explicit target required",
+        }),
+        {
+          shopifyClient: {
+            url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+            requestConfig: {
+              headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+            },
+            session: { shop: "unit-test.myshopify.com" },
+            request: async () => {
+              throw new Error("should not reach Shopify without an explicit target");
+            },
+          },
+        }
+      ),
+    /themeId of themeRole/i
+  );
 });
 
 test("applyThemeDraft - returns a structured failure when Shopify apply does not write files", async () => {

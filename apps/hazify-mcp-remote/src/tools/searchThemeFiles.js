@@ -39,7 +39,7 @@ const SearchThemeFilesInputSchema = z
 const searchThemeFilesTool = {
   name: "search-theme-files",
   description:
-    "Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern.",
+    "Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern. Minimaal geldig voorbeeld: { query: 'header', scope: ['sections'] } of { query: 'padding', filePatterns: ['sections/*.liquid'] }.",
   schema: SearchThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

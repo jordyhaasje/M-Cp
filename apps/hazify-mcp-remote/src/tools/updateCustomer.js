@@ -12,8 +12,7 @@ const UpdateCustomerInputSchema = z.object({
     phone: z.string().optional(),
     tags: z.array(z.string()).optional(),
     note: z.string().optional(),
-    // acceptsMarketing field is deprecated as it's not supported in the API
-    acceptsMarketing: z.boolean().optional(),
+    acceptsMarketing: z.boolean().optional().describe("Deprecated: Shopify negeert dit veld in deze mutation; heeft momenteel geen effect."),
     taxExempt: z.boolean().optional(),
     metafields: z
         .array(z.object({
@@ -28,7 +27,7 @@ const UpdateCustomerInputSchema = z.object({
 // Will be initialized in index.ts
 const updateCustomer = {
     name: "update-customer",
-    description: "Update a customer's information",
+    description: "Update a customer's information. Let op: acceptsMarketing wordt momenteel door Shopify genegeerd in deze mutation.",
     schema: UpdateCustomerInputSchema,
     // Add initialize method to set up the GraphQL client
     execute: async (input, context = {}) => {

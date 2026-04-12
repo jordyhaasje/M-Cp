@@ -45,7 +45,7 @@ Gebruik altijd de actieve MCP tools uit de gedeelde registry. Beschikbare tools 
 
 <!-- BEGIN: TOOLS_LIST -->
 - **`add-tracking-to-order`**: Alias of set-order-tracking. Kept for compatibility.
-- **`apply-theme-draft`**: Apply a previously drafted theme artifact to an explicit target theme. This is the promote/apply step after draft-theme-artifact has prepared and verified the files.
+- **`apply-theme-draft`**: Apply a previously drafted theme artifact to an explicit target theme. This is the promote/apply step after draft-theme-artifact has prepared and verified the files. themeId of themeRole is verplicht; kies nooit stilzwijgend een live target.
 - **`clone-product-from-url`**: Clone a public Shopify product URL into your connected store with options, variants, prices and media.
 - **`create-product`**: Create a new product. When using productOptions, Shopify registers all option values but only creates one default variant (first value of each option, price $0). Use manage-product-variants with strategy=REMOVE_STANDALONE_VARIANT afterward to create all real variants with prices.
 - **`delete-product`**: Delete a product
@@ -61,6 +61,11 @@ Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liqui
 
 Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als dit niet is opgegeven.
 
+Theme-aware section regels:
+- Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
+- Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
+- Als de gebruiker een nieuwe section ook op een homepage/productpagina geplaatst wil hebben, maak eerst sections/<handle>.liquid in mode="create" en doe daarna een aparte mode="edit" call voor templates/*.json of config/settings_data.json op het expliciet gekozen thema.
+
 Rules for valid Shopify Liquid:
 
 Do not place Liquid inside {% stylesheet %} or {% javascript %}
@@ -75,20 +80,20 @@ Use <style> or markup-level CSS variables for section.id scoping
 - **`get-products`**: Get all products or search by title
 - **`get-supported-tracking-companies`**: Get Shopify-supported tracking carriers that can be selected in the order fulfillment tracking UI
 - **`get-theme-file`**: Read a file from a Shopify theme (defaults to live theme role=main).
-- **`get-theme-files`**: Read EXACT files from a Shopify theme. GEEN GLOBBING. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path.
+- **`get-theme-files`**: Read EXACT files from a Shopify theme. GEEN GLOBBING. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path. Minimaal geldig voorbeeld: { keys: ['sections/hero.liquid'] }.
 - **`get-themes`**: List available Shopify themes (including the live theme).
 - **`manage-product-options`**: Create, update, or delete product options (e.g. Size, Color). Use action='create' to add options, 'update' to rename or add/remove values, 'delete' to remove options.
 - **`manage-product-variants`**: Create or update product variants. Omit variant id to create new, include id to update existing.
-- **`patch-theme-file`**: Patch one existing theme file with one or more literal replacements. Prefer this for narrow single-file edits in existing snippets, sections, assets, config, or templates when you already know the exact target file.
+- **`patch-theme-file`**: Patch one existing theme file with one or more literal replacements. Prefer this for narrow single-file edits in existing snippets, sections, assets, config, or templates when you already know the exact target file. Geef altijd themeId of themeRole mee.
 - **`refund-order`**: Create a full or partial refund for an order using Shopify refundCreate.
-- **`search-theme-files`**: Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern.
+- **`search-theme-files`**: Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern. Minimaal geldig voorbeeld: { query: 'header', scope: ['sections'] } of { query: 'padding', filePatterns: ['sections/*.liquid'] }.
 - **`set-order-tracking`**: One-shot tracking update tool for LLMs: resolves order reference, updates fulfillment tracking, and returns verification-ready output.
-- **`update-customer`**: Update a customer's information
+- **`update-customer`**: Update a customer's information. Let op: acceptsMarketing wordt momenteel door Shopify genegeerd in deze mutation.
 - **`update-fulfillment-tracking`**: Update order shipment tracking in the actual fulfillment record (not custom attributes/metafields). fulfillmentId is optional; when omitted, the latest non-cancelled fulfillment is updated automatically.
-- **`update-order`**: Update an existing order with new information
+- **`update-order`**: Update an existing order with new information. Gebruik voor shipment tracking bij voorkeur set-order-tracking of update-fulfillment-tracking; gebruik deze tool niet als primaire tracking workflow.
 - **`update-order-tracking`**: Alias of set-order-tracking. Kept for compatibility.
 - **`update-product`**: Update an existing product's fields (title, description, status, tags, etc.)
-- **`verify-theme-files`**: Verify multiple theme files by expected metadata (size/checksumMd5).
+- **`verify-theme-files`**: Verify multiple theme files by expected metadata (size/checksumMd5). Minimaal geldig voorbeeld: { expected: [{ key: 'sections/hero.liquid', checksumMd5: '...' }] }.
 <!-- END: TOOLS_LIST -->
 
 ## Theme edit workflow
