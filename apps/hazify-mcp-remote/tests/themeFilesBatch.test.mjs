@@ -101,6 +101,15 @@ global.fetch = async (url, options = {}) => {
       .map((key) => fileStore.get(key))
       .filter(Boolean)
       .map((file) => toGraphqlFileNode(file, false));
+    const userErrors = requested.includes("sections/not-found-via-user-error.liquid")
+      ? [
+          {
+            filename: "sections/not-found-via-user-error.liquid",
+            code: "NOT_FOUND",
+            message: "Theme file not found",
+          },
+        ]
+      : [];
     return new Response(
       JSON.stringify({
         data: {
@@ -108,7 +117,7 @@ global.fetch = async (url, options = {}) => {
             ...baseThemeNode,
             files: {
               nodes,
-              userErrors: [],
+              userErrors,
             },
           },
         },
@@ -212,6 +221,20 @@ try {
     includeContent: true,
   });
   assert.equal(withContentResult.files[0].value, "<div>Existing</div>");
+
+  const userErrorNotFoundResult = await getThemeFiles(shopifyClient, "2026-01", {
+    themeId: 123,
+    keys: ["sections/existing.liquid", "sections/not-found-via-user-error.liquid"],
+    includeContent: false,
+  });
+  const missingViaUserError = userErrorNotFoundResult.files.find(
+    (file) => file.key === "sections/not-found-via-user-error.liquid"
+  );
+  assert.equal(
+    missingViaUserError?.missing,
+    true,
+    "GraphQL NOT_FOUND userErrors should be normalized to missing assets instead of failing the whole batch"
+  );
 
   const verifyResult = await verifyThemeFiles(shopifyClient, "2026-01", {
     themeId: 123,

@@ -39,7 +39,7 @@ const SearchThemeFilesInputSchema = z
 const searchThemeFilesTool = {
   name: "search-theme-files",
   description:
-    "Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern. Minimaal geldig voorbeeld: { query: 'header', scope: ['sections'] } of { query: 'padding', filePatterns: ['sections/*.liquid'] }.",
+    "Search scoped theme files and return compact snippets instead of full file dumps. Gebruik dit eerst om een exacte patch-anchor of bestaand renderpad te vinden voordat je leest of schrijft. Voor native product-blocks zoek je vaak in sections + snippets; voor template placement zoek je in templates/*.json. Minimaal geldig voorbeeld: { query: 'buy_buttons', scope: ['sections', 'snippets'] } of { query: 'main-product', filePatterns: ['sections/*.liquid'] }.",
   schema: SearchThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

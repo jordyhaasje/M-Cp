@@ -271,6 +271,232 @@ test("draftThemeArtifact - distinguishes empty schema blocks from missing schema
   assert.ok(result.suggestedFixes.includes("Empty {% schema %} block."));
 });
 
+test("draftThemeArtifact - hydrates locale context before running theme-check on translation keys", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const originalFetch = global.fetch;
+  const storedFiles = new Map();
+  const localeValue = JSON.stringify({
+    custom: {
+      social_proof: "Davie and 1500+ others love our products!"
+    }
+  });
+
+  global.fetch = async (_url, options = {}) => {
+    const payload = options.body ? JSON.parse(String(options.body)) : {};
+    const query = String(payload.query || "");
+    const variables = payload.variables || {};
+    const themeId = String(variables.themeId || "");
+    const numericThemeId = Number(themeId.match(/\/(\d+)$/)?.[1] || 111);
+
+    if (query.includes("ThemeById")) {
+      const resPayload = {
+        data: {
+          theme: {
+            id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+            name: "Dev Theme",
+            role: "DEVELOPMENT",
+            processing: false,
+            createdAt: "2026-04-02T00:00:00Z",
+            updatedAt: "2026-04-02T00:00:00Z"
+          }
+        }
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => resPayload,
+        text: async () => JSON.stringify(resPayload)
+      };
+    }
+
+    if (query.includes("ThemeFilesByIdWithContent")) {
+      const requested = Array.isArray(variables.filenames) ? variables.filenames : [];
+      const nodes = [];
+
+      if (requested.includes("locales/*.default.json")) {
+        nodes.push({
+          filename: "locales/en.default.json",
+          checksumMd5: checksumMd5Base64(localeValue),
+          contentType: "application/json",
+          createdAt: "2026-04-02T00:00:00Z",
+          updatedAt: "2026-04-02T00:00:00Z",
+          size: Buffer.byteLength(localeValue, "utf8"),
+          body: { content: localeValue }
+        });
+      }
+
+      for (const filename of requested) {
+        const value = storedFiles.get(filename);
+        if (!value) {
+          continue;
+        }
+        nodes.push({
+          filename,
+          checksumMd5: checksumMd5Base64(value),
+          contentType: "application/x-liquid",
+          createdAt: "2026-04-02T00:00:00Z",
+          updatedAt: "2026-04-02T00:00:00Z",
+          size: Buffer.byteLength(value, "utf8"),
+          body: { content: value }
+        });
+      }
+
+      const resPayload = {
+        data: {
+          theme: {
+            id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+            name: "Dev Theme",
+            role: "DEVELOPMENT",
+            processing: false,
+            createdAt: "2026-04-02T00:00:00Z",
+            updatedAt: "2026-04-02T00:00:00Z",
+            files: {
+              nodes,
+              userErrors: []
+            }
+          }
+        }
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => resPayload,
+        text: async () => JSON.stringify(resPayload)
+      };
+    }
+
+    if (query.includes("ThemeFilesByIdMetadata")) {
+      const requested = Array.isArray(variables.filenames) ? variables.filenames : [];
+      const nodes = requested.flatMap((filename) => {
+        const value = storedFiles.get(filename);
+        if (!value) {
+          return [];
+        }
+        return [
+          {
+            filename,
+            checksumMd5: checksumMd5Base64(value),
+            contentType: "application/x-liquid",
+            createdAt: "2026-04-02T00:00:00Z",
+            updatedAt: "2026-04-02T00:00:00Z",
+            size: Buffer.byteLength(value, "utf8")
+          },
+        ];
+      });
+      const resPayload = {
+        data: {
+          theme: {
+            id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+            name: "Dev Theme",
+            role: "DEVELOPMENT",
+            processing: false,
+            createdAt: "2026-04-02T00:00:00Z",
+            updatedAt: "2026-04-02T00:00:00Z",
+            files: {
+              nodes,
+              userErrors: []
+            }
+          }
+        }
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => resPayload,
+        text: async () => JSON.stringify(resPayload)
+      };
+    }
+
+    if (query.includes("ThemeFilesUpsert")) {
+      const files = Array.isArray(variables.files) ? variables.files : [];
+      for (const file of files) {
+        if (file?.filename && typeof file?.body?.value === "string") {
+          storedFiles.set(file.filename, file.body.value);
+        }
+      }
+
+      const resPayload = {
+        data: {
+          themeFilesUpsert: {
+            upsertedThemeFiles: files.map((file) => ({ filename: file.filename })),
+            job: { id: "gid://shopify/Job/1" },
+            userErrors: []
+          }
+        }
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => resPayload,
+        text: async () => JSON.stringify(resPayload)
+      };
+    }
+
+    throw new Error(`Unexpected GraphQL query in locale hydration test: ${query}`);
+  };
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        files: [
+          {
+            key: "sections/translatable-social-proof.liquid",
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .card {
+    display: grid;
+    gap: 12px;
+    padding: 24px;
+    border-radius: 18px;
+    background: {{ section.settings.background }};
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .card {
+      padding: 16px;
+    }
+  }
+</style>
+
+<div class="card">{{ 'custom.social_proof' | t }}</div>
+
+{% schema %}
+{
+  "name": "Translatable social proof",
+  "settings": [
+    { "type": "color", "id": "background", "label": "Background", "default": "#ffffff" },
+    { "type": "range", "id": "spacing", "label": "Spacing", "min": 0, "max": 40, "step": 4, "default": 16 }
+  ],
+  "presets": [{ "name": "Translatable social proof" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+    assert.ok(
+      result.verify?.results?.some((entry) => entry.key === "sections/translatable-social-proof.liquid"),
+      "successful preview writes should still verify the translated section file"
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("draftThemeArtifact - rejects color_scheme sections when the target theme has no global color schemes", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",

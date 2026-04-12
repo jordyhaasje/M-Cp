@@ -38,12 +38,14 @@ npm run --workspace @hazify/mcp-remote start:remote
 - `verify-theme-files` en `get-theme-file(s)` helpen bij verificatie en readback
 - Gebruik in nieuwe sections `video` voor merchant-uploaded video bestanden; `video_url` is alleen voor externe YouTube/Vimeo bronnen
 - Gebruik `color_scheme` alleen wanneer het doeltheme al globale color schemes heeft in `config/settings_schema.json` en `config/settings_data.json`
+- Voor een native block in een bestaande productsection gebruik je `mode="edit"` op de bestaande section/snippet; dit is normaal geen `blocks/*.liquid` workflow
+- Voor placement op homepage/producttemplate geldt: maak eerst de section, en patch daarna alleen bij expliciete gebruikersvraag het bijbehorende `templates/*.json` bestand op hetzelfde gekozen theme
 
 ## Shopify-conforme file policy
 - Beperk writes tot de noodzakelijke theme-bestanden; voor section-wijzigingen is dat meestal `sections/<handle>.liquid`
 - Gebruik snippets/blocks/locales alleen als daar een concrete reden voor is
 - Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`
-- Geen automatische template/config writes; merchants plaatsen sections zelf via de Theme Editor
+- Geen blinde automatische template/config writes; placement via `templates/*.json` mag alleen als de gebruiker dat expliciet vraagt en het doeltheme expliciet is gekozen
 
 ## Tests
 ```bash

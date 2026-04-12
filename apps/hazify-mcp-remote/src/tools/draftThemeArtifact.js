@@ -4,7 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import { check } from "@shopify/theme-check-node";
 import { createThemeDraftRecord, updateThemeDraftRecord } from "../lib/db.js";
-import { getShopDomainFromClient, upsertThemeFiles, getThemeFiles } from "../lib/themeFiles.js";
+import { getShopDomainFromClient, upsertThemeFiles, getThemeFiles, searchThemeFiles } from "../lib/themeFiles.js";
 import { requireShopifyClient } from "./_context.js";
 
 export const toolName = "draft-theme-artifact";
@@ -21,7 +21,9 @@ Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als
 Theme-aware section regels:
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
-- Als de gebruiker een nieuwe section ook op een homepage/productpagina geplaatst wil hebben, maak eerst sections/<handle>.liquid in mode="create" en doe daarna een aparte mode="edit" call voor templates/*.json of config/settings_data.json op het expliciet gekozen thema.
+- Voor native blocks binnen een bestaande section (bijv. product-info of main-product): gebruik mode="edit" en patch de bestaande schema.blocks plus de render markup/snippet. Dit is geen los blocks/*.liquid bestand.
+- Als de gebruiker een nieuwe section ook op een homepage/productpagina geplaatst wil hebben, maak eerst sections/<handle>.liquid in mode="create" en doe daarna alleen bij expliciete placement-vraag een aparte mode="edit" call voor templates/*.json op hetzelfde expliciet gekozen thema. Gebruik config/settings_data.json alleen als uitzonderingsroute.
+- Gebruik voor nieuwe sections bij voorkeur enabled_on/disabled_on in de schema in plaats van legacy "templates" wanneer je beschikbaarheid per template wilt sturen.
 
 Rules for valid Shopify Liquid:
 
@@ -561,6 +563,14 @@ function inspectSectionFile(file) {
       "Voeg {{ block.shopify_attributes }} toe op de block wrapper in loops over section.blocks."
     );
   }
+  if (schema && Object.prototype.hasOwnProperty.call(schema, "templates")) {
+    warnings.push(
+      "Schema gebruikt legacy 'templates' voor template-beschikbaarheid. Gebruik bij voorkeur enabled_on/disabled_on voor nieuwe sections."
+    );
+    suggestedFixes.push(
+      "Vervang de legacy 'templates' property door enabled_on/disabled_on wanneer je een nieuwe section aan specifieke templates wilt koppelen."
+    );
+  }
 
   return {
     ok: true,
@@ -722,6 +732,51 @@ function classifyPreviewUpsertFailures(upsertResult, files) {
           failedKeys.length > 0 ? `Isoleer eerst deze file(s): ${failedKeys.join(", ")}.` : null,
         ]),
   };
+}
+
+function fileUsesTranslations(file) {
+  const value = String(file?.value || "");
+  return (
+    String(file?.key || "").startsWith("locales/") ||
+    /\|\s*(?:t|translate)\b/i.test(value) ||
+    /["']t:[^"']+["']/i.test(value)
+  );
+}
+
+function needsLocaleLintContext(files = []) {
+  return files.some((file) => fileUsesTranslations(file));
+}
+
+async function fetchLocaleLintSupportFiles({
+  files,
+  shopifyClient,
+  apiVersion,
+  themeId,
+  themeRole,
+}) {
+  if (!needsLocaleLintContext(files)) {
+    return [];
+  }
+
+  const draftKeys = new Set(
+    files.map((file) => String(file.key || "").trim()).filter(Boolean)
+  );
+
+  const result = await searchThemeFiles(shopifyClient, apiVersion, {
+    themeId,
+    themeRole,
+    patterns: ["locales/*.default.json", "locales/*.default.schema.json"],
+    includeContent: true,
+    resultLimit: 10,
+  });
+
+  return (result.files || []).filter(
+    (file) =>
+      file &&
+      file.found &&
+      typeof file.value === "string" &&
+      !draftKeys.has(String(file.key || "").trim())
+  );
 }
 
 async function validateThemeCompatibilityForSections({
@@ -1073,14 +1128,37 @@ export const draftThemeArtifact = {
 
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "hazify-sandbox-"));
     let lintErrors = null;
+    let lintSupportWarnings = [];
+    let lintSupportFiles = [];
 
     try {
+      try {
+        lintSupportFiles = await fetchLocaleLintSupportFiles({
+          files,
+          shopifyClient,
+          apiVersion: process.env.SHOPIFY_API_VERSION || "2026-01",
+          themeId,
+          themeRole,
+        });
+
+        if (needsLocaleLintContext(files) && lintSupportFiles.length === 0) {
+          lintSupportWarnings.push(
+            "Geen default locale files opgehaald voor de lint-sandbox. Translation checks kunnen daardoor strenger uitvallen dan in het echte theme."
+          );
+        }
+      } catch (error) {
+        lintSupportWarnings.push(
+          `Kon default locale files niet ophalen voor de lint-sandbox: ${error.message}`
+        );
+      }
+
       await fs.mkdir(path.join(tmpDir, "locales"), { recursive: true });
-      for (const file of files) {
+      for (const file of [...lintSupportFiles, ...files]) {
         const fullPath = path.join(tmpDir, file.key);
         await fs.mkdir(path.dirname(fullPath), { recursive: true });
         await fs.writeFile(fullPath, file.value, "utf8");
       }
+      warnings.push(...lintSupportWarnings);
 
       let offenses = await check(tmpDir);
       

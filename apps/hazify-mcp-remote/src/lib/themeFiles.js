@@ -847,7 +847,26 @@ const getThemeFilesGraphql = async (
     const fileConnection = data?.theme?.files;
     const userErrors = Array.isArray(fileConnection?.userErrors) ? fileConnection.userErrors : [];
     if (userErrors.length > 0) {
-      throw buildThemeUserError("Shopify theme files konden niet worden gelezen", userErrors);
+      const blockingUserErrors = [];
+      for (const userError of userErrors) {
+        const filename = typeof userError?.filename === "string" ? userError.filename : null;
+        const code = String(userError?.code || "").toUpperCase();
+        const message = String(userError?.message || "");
+        const isNotFound =
+          filename &&
+          (code === "NOT_FOUND" || /not[\s_-]*found|bestaat niet/i.test(message));
+
+        if (isNotFound) {
+          resultByKey.set(filename, createMissingThemeAsset(filename));
+          continue;
+        }
+
+        blockingUserErrors.push(userError);
+      }
+
+      if (blockingUserErrors.length > 0) {
+        throw buildThemeUserError("Shopify theme files konden niet worden gelezen", blockingUserErrors);
+      }
     }
 
     const nodes = Array.isArray(fileConnection?.nodes) ? fileConnection.nodes : [];

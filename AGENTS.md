@@ -64,7 +64,9 @@ Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als
 Theme-aware section regels:
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
-- Als de gebruiker een nieuwe section ook op een homepage/productpagina geplaatst wil hebben, maak eerst sections/<handle>.liquid in mode="create" en doe daarna een aparte mode="edit" call voor templates/*.json of config/settings_data.json op het expliciet gekozen thema.
+- Voor native blocks binnen een bestaande section (bijv. product-info of main-product): gebruik mode="edit" en patch de bestaande schema.blocks plus de render markup/snippet. Dit is geen los blocks/*.liquid bestand.
+- Als de gebruiker een nieuwe section ook op een homepage/productpagina geplaatst wil hebben, maak eerst sections/<handle>.liquid in mode="create" en doe daarna alleen bij expliciete placement-vraag een aparte mode="edit" call voor templates/*.json op hetzelfde expliciet gekozen thema. Gebruik config/settings_data.json alleen als uitzonderingsroute.
+- Gebruik voor nieuwe sections bij voorkeur enabled_on/disabled_on in de schema in plaats van legacy "templates" wanneer je beschikbaarheid per template wilt sturen.
 
 Rules for valid Shopify Liquid:
 
@@ -79,14 +81,14 @@ Use <style> or markup-level CSS variables for section.id scoping
 - **`get-product-by-id`**: Get a specific product by ID
 - **`get-products`**: Get all products or search by title
 - **`get-supported-tracking-companies`**: Get Shopify-supported tracking carriers that can be selected in the order fulfillment tracking UI
-- **`get-theme-file`**: Read a file from a Shopify theme (defaults to live theme role=main).
-- **`get-theme-files`**: Read EXACT files from a Shopify theme. GEEN GLOBBING. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path. Minimaal geldig voorbeeld: { keys: ['sections/hero.liquid'] }.
+- **`get-theme-file`**: Read one exact file from a Shopify theme. Gebruik bij voorkeur hetzelfde expliciete themeId of themeRole als in de rest van je flow. Handige reads zijn bijvoorbeeld sections/main-product.liquid, snippets/product-info.liquid of templates/product.json.
+- **`get-theme-files`**: Read EXACT files from a Shopify theme. GEEN GLOBBING. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path. Gebruik dit voor bewuste multi-read workflows zoals ['sections/main-product.liquid', 'snippets/product-info.liquid'] of ['templates/product.json'].
 - **`get-themes`**: List available Shopify themes (including the live theme).
 - **`manage-product-options`**: Create, update, or delete product options (e.g. Size, Color). Use action='create' to add options, 'update' to rename or add/remove values, 'delete' to remove options.
 - **`manage-product-variants`**: Create or update product variants. Omit variant id to create new, include id to update existing.
-- **`patch-theme-file`**: Patch one existing theme file with one or more literal replacements. Prefer this for narrow single-file edits in existing snippets, sections, assets, config, or templates when you already know the exact target file. Geef altijd themeId of themeRole mee.
+- **`patch-theme-file`**: Patch one existing theme file with one or more literal replacements. Gebruik dit voor smalle single-file edits in bestaande snippets, sections, assets, config, of templates wanneer je het exacte targetbestand al weet. Niet bedoeld voor nieuwe files of grote refactors; gebruik daarvoor get-theme-file + draft-theme-artifact. Geef altijd hetzelfde expliciete themeId of themeRole mee als in je read-flow.
 - **`refund-order`**: Create a full or partial refund for an order using Shopify refundCreate.
-- **`search-theme-files`**: Search scoped theme files and return compact snippets instead of full file dumps. Prefer this before full reads when fixing styling/code or borrowing a small reference pattern. Minimaal geldig voorbeeld: { query: 'header', scope: ['sections'] } of { query: 'padding', filePatterns: ['sections/*.liquid'] }.
+- **`search-theme-files`**: Search scoped theme files and return compact snippets instead of full file dumps. Gebruik dit eerst om een exacte patch-anchor of bestaand renderpad te vinden voordat je leest of schrijft. Voor native product-blocks zoek je vaak in sections + snippets; voor template placement zoek je in templates/*.json. Minimaal geldig voorbeeld: { query: 'buy_buttons', scope: ['sections', 'snippets'] } of { query: 'main-product', filePatterns: ['sections/*.liquid'] }.
 - **`set-order-tracking`**: One-shot tracking update tool for LLMs: resolves order reference, updates fulfillment tracking, and returns verification-ready output.
 - **`update-customer`**: Update a customer's information. Let op: acceptsMarketing wordt momenteel door Shopify genegeerd in deze mutation.
 - **`update-fulfillment-tracking`**: Update order shipment tracking in the actual fulfillment record (not custom attributes/metafields). fulfillmentId is optional; when omitted, the latest non-cancelled fulfillment is updated automatically.
@@ -103,6 +105,7 @@ Use <style> or markup-level CSS variables for section.id scoping
 - Gebruik `patch-theme-file` bij voorkeur voor kleine single-file edits op bestaande snippets/sections wanneer de exacte file al bekend is. Dit houdt writes kleiner en voorspelbaarder.
 - Gebruik alleen de `value` property bij edits als je het *volledige* bestand hebt ingelezen en heel de structuur drastisch verandert.
 - Gebruik `mode="edit"` voor bestaande sections of settings.
+- Voor een native block in een bestaande section patch je de bestaande `schema.blocks` en de render markup/snippet. Dit is normaal geen `blocks/*.liquid` workflow.
 - Gebruik `mode="create"` alleen voor volledig nieuwe sections zonder bestaande inhoud.
 - Zoek altijd eerst op zichtbare tekst of specifieke selectors met `search-theme-files`. Dit geeft je direct de `searchString` voor je patch.
 - Lees daarna met `get-theme-file` het exacte doelbestand in. Gebruik `get-theme-files` **ALLEEN** als je bewust meerdere exacte bestanden moet analyseren.
@@ -112,10 +115,11 @@ Use <style> or markup-level CSS variables for section.id scoping
 2. **Als de gebruiker geen thema opgeeft, VRAAG dit expliciet.** Gebruik nooit een stille default.
 3. Gebruik `mode="edit"` voor wijzigingen aan bestaande bestanden (CSS fixes, spacing, kleuren, settings).
 4. Gebruik `mode="create"` voor nieuwe sections (volledige inspectie: schema, presets, CSS kwaliteit).
-5. Gebruik `apply-theme-draft` alleen wanneer een eerder draft expliciet naar een ander theme gepromoot moet worden.
-6. Gebruik `delete-theme-file` alleen na expliciete validatie van het target-bestand. themeRole/themeId is verplicht.
-7. Verifieer writes direct via de `verify` output van `draft-theme-artifact` of aanvullend met `get-theme-file`, `get-theme-files` of `verify-theme-files`.
-8. Om Railway te beschermen is er een harde limiet van maximaal 10 bestanden per theme-request.
+5. Voor placement op homepage/producttemplate: maak eerst de section, en patch daarna alleen bij expliciete gebruikersvraag het juiste `templates/*.json` bestand op hetzelfde thema.
+6. Gebruik `apply-theme-draft` alleen wanneer een eerder draft expliciet naar een ander theme gepromoot moet worden.
+7. Gebruik `delete-theme-file` alleen na expliciete validatie van het target-bestand. themeRole/themeId is verplicht.
+8. Verifieer writes direct via de `verify` output van `draft-theme-artifact` of aanvullend met `get-theme-file`, `get-theme-files` of `verify-theme-files`.
+9. Om Railway te beschermen is er een harde limiet van maximaal 10 bestanden per theme-request.
 
 ## Shopify-conforme file policy
 
