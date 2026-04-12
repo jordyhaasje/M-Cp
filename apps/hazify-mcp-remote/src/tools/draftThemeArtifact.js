@@ -70,15 +70,56 @@ export const inputSchema = z.object({
   isStandalone: z.boolean().optional().describe("Mark as standalone workflow"),
 });
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getLiquidBlockContents(value, tagName) {
+  const source = String(value || "");
+  const normalizedTagName = escapeRegExp(tagName);
+  const openPattern = new RegExp(`{%-?\\s*${normalizedTagName}\\s*-?%}`, "gi");
+  const closePattern = new RegExp(`{%-?\\s*end${normalizedTagName}\\s*-?%}`, "gi");
+  const contents = [];
+
+  let searchStart = 0;
+
+  while (searchStart < source.length) {
+    openPattern.lastIndex = searchStart;
+    const openMatch = openPattern.exec(source);
+    if (!openMatch || openMatch.index === undefined) {
+      break;
+    }
+
+    closePattern.lastIndex = openPattern.lastIndex;
+    const closeMatch = closePattern.exec(source);
+    if (!closeMatch || closeMatch.index === undefined) {
+      break;
+    }
+
+    contents.push(source.slice(openPattern.lastIndex, closeMatch.index));
+    searchStart = closePattern.lastIndex;
+  }
+
+  return contents;
+}
+
+function hasLiquidBlockTag(value, tagName) {
+  return new RegExp(`{%-?\\s*${escapeRegExp(tagName)}\\s*-?%}`, "i").test(String(value || ""));
+}
+
 function extractSchemaJson(value) {
-  const match = String(value || "").match(/{%\s*schema\s*%}([\s\S]*?){%\s*endschema\s*%}/i);
-  return match ? match[1].trim() : null;
+  const [schemaJson] = getLiquidBlockContents(value, "schema");
+  return schemaJson === undefined ? null : schemaJson.trim();
 }
 
 function parseSectionSchema(value) {
   const schemaJson = extractSchemaJson(value);
-  if (!schemaJson) {
+  if (schemaJson === null) {
     return { schema: null, error: "Missing {% schema %} block." };
+  }
+
+  if (schemaJson.length === 0) {
+    return { schema: null, error: "Empty {% schema %} block." };
   }
 
   try {
@@ -237,12 +278,7 @@ function getDraftFileModeCount(file) {
 }
 
 function getSpecialBlockContents(value, tagName) {
-  return Array.from(
-    String(value || "").matchAll(
-      new RegExp(`{%\\s*${tagName}\\s*%}([\\s\\S]*?){%\\s*end${tagName}\\s*%}`, "gi")
-    ),
-    (match) => match[1] || ""
-  );
+  return getLiquidBlockContents(value, tagName);
 }
 
 function containsLiquidInSpecialBlock(value, tagName) {
@@ -1013,7 +1049,7 @@ export const draftThemeArtifact = {
             });
           }
           // Schema parse proberen als waarschuwing (geen blokkade in edit mode)
-          if (value.includes("{% schema %}")) {
+          if (hasLiquidBlockTag(value, "schema")) {
             const { error } = parseSectionSchema(value);
             if (error) {
               warnings.push(`Schema parse waarschuwing: ${error}`);

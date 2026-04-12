@@ -41,6 +41,36 @@ const goodSectionLiquid = `
 {% endschema %}
 `;
 
+const goodSectionLiquidTrimmedSchema = `
+<style>
+  #shopify-section-{{ section.id }} .card {
+    display: grid;
+    padding: 24px;
+    border-radius: 18px;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .card {
+      padding: 16px;
+    }
+  }
+</style>
+
+<div class="card">{{ section.settings.heading }}</div>
+
+{%- schema -%}
+{
+  "name": "Trimmed schema section",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "range", "id": "gap", "label": "Gap", "min": 0, "max": 40, "step": 4, "default": 16 },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Trimmed schema section" }]
+}
+{%- endschema -%}
+`;
+
 function checksumMd5Base64(value) {
   return crypto.createHash("md5").update(Buffer.from(value, "utf8")).digest("base64");
 }
@@ -176,6 +206,69 @@ test("draftThemeArtifact - rejects sections without presets", async () => {
   assert.equal(result.success, false);
   assert.equal(result.errorCode, "inspection_failed_schema");
   assert.ok(result.suggestedFixes.some((entry) => entry.includes("preset")));
+});
+
+test("draftThemeArtifact - accepts schema blocks that use Liquid whitespace control", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      themeId: 111,
+      files: [
+        {
+          key: "sections/trimmed-schema.liquid",
+          value: goodSectionLiquidTrimmedSchema,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.notEqual(
+    result.errorCode,
+    "inspection_failed_schema",
+    "trimmed schema tags should no longer be misclassified as missing schema"
+  );
+  assert.ok(result.draftId, "once schema parsing succeeds, the pipeline should advance beyond inspection");
+});
+
+test("draftThemeArtifact - distinguishes empty schema blocks from missing schema blocks", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      themeId: 111,
+      files: [
+        {
+          key: "sections/empty-schema.liquid",
+          value: `
+<div class="card">Hello</div>
+{% schema %}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "inspection_failed_schema");
+  assert.ok(result.suggestedFixes.includes("Empty {% schema %} block."));
 });
 
 test("draftThemeArtifact - rejects color_scheme sections when the target theme has no global color schemes", async () => {
