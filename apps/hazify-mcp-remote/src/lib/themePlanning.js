@@ -503,6 +503,16 @@ const buildPlanFromAnalysis = ({
     );
   }
 
+  if (
+    intent === "native_block" &&
+    sectionAnalysis?.hasBlockSwitch &&
+    sectionAnalysis?.schemaBlockTypes.length > 0
+  ) {
+    warnings.push(
+      "Kies voor section schema patches een unieke anchor uit het {% schema %} block. Losse block type strings komen vaak ook terug in Liquid case-switches."
+    );
+  }
+
   if (intent === "native_block" && snippetRendererKeys.length === 0 && query) {
     searchQueries.push(query);
   }

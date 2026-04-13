@@ -19,6 +19,7 @@ Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liqui
 Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als dit niet is opgegeven.
 
 Theme-aware section regels:
+- Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
 - Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
@@ -36,7 +37,7 @@ Use <style> or markup-level CSS variables for section.id scoping`;
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 
 const ThemeDraftPatchSchema = z.object({
-  searchString: z.string().min(1).describe("De te vervangen string in het originele bestand (literal match, vervangt alle identieke instanties)"),
+  searchString: z.string().min(1).describe("De te vervangen string in het originele bestand. Gebruik een unieke literal anchor die exact één keer voorkomt in het doelbestand."),
   replaceString: z.string().describe("De nieuwe string"),
 });
 
@@ -44,7 +45,7 @@ const ThemeDraftPatchesSchema = z
   .array(ThemeDraftPatchSchema)
   .min(1)
   .max(10)
-  .describe("Voer meerdere patches sequentieel uit binnen hetzelfde bestand. Gebruik dit wanneer een bestaand bestand meerdere losse wijzigingen nodig heeft.");
+  .describe("Voer meerdere patches sequentieel uit binnen hetzelfde bestand. Gebruik dit wanneer een bestaand bestand meerdere losse wijzigingen nodig heeft of wanneer één unieke patch-anchor niet genoeg is.");
 
 const ThemeDraftFileSchema = z.object({
   key: z.string().min(1).describe("De exacte filelocatie (bijv. sections/feature-sandbox.liquid)"),
@@ -70,8 +71,26 @@ export const inputSchema = z.object({
   files: z.array(ThemeDraftFileSchema).min(1).max(10).describe("Maximale file batch is 10 items conform veiligheidsregels"),
   themeId: z.string().or(z.number()).optional().describe("Optioneel expliciet doel theme ID. Laat weg om via themeRole te resolven."),
   themeRole: ThemeRoleSchema.optional().describe("Target theme role. Verplicht als themeId niet is opgegeven. Vraag de gebruiker welk thema."),
-  mode: z.enum(["create", "edit"]).default("create").describe("'create' = nieuw section met volledige inspectie (schema, presets, CSS kwaliteit). 'edit' = bestaand bestand fixen met lichtere checks."),
+  mode: z.enum(["create", "edit"]).optional().describe("'create' = nieuw sectionbestand met volledige inspectie. 'edit' = bestaand bestand fixen met lichtere checks. Zet mode altijd op het TOP-LEVEL request, nooit in files[]. Als mode ontbreekt en je patch/patches gebruikt, behandelt de pipeline dit automatisch als edit."),
   isStandalone: z.boolean().optional().describe("Mark as standalone workflow"),
+}).superRefine((data, ctx) => {
+  if (data.mode !== "create") {
+    return;
+  }
+
+  data.files.forEach((file, index) => {
+    const hasPatch = file.patch !== undefined;
+    const hasPatches = Array.isArray(file.patches) && file.patches.length > 0;
+    if (!hasPatch && !hasPatches) {
+      return;
+    }
+
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["files", index, hasPatch ? "patch" : "patches"],
+      message: "mode='create' ondersteunt alleen volledige value-writes. Gebruik mode='edit' voor patch of patches.",
+    });
+  });
 });
 
 function escapeRegExp(value) {
@@ -358,23 +377,66 @@ function findFirstDuplicate(values) {
 }
 
 function normalizeDraftFile(file) {
-  const patches = Array.isArray(file.patches) && file.patches.length > 0
-    ? file.patches
-    : file.patch
-      ? [file.patch]
+  const { patch, patches: rawPatches, ...rest } = file;
+  const patches = Array.isArray(rawPatches) && rawPatches.length > 0
+    ? rawPatches
+    : patch
+      ? [patch]
       : [];
 
   return {
-    ...file,
+    ...rest,
     patches,
   };
 }
 
 function getDraftFileModeCount(file) {
   const hasValue = file.value !== undefined;
-  const hasPatch = file.patch !== undefined;
   const hasPatches = Array.isArray(file.patches) && file.patches.length > 0;
-  return [hasValue, hasPatch, hasPatches].filter(Boolean).length;
+  return [hasValue, hasPatches].filter(Boolean).length;
+}
+
+function countLiteralOccurrences(source, needle) {
+  const haystack = String(source || "");
+  const target = String(needle || "");
+  if (!target) {
+    return 0;
+  }
+
+  let count = 0;
+  let fromIndex = 0;
+  while (fromIndex < haystack.length) {
+    const matchIndex = haystack.indexOf(target, fromIndex);
+    if (matchIndex < 0) {
+      break;
+    }
+    count += 1;
+    fromIndex = matchIndex + target.length;
+  }
+  return count;
+}
+
+function resolveDraftMode(requestedMode, files = []) {
+  if (requestedMode === "create" || requestedMode === "edit") {
+    return { mode: requestedMode, inferred: false, warning: null };
+  }
+
+  const hasPatchLikeFile = files.some(
+    (file) =>
+      file?.patch !== undefined ||
+      (Array.isArray(file?.patches) && file.patches.length > 0)
+  );
+
+  if (hasPatchLikeFile) {
+    return {
+      mode: "edit",
+      inferred: true,
+      warning:
+        "Geen top-level mode opgegeven; omdat deze request patch/patches gebruikt behandelt de pipeline dit als mode='edit'. Zet mode voortaan expliciet op top-level en niet in files[].",
+    };
+  }
+
+  return { mode: "create", inferred: true, warning: null };
 }
 
 function getSpecialBlockContents(value, tagName) {
@@ -962,9 +1024,15 @@ export const draftThemeArtifact = {
   schema: inputSchema,
   execute: async (args, context = {}) => {
     const shopifyClient = requireShopifyClient(context);
-    let { files, themeId, themeRole, mode } = args;
+    let { files, themeId, themeRole, mode: requestedMode } = args;
     const warnings = [];
     const suggestedFixes = [];
+    const resolvedMode = resolveDraftMode(requestedMode, files);
+    let mode = resolvedMode.mode;
+
+    if (resolvedMode.warning) {
+      warnings.push(resolvedMode.warning);
+    }
 
     if (!themeId && !themeRole) {
       return buildFailureResponse({
@@ -1052,17 +1120,35 @@ export const draftThemeArtifact = {
              newValue = originalValue;
              for (const [index, patch] of file.patches.entries()) {
                const searchString = patch.searchString;
-               if (!newValue.includes(searchString)) {
+               const matchCount = countLiteralOccurrences(newValue, searchString);
+               if (matchCount === 0) {
                 return buildFailureResponse({
                   status: "inspection_failed",
                   message: `Patch ${index + 1} failed: De searchString '${searchString.substring(0, 50)}...' werd niet gevonden in '${file.key}'.`,
                   errorCode: "patch_failed_nomatch",
                   retryable: true,
-                  suggestedFixes: ["Gebruik search-theme-files om de exacte string te achterhalen of gebruik een regex via patch.", "Zorg dat witruimte/inspringen exact overeenkomt."],
+                  suggestedFixes: [
+                    "Gebruik search-theme-files om de exacte string of omliggende context te achterhalen.",
+                    "Zorg dat witruimte, quotes en inspringing exact overeenkomen met het doelbestand.",
+                  ],
                   shouldNarrowScope: false,
                 });
                }
-               newValue = newValue.split(searchString).join(patch.replaceString);
+               if (matchCount > 1) {
+                return buildFailureResponse({
+                  status: "inspection_failed",
+                  message: `Patch ${index + 1} failed: De searchString '${searchString.substring(0, 50)}...' matchte ${matchCount} keer in '${file.key}', waardoor de patch niet veilig uniek toepasbaar is.`,
+                  errorCode: "patch_failed_ambiguous_match",
+                  retryable: true,
+                  suggestedFixes: [
+                    `Maak de searchString unieker zodat deze maar één keer voorkomt in '${file.key}'.`,
+                    "Gebruik search-theme-files of get-theme-file om extra omliggende context mee te nemen in de literal anchor.",
+                    "Voor section schema patches: kies een anchor die alleen in het {% schema %} block voorkomt, niet alleen een block type of setting-id.",
+                  ],
+                  shouldNarrowScope: false,
+                });
+               }
+               newValue = newValue.replace(searchString, patch.replaceString);
              }
           }
 

@@ -75,6 +75,98 @@ function checksumMd5Base64(value) {
   return crypto.createHash("md5").update(Buffer.from(value, "utf8")).digest("base64");
 }
 
+function jsonGraphqlResponse(payload) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => payload,
+    text: async () => JSON.stringify(payload),
+  };
+}
+
+function createThemeFileFetchMock({
+  key = "sections/main-product.liquid",
+  initialValue,
+  themeIdFallback = 111,
+}) {
+  let storedValue = initialValue;
+
+  return {
+    getValue: () => storedValue,
+    handler: async (_url, options = {}) => {
+      const payload = options.body ? JSON.parse(String(options.body)) : {};
+      const query = String(payload.query || "");
+      const themeId = String(payload.variables?.themeId || "");
+      const numericThemeId = Number(themeId.match(/\/(\d+)$/)?.[1] || themeIdFallback);
+      const theme = {
+        id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+        name: "Dev Theme",
+        role: "DEVELOPMENT",
+        processing: false,
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+      };
+
+      const fileNode = (includeContent) => ({
+        filename: key,
+        checksumMd5: checksumMd5Base64(storedValue),
+        contentType: "application/x-liquid",
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+        size: Buffer.byteLength(storedValue, "utf8"),
+        ...(includeContent ? { body: { content: storedValue } } : {}),
+      });
+
+      if (query.includes("ThemeById")) {
+        return jsonGraphqlResponse({ data: { theme } });
+      }
+
+      if (query.includes("ThemeFilesByIdWithContent") || query.includes("ThemeFileById")) {
+        return jsonGraphqlResponse({
+          data: {
+            theme: {
+              ...theme,
+              files: {
+                nodes: [fileNode(true)],
+                userErrors: [],
+              },
+            },
+          },
+        });
+      }
+
+      if (query.includes("ThemeFilesByIdMetadata")) {
+        return jsonGraphqlResponse({
+          data: {
+            theme: {
+              ...theme,
+              files: {
+                nodes: [fileNode(false)],
+                userErrors: [],
+              },
+            },
+          },
+        });
+      }
+
+      if (query.includes("ThemeFilesUpsert")) {
+        storedValue = payload.variables.files[0].body.value;
+        return jsonGraphqlResponse({
+          data: {
+            themeFilesUpsert: {
+              upsertedThemeFiles: [{ filename: key }],
+              job: { id: "gid://shopify/Job/1" },
+              userErrors: [],
+            },
+          },
+        });
+      }
+
+      throw new Error(`Unexpected GraphQL query in theme fetch mock: ${query}`);
+    },
+  };
+}
+
 test("draftThemeArtifact - fails when linter finds issues", async (t) => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -1028,6 +1120,127 @@ test("draftThemeArtifact - applies patches[] sequentially within one file", asyn
     assert.ok(result.verify.summary.match >= 1);
   } finally {
     global.fetch = originalFetch;
+  }
+});
+
+test("draftThemeArtifact - infers edit mode and accepts a single patch", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const originalSection = `
+<div class="demo">
+  <span class="eyebrow">Old badge</span>
+  {{ section.settings.heading }}
+</div>
+
+{% schema %}
+{
+  "name": "Patch demo",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Patch demo" }]
+}
+{% endschema %}
+`;
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/main-product.liquid",
+    initialValue: originalSection,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        files: [
+          {
+            key: "sections/main-product.liquid",
+            patch: {
+              searchString: "<span class=\"eyebrow\">Old badge</span>",
+              replaceString: "<span class=\"eyebrow\">Review badge</span>",
+            },
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+    assert.match(themeMock.getValue(), /Review badge/);
+    assert.ok(
+      result.warnings.some((entry) => entry.includes("top-level mode")),
+      "single-patch requests without mode should explain the inferred edit mode"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects ambiguous patch anchors before replacing multiple matches", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const originalSection = `
+<div class="demo">Promo</div>
+
+{% schema %}
+{
+  "name": "Promo",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Promo" }
+  ],
+  "presets": [{ "name": "Promo" }]
+}
+{% endschema %}
+`;
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/main-product.liquid",
+    initialValue: originalSection,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        files: [
+          {
+            key: "sections/main-product.liquid",
+            patch: {
+              searchString: "Promo",
+              replaceString: "Review badge",
+            },
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, "patch_failed_ambiguous_match");
+    assert.match(result.message, /matchte 4 keer/i);
+    assert.match(themeMock.getValue(), /<div class="demo">Promo<\/div>/);
+  } finally {
+    global.fetch = previousFetch;
   }
 });
 

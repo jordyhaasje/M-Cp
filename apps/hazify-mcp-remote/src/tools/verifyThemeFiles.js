@@ -34,7 +34,7 @@ const VerifyThemeFilesInputSchema = z
 
 const verifyThemeFilesTool = {
   name: "verify-theme-files",
-  description: "Verify multiple theme files by expected metadata (size/checksumMd5). Minimaal geldig voorbeeld: { expected: [{ key: 'sections/hero.liquid', checksumMd5: '...' }] }.",
+  description: "Verify multiple theme files by expected metadata (size/checksumMd5). Deze read-only tool valt voor backwards compatibility terug op main als themeId/themeRole ontbreekt, maar gebruik in elke editflow bij voorkeur hetzelfde expliciete target als in je planner/read/write-flow. Minimaal geldig voorbeeld: { expected: [{ key: 'sections/hero.liquid', checksumMd5: '...' }] }.",
   schema: VerifyThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

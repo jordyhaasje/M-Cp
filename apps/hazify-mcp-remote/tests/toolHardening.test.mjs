@@ -174,6 +174,24 @@ try {
   });
   assert.equal(draftPatchesPayload.success, true, "draft-theme-artifact should accept patches[] for one file");
 
+  const invalidCreatePatchPayload = draftThemeArtifact.schema.safeParse({
+    mode: "create",
+    files: [
+      {
+        key: "sections/demo.liquid",
+        patch: {
+          searchString: "Demo",
+          replaceString: "Updated demo",
+        },
+      },
+    ],
+  });
+  assert.equal(
+    invalidCreatePatchPayload.success,
+    false,
+    "draft-theme-artifact should reject patch-based payloads when mode='create'"
+  );
+
   const patchThemeFilePayload = patchThemeFileTool.schema.safeParse({
     key: "snippets/product-info.liquid",
     patch: {
