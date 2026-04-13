@@ -20,6 +20,7 @@ Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als
 
 Theme-aware section regels:
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
+- Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
 - Voor native blocks binnen een bestaande section (bijv. product-info of main-product): gebruik mode="edit" en patch de bestaande schema.blocks plus de render markup/snippet. Dit is geen los blocks/*.liquid bestand.
@@ -146,6 +147,102 @@ function collectSchemaSettings(schema) {
       )
     : [];
   return [...sectionSettings, ...blockSettings].filter(Boolean);
+}
+
+function collectSchemaRangeIssues(schema) {
+  const issues = [];
+  const addIssue = (setting, ownerLabel) => {
+    if (!setting || setting.type !== "range") {
+      return;
+    }
+
+    const id = String(setting.id || "unknown");
+    const label = `${ownerLabel} setting '${id}'`;
+    const min = setting.min;
+    const max = setting.max;
+    const defaultValue = setting.default;
+    const rawStep = setting.step;
+    const step = rawStep === undefined ? 1 : rawStep;
+
+    if (
+      typeof min !== "number" ||
+      typeof max !== "number" ||
+      typeof defaultValue !== "number" ||
+      typeof step !== "number" ||
+      !Number.isFinite(min) ||
+      !Number.isFinite(max) ||
+      !Number.isFinite(defaultValue) ||
+      !Number.isFinite(step)
+    ) {
+      issues.push({
+        code: "range_non_numeric",
+        label,
+        min,
+        max,
+        defaultValue,
+        step,
+        message:
+          `${label} moet numerieke min/max/default waarden hebben. Shopify accepteert hier geen strings of lege waardes.`,
+      });
+      return;
+    }
+
+    if (step <= 0) {
+      issues.push({
+        code: "range_invalid_step",
+        label,
+        min,
+        max,
+        defaultValue,
+        step,
+        message: `${label} heeft een ongeldige step (${step}). Gebruik een positief numeriek step-formaat.`,
+      });
+      return;
+    }
+
+    if (min > max) {
+      issues.push({
+        code: "range_min_gt_max",
+        label,
+        min,
+        max,
+        defaultValue,
+        step,
+        message: `${label} heeft min (${min}) groter dan max (${max}).`,
+      });
+      return;
+    }
+
+    if (defaultValue < min || defaultValue > max) {
+      issues.push({
+        code: "range_default_out_of_bounds",
+        label,
+        min,
+        max,
+        defaultValue,
+        step,
+        message:
+          `${label} heeft default ${defaultValue}, maar deze moet tussen min ${min} en max ${max} vallen.`,
+      });
+      return;
+    }
+  };
+
+  const sectionSettings = Array.isArray(schema?.settings) ? schema.settings : [];
+  for (const setting of sectionSettings) {
+    addIssue(setting, "Section");
+  }
+
+  const blocks = Array.isArray(schema?.blocks) ? schema.blocks : [];
+  for (const block of blocks) {
+    const blockType = String(block?.type || block?.name || "unknown");
+    const blockSettings = Array.isArray(block?.settings) ? block.settings : [];
+    for (const setting of blockSettings) {
+      addIssue(setting, `Block '${blockType}'`);
+    }
+  }
+
+  return issues;
 }
 
 function collectSchemaSettingTypes(schema) {
@@ -477,6 +574,25 @@ function inspectSectionFile(file) {
       suggestedFixes: [
         "Voeg minimaal één preset toe aan de schema JSON.",
         "Geef de preset default blocks mee wanneer de section herhaalbare content gebruikt.",
+      ],
+      shouldNarrowScope: false,
+    };
+  }
+
+  const rangeIssues = collectSchemaRangeIssues(schema);
+  if (rangeIssues.length > 0) {
+    const firstIssue = rangeIssues[0];
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_schema_range",
+      retryable: true,
+      message: `Building Inspection Failed: ${firstIssue.message}`,
+      warnings,
+      suggestedFixes: [
+        `Pas default van ${firstIssue.label} aan zodat deze binnen min/max valt.`,
+        `Of wijzig min/max zodat default ${firstIssue.defaultValue} geldig wordt binnen het bereik ${firstIssue.min}-${firstIssue.max}.`,
+        "Controleer alle range settings in de section schema voordat je opnieuw schrijft.",
       ],
       shouldNarrowScope: false,
     };

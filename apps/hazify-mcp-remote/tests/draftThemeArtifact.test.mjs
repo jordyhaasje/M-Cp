@@ -208,6 +208,60 @@ test("draftThemeArtifact - rejects sections without presets", async () => {
   assert.ok(result.suggestedFixes.some((entry) => entry.includes("preset")));
 });
 
+test("draftThemeArtifact - rejects range settings whose default falls outside min/max before preview upload", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      themeId: 111,
+      files: [
+        {
+          key: "sections/invalid-range.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .demo {
+    display: grid;
+    gap: 24px;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .demo {
+      gap: 16px;
+    }
+  }
+</style>
+<div class="demo">{{ section.settings.heading }}</div>
+{% schema %}
+{
+  "name": "Invalid range",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "range", "id": "padding_top", "label": "Padding top", "min": 40, "max": 180, "step": 4, "default": 36 },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Invalid range" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "inspection_failed_schema_range");
+  assert.match(result.message, /default 36/i);
+  assert.match(result.message, /min 40/i);
+});
+
 test("draftThemeArtifact - accepts schema blocks that use Liquid whitespace control", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
