@@ -16,7 +16,7 @@ const GetThemeFileInputSchema = z.object({
 const getThemeFileTool = {
   name: "get-theme-file",
   description:
-    "Read one exact file from a Shopify theme. Gebruik bij voorkeur hetzelfde expliciete themeId of themeRole als in de rest van je flow. Handige reads zijn bijvoorbeeld sections/main-product.liquid, snippets/product-info.liquid of templates/product.json.",
+    "Read one exact file from a Shopify theme. Gebruik bij voorkeur hetzelfde expliciete themeId of themeRole als in de rest van je flow. Gebruik dit liefst na plan-theme-edit, en lees alleen de compacte exact keys die de planner voorstelt. Handige reads zijn bijvoorbeeld sections/main-product.liquid, snippets/product-info.liquid of templates/product.json.",
   schema: GetThemeFileInputSchema,
   execute: async (input, context = {}) => {
       const shopifyClient = requireShopifyClient(context);

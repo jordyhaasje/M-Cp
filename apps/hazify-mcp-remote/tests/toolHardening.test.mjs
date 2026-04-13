@@ -11,6 +11,7 @@ import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
 import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
 import { applyThemeDraft } from "../src/tools/applyThemeDraft.js";
 import { patchThemeFileTool } from "../src/tools/patchThemeFile.js";
+import { planThemeEditTool } from "../src/tools/planThemeEdit.js";
 import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
 const originalLookup = dns.lookup;
@@ -181,6 +182,31 @@ try {
     },
   });
   assert.equal(patchThemeFilePayload.success, true, "patch-theme-file should accept a single-file literal patch");
+
+  const planThemeEditPayload = planThemeEditTool.schema.safeParse({
+    themeRole: "main",
+    intent: "native_block",
+    template: "product",
+  });
+  assert.equal(planThemeEditPayload.success, true, "plan-theme-edit should require an explicit theme target");
+
+  const invalidDraftSchemaPayload = draftThemeArtifact.schema.safeParse({
+    files: [
+      {
+        key: "sections/demo.liquid",
+        value: "<div>Demo</div>",
+        patch: {
+          searchString: "Demo",
+          replaceString: "Updated demo",
+        },
+      },
+    ],
+  });
+  assert.equal(
+    invalidDraftSchemaPayload.success,
+    false,
+    "draft-theme-artifact should reject ambiguous file payloads before execution"
+  );
 
   const invalidDraftResult = await draftThemeArtifact.execute(
     draftThemeArtifact.schema.parse({

@@ -19,6 +19,7 @@ Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liqui
 Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als dit niet is opgegeven.
 
 Theme-aware section regels:
+- Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
 - Voor native blocks binnen een bestaande section (bijv. product-info of main-product): gebruik mode="edit" en patch de bestaande schema.blocks plus de render markup/snippet. Dit is geen los blocks/*.liquid bestand.
@@ -59,7 +60,7 @@ const ThemeDraftFileSchema = z.object({
   const hasValue = data.value !== undefined;
   const hasPatch = data.patch !== undefined;
   const hasPatches = Array.isArray(data.patches) && data.patches.length > 0;
-  return hasValue || hasPatch || hasPatches;
+  return [hasValue, hasPatch, hasPatches].filter(Boolean).length === 1;
 }, {
   message: "Provide exactly one of 'value', 'patch', or 'patches'",
 });

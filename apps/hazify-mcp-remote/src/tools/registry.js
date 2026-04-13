@@ -21,6 +21,7 @@ import { getThemes } from "./getThemes.js";
 import { manageProductOptions } from "./manageProductOptions.js";
 import { manageProductVariants } from "./manageProductVariants.js";
 import { patchThemeFileTool } from "./patchThemeFile.js";
+import { planThemeEditTool } from "./planThemeEdit.js";
 import { refundOrder } from "./refundOrder.js";
 import { searchThemeFilesTool } from "./searchThemeFiles.js";
 import { setOrderTracking } from "./setOrderTracking.js";
@@ -195,6 +196,40 @@ const searchThemeFilesOutputSchema = z
         .passthrough()
     ),
     truncated: z.boolean(),
+  })
+  .passthrough();
+
+const planThemeEditOutputSchema = z
+  .object({
+    theme: themeSummarySchema,
+    intent: z.string(),
+    template: z
+      .object({
+        requested: z.string(),
+        resolved: z.string(),
+        primary: passthroughObject().nullable(),
+        alternates: z.array(passthroughObject()),
+      })
+      .passthrough(),
+    recommendedFlow: z.string(),
+    shouldUse: z.string(),
+    likelyNeedsMultiFileEdit: z.boolean(),
+    reason: z.string(),
+    candidateFiles: z.array(
+      z
+        .object({
+          key: z.string(),
+          role: z.string(),
+          found: z.boolean(),
+        })
+        .passthrough()
+    ),
+    nextReadKeys: z.array(z.string()),
+    nextWriteKeys: z.array(z.string()),
+    newFileSuggestions: z.array(z.string()),
+    searchQueries: z.array(z.string()),
+    warnings: z.array(z.string()),
+    architecture: passthroughObject(),
   })
   .passthrough();
 
@@ -453,6 +488,9 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
 
   defineToolManifest(searchThemeFilesTool, {
     outputSchema: searchThemeFilesOutputSchema,
+  }),
+  defineToolManifest(planThemeEditTool, {
+    outputSchema: planThemeEditOutputSchema,
   }),
   defineToolManifest(patchThemeFileTool, {
     writeScopeRequired: true,

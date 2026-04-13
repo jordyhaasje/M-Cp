@@ -1,5 +1,6 @@
 import assert from "assert";
 import {
+  planThemeEdit,
   searchThemeFilesWithSnippets,
 } from "../src/lib/themePlanning.js";
 
@@ -151,6 +152,79 @@ const homepageLiquidFiles = {
   "sections/testimonials.liquid": homepageJsonFiles["sections/testimonials.liquid"],
 };
 
+const productBlockFiles = {
+  "templates/product.json": makeTextAsset(
+    JSON.stringify({
+      sections: {
+        main: { type: "main-product" },
+        complementary: { type: "product-recommendations" },
+      },
+      order: ["main", "complementary"],
+    })
+  ),
+  "sections/main-product.liquid": makeTextAsset(`
+    {% render 'product-info', product: product, section: section %}
+    {% schema %}
+    {
+      "name": "Main product",
+      "blocks": [
+        { "type": "text", "name": "Text" },
+        { "type": "buy_buttons", "name": "Buy buttons" },
+        { "type": "@app" }
+      ]
+    }
+    {% endschema %}
+  `),
+  "sections/product-recommendations.liquid": makeTextAsset(`
+    {% schema %}
+    {
+      "name": "Recommendations",
+      "presets": [{ "name": "Recommendations" }]
+    }
+    {% endschema %}
+  `),
+  "snippets/product-info.liquid": makeTextAsset(`
+    {% for block in section.blocks %}
+      <div {{ block.shopify_attributes }}>
+        {% case block.type %}
+          {% when 'text' %}
+            <p>{{ product.title }}</p>
+          {% when 'buy_buttons' %}
+            <button>Add to cart</button>
+        {% endcase %}
+      </div>
+    {% endfor %}
+  `),
+};
+
+const productThemeBlockFiles = {
+  "templates/product.json": makeTextAsset(
+    JSON.stringify({
+      sections: {
+        main: { type: "main-product" },
+      },
+      order: ["main"],
+    })
+  ),
+  "sections/main-product.liquid": makeTextAsset(`
+    <div class="product-shell">{% content_for 'blocks' %}</div>
+    {% schema %}
+    {
+      "name": "Main product",
+      "blocks": [
+        { "type": "@theme" },
+        { "type": "@app" }
+      ]
+    }
+    {% endschema %}
+  `),
+  "blocks/review-badge.liquid": makeTextAsset(`
+    {% schema %}
+    { "name": "Review badge" }
+    {% endschema %}
+  `),
+};
+
 try {
   global.fetch = createGraphqlFetch(homepageJsonFiles);
 
@@ -169,6 +243,44 @@ try {
   assert.ok(
     searchResult.hits.some((hit) => hit.snippets.some((snippet) => snippet.toLowerCase().includes("headline"))),
     "search-theme-files snippets should include the matched text"
+  );
+
+  global.fetch = createGraphqlFetch(productBlockFiles);
+
+  const productBlockPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "native_block",
+    template: "product",
+    query: "review badge block",
+  });
+  assert.equal(productBlockPlan.recommendedFlow, "multi-file-edit");
+  assert.equal(productBlockPlan.shouldUse, "draft-theme-artifact");
+  assert.equal(productBlockPlan.architecture.templateFormat, "json");
+  assert.equal(productBlockPlan.architecture.primarySectionFile, "sections/main-product.liquid");
+  assert.equal(productBlockPlan.architecture.supportsAppBlocks, true);
+  assert.equal(productBlockPlan.architecture.usesThemeBlocks, false);
+  assert.ok(
+    productBlockPlan.nextWriteKeys.includes("sections/main-product.liquid"),
+    "native product block plan should include the main section file"
+  );
+  assert.ok(
+    productBlockPlan.nextWriteKeys.includes("snippets/product-info.liquid"),
+    "native product block plan should include the snippet that renders section.blocks"
+  );
+
+  global.fetch = createGraphqlFetch(productThemeBlockFiles);
+
+  const productThemeBlockPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "native_block",
+    template: "product",
+    query: "theme block review badge",
+  });
+  assert.equal(productThemeBlockPlan.recommendedFlow, "multi-file-edit");
+  assert.equal(productThemeBlockPlan.architecture.usesThemeBlocks, true);
+  assert.ok(
+    productThemeBlockPlan.newFileSuggestions.includes("blocks/<new-theme-block>.liquid"),
+    "theme block architecture should steer toward a blocks/*.liquid create flow"
   );
 } finally {
   global.fetch = originalFetch;

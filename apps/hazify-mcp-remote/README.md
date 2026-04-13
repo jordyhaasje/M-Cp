@@ -30,6 +30,7 @@ npm run --workspace @hazify/mcp-remote start:remote
 
 ## Theme edit flow
 - `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`
+- Start voor native product-blocks, theme blocks en template placement eerst met `plan-theme-edit` op hetzelfde expliciet gekozen theme. Die planner houdt de read-scope klein en voorkomt one-file writes op themes waar de renderflow via snippets loopt.
 - Gebruik `get-theme-file` om na search alleen het exacte doelbestand volledig in te lezen
 - Gebruik bij voorkeur `patch` voor één gerichte wijziging of `patches` voor meerdere sequentiële wijzigingen in hetzelfde bestand om token-verbruik te beperken en truncation te voorkomen
 - Gebruik `patch-theme-file` voor kleine, bestaande single-file edits wanneer je het exacte targetbestand al weet

@@ -44,7 +44,7 @@ const PatchThemeFileInputSchema = z
 const patchThemeFileTool = {
   name: "patch-theme-file",
   description:
-    "Patch one existing theme file with one or more literal replacements. Gebruik dit voor smalle single-file edits in bestaande snippets, sections, assets, config, of templates wanneer je het exacte targetbestand al weet. Niet bedoeld voor nieuwe files of grote refactors; gebruik daarvoor get-theme-file + draft-theme-artifact. Geef altijd hetzelfde expliciete themeId of themeRole mee als in je read-flow.",
+    "Patch one existing theme file with one or more literal replacements. Gebruik dit voor smalle single-file edits in bestaande snippets, sections, assets, config, of templates wanneer je het exacte targetbestand al weet. Gebruik bij twijfel eerst plan-theme-edit; niet bedoeld voor native product-block flows die section + snippet tegelijk raken. Geef altijd hetzelfde expliciete themeId of themeRole mee als in je read-flow.",
   schema: PatchThemeFileInputSchema,
   execute: async (input, context = {}) => {
     requireShopifyClient(context);
