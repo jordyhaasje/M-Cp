@@ -134,7 +134,7 @@ const PlanThemeEditInputSchema = z.preprocess(
 const planThemeEditTool = {
   name: "plan-theme-edit",
   description:
-    "Plan een theme edit voordat je bestanden leest of schrijft. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: patch-existing, multi-file-edit, create-section of template-placement, plus de exacte volgende read/write keys. Bij compatibele clients mag een korte _tool_input_summary ook; de planner probeert daaruit intent, template en theme target af te leiden. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.",
+    "Plan een theme edit voordat je bestanden leest of schrijft. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: patch-existing, multi-file-edit, create-section of template-placement, plus de exacte volgende read/write keys. Voor native product-blocks analyseert de planner templates/*.json al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Bij compatibele clients mag een korte _tool_input_summary ook; de planner probeert daaruit intent, template en theme target af te leiden. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.",
   schema: PlanThemeEditInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

@@ -1074,19 +1074,41 @@ export const getThemeFiles = async (
 export const searchThemeFiles = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main", patterns = [], includeContent = false, resultLimit = 20 }
+  { themeId, themeRole = "main", patterns = [], keys = [], includeContent = false, resultLimit = 20 }
 ) => {
-  if (!Array.isArray(patterns) || patterns.length === 0) {
-    throw new Error("patterns moet minimaal 1 item bevatten.");
+  const hasPatterns = Array.isArray(patterns) && patterns.length > 0;
+  const hasKeys = Array.isArray(keys) && keys.length > 0;
+  if (!hasPatterns && !hasKeys) {
+    throw new Error("patterns of keys moet minimaal 1 item bevatten.");
   }
+
+  const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
+  const cappedLimit = Math.max(1, Math.min(Number(resultLimit || 20), MAX_READ_KEYS_PER_CHUNK));
+
+  if (hasKeys) {
+    const normalizedKeys = keys.map((key) => String(key || "").trim()).filter(Boolean);
+    if (normalizedKeys.length !== keys.length) {
+      throw new Error("Elke key in keys[] moet een niet-lege string zijn.");
+    }
+    ensureUnique(normalizedKeys, "keys");
+    const exactFiles = await withThemeGraphqlFallback(
+      () => getThemeFilesGraphql(shopifyClient, apiVersion, { theme, keys: normalizedKeys.slice(0, cappedLimit), includeContent }),
+      () => getThemeFilesRest(shopifyClient, apiVersion, { theme, keys: normalizedKeys.slice(0, cappedLimit), includeContent })
+    );
+
+    return {
+      theme,
+      files: exactFiles.filter((file) => file?.found),
+      truncated: normalizedKeys.length > cappedLimit,
+    };
+  }
+
   const normalizedPatterns = patterns.map((pattern) => String(pattern || "").trim()).filter(Boolean);
   if (normalizedPatterns.length !== patterns.length) {
     throw new Error("Elke pattern in patterns[] moet een niet-lege string zijn.");
   }
   ensureUnique(normalizedPatterns, "patterns");
 
-  const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
-  const cappedLimit = Math.max(1, Math.min(Number(resultLimit || 20), MAX_READ_KEYS_PER_CHUNK));
   const resultByFilename = new Map();
   for (const patternChunk of chunkArray(normalizedPatterns, MAX_READ_KEYS_PER_CHUNK)) {
     if (resultByFilename.size >= cappedLimit) {

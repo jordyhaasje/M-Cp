@@ -154,13 +154,14 @@ const homepageLiquidFiles = {
 
 const productBlockFiles = {
   "templates/product.json": makeTextAsset(
-    JSON.stringify({
-      sections: {
-        main: { type: "main-product" },
-        complementary: { type: "product-recommendations" },
+    `/* Product template */
+    {
+      "sections": {
+        "main": { "type": "main-product" },
+        "complementary": { "type": "product-recommendations" }
       },
-      order: ["main", "complementary"],
-    })
+      "order": ["main", "complementary",]
+    }`
   ),
   "sections/main-product.liquid": makeTextAsset(`
     {% render 'product-info', product: product, section: section %}
@@ -266,6 +267,35 @@ try {
   assert.ok(
     productBlockPlan.nextWriteKeys.includes("snippets/product-info.liquid"),
     "native product block plan should include the snippet that renders section.blocks"
+  );
+  assert.equal(
+    productBlockPlan.nextReadKeys.includes("templates/product.json"),
+    false,
+    "native product block plan should not ask the client to reread the template unless placement is requested"
+  );
+  assert.ok(
+    productBlockPlan.warnings.some((warning) => warning.includes("placement")),
+    "native product block plan should warn that template reads after planning are only needed for explicit placement"
+  );
+
+  const exactKeySearchResult = await searchThemeFilesWithSnippets(shopifyClient, "2026-01", {
+    query: "buy_buttons",
+    keys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+    themeId: 123,
+    resultLimit: 4,
+    snippetLength: 100,
+  });
+  assert.ok(
+    exactKeySearchResult.hits.every(
+      (hit) => hit.key === "sections/main-product.liquid" || hit.key === "snippets/product-info.liquid"
+    ),
+    "exact-key search should stay inside the planner-provided files"
+  );
+  assert.ok(
+    exactKeySearchResult.hits.some((hit) =>
+      hit.snippets.some((snippet) => snippet.includes("buy_buttons") || snippet.includes("Buy buttons"))
+    ),
+    "exact-key search should still surface compact snippets from the target files"
   );
 
   global.fetch = createGraphqlFetch(productThemeBlockFiles);

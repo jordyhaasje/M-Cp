@@ -1587,6 +1587,113 @@ test("draftThemeArtifact - allows valid json template writes in edit mode", asyn
   }
 });
 
+test("draftThemeArtifact - accepts commented json templates in edit mode", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    const payload = options.body ? JSON.parse(String(options.body)) : {};
+    const query = String(payload.query || "");
+    const themeIdMatch = String(payload.variables?.themeId || "");
+    const numericThemeId = Number(themeIdMatch.match(/\/(\d+)$/)?.[1] || 111);
+
+    if (query.includes("ThemeById")) {
+      const resPayload = {
+        data: {
+          theme: {
+            id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+            name: "Dev Theme",
+            role: "DEVELOPMENT",
+            processing: false,
+            createdAt: "2026-04-02T00:00:00Z",
+            updatedAt: "2026-04-02T00:00:00Z"
+          }
+        }
+      };
+      return { ok: true, status: 200, json: async () => resPayload, text: async () => JSON.stringify(resPayload) };
+    }
+
+    if (query.includes("ThemeFilesUpsert")) {
+      const resPayload = {
+        data: {
+          themeFilesUpsert: {
+            upsertedThemeFiles: [{ filename: "templates/product.json" }],
+            job: { id: "gid://shopify/Job/1" },
+            userErrors: []
+          }
+        }
+      };
+      return { ok: true, status: 200, json: async () => resPayload, text: async () => JSON.stringify(resPayload) };
+    }
+
+    if (query.includes("ThemeFilesByIdMetadata")) {
+      const value = "/* existing */ { \"sections\": {}, \"order\": [] }";
+      const resPayload = {
+        data: {
+          theme: {
+            id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+            name: "Dev Theme",
+            role: "DEVELOPMENT",
+            processing: false,
+            createdAt: "2026-04-02T00:00:00Z",
+            updatedAt: "2026-04-02T00:00:00Z",
+            files: {
+              nodes: [
+                {
+                  filename: "templates/product.json",
+                  checksumMd5: checksumMd5Base64(value),
+                  contentType: "application/json",
+                  createdAt: "2026-04-02T00:00:00Z",
+                  updatedAt: "2026-04-02T00:00:00Z",
+                  size: Buffer.byteLength(value, "utf8")
+                }
+              ],
+              userErrors: []
+            }
+          }
+        }
+      };
+      return { ok: true, status: 200, json: async () => resPayload, text: async () => JSON.stringify(resPayload) };
+    }
+
+    return { ok: true, status: 200, json: async () => ({}), text: async () => "{}" };
+  };
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        files: [
+          {
+            key: "templates/product.json",
+            value: `/* product placement */
+{
+  "sections": {
+    "main": { "type": "main-product" }
+  },
+  "order": ["main",]
+}`,
+          }
+        ]
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("draftThemeArtifact - rejects invalid json template writes in edit mode", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",

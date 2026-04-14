@@ -30,7 +30,7 @@ const GetThemeFilesInputSchema = z
 const getThemeFilesTool = {
   name: "get-theme-files",
   description:
-    "Read EXACT files from a Shopify theme. GEEN GLOBBING. Deze read-only tool valt voor backwards compatibility terug op main als themeId/themeRole ontbreekt, maar gebruik in elke editflow bij voorkeur hetzelfde expliciete target als in plan-theme-edit en je write-call. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path. Gebruik dit bij voorkeur na plan-theme-edit, zodat je alleen de exact voorgestelde files leest. Handig voor bewuste multi-read workflows zoals ['sections/main-product.liquid', 'snippets/product-info.liquid'] of ['templates/product.json'].",
+    "Read EXACT files from a Shopify theme. GEEN GLOBBING. Deze read-only tool valt voor backwards compatibility terug op main als themeId/themeRole ontbreekt, maar gebruik in elke editflow bij voorkeur hetzelfde expliciete target als in plan-theme-edit en je write-call. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path. Gebruik dit bij voorkeur na plan-theme-edit, zodat je alleen de exact voorgestelde files leest. Voor native product-block flows zijn dat meestal sections + snippets; lees templates/*.json daarna alleen opnieuw als placement van het block expliciet gevraagd is. Handig voor bewuste multi-read workflows zoals ['sections/main-product.liquid', 'snippets/product-info.liquid'] of ['templates/product.json'].",
   schema: GetThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

@@ -28,17 +28,18 @@ const SearchThemeFilesShape = z
     mode: z.enum(["literal", "regex"]).default("literal"),
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     themeRole: ThemeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
+    keys: z.array(z.string().min(1)).min(1).max(10).optional().describe("Exacte file keys om compact binnen al bekende planner-output te zoeken, bijvoorbeeld ['sections/main-product.liquid', 'snippets/product-info.liquid']."),
     filePatterns: z.array(z.string().min(1)).max(20).optional().describe("Glob patterns to filter files (bijv. ['*.liquid', 'assets/*']). Gebruik filePatterns of scope om de zoekruimte smal te houden."),
     scope: z.array(ScopeBucketSchema).min(1).max(4).optional().describe("JE BENT VERPLICHT scope OF filePatterns TE GEBRUIKEN. MOET EEN ARRAY ZIJN (e.g. ['sections']). Absoluut GEEN losse string."),
     resultLimit: z.number().int().min(1).max(10).default(8),
     snippetLength: z.number().int().min(40).max(240).default(120),
   })
   .superRefine((input, ctx) => {
-    if ((!input.filePatterns || input.filePatterns.length === 0) && (!input.scope || input.scope.length === 0)) {
+    if ((!input.keys || input.keys.length === 0) && (!input.filePatterns || input.filePatterns.length === 0) && (!input.scope || input.scope.length === 0)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["filePatterns"],
-        message: "Geef minimaal filePatterns of scope op om de zoekruimte smal te houden.",
+        message: "Geef minimaal keys, filePatterns of scope op om de zoekruimte smal te houden.",
       });
     }
   });
@@ -51,6 +52,7 @@ const normalizeSearchThemeFilesInput = (rawInput) => {
   const summary = extractThemeToolSummary(rawInput);
   const normalized = {
     ...rawInput,
+    keys: Array.isArray(rawInput.keys) ? rawInput.keys : rawInput.keys ? [rawInput.keys] : rawInput.keys,
     scope: normalizeSummaryScope(rawInput.scope),
     filePatterns: normalizeSummaryFilePatterns(rawInput.filePatterns),
   };
@@ -78,7 +80,7 @@ const SearchThemeFilesInputSchema = z.preprocess(
 const searchThemeFilesTool = {
   name: "search-theme-files",
   description:
-    "Search scoped theme files and return compact snippets instead of full file dumps. Deze read-only tool valt voor backwards compatibility terug op main als themeId/themeRole ontbreekt, maar gebruik in elke editflow bij voorkeur hetzelfde expliciete target als in plan-theme-edit en je write-call. Gebruik dit eerst om een exacte, unieke patch-anchor of bestaand renderpad te vinden voordat je leest of schrijft. Voor native product-blocks of template placement gebruik je bij voorkeur eerst plan-theme-edit, en zoek je daarna alleen in de voorgestelde scope. Bij compatibele clients mag een korte _tool_input_summary ook; die wordt dan als query gebruikt en de scope wordt waar mogelijk automatisch vernauwd. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund. Minimaal geldig voorbeeld: { query: 'buy_buttons', scope: ['sections', 'snippets'] } of { query: 'main-product', filePatterns: ['sections/*.liquid'] }.",
+    "Search scoped theme files and return compact snippets instead of full file dumps. Deze read-only tool valt voor backwards compatibility terug op main als themeId/themeRole ontbreekt, maar gebruik in elke editflow bij voorkeur hetzelfde expliciete target als in plan-theme-edit en je write-call. Gebruik dit eerst om een exacte, unieke patch-anchor of bestaand renderpad te vinden voordat je leest of schrijft. Voor native product-blocks of template placement gebruik je bij voorkeur eerst plan-theme-edit, en zoek je daarna alleen in de voorgestelde scope of exact keys. Bij compatibele clients mag een korte _tool_input_summary ook; die wordt dan als query gebruikt en de scope wordt waar mogelijk automatisch vernauwd. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund. Minimaal geldig voorbeeld: { query: 'buy_buttons', scope: ['sections', 'snippets'] }, { query: 'block.type', keys: ['sections/main-product.liquid', 'snippets/product-info.liquid'] } of { query: 'main-product', filePatterns: ['sections/*.liquid'] }.",
   schema: SearchThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);
@@ -88,6 +90,7 @@ const searchThemeFilesTool = {
     const filePatterns = Array.from(new Set([...(input.filePatterns || []), ...scopePatterns]));
     return searchThemeFilesWithSnippets(shopifyClient, API_VERSION, {
       ...input,
+      keys: input.keys,
       filePatterns,
     });
   },

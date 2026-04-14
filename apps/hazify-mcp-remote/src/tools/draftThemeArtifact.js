@@ -4,6 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import { check } from "@shopify/theme-check-node";
 import { createThemeDraftRecord, updateThemeDraftRecord } from "../lib/db.js";
+import { parseJsonLike } from "../lib/jsonLike.js";
 import { getShopDomainFromClient, upsertThemeFiles, getThemeFiles, searchThemeFiles } from "../lib/themeFiles.js";
 import { requireShopifyClient } from "./_context.js";
 import {
@@ -17,7 +18,7 @@ export const description = `Draft and validate Shopify theme files through the g
 
 Modes:
 - mode="create": Volledige inspectie voor nieuwe sections (schema, presets, CSS kwaliteit verplicht). Templates/config geblokkeerd.
-- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON validatie.
+- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON/JSONC-validatie.
 
 Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liquid bescherming.
 
@@ -376,7 +377,7 @@ function inspectThemeColorSchemeSupport(settingsSchemaValue, settingsDataValue) 
   let parsedSettingsData;
 
   try {
-    parsedSettingsSchema = JSON.parse(String(settingsSchemaValue || ""));
+    parsedSettingsSchema = parseJsonLike(String(settingsSchemaValue || ""));
   } catch (error) {
     return {
       ok: false,
@@ -386,7 +387,7 @@ function inspectThemeColorSchemeSupport(settingsSchemaValue, settingsDataValue) 
   }
 
   try {
-    parsedSettingsData = JSON.parse(String(settingsDataValue || ""));
+    parsedSettingsData = parseJsonLike(String(settingsDataValue || ""));
   } catch (error) {
     return {
       ok: false,
@@ -515,7 +516,7 @@ function hasRawImgWithoutDimensions(value) {
 function inspectConfigFile(file) {
   let parsed;
   try {
-    parsed = JSON.parse(file.value);
+    parsed = parseJsonLike(file.value);
   } catch (e) {
     return {
       ok: false,
@@ -554,16 +555,16 @@ function inspectConfigFile(file) {
 function inspectTemplateFile(file) {
   let parsed;
   try {
-    parsed = JSON.parse(file.value);
+    parsed = parseJsonLike(file.value);
   } catch (e) {
     return {
       ok: false,
       status: "inspection_failed",
       errorCode: "inspection_failed_json",
       retryable: true,
-      message: `Template bestand '${file.key}' bevat ongeldige JSON: ${e.message}`,
+      message: `Template bestand '${file.key}' bevat ongeldige JSON/JSONC: ${e.message}`,
       warnings: [],
-      suggestedFixes: ["Controleer de JSON syntax en probeer opnieuw."],
+      suggestedFixes: ["Controleer de JSON/JSONC syntax en probeer opnieuw."],
       shouldNarrowScope: false,
     };
   }

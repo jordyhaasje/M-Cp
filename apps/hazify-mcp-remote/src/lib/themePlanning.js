@@ -1,4 +1,5 @@
 import { getThemeFiles, searchThemeFiles } from "./themeFiles.js";
+import { parseJsonLike } from "./jsonLike.js";
 
 const DEFAULT_THEME_SEARCH_LIMIT = 10;
 const DEFAULT_SNIPPET_LIMIT = 3;
@@ -61,9 +62,9 @@ const safeParseJson = (value) => {
     return null;
   }
   try {
-    return JSON.parse(value);
+    return parseJsonLike(value);
   } catch (error) {
-    console.warn("safeParseJson kon een String niet als JSON parsen. Syntaxfout of ongeldige JSON.", error.message);
+    console.warn("safeParseJson kon een String niet als JSON/JSONC parsen. Syntaxfout of ongeldige inhoud.", error.message);
     return null;
   }
 };
@@ -424,6 +425,7 @@ const buildPlanFromAnalysis = ({
   let reason =
     "Kon geen veilige, theme-aware editstrategie bepalen. Lees eerst de primaire template en section handmatig.";
   let nextWriteKeys = [];
+  let nextReadKeys = readKeys;
   let newFileSuggestions = [];
   const searchQueries = [];
 
@@ -445,6 +447,7 @@ const buildPlanFromAnalysis = ({
         "Plaats de nieuwe section pas in het template nadat de user dat expliciet vraagt."
       );
     }
+    nextReadKeys = [];
   } else if (intent === "template_placement") {
     recommendedFlow = "template-placement";
     shouldUse = "draft-theme-artifact";
@@ -452,6 +455,7 @@ const buildPlanFromAnalysis = ({
     reason =
       "Template placement hoort in een aparte edit op het bestaande templates/*.json of *.liquid bestand.";
     nextWriteKeys = templateFile?.key ? [templateFile.key] : [];
+    nextReadKeys = templateFile?.key ? [templateFile.key] : [];
   } else if (sectionAnalysis?.supportsThemeBlocks) {
     recommendedFlow = "multi-file-edit";
     shouldUse = "draft-theme-artifact";
@@ -465,6 +469,7 @@ const buildPlanFromAnalysis = ({
         "Maak geen blocks/*.liquid bestand aan tenzij de section deze theme blocks ook echt accepteert."
       );
     }
+    nextReadKeys = uniqueStrings([sectionFile?.key]);
   } else if (
     sectionAnalysis &&
     (sectionAnalysis.schemaBlockTypes.length > 0 ||
@@ -481,6 +486,9 @@ const buildPlanFromAnalysis = ({
     nextWriteKeys = uniqueStrings(
       [sectionFile?.key, ...snippetRendererKeys].filter(Boolean)
     );
+    nextReadKeys = uniqueStrings(
+      [sectionFile?.key, ...snippetRendererKeys].filter(Boolean)
+    );
   } else if (templateFile?.key) {
     recommendedFlow = "create-section";
     shouldUse = "draft-theme-artifact";
@@ -489,6 +497,7 @@ const buildPlanFromAnalysis = ({
       "Er is geen consistente native block-architectuur gedetecteerd; een losse section plus expliciete template placement is veiliger.";
     nextWriteKeys = [templateFile.key];
     newFileSuggestions = ["sections/<new-section>.liquid"];
+    nextReadKeys = [templateFile.key];
   }
 
   if (
@@ -513,6 +522,12 @@ const buildPlanFromAnalysis = ({
     );
   }
 
+  if (intent === "native_block" && templateFile?.key && nextReadKeys.every((key) => key !== templateFile.key)) {
+    warnings.push(
+      "De planner heeft het template al geanalyseerd. Lees templates/*.json alleen opnieuw als placement van het block expliciet gevraagd is."
+    );
+  }
+
   if (intent === "native_block" && snippetRendererKeys.length === 0 && query) {
     searchQueries.push(query);
   }
@@ -527,7 +542,7 @@ const buildPlanFromAnalysis = ({
     shouldUse,
     likelyNeedsMultiFileEdit,
     reason,
-    nextReadKeys: readKeys,
+    nextReadKeys,
     nextWriteKeys,
     newFileSuggestions,
     searchQueries: uniqueStrings(searchQueries),
@@ -542,6 +557,7 @@ export const searchThemeFilesWithSnippets = async (
     query,
     mode = "literal",
     filePatterns = [],
+    keys = [],
     themeId,
     themeRole = "main",
     resultLimit = 8,
@@ -549,13 +565,15 @@ export const searchThemeFilesWithSnippets = async (
   } = {}
 ) => {
   const patternList = uniqueStrings(filePatterns);
-  if (patternList.length === 0) {
-    throw new Error("filePatterns moet minimaal 1 pattern bevatten.");
+  const keyList = uniqueStrings(keys);
+  if (patternList.length === 0 && keyList.length === 0) {
+    throw new Error("filePatterns of keys moet minimaal 1 item bevatten.");
   }
   const searchResult = await searchThemeFiles(shopifyClient, apiVersion, {
     themeId,
     themeRole,
     patterns: patternList,
+    keys: keyList,
     includeContent: true,
     resultLimit: Math.min(
       DEFAULT_THEME_SEARCH_LIMIT,
@@ -596,6 +614,7 @@ export const searchThemeFilesWithSnippets = async (
     query,
     mode,
     filePatterns: patternList,
+    keys: keyList,
     hits,
     truncated: Boolean(searchResult.truncated || hits.length >= resultLimit),
   };
