@@ -300,6 +300,35 @@ test("draftThemeArtifact - rejects sections without presets", async () => {
   assert.ok(result.suggestedFixes.some((entry) => entry.includes("preset")));
 });
 
+test("draftThemeArtifact - rejects blocks without a schema block in create mode", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      themeId: 111,
+      mode: "create",
+      files: [
+        {
+          key: "blocks/stock-pulse.liquid",
+          value: `<div class="stock-pulse">In stock</div>`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "inspection_failed_schema");
+  assert.match(result.message, /blocks\/\*\.liquid/i);
+});
+
 test("draftThemeArtifact - rejects range settings whose default falls outside min/max before preview upload", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -1184,6 +1213,42 @@ test("draftThemeArtifact - infers edit mode and accepts a single patch", async (
   } finally {
     global.fetch = previousFetch;
   }
+});
+
+test("draftThemeArtifact - normalizes single-file top-level aliases into files[]", async () => {
+  const parsed = draftThemeArtifact.schema.parse({
+    themeRole: "main",
+    key: "sections/alias-demo.liquid",
+    searchString: "<div>Old</div>",
+    replaceString: "<div>New</div>",
+  });
+
+  assert.equal(parsed.files.length, 1);
+  assert.equal(parsed.files[0].key, "sections/alias-demo.liquid");
+  assert.deepEqual(parsed.files[0].patch, {
+    searchString: "<div>Old</div>",
+    replaceString: "<div>New</div>",
+  });
+});
+
+test("draftThemeArtifact - infers theme target and file path from summary-compatible input", async () => {
+  const parsed = draftThemeArtifact.schema.parse({
+    _tool_input_summary: "Schrijf sections/stock-pulse.liquid naar het live theme",
+    value: `
+<div>Stock pulse</div>
+{% schema %}
+{
+  "name": "Stock pulse",
+  "settings": [],
+  "presets": [{ "name": "Stock pulse" }]
+}
+{% endschema %}
+`,
+  });
+
+  assert.equal(parsed.themeRole, "main");
+  assert.equal(parsed.files.length, 1);
+  assert.equal(parsed.files[0].key, "sections/stock-pulse.liquid");
 });
 
 test("draftThemeArtifact - rejects ambiguous patch anchors before replacing multiple matches", async () => {

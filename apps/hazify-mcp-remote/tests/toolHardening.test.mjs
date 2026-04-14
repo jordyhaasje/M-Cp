@@ -12,6 +12,7 @@ import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
 import { applyThemeDraft } from "../src/tools/applyThemeDraft.js";
 import { patchThemeFileTool } from "../src/tools/patchThemeFile.js";
 import { planThemeEditTool } from "../src/tools/planThemeEdit.js";
+import { SearchThemeFilesInputSchema } from "../src/tools/searchThemeFiles.js";
 import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
 const originalLookup = dns.lookup;
@@ -207,6 +208,48 @@ try {
     template: "product",
   });
   assert.equal(planThemeEditPayload.success, true, "plan-theme-edit should require an explicit theme target");
+
+  const planThemeEditSummaryPayload = planThemeEditTool.schema.safeParse({
+    _tool_input_summary: "Maak een native block in de productpagina van het live theme",
+  });
+  assert.equal(planThemeEditSummaryPayload.success, true, "plan-theme-edit should infer required fields from a compatible summary");
+  assert.equal(planThemeEditSummaryPayload.data.themeRole, "main");
+  assert.equal(planThemeEditSummaryPayload.data.intent, "native_block");
+  assert.equal(planThemeEditSummaryPayload.data.template, "product");
+
+  const searchThemeFilesSummaryPayload = SearchThemeFilesInputSchema.safeParse({
+    _tool_input_summary: "Zoek buy_buttons in de productpagina van het live theme",
+  });
+  assert.equal(searchThemeFilesSummaryPayload.success, true, "search-theme-files should accept compatible summary-only inputs");
+  assert.ok(searchThemeFilesSummaryPayload.data.query.includes("buy_buttons"));
+  assert.deepEqual(searchThemeFilesSummaryPayload.data.scope, ["sections", "snippets"]);
+
+  const patchThemeFileSummaryPayload = patchThemeFileTool.schema.safeParse({
+    _tool_input_summary: "Patch snippets/product-info.liquid in het live theme",
+    searchString: "{%- when 'title' -%}",
+    replaceString: "{%- when 'title' -%}\n  <span>Badge</span>",
+  });
+  assert.equal(patchThemeFileSummaryPayload.success, true, "patch-theme-file should normalize top-level search/replace shorthand");
+  assert.equal(patchThemeFileSummaryPayload.data.key, "snippets/product-info.liquid");
+  assert.equal(patchThemeFileSummaryPayload.data.themeRole, "main");
+  assert.equal(patchThemeFileSummaryPayload.data.patch.searchString, "{%- when 'title' -%}");
+
+  const draftTopLevelAliasPayload = draftThemeArtifact.schema.safeParse({
+    themeRole: "main",
+    key: "sections/demo-alias.liquid",
+    value: `
+<div>Demo</div>
+{% schema %}
+{
+  "name": "Demo alias",
+  "settings": [],
+  "presets": [{ "name": "Demo alias" }]
+}
+{% endschema %}
+`,
+  });
+  assert.equal(draftTopLevelAliasPayload.success, true, "draft-theme-artifact should accept single-file top-level aliases");
+  assert.equal(draftTopLevelAliasPayload.data.files[0].key, "sections/demo-alias.liquid");
 
   const invalidDraftSchemaPayload = draftThemeArtifact.schema.safeParse({
     files: [

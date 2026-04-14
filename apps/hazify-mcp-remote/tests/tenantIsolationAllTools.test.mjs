@@ -124,6 +124,7 @@ const toolFiles = (await fs.readdir(toolsDir))
 
 const contextFreeFiles = new Set([
   path.join(toolsDir, "_context.js"),
+  path.join(toolsDir, "_themeToolCompatibility.js"),
   path.join(toolsDir, "getLicenseStatus.js"),
   path.join(toolsDir, "getSupportedTrackingCompanies.js"),
   path.join(toolsDir, "registry.js"),

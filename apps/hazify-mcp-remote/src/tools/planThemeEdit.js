@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { planThemeEdit } from "../lib/themePlanning.js";
+import {
+  extractThemeToolSummary,
+  inferIntentFromSummary,
+  inferSectionTypeHint,
+  inferSingleThemeFile,
+  inferTemplateFromSummary,
+  inferThemeTargetFromSummary,
+} from "./_themeToolCompatibility.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
@@ -22,7 +30,7 @@ const TemplateSchema = z.enum([
   "search",
 ]);
 
-const PlanThemeEditInputSchema = z
+const PlanThemeEditShape = z
   .object({
     themeId: z
       .coerce.number()
@@ -88,10 +96,45 @@ const PlanThemeEditInputSchema = z
     }
   });
 
+const normalizePlanThemeEditInput = (rawInput) => {
+  if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
+    return rawInput;
+  }
+
+  const summary = extractThemeToolSummary(rawInput);
+  if (!summary) {
+    return rawInput;
+  }
+
+  let normalized = inferThemeTargetFromSummary(rawInput, summary);
+  if (!normalized.intent) {
+    normalized.intent = inferIntentFromSummary(summary, normalized);
+  }
+  if (!normalized.template) {
+    normalized.template = inferTemplateFromSummary(summary);
+  }
+  if (!normalized.query) {
+    normalized.query = summary.slice(0, 240);
+  }
+  if (!normalized.targetFile && normalized.intent === "existing_edit") {
+    normalized.targetFile = inferSingleThemeFile(summary) || normalized.targetFile;
+  }
+  if (!normalized.sectionTypeHint) {
+    normalized.sectionTypeHint = inferSectionTypeHint(summary) || normalized.sectionTypeHint;
+  }
+
+  return normalized;
+};
+
+const PlanThemeEditInputSchema = z.preprocess(
+  normalizePlanThemeEditInput,
+  PlanThemeEditShape
+);
+
 const planThemeEditTool = {
   name: "plan-theme-edit",
   description:
-    "Plan een theme edit voordat je bestanden leest of schrijft. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: patch-existing, multi-file-edit, create-section of template-placement, plus de exacte volgende read/write keys.",
+    "Plan een theme edit voordat je bestanden leest of schrijft. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: patch-existing, multi-file-edit, create-section of template-placement, plus de exacte volgende read/write keys. Bij compatibele clients mag een korte _tool_input_summary ook; de planner probeert daaruit intent, template en theme target af te leiden. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.",
   schema: PlanThemeEditInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

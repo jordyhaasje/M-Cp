@@ -6,6 +6,11 @@ import { check } from "@shopify/theme-check-node";
 import { createThemeDraftRecord, updateThemeDraftRecord } from "../lib/db.js";
 import { getShopDomainFromClient, upsertThemeFiles, getThemeFiles, searchThemeFiles } from "../lib/themeFiles.js";
 import { requireShopifyClient } from "./_context.js";
+import {
+  extractThemeToolSummary,
+  inferSingleThemeFile,
+  inferThemeTargetFromSummary,
+} from "./_themeToolCompatibility.js";
 
 export const toolName = "draft-theme-artifact";
 export const description = `Draft and validate Shopify theme files through the guarded pipeline.
@@ -20,8 +25,10 @@ Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als
 
 Theme-aware section regels:
 - Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
+- Compatibele shorthand: voor één file mag een client ook top-level key + value of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt voor theme target of exact file path, probeert de tool die info daaruit af te leiden; legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
 - Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max.
+- Nieuwe blocks/*.liquid files krijgen in create mode ook een basisinspectie op geldige schema JSON en block-veilige markup.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
 - Voor native blocks binnen een bestaande section (bijv. product-info of main-product): gebruik mode="edit" en patch de bestaande schema.blocks plus de render markup/snippet. Dit is geen los blocks/*.liquid bestand.
@@ -67,7 +74,7 @@ const ThemeDraftFileSchema = z.object({
   message: "Provide exactly one of 'value', 'patch', or 'patches'",
 });
 
-export const inputSchema = z.object({
+const ThemeDraftArtifactInputShape = z.object({
   files: z.array(ThemeDraftFileSchema).min(1).max(10).describe("Maximale file batch is 10 items conform veiligheidsregels"),
   themeId: z.string().or(z.number()).optional().describe("Optioneel expliciet doel theme ID. Laat weg om via themeRole te resolven."),
   themeRole: ThemeRoleSchema.optional().describe("Target theme role. Verplicht als themeId niet is opgegeven. Vraag de gebruiker welk thema."),
@@ -92,6 +99,54 @@ export const inputSchema = z.object({
     });
   });
 });
+
+const normalizeDraftThemeArtifactInput = (rawInput) => {
+  if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
+    return rawInput;
+  }
+
+  const summary = extractThemeToolSummary(rawInput);
+  let normalized = summary ? inferThemeTargetFromSummary(rawInput, summary) : { ...rawInput };
+
+  const singlePatch =
+    rawInput.searchString !== undefined &&
+    rawInput.replaceString !== undefined &&
+    !rawInput.patch &&
+    !rawInput.patches
+      ? {
+          searchString: rawInput.searchString,
+          replaceString: rawInput.replaceString,
+        }
+      : rawInput.patch;
+
+  if (!normalized.files) {
+    const inferredKey =
+      rawInput.key || rawInput.targetFile || (summary ? inferSingleThemeFile(summary) : null);
+    if (
+      inferredKey &&
+      (rawInput.value !== undefined ||
+        singlePatch !== undefined ||
+        rawInput.patches !== undefined)
+    ) {
+      normalized.files = [
+        {
+          key: inferredKey,
+          ...(rawInput.value !== undefined ? { value: rawInput.value } : {}),
+          ...(singlePatch !== undefined ? { patch: singlePatch } : {}),
+          ...(rawInput.patches !== undefined ? { patches: rawInput.patches } : {}),
+          ...(rawInput.baseChecksumMd5 ? { baseChecksumMd5: rawInput.baseChecksumMd5 } : {}),
+        },
+      ];
+    }
+  }
+
+  return normalized;
+};
+
+export const inputSchema = z.preprocess(
+  normalizeDraftThemeArtifactInput,
+  ThemeDraftArtifactInputShape
+);
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -758,6 +813,106 @@ function inspectSectionFile(file) {
   };
 }
 
+function inspectThemeBlockFile(file) {
+  const value = String(file.value || "");
+  const warnings = [];
+  const suggestedFixes = [];
+
+  if (containsLiquidInSpecialBlock(value, "stylesheet") || containsLiquidInSpecialBlock(value, "javascript")) {
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_css",
+      retryable: true,
+      message:
+        "Shopify rendert geen Liquid binnen {% stylesheet %} of {% javascript %} in blocks/*.liquid. Gebruik <style> of markup-level CSS variables wanneer dynamic block styling nodig is.",
+      warnings,
+      suggestedFixes: [
+        "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
+        "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten.",
+      ],
+      shouldNarrowScope: false,
+    };
+  }
+
+  const { schema, error } = parseSectionSchema(value);
+  if (error || !schema) {
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_schema",
+      retryable: true,
+      message:
+        "Building Inspection Failed: blocks/*.liquid bestanden moeten een geldige {% schema %} JSON-definitie bevatten.",
+      warnings,
+      suggestedFixes: [
+        "Voeg een valide {% schema %} block toe aan het block-bestand.",
+        error || "Schema ontbreekt volledig.",
+      ].filter(Boolean),
+      shouldNarrowScope: false,
+    };
+  }
+
+  const rangeIssues = collectSchemaRangeIssues(schema);
+  if (rangeIssues.length > 0) {
+    const firstIssue = rangeIssues[0];
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_schema_range",
+      retryable: true,
+      message: `Building Inspection Failed: ${firstIssue.message}`,
+      warnings,
+      suggestedFixes: [
+        `Pas default van ${firstIssue.label} aan zodat deze binnen min/max valt.`,
+        `Of wijzig min/max zodat default ${firstIssue.defaultValue} geldig wordt binnen het bereik ${firstIssue.min}-${firstIssue.max}.`,
+      ],
+      shouldNarrowScope: false,
+    };
+  }
+
+  const settingTypes = collectSchemaSettingTypes(schema);
+  if (settingTypes.has("video_url") && !settingTypes.has("video")) {
+    warnings.push(
+      "Schema gebruikt video_url. Dit ondersteunt externe YouTube/Vimeo URLs; gebruik type 'video' voor merchant-uploaded videobestanden."
+    );
+    suggestedFixes.push(
+      "Gebruik een video setting in plaats van video_url wanneer de gebruiker een video moet uploaden in het theme."
+    );
+  }
+
+  if (hasRawImgWithoutDimensions(value)) {
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_media",
+      retryable: true,
+      message:
+        "Building Inspection Failed: raw <img> tags zonder width en height veroorzaken instabiele Shopify blocks. Gebruik image_url + image_tag of geef expliciete afmetingen mee.",
+      warnings,
+      suggestedFixes: [
+        "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen.",
+      ],
+      shouldNarrowScope: false,
+    };
+  }
+
+  if (!hasLiquidBlockTag(value, "doc")) {
+    warnings.push(
+      "Theme block mist een {% doc %} block. Dit is aanbevolen voor tooling en vereist wanneer het block statisch via content_for 'block' wordt gerenderd."
+    );
+    suggestedFixes.push(
+      "Voeg een compact {% doc %} block toe bovenaan het block-bestand wanneer dit block tooling- of static-rendered gebruik krijgt."
+    );
+  }
+
+  return {
+    ok: true,
+    warnings,
+    suggestedFixes,
+  };
+}
+
 function normalizeLintErrors(offenses, tmpDir) {
   return offenses.map((offense) => ({
     file: offense.uri ? offense.uri.replace(`file://${tmpDir}/`, "") : "root",
@@ -1242,6 +1397,7 @@ export const draftThemeArtifact = {
     for (const file of files) {
       const isTemplateConfig = /^(templates|config)\//.test(file.key);
       const isSectionFile = file.key.endsWith(".liquid") && file.key.startsWith("sections/");
+      const isBlockFile = file.key.endsWith(".liquid") && file.key.startsWith("blocks/");
 
       if (isTemplateConfig) {
         if (mode === "create") {
@@ -1307,6 +1463,44 @@ export const draftThemeArtifact = {
             });
           }
           // Schema parse proberen als waarschuwing (geen blokkade in edit mode)
+          if (hasLiquidBlockTag(value, "schema")) {
+            const { error } = parseSectionSchema(value);
+            if (error) {
+              warnings.push(`Schema parse waarschuwing: ${error}`);
+            }
+          }
+        }
+      } else if (isBlockFile) {
+        if (mode === "create") {
+          const inspection = inspectThemeBlockFile(file);
+          if (!inspection.ok) {
+            return buildFailureResponse({
+              status: inspection.status,
+              message: inspection.message,
+              warnings: inspection.warnings || [],
+              errorCode: inspection.errorCode,
+              retryable: inspection.retryable,
+              suggestedFixes: inspection.suggestedFixes || [],
+              shouldNarrowScope: inspection.shouldNarrowScope || false,
+            });
+          }
+          warnings.push(...(inspection.warnings || []));
+          suggestedFixes.push(...(inspection.suggestedFixes || []));
+        } else {
+          const value = String(file.value || "");
+          if (containsLiquidInSpecialBlock(value, "stylesheet") || containsLiquidInSpecialBlock(value, "javascript")) {
+            return buildFailureResponse({
+              status: "inspection_failed",
+              message: "Liquid binnen {% stylesheet %} of {% javascript %} is niet toegestaan. Gebruik <style> of markup-level CSS variables.",
+              errorCode: "inspection_failed_css",
+              retryable: true,
+              suggestedFixes: [
+                "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
+                "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten.",
+              ],
+              shouldNarrowScope: false,
+            });
+          }
           if (hasLiquidBlockTag(value, "schema")) {
             const { error } = parseSectionSchema(value);
             if (error) {
