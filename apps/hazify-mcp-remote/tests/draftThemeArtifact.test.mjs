@@ -383,6 +383,191 @@ test("draftThemeArtifact - rejects range settings whose default falls outside mi
   assert.match(result.message, /min 40/i);
 });
 
+test("draftThemeArtifact - rejects range settings whose default is not aligned to the declared step", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      themeId: 111,
+      files: [
+        {
+          key: "sections/invalid-step-grid.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .demo {
+    display: grid;
+    gap: 24px;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .demo {
+      gap: 16px;
+    }
+  }
+</style>
+<div class="demo">{{ section.settings.heading }}</div>
+{% schema %}
+{
+  "name": "Invalid step grid",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "range", "id": "padding_top", "label": "Padding top", "min": 0, "max": 100, "step": 8, "default": 10 },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Invalid step grid" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "inspection_failed_schema_range");
+  assert.match(result.message, /step/i);
+  assert.match(result.message, /padding_top/i);
+});
+
+test("draftThemeArtifact - rejects range settings that exceed Shopify's step-count limit", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      themeId: 111,
+      files: [
+        {
+          key: "sections/too-many-range-steps.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .demo {
+    display: grid;
+    gap: 24px;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .demo {
+      gap: 16px;
+    }
+  }
+</style>
+<div class="demo">{{ section.settings.heading }}</div>
+{% schema %}
+{
+  "name": "Too many range steps",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "range", "id": "card_offset_right", "label": "Card offset", "min": 0, "max": 220, "step": 2, "default": 22 },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Too many range steps" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "inspection_failed_schema_range");
+  assert.match(result.message, /101 stappen/i);
+  assert.match(result.message, /card_offset_right/i);
+});
+
+test("draftThemeArtifact - rejects schema-only section stubs in create mode", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      themeId: 111,
+      files: [
+        {
+          key: "sections/schema-only-stub.liquid",
+          value: `
+{% schema %}
+{
+  "name": "Schema only stub",
+  "settings": [],
+  "presets": [{ "name": "Schema only stub" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "inspection_failed_incomplete_section");
+  assert.match(result.message, /schema-only|renderbare markup/i);
+});
+
+test("draftThemeArtifact - rejects invalid range schemas in edit mode before preview upload", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const originalFetch = global.fetch;
+  const themeFileMock = createThemeFileFetchMock({
+    key: "sections/good-file.liquid",
+    initialValue: goodSectionLiquid,
+  });
+  global.fetch = themeFileMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        files: [
+          {
+            key: "sections/good-file.liquid",
+            value: goodSectionLiquid.replace('"step": 4, "default": 16', '"step": 8, "default": 10'),
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, "inspection_failed_schema_range");
+    assert.match(result.message, /step/i);
+    assert.match(result.message, /good-file\.liquid|gap/i);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("draftThemeArtifact - accepts schema blocks that use Liquid whitespace control", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",

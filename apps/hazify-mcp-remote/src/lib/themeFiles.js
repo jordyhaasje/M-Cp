@@ -455,12 +455,13 @@ const mapRestTheme = (theme) => ({
 });
 
 const mapGraphqlThemeFile = (fileNode) => {
+  const normalizedChecksumMd5 = normalizeChecksumMd5(fileNode.checksumMd5);
   const asset = {
     key: fileNode.filename,
     found: true,
     missing: false,
     checksum: fileNode.checksumMd5 || null,
-    checksumMd5: fileNode.checksumMd5 || null,
+    checksumMd5: normalizedChecksumMd5,
     contentType: fileNode.contentType || null,
     createdAt: fileNode.createdAt || null,
     updatedAt: fileNode.updatedAt || null,
@@ -481,20 +482,23 @@ const mapGraphqlThemeFile = (fileNode) => {
   return asset;
 };
 
-const mapRestThemeAsset = (asset) => ({
-  key: asset?.key || null,
-  found: true,
-  missing: false,
-  checksum: asset?.checksum || null,
-  checksumMd5: asset?.checksum || null,
-  contentType: asset?.content_type || null,
-  createdAt: asset?.created_at || null,
-  updatedAt: asset?.updated_at || null,
-  size: asset?.size ?? null,
-  ...(typeof asset?.value === "string" ? { value: asset.value } : {}),
-  ...(typeof asset?.attachment === "string" ? { attachment: asset.attachment } : {}),
-  ...(typeof asset?.public_url === "string" ? { url: asset.public_url } : {}),
-});
+const mapRestThemeAsset = (asset) => {
+  const rawChecksum = asset?.checksum || null;
+  return {
+    key: asset?.key || null,
+    found: true,
+    missing: false,
+    checksum: rawChecksum,
+    checksumMd5: normalizeChecksumMd5(rawChecksum),
+    contentType: asset?.content_type || null,
+    createdAt: asset?.created_at || null,
+    updatedAt: asset?.updated_at || null,
+    size: asset?.size ?? null,
+    ...(typeof asset?.value === "string" ? { value: asset.value } : {}),
+    ...(typeof asset?.attachment === "string" ? { attachment: asset.attachment } : {}),
+    ...(typeof asset?.public_url === "string" ? { url: asset.public_url } : {}),
+  };
+};
 
 const createMissingThemeAsset = (key) => ({
   key,
@@ -536,6 +540,17 @@ const createExpectedSizeFromInputFile = (file) => {
     return Buffer.from(file.attachment, "base64").length;
   }
   return Buffer.byteLength(String(file?.value || ""), "utf8");
+};
+
+const normalizeChecksumMd5 = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+  if (/^[a-f0-9]{32}$/i.test(raw)) {
+    return Buffer.from(raw, "hex").toString("base64");
+  }
+  return raw;
 };
 
 const createChecksumMd5Base64 = (file) => {
@@ -786,13 +801,15 @@ const assertThemeFileChecksum = async (
   try {
     const current = await getThemeFile(shopifyClient, apiVersion, { themeId, themeRole, key });
     const actualChecksum = current?.asset?.checksum || current?.asset?.checksumMd5 || null;
+    const normalizedActualChecksum = normalizeChecksumMd5(actualChecksum);
+    const normalizedExpectedChecksum = normalizeChecksumMd5(checksum);
     if (!actualChecksum) {
       throw buildErrorWithStatus(
         `Theme file '${key}' heeft geen bruikbare checksum; conflict-safe write kan niet worden gevalideerd.`,
         409
       );
     }
-    if (String(actualChecksum) !== String(checksum)) {
+    if (String(normalizedActualChecksum || "") !== String(normalizedExpectedChecksum || "")) {
       throw buildErrorWithStatus(
         `Theme file '${key}' is gewijzigd sinds de opgegeven checksum. Verwacht ${checksum}, ontving ${actualChecksum}.`,
         409,
@@ -911,13 +928,15 @@ const getThemeFilesRest = async (
 const verifyThemeFilesAgainstExpected = ({ expected, actualAssetsByKey }) => {
   const results = expected.map((entry) => {
     const actual = actualAssetsByKey.get(entry.key) || null;
+    const normalizedExpectedChecksum = normalizeChecksumMd5(entry.checksumMd5);
+    const normalizedActualChecksum = normalizeChecksumMd5(actual?.checksumMd5 || actual?.checksum);
     if (!actual || actual.missing) {
       return {
         key: entry.key,
         status: "missing",
         expected: {
           size: entry.size ?? null,
-          checksumMd5: entry.checksumMd5 ?? null,
+          checksumMd5: normalizedExpectedChecksum ?? null,
         },
         actual: null,
       };
@@ -927,7 +946,10 @@ const verifyThemeFilesAgainstExpected = ({ expected, actualAssetsByKey }) => {
     if (entry.size !== undefined && Number(actual.size) !== Number(entry.size)) {
       mismatches.push("size");
     }
-    if (entry.checksumMd5 !== undefined && String(actual.checksumMd5 || "") !== String(entry.checksumMd5)) {
+    if (
+      entry.checksumMd5 !== undefined &&
+      String(normalizedActualChecksum || "") !== String(normalizedExpectedChecksum || "")
+    ) {
       mismatches.push("checksumMd5");
     }
 
@@ -937,11 +959,11 @@ const verifyThemeFilesAgainstExpected = ({ expected, actualAssetsByKey }) => {
       mismatches,
       expected: {
         size: entry.size ?? null,
-        checksumMd5: entry.checksumMd5 ?? null,
+        checksumMd5: normalizedExpectedChecksum ?? null,
       },
       actual: {
         size: actual.size ?? null,
-        checksumMd5: actual.checksumMd5 ?? null,
+        checksumMd5: normalizedActualChecksum ?? null,
         contentType: actual.contentType ?? null,
         updatedAt: actual.updatedAt ?? null,
       },
@@ -1160,7 +1182,7 @@ export const verifyThemeFiles = async (
   const normalizedExpected = expected.map((entry) => ({
     key: String(entry?.key || "").trim(),
     ...(entry?.size !== undefined ? { size: Number(entry.size) } : {}),
-    ...(entry?.checksumMd5 !== undefined ? { checksumMd5: String(entry.checksumMd5) } : {}),
+    ...(entry?.checksumMd5 !== undefined ? { checksumMd5: normalizeChecksumMd5(entry.checksumMd5) } : {}),
   }));
   if (normalizedExpected.some((entry) => !entry.key)) {
     throw new Error("Elke expected[] entry moet een niet-lege key bevatten.");

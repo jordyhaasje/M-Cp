@@ -17,8 +17,8 @@ export const toolName = "draft-theme-artifact";
 export const description = `Draft and validate Shopify theme files through the guarded pipeline.
 
 Modes:
-- mode="create": Volledige inspectie voor nieuwe sections (schema, presets, CSS kwaliteit verplicht). Templates/config geblokkeerd.
-- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON/JSONC-validatie.
+- mode="create": Volledige inspectie voor nieuwe sections (geldig schema, presets, renderbare markup en Shopify-veilige range settings). Templates/config geblokkeerd.
+- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON/JSONC-validatie, en sections/blocks met schema krijgen ook range-validatie.
 
 Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liquid bescherming.
 
@@ -28,7 +28,7 @@ Theme-aware section regels:
 - Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
 - Compatibele shorthand: voor één file mag een client ook top-level key + value of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt voor theme target of exact file path, probeert de tool die info daaruit af te leiden; legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
-- Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max.
+- Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting.
 - Nieuwe blocks/*.liquid files krijgen in create mode ook een basisinspectie op geldige schema JSON en block-veilige markup.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
@@ -224,6 +224,36 @@ function collectSchemaSettings(schema) {
   return [...sectionSettings, ...blockSettings].filter(Boolean);
 }
 
+const RANGE_ALIGNMENT_EPSILON = 1e-9;
+
+function isRangeValueAlignedToStep(value, min, step) {
+  const stepsFromMin = (value - min) / step;
+  return Math.abs(stepsFromMin - Math.round(stepsFromMin)) < RANGE_ALIGNMENT_EPSILON;
+}
+
+function buildRangeIssueSuggestedFixes(issue) {
+  switch (issue?.code) {
+    case "range_default_not_on_step":
+      return [
+        `Pas default van ${issue.label} aan zodat deze exact op het step-raster valt vanaf min ${issue.min} met step ${issue.step}.`,
+        `Of wijzig min/step zodat default ${issue.defaultValue} een geldige stap binnen ${issue.min}-${issue.max} wordt.`,
+        "Controleer alle range settings in de section schema voordat je opnieuw schrijft.",
+      ];
+    case "range_too_many_steps":
+      return [
+        `Beperk ${issue.label} tot maximaal 101 bereikstappen. De huidige configuratie levert ${issue.stepCount} waarden op.`,
+        `Verhoog step of verklein het bereik ${issue.min}-${issue.max} voordat je opnieuw schrijft.`,
+        "Controleer alle range settings in de section schema voordat je opnieuw schrijft.",
+      ];
+    default:
+      return [
+        `Pas default van ${issue.label} aan zodat deze binnen min/max valt.`,
+        `Of wijzig min/max zodat default ${issue.defaultValue} geldig wordt binnen het bereik ${issue.min}-${issue.max}.`,
+        "Controleer alle range settings in de section schema voordat je opnieuw schrijft.",
+      ];
+  }
+}
+
 function collectSchemaRangeIssues(schema) {
   const issues = [];
   const addIssue = (setting, ownerLabel) => {
@@ -300,6 +330,35 @@ function collectSchemaRangeIssues(schema) {
           `${label} heeft default ${defaultValue}, maar deze moet tussen min ${min} en max ${max} vallen.`,
       });
       return;
+    }
+
+    if (!isRangeValueAlignedToStep(defaultValue, min, step)) {
+      issues.push({
+        code: "range_default_not_on_step",
+        label,
+        min,
+        max,
+        defaultValue,
+        step,
+        message:
+          `${label} heeft default ${defaultValue}, maar deze moet exact op een geldige step vanaf min ${min} liggen (step ${step}).`,
+      });
+      return;
+    }
+
+    const stepCount = Math.floor((max - min) / step) + 1;
+    if (stepCount > 101) {
+      issues.push({
+        code: "range_too_many_steps",
+        label,
+        min,
+        max,
+        defaultValue,
+        step,
+        stepCount,
+        message:
+          `${label} gebruikt ${stepCount} bereikstappen. Shopify accepteert maximaal 101 stappen per range setting.`,
+      });
     }
   };
 
@@ -513,6 +572,61 @@ function hasRawImgWithoutDimensions(value) {
   );
 }
 
+function removeLiquidBlock(value, tagName) {
+  return String(value || "").replace(
+    new RegExp(`{%-?\\s*${escapeRegExp(tagName)}\\s*-?%}[\\s\\S]*?{%-?\\s*end${escapeRegExp(tagName)}\\s*-?%}`, "gi"),
+    ""
+  );
+}
+
+function hasRenderableContentOutsideSchema(value) {
+  let source = String(value || "");
+  for (const tagName of ["schema", "stylesheet", "javascript", "style", "doc", "comment"]) {
+    source = removeLiquidBlock(source, tagName);
+  }
+  source = source.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
+  source = source.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  return source.trim().length > 0;
+}
+
+function inspectEditableLiquidSchema(value, fileLabel) {
+  if (!hasLiquidBlockTag(value, "schema")) {
+    return { ok: true };
+  }
+
+  const { schema, error } = parseSectionSchema(value);
+  if (error || !schema) {
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_schema",
+      retryable: true,
+      message: `${fileLabel} bevat een ongeldig {% schema %} block: ${error || "Schema ontbreekt."}`,
+      suggestedFixes: [
+        "Controleer of de schema JSON parsebaar is.",
+        "Behoud een geldig {% schema %} block in section- en block-bestanden.",
+      ],
+      shouldNarrowScope: false,
+    };
+  }
+
+  const rangeIssues = collectSchemaRangeIssues(schema);
+  if (rangeIssues.length > 0) {
+    const firstIssue = rangeIssues[0];
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_schema_range",
+      retryable: true,
+      message: `Building Inspection Failed: ${firstIssue.message}`,
+      suggestedFixes: buildRangeIssueSuggestedFixes(firstIssue),
+      shouldNarrowScope: false,
+    };
+  }
+
+  return { ok: true };
+}
+
 function inspectConfigFile(file) {
   let parsed;
   try {
@@ -697,6 +811,23 @@ function inspectSectionFile(file) {
     };
   }
 
+  if (!hasRenderableContentOutsideSchema(value)) {
+    return {
+      ok: false,
+      status: "inspection_failed",
+      errorCode: "inspection_failed_incomplete_section",
+      retryable: true,
+      message:
+        "Building Inspection Failed: nieuwe sections moeten renderbare markup of block-rendering bevatten. Een schema-only of style-only stub is niet toegestaan.",
+      warnings,
+      suggestedFixes: [
+        "Voeg daadwerkelijke section-markup toe buiten het {% schema %} block.",
+        "Gebruik desnoods {% content_for 'blocks' %} of renderbare HTML/Liquid in de section body.",
+      ],
+      shouldNarrowScope: false,
+    };
+  }
+
   const rangeIssues = collectSchemaRangeIssues(schema);
   if (rangeIssues.length > 0) {
     const firstIssue = rangeIssues[0];
@@ -707,11 +838,7 @@ function inspectSectionFile(file) {
       retryable: true,
       message: `Building Inspection Failed: ${firstIssue.message}`,
       warnings,
-      suggestedFixes: [
-        `Pas default van ${firstIssue.label} aan zodat deze binnen min/max valt.`,
-        `Of wijzig min/max zodat default ${firstIssue.defaultValue} geldig wordt binnen het bereik ${firstIssue.min}-${firstIssue.max}.`,
-        "Controleer alle range settings in de section schema voordat je opnieuw schrijft.",
-      ],
+      suggestedFixes: buildRangeIssueSuggestedFixes(firstIssue),
       shouldNarrowScope: false,
     };
   }
@@ -864,10 +991,7 @@ function inspectThemeBlockFile(file) {
       retryable: true,
       message: `Building Inspection Failed: ${firstIssue.message}`,
       warnings,
-      suggestedFixes: [
-        `Pas default van ${firstIssue.label} aan zodat deze binnen min/max valt.`,
-        `Of wijzig min/max zodat default ${firstIssue.defaultValue} geldig wordt binnen het bereik ${firstIssue.min}-${firstIssue.max}.`,
-      ],
+      suggestedFixes: buildRangeIssueSuggestedFixes(firstIssue),
       shouldNarrowScope: false,
     };
   }
@@ -1448,7 +1572,7 @@ export const draftThemeArtifact = {
           warnings.push(...(inspection.warnings || []));
           suggestedFixes.push(...(inspection.suggestedFixes || []));
         } else {
-          // Edit mode: alleen Liquid-in-special-block check (geen presets/CSS kwaliteit)
+          // Edit mode: Liquid-in-special-block check + harde schema-validatie wanneer een schema aanwezig is
           const value = String(file.value || "");
           if (containsLiquidInSpecialBlock(value, "stylesheet") || containsLiquidInSpecialBlock(value, "javascript")) {
             return buildFailureResponse({
@@ -1463,12 +1587,16 @@ export const draftThemeArtifact = {
               shouldNarrowScope: false,
             });
           }
-          // Schema parse proberen als waarschuwing (geen blokkade in edit mode)
-          if (hasLiquidBlockTag(value, "schema")) {
-            const { error } = parseSectionSchema(value);
-            if (error) {
-              warnings.push(`Schema parse waarschuwing: ${error}`);
-            }
+          const schemaInspection = inspectEditableLiquidSchema(value, `Section '${file.key}'`);
+          if (!schemaInspection.ok) {
+            return buildFailureResponse({
+              status: schemaInspection.status,
+              message: schemaInspection.message,
+              errorCode: schemaInspection.errorCode,
+              retryable: schemaInspection.retryable,
+              suggestedFixes: schemaInspection.suggestedFixes || [],
+              shouldNarrowScope: schemaInspection.shouldNarrowScope || false,
+            });
           }
         }
       } else if (isBlockFile) {
@@ -1502,11 +1630,16 @@ export const draftThemeArtifact = {
               shouldNarrowScope: false,
             });
           }
-          if (hasLiquidBlockTag(value, "schema")) {
-            const { error } = parseSectionSchema(value);
-            if (error) {
-              warnings.push(`Schema parse waarschuwing: ${error}`);
-            }
+          const schemaInspection = inspectEditableLiquidSchema(value, `Block '${file.key}'`);
+          if (!schemaInspection.ok) {
+            return buildFailureResponse({
+              status: schemaInspection.status,
+              message: schemaInspection.message,
+              errorCode: schemaInspection.errorCode,
+              retryable: schemaInspection.retryable,
+              suggestedFixes: schemaInspection.suggestedFixes || [],
+              shouldNarrowScope: schemaInspection.shouldNarrowScope || false,
+            });
           }
         }
       }

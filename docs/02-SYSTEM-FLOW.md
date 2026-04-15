@@ -37,8 +37,8 @@ De service in `apps/hazify-mcp-remote/src/index.js` luistert alleen op Streamabl
 - **`draft-theme-artifact`**: Draft and validate Shopify theme files through the guarded pipeline.
 
 Modes:
-- mode="create": Volledige inspectie voor nieuwe sections (schema, presets, CSS kwaliteit verplicht). Templates/config geblokkeerd.
-- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON/JSONC-validatie.
+- mode="create": Volledige inspectie voor nieuwe sections (geldig schema, presets, renderbare markup en Shopify-veilige range settings). Templates/config geblokkeerd.
+- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON/JSONC-validatie, en sections/blocks met schema krijgen ook range-validatie.
 
 Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liquid bescherming.
 
@@ -48,7 +48,7 @@ Theme-aware section regels:
 - Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
 - Compatibele shorthand: voor één file mag een client ook top-level key + value of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt voor theme target of exact file path, probeert de tool die info daaruit af te leiden; legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
-- Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max.
+- Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting.
 - Nieuwe blocks/*.liquid files krijgen in create mode ook een basisinspectie op geldige schema JSON en block-veilige markup.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
@@ -93,7 +93,7 @@ Use <style> or markup-level CSS variables for section.id scoping
   Voor native product-blocks, theme blocks en template placement start je eerst met `plan-theme-edit` op hetzelfde expliciete theme. Die planner geeft compact terug of je een single-file patch, multi-file edit of create-section flow nodig hebt.
 1. Zoek de gewenste code met `search-theme-files` om een betrouwbare `searchString` te verkrijgen. Gebruik na `plan-theme-edit` bij voorkeur exact de `nextReadKeys`, zodat je compact binnen section/snippet-bestanden zoekt in plaats van hele templates opnieuw te lezen.
 2. Lees daarna met `get-theme-file` alleen het exacte doelbestand in dat je gaat aanpassen. Voor native product-blocks is dat meestal de bestaande section en eventuele snippet renderer; herlees `templates/*.json` alleen als placement expliciet gevraagd is.
-3. Voer de edit uit via `draft-theme-artifact` in `mode="edit"`. Gebruik bij voorkeur `patch` voor één gerichte wijziging of `patches` voor meerdere sequentiële wijzigingen in hetzelfde bestand om token-verbruik te beperken en truncation te voorkomen.
+3. Voer de edit uit via `draft-theme-artifact` in `mode="edit"`. Gebruik bij voorkeur `patch` voor één gerichte wijziging of `patches` voor meerdere sequentiële wijzigingen in hetzelfde bestand om token-verbruik te beperken en truncation te voorkomen. De pipeline valideert section/block schema-ranges nu ook vooraf op bounds, step-alignment en maximaal 101 stappen.
    Voor kleine single-file edits op bestaande bestanden kan ook `patch-theme-file` worden gebruikt.
    Voor native blocks in bestaande sections betekent dit meestal: patch de bestaande `schema.blocks` plus de render markup/snippet; dit is normaal geen `blocks/*.liquid` flow.
 4. Live of ander target toepassen gebeurt via `apply-theme-draft` met expliciete confirmation.
@@ -102,6 +102,7 @@ Use <style> or markup-level CSS variables for section.id scoping
 
 ## 6. Shopify-conforme File Policy
 - Beperk writes tot de noodzakelijke theme-bestanden; voor section-wijzigingen is dat meestal `sections/<handle>.liquid`.
+- Nieuwe sections moeten naast een geldig `{% schema %}` block ook renderbare markup bevatten; schema-only of style-only stubs worden geblokkeerd.
 - Voeg alleen `snippets/` toe als markup of logica echt herhaald wordt.
 - Voeg alleen `blocks/` files toe als je bewust theme blocks nodig hebt.
 - Voeg alleen `locales/*.json` toe bij vaste, niet-merchant-editable UI strings.

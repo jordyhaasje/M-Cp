@@ -111,7 +111,7 @@ const normalizePlanThemeEditInput = (rawInput) => {
     normalized.intent = inferIntentFromSummary(summary, normalized);
   }
   if (!normalized.template) {
-    normalized.template = inferTemplateFromSummary(summary);
+    normalized.template = inferTemplateFromSummary(summary) || normalized.template;
   }
   if (!normalized.query) {
     normalized.query = summary.slice(0, 240);

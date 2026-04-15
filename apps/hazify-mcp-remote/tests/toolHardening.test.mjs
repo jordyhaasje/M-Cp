@@ -217,6 +217,22 @@ try {
   assert.equal(planThemeEditSummaryPayload.data.intent, "native_block");
   assert.equal(planThemeEditSummaryPayload.data.template, "product");
 
+  const planThemeEditExistingSectionPayload = planThemeEditTool.schema.safeParse({
+    _tool_input_summary: "Bekijk deze section in het live theme en bepaal welk bestaand bestand gepatcht moet worden",
+  });
+  assert.equal(planThemeEditExistingSectionPayload.success, true, "generic section wording should remain compatible");
+  assert.equal(
+    planThemeEditExistingSectionPayload.data.intent,
+    "existing_edit",
+    "generic section summaries should not be over-eagerly coerced into new_section flows"
+  );
+
+  const planThemeEditNewSectionPayload = planThemeEditTool.schema.safeParse({
+    _tool_input_summary: "Maak een nieuwe section aan in het live theme",
+  });
+  assert.equal(planThemeEditNewSectionPayload.success, true, "explicit new section wording should still infer new_section");
+  assert.equal(planThemeEditNewSectionPayload.data.intent, "new_section");
+
   const searchThemeFilesSummaryPayload = SearchThemeFilesInputSchema.safeParse({
     _tool_input_summary: "Zoek buy_buttons in de productpagina van het live theme",
   });

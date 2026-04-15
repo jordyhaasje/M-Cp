@@ -12,6 +12,9 @@ const fixedNow = "2026-03-15T12:00:00Z";
 const toChecksumMd5 = (payload, encoding = "utf8") =>
   crypto.createHash("md5").update(Buffer.from(payload, encoding)).digest("base64");
 
+const toChecksumMd5Hex = (payload, encoding = "utf8") =>
+  crypto.createHash("md5").update(Buffer.from(payload, encoding)).digest("hex");
+
 const fileStore = new Map();
 const setTextFile = (key, value) => {
   fileStore.set(key, {
@@ -295,6 +298,112 @@ try {
 
   const persistedNewFile = fileStore.get("sections/new.liquid");
   assert.equal(persistedNewFile.value, "<div>Brand new</div>");
+
+  const restFileStore = new Map();
+  const setRestTextFile = (key, value) => {
+    restFileStore.set(key, {
+      key,
+      value,
+      checksum: toChecksumMd5Hex(value),
+      content_type: "text/plain",
+      size: Buffer.byteLength(value, "utf8"),
+      created_at: fixedNow,
+      updated_at: fixedNow,
+    });
+  };
+
+  setRestTextFile("sections/rest-existing.liquid", "<div>REST Existing</div>");
+
+  global.fetch = async (url, options = {}) => {
+    const parsedUrl = new URL(url);
+
+    if (parsedUrl.pathname.endsWith("/graphql.json")) {
+      return new Response(
+        JSON.stringify({
+          errors: [{ message: "GraphQL unavailable for this shop" }],
+        }),
+        { status: 501, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (parsedUrl.pathname.endsWith("/themes/123.json")) {
+      return new Response(
+        JSON.stringify({
+          theme: {
+            id: 123,
+            admin_graphql_api_id: themeGraphqlId,
+            name: "Main Theme",
+            role: "main",
+            previewable: true,
+            processing: false,
+            created_at: fixedNow,
+            updated_at: fixedNow,
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (parsedUrl.pathname.endsWith("/themes/123/assets.json") && (!options.method || options.method === "GET")) {
+      const key = parsedUrl.searchParams.get("asset[key]");
+      const asset = key ? restFileStore.get(key) : null;
+      if (!asset) {
+        return new Response(JSON.stringify({ errors: "Not found" }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ asset }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (parsedUrl.pathname.endsWith("/themes/123/assets.json") && options.method === "PUT") {
+      const payload = JSON.parse(options.body || "{}");
+      const asset = payload.asset || {};
+      const key = String(asset.key || "");
+      const value = String(asset.value || "");
+      setRestTextFile(key, value);
+      return new Response(
+        JSON.stringify({
+          asset: restFileStore.get(key),
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    throw new Error(`Unexpected REST fallback URL: ${url}`);
+  };
+
+  const restVerifyResult = await verifyThemeFiles(shopifyClient, "2026-01", {
+    themeId: 123,
+    expected: [
+      {
+        key: "sections/rest-existing.liquid",
+        checksumMd5: toChecksumMd5("<div>REST Existing</div>"),
+      },
+    ],
+  });
+  assert.equal(restVerifyResult.summary.match, 1, "REST verify should normalize hex checksums to match base64 expectations");
+
+  const restUpsertResult = await upsertThemeFiles(shopifyClient, "2026-01", {
+    themeId: 123,
+    verifyAfterWrite: true,
+    files: [
+      {
+        key: "sections/rest-existing.liquid",
+        value: "<div>REST Updated</div>",
+        checksum: toChecksumMd5("<div>REST Existing</div>"),
+      },
+    ],
+  });
+  assert.equal(restUpsertResult.summary.applied, 1, "REST fallback should accept base64 checksum preconditions");
+  assert.equal(
+    restUpsertResult.results[0]?.verify?.status,
+    "match",
+    "REST fallback verifyAfterWrite should normalize checksum formats"
+  );
 
   console.log("themeFilesBatch.test.mjs passed");
 } finally {

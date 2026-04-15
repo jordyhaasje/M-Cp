@@ -114,7 +114,10 @@ export function inferIntentFromSummary(summary, input = {}) {
     return "native_block";
   }
 
-  if (/\bsection\b/.test(text)) {
+  if (
+    /\b(?:new|nieuwe|create|maak|build|bouw|add|voeg toe)\b[\w\s-]{0,24}\bsection\b/.test(text) ||
+    /\bsection\b[\w\s-]{0,12}\b(?:aanmaken|maken|creëren|build|bouwen|toevoegen)\b/.test(text)
+  ) {
     return "new_section";
   }
 

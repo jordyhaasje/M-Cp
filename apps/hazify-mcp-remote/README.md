@@ -36,7 +36,7 @@ npm run --workspace @hazify/mcp-remote start:remote
 - Gebruik `get-theme-file` om na search alleen het exacte doelbestand volledig in te lezen
 - Gebruik bij voorkeur `patch` voor één gerichte wijziging of `patches` voor meerdere sequentiële wijzigingen in hetzelfde bestand om token-verbruik te beperken en truncation te voorkomen
 - Gebruik `patch-theme-file` voor kleine, bestaande single-file edits wanneer je het exacte targetbestand al weet. Top-level `key + searchString + replaceString` wordt compatibel naar `patch` genormaliseerd.
-- `draft-theme-artifact` valideert, lint en pusht naar het expliciet gekozen target theme. Bevat automatische JSON/JSONC-structuur validatie voor templates/config, zodat bestaande Shopify commentaren of trailing commas in edit-mode niet direct de hele flow breken.
+- `draft-theme-artifact` valideert, lint en pusht naar het expliciet gekozen target theme. Bevat automatische JSON/JSONC-structuur validatie voor templates/config, blokkeert schema-only section stubs in create-mode en valideert Shopify-range regels (bounds, step-alignment, max 101 stappen) voordat Shopify de write afwijst.
 - `draft-theme-artifact` ondersteunt voor single-file requests ook top-level `key + value` of `key + searchString + replaceString`, en valideert nieuwe `blocks/*.liquid` files nu ook op block-basisregels.
 - `apply-theme-draft` promoveert een eerder goedgekeurde draft alleen naar een expliciet target; er is geen write-default naar live
 - `verify-theme-files` en `get-theme-file(s)` helpen bij verificatie en readback
