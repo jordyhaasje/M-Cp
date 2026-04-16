@@ -54,11 +54,29 @@ const normalizePatchThemeFileInput = (rawInput) => {
   const summary = extractThemeToolSummary(rawInput);
   let normalized = { ...rawInput };
 
+  if (!normalized.key && typeof rawInput.file === "string" && rawInput.file.trim()) {
+    normalized.key = rawInput.file.trim();
+  }
+
   if (rawInput.searchString !== undefined && rawInput.replaceString !== undefined && !rawInput.patch && !rawInput.patches) {
     normalized.patch = {
       searchString: rawInput.searchString,
       replaceString: rawInput.replaceString,
     };
+  }
+
+  if (rawInput.find !== undefined && rawInput.replace !== undefined && !rawInput.patch && !rawInput.patches) {
+    normalized.patch = {
+      searchString: rawInput.find,
+      replaceString: rawInput.replace,
+    };
+  }
+
+  if (Array.isArray(rawInput.replacements) && !rawInput.patch && !rawInput.patches) {
+    normalized.patches = rawInput.replacements.map((entry) => ({
+      searchString: entry?.searchString ?? entry?.find ?? "",
+      replaceString: entry?.replaceString ?? entry?.replace ?? "",
+    }));
   }
 
   if (summary) {
@@ -79,7 +97,7 @@ const PatchThemeFileInputSchema = z.preprocess(
 const patchThemeFileTool = {
   name: "patch-theme-file",
   description:
-    "Patch one existing theme file met één of meer letterlijke vervangingen. Dit is de voorkeursroute voor smalle single-file edits in bestaande snippets, sections, assets, config of templates wanneer je het exacte targetbestand al weet. Gebruik een unieke searchString die exact één keer voorkomt; bij twijfel eerst plan-theme-edit. Niet bedoeld voor native product-block flows die section + snippet tegelijk raken. Geef altijd hetzelfde expliciete themeId of themeRole mee als in je read-flow. Compatibele shorthand: key + searchString + replaceString op top-level wordt automatisch naar patch genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt voor theme target of exact file path, probeert de tool die info daaruit af te leiden; legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.",
+    "Patch one existing theme file met één of meer letterlijke vervangingen. Gebruik dit voor kleine single-file fixes nadat je eerst met `search-theme-files` en zo nodig `get-theme-file` de exacte anchor hebt bepaald. Geef altijd hetzelfde expliciete themeId of themeRole mee als in je read-flow. Gebruik een unieke searchString die exact één keer voorkomt; bij twijfel eerst plan-theme-edit. Niet bedoeld voor native product-block flows die section + snippet tegelijk raken. Compatibele shorthand: `key + searchString + replaceString` op top-level wordt automatisch naar `patch` genormaliseerd, en legacy `replacements[{ find, replace }]` wordt naar `patches` vertaald. Vrije tekst zoals `_tool_input_summary` blijft alleen een compat-fallback voor theme target of exact file path.",
   schema: PatchThemeFileInputSchema,
   execute: async (input, context = {}) => {
     requireShopifyClient(context);

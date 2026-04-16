@@ -8,7 +8,7 @@ const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 const GetThemeFilesInputSchema = z
   .object({
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-    themeRole: ThemeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
+    themeRole: ThemeRoleSchema.optional().describe("Optionele theme role. Geef deze in editflows expliciet mee; alleen voor backwards compatibility valt deze read-tool anders terug op main."),
     keys: z
       .array(z.string().min(1))
       .min(1)
@@ -30,14 +30,16 @@ const GetThemeFilesInputSchema = z
 const getThemeFilesTool = {
   name: "get-theme-files",
   description:
-    "Read EXACT files from a Shopify theme. GEEN GLOBBING. Deze read-only tool valt voor backwards compatibility terug op main als themeId/themeRole ontbreekt, maar gebruik in elke editflow bij voorkeur hetzelfde expliciete target als in plan-theme-edit en je write-call. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path. Gebruik dit bij voorkeur na plan-theme-edit, zodat je alleen de exact voorgestelde files leest. Voor native product-block flows zijn dat meestal sections + snippets; lees templates/*.json daarna alleen opnieuw als placement van het block expliciet gevraagd is. Handig voor bewuste multi-read workflows zoals ['sections/main-product.liquid', 'snippets/product-info.liquid'] of ['templates/product.json'].",
+    "Read EXACT files from a Shopify theme. GEEN GLOBBING. Geef in editflows bij voorkeur altijd expliciet themeId of themeRole mee zodat je read-context overeenkomt met plan-theme-edit en je write-call. Alleen voor backwards compatibility valt deze read-tool terug op main als themeId/themeRole ontbreekt; dat levert dan ook een warning op. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path. Gebruik dit bij voorkeur na plan-theme-edit, zodat je alleen de exact voorgestelde files leest. Voor native product-block flows zijn dat meestal sections + snippets; lees templates/*.json daarna alleen opnieuw als placement van het block expliciet gevraagd is. Handig voor bewuste multi-read workflows zoals ['sections/main-product.liquid', 'snippets/product-info.liquid'] of ['templates/product.json'].",
   schema: GetThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);
+    const usedMainFallback = !input.themeId && !input.themeRole;
+    const effectiveThemeRole = input.themeId ? undefined : input.themeRole || "main";
     try {
       const result = await getThemeFiles(shopifyClient, API_VERSION, {
         themeId: input.themeId,
-        themeRole: input.themeRole,
+        themeRole: effectiveThemeRole,
         keys: input.keys,
         includeContent: input.includeContent,
       });
@@ -49,6 +51,13 @@ const getThemeFilesTool = {
           role: result.theme.role,
         },
         files: result.files,
+        ...(usedMainFallback
+          ? {
+              warnings: [
+                "⚠️ themeId/themeRole ontbrak; deze read-call viel voor backwards compatibility terug op het LIVE main theme.",
+              ],
+            }
+          : {}),
       };
     } catch (error) {
       console.error("Error reading theme files:", error);

@@ -20,6 +20,8 @@ Modes:
 - mode="create": Volledige inspectie voor nieuwe sections (geldig schema, presets, renderbare markup en Shopify-veilige range settings). Templates/config geblokkeerd.
 - mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON/JSONC-validatie, en sections/blocks met schema krijgen ook range-validatie.
 
+Zet mode altijd expliciet op top-level. Alleen voor backwards compatibility infereren patch/patches automatisch mode="edit"; value-only writes zonder mode worden eerst tegen het doeltheme geprobed zodat bestaande bestanden niet stilzwijgend als create-flow worden behandeld.
+
 Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liquid bescherming.
 
 Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als dit niet is opgegeven.
@@ -79,7 +81,7 @@ const ThemeDraftArtifactInputShape = z.object({
   files: z.array(ThemeDraftFileSchema).min(1).max(10).describe("Maximale file batch is 10 items conform veiligheidsregels"),
   themeId: z.string().or(z.number()).optional().describe("Optioneel expliciet doel theme ID. Laat weg om via themeRole te resolven."),
   themeRole: ThemeRoleSchema.optional().describe("Target theme role. Verplicht als themeId niet is opgegeven. Vraag de gebruiker welk thema."),
-  mode: z.enum(["create", "edit"]).optional().describe("'create' = nieuw sectionbestand met volledige inspectie. 'edit' = bestaand bestand fixen met lichtere checks. Zet mode altijd op het TOP-LEVEL request, nooit in files[]. Als mode ontbreekt en je patch/patches gebruikt, behandelt de pipeline dit automatisch als edit."),
+  mode: z.enum(["create", "edit"]).optional().describe("'create' = nieuw sectionbestand met volledige inspectie. 'edit' = bestaand bestand fixen met lichtere checks. Zet mode altijd op het TOP-LEVEL request, nooit in files[]. Als mode ontbreekt en je patch/patches gebruikt, behandelt de pipeline dit automatisch als edit; value-only writes worden dan eerst tegen het doeltheme geprobed om create/edit veilig af te leiden."),
   isStandalone: z.boolean().optional().describe("Mark as standalone workflow"),
 }).superRefine((data, ctx) => {
   if (data.mode !== "create") {
@@ -121,18 +123,32 @@ const normalizeDraftThemeArtifactInput = (rawInput) => {
       : rawInput.patch;
 
   if (!normalized.files) {
+    if (rawInput.file && typeof rawInput.file === "object" && !Array.isArray(rawInput.file)) {
+      normalized.files = [rawInput.file];
+    }
+  }
+
+  if (!normalized.files) {
     const inferredKey =
       rawInput.key || rawInput.targetFile || (summary ? inferSingleThemeFile(summary) : null);
     if (
       inferredKey &&
       (rawInput.value !== undefined ||
+        rawInput.content !== undefined ||
+        rawInput.liquid !== undefined ||
         singlePatch !== undefined ||
         rawInput.patches !== undefined)
     ) {
       normalized.files = [
         {
           key: inferredKey,
-          ...(rawInput.value !== undefined ? { value: rawInput.value } : {}),
+          ...(rawInput.value !== undefined
+            ? { value: rawInput.value }
+            : rawInput.content !== undefined
+              ? { value: rawInput.content }
+              : rawInput.liquid !== undefined
+                ? { value: rawInput.liquid }
+                : {}),
           ...(singlePatch !== undefined ? { patch: singlePatch } : {}),
           ...(rawInput.patches !== undefined ? { patches: rawInput.patches } : {}),
           ...(rawInput.baseChecksumMd5 ? { baseChecksumMd5: rawInput.baseChecksumMd5 } : {}),
@@ -533,7 +549,7 @@ function countLiteralOccurrences(source, needle) {
 
 function resolveDraftMode(requestedMode, files = []) {
   if (requestedMode === "create" || requestedMode === "edit") {
-    return { mode: requestedMode, inferred: false, warning: null };
+    return { mode: requestedMode, inferred: false, warning: null, probeExistingFiles: false };
   }
 
   const hasPatchLikeFile = files.some(
@@ -548,10 +564,11 @@ function resolveDraftMode(requestedMode, files = []) {
       inferred: true,
       warning:
         "Geen top-level mode opgegeven; omdat deze request patch/patches gebruikt behandelt de pipeline dit als mode='edit'. Zet mode voortaan expliciet op top-level en niet in files[].",
+      probeExistingFiles: false,
     };
   }
 
-  return { mode: "create", inferred: true, warning: null };
+  return { mode: "create", inferred: true, warning: null, probeExistingFiles: true };
 }
 
 function getSpecialBlockContents(value, tagName) {
@@ -1308,6 +1325,7 @@ export const draftThemeArtifact = {
     const warnings = [];
     const suggestedFixes = [];
     const resolvedMode = resolveDraftMode(requestedMode, files);
+    const shouldProbeExistingFiles = resolvedMode.probeExistingFiles;
     let mode = resolvedMode.mode;
 
     if (resolvedMode.warning) {
@@ -1367,7 +1385,8 @@ export const draftThemeArtifact = {
     }
 
     let resolvedFiles = [];
-    let needsOriginal = files.some((f) => f.patches.length > 0) || mode === "edit";
+    let needsOriginal =
+      files.some((f) => f.patches.length > 0) || mode === "edit" || shouldProbeExistingFiles;
     
     if (needsOriginal) {
       try {
@@ -1376,6 +1395,37 @@ export const draftThemeArtifact = {
         const fetchedFiles = await getThemeFiles(shopifyClient, apiVersion, { themeId, themeRole, keys: keysToFetch, includeContent: true });
         
         const fetchedByKey = new Map(fetchedFiles.files.map(f => [f.key, f]));
+
+        if (shouldProbeExistingFiles) {
+          const existingCount = files.filter((file) => {
+            const original = fetchedByKey.get(file.key);
+            return Boolean(original && !original.missing);
+          }).length;
+
+          if (existingCount === files.length) {
+            mode = "edit";
+            warnings.push(
+              "Geen top-level mode opgegeven; omdat alle doelbestanden al bestaan behandelt de pipeline deze value-write als mode='edit'. Zet mode voortaan expliciet op top-level en niet in files[]."
+            );
+          } else if (existingCount === 0) {
+            warnings.push(
+              "Geen top-level mode opgegeven; omdat de doelbestanden nog niet bestaan behandelt de pipeline deze value-write als mode='create'. Zet mode voortaan expliciet op top-level en niet in files[]."
+            );
+          } else {
+            return buildFailureResponse({
+              status: "inspection_failed",
+              message:
+                "Deze request combineert bestaande en nieuwe bestanden terwijl top-level mode ontbreekt. Daardoor kan de pipeline niet veilig bepalen of dit een create- of edit-flow is.",
+              errorCode: "inspection_failed_missing_mode",
+              retryable: true,
+              suggestedFixes: [
+                "Zet top-level mode expliciet op 'edit' als je bestaande bestanden wijzigt.",
+                "Zet top-level mode expliciet op 'create' als alle bestanden nieuw zijn, of splits create/edit in aparte requests.",
+              ],
+              shouldNarrowScope: false,
+            });
+          }
+        }
 
         for (const file of files) {
           const original = fetchedByKey.get(file.key);

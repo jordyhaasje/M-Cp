@@ -442,7 +442,7 @@ try {
       method: "tools/call",
       params: {
         name: "draft-theme-artifact",
-        arguments: { themeId: 123, files: [{ key: "sections/one.liquid", value: validSectionLiquid }] },
+        arguments: { themeId: 123, mode: "create", files: [{ key: "sections/one.liquid", value: validSectionLiquid }] },
       },
     }),
     postMcp({
@@ -451,7 +451,7 @@ try {
       method: "tools/call",
       params: {
         name: "draft-theme-artifact",
-        arguments: { themeId: 123, files: [{ key: "sections/two.liquid", value: validSectionLiquid }] },
+        arguments: { themeId: 123, mode: "create", files: [{ key: "sections/two.liquid", value: validSectionLiquid }] },
       },
     }),
   ]);

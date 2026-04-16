@@ -6,6 +6,7 @@ import { refundOrder } from "../src/tools/refundOrder.js";
 import { updateCustomer } from "../src/tools/updateCustomer.js";
 import { updateFulfillmentTracking } from "../src/tools/updateFulfillmentTracking.js";
 import { updateOrder } from "../src/tools/updateOrder.js";
+import { getThemeFileTool } from "../src/tools/getThemeFile.js";
 import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
 import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
@@ -122,16 +123,24 @@ try {
   assert.equal(cloneResult.variantMediaMapping.summary.verified, 1);
 
 
+  const singleThemeReadPayload = getThemeFileTool.schema.safeParse({
+    key: "sections/test.liquid",
+  });
+  assert.equal(singleThemeReadPayload.success, true, "get-theme-file should accept exact keys without forcing a theme target");
+  assert.equal(singleThemeReadPayload.data.themeRole, undefined, "get-theme-file should not silently inject main at schema level");
+
   const metadataBatchReadPayload = getThemeFilesTool.schema.safeParse({
     keys: ["sections/test.liquid"],
   });
   assert.equal(metadataBatchReadPayload.success, true, "get-theme-files should accept key arrays");
   assert.equal(metadataBatchReadPayload.data.includeContent, false, "get-theme-files default includeContent=false");
+  assert.equal(metadataBatchReadPayload.data.themeRole, undefined, "get-theme-files should not silently inject main at schema level");
 
   const verifyBatchPayload = verifyThemeFilesTool.schema.safeParse({
     expected: [{ key: "sections/test.liquid" }],
   });
   assert.equal(verifyBatchPayload.success, true, "verify-theme-files should accept expected metadata");
+  assert.equal(verifyBatchPayload.data.themeRole, undefined, "verify-theme-files should not silently inject main at schema level");
 
   const draftPayload = draftThemeArtifact.schema.parse({
     files: [
@@ -217,6 +226,17 @@ try {
   assert.equal(planThemeEditSummaryPayload.data.intent, "native_block");
   assert.equal(planThemeEditSummaryPayload.data.template, "product");
 
+  const planThemeEditAliasPayload = planThemeEditTool.schema.safeParse({
+    type: "existing_edit",
+    themeRole: "development",
+    description: "Verklein de ruimte rond de buy button",
+    targetFiles: ["sections/main-product.liquid"],
+  });
+  assert.equal(planThemeEditAliasPayload.success, true, "plan-theme-edit should accept compatibility aliases from report-style payloads");
+  assert.equal(planThemeEditAliasPayload.data.intent, "existing_edit");
+  assert.equal(planThemeEditAliasPayload.data.query, "Verklein de ruimte rond de buy button");
+  assert.equal(planThemeEditAliasPayload.data.targetFile, "sections/main-product.liquid");
+
   const planThemeEditExistingSectionPayload = planThemeEditTool.schema.safeParse({
     _tool_input_summary: "Bekijk deze section in het live theme en bepaal welk bestaand bestand gepatcht moet worden",
   });
@@ -250,6 +270,20 @@ try {
   assert.equal(patchThemeFileSummaryPayload.data.themeRole, "main");
   assert.equal(patchThemeFileSummaryPayload.data.patch.searchString, "{%- when 'title' -%}");
 
+  const patchThemeFileReplacementsPayload = patchThemeFileTool.schema.safeParse({
+    key: "sections/main-product.liquid",
+    themeRole: "development",
+    replacements: [
+      {
+        find: "padding-top: 48px;",
+        replace: "padding-top: 24px;",
+      },
+    ],
+  });
+  assert.equal(patchThemeFileReplacementsPayload.success, true, "patch-theme-file should normalize replacements[{find,replace}] compatibility payloads");
+  assert.equal(patchThemeFileReplacementsPayload.data.patches.length, 1);
+  assert.equal(patchThemeFileReplacementsPayload.data.patches[0].searchString, "padding-top: 48px;");
+
   const draftTopLevelAliasPayload = draftThemeArtifact.schema.safeParse({
     themeRole: "main",
     key: "sections/demo-alias.liquid",
@@ -266,6 +300,23 @@ try {
   });
   assert.equal(draftTopLevelAliasPayload.success, true, "draft-theme-artifact should accept single-file top-level aliases");
   assert.equal(draftTopLevelAliasPayload.data.files[0].key, "sections/demo-alias.liquid");
+
+  const draftContentAliasPayload = draftThemeArtifact.schema.safeParse({
+    themeRole: "main",
+    key: "sections/demo-content-alias.liquid",
+    content: `
+<div>Demo</div>
+{% schema %}
+{
+  "name": "Demo content alias",
+  "settings": [],
+  "presets": [{ "name": "Demo content alias" }]
+}
+{% endschema %}
+`,
+  });
+  assert.equal(draftContentAliasPayload.success, true, "draft-theme-artifact should accept content as a compatibility alias for value");
+  assert.equal(draftContentAliasPayload.data.files[0].value.includes("Demo content alias"), true);
 
   const invalidDraftSchemaPayload = draftThemeArtifact.schema.safeParse({
     files: [
@@ -287,6 +338,7 @@ try {
 
   const invalidDraftResult = await draftThemeArtifact.execute(
     draftThemeArtifact.schema.parse({
+      mode: "create",
       themeId: 111,
       files: [
         {

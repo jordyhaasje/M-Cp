@@ -8,7 +8,7 @@ const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 const VerifyThemeFilesInputSchema = z
   .object({
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-    themeRole: ThemeRoleSchema.default("main").describe("Theme role fallback when themeId is omitted"),
+    themeRole: ThemeRoleSchema.optional().describe("Optionele theme role. Geef deze in editflows expliciet mee; alleen voor backwards compatibility valt deze read-tool anders terug op main."),
     expected: z
       .array(
         z.object({
@@ -34,14 +34,16 @@ const VerifyThemeFilesInputSchema = z
 
 const verifyThemeFilesTool = {
   name: "verify-theme-files",
-  description: "Verify multiple theme files by expected metadata (size/checksumMd5). Deze read-only tool valt voor backwards compatibility terug op main als themeId/themeRole ontbreekt, maar gebruik in elke editflow bij voorkeur hetzelfde expliciete target als in je planner/read/write-flow. Minimaal geldig voorbeeld: { expected: [{ key: 'sections/hero.liquid', checksumMd5: '...' }] }.",
+  description: "Verify multiple theme files by expected metadata (size/checksumMd5). Geef in editflows bij voorkeur altijd expliciet themeId of themeRole mee zodat je verify-context overeenkomt met je planner/read/write-flow. Alleen voor backwards compatibility valt deze read-only tool terug op main als themeId/themeRole ontbreekt; dat levert dan ook een warning op. Minimaal geldig voorbeeld: { expected: [{ key: 'sections/hero.liquid', checksumMd5: '...' }] }.",
   schema: VerifyThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);
+    const usedMainFallback = !input.themeId && !input.themeRole;
+    const effectiveThemeRole = input.themeId ? undefined : input.themeRole || "main";
     try {
       const result = await verifyThemeFiles(shopifyClient, API_VERSION, {
         themeId: input.themeId,
-        themeRole: input.themeRole,
+        themeRole: effectiveThemeRole,
         expected: input.expected,
       });
 
@@ -53,6 +55,13 @@ const verifyThemeFilesTool = {
         },
         summary: result.summary,
         results: result.results,
+        ...(usedMainFallback
+          ? {
+              warnings: [
+                "⚠️ themeId/themeRole ontbrak; deze verify-call viel voor backwards compatibility terug op het LIVE main theme.",
+              ],
+            }
+          : {}),
       };
     } catch (error) {
       console.error("Error verifying theme files:", error);

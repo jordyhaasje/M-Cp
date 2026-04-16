@@ -528,13 +528,13 @@ const buildAliasToolDefinitions = (canonicalDefinitions) => {
   const setOrderTrackingManifest = canonicalMap.get("set-order-tracking");
   return [
     defineAliasManifest("update-order-tracking", setOrderTrackingManifest, {
-      description: "Alias of set-order-tracking. Kept for compatibility.",
+      description: "Legacy alias of set-order-tracking. Prefer set-order-tracking for new tool calls; this alias is kept only for compatibility.",
       writeScopeRequired: true,
       idempotent: false,
       outputSchema: setOrderTrackingOutputSchema,
     }),
     defineAliasManifest("add-tracking-to-order", setOrderTrackingManifest, {
-      description: "Alias of set-order-tracking. Kept for compatibility.",
+      description: "Legacy alias of set-order-tracking. Prefer set-order-tracking for new tool calls; this alias is kept only for compatibility.",
       writeScopeRequired: true,
       idempotent: false,
       outputSchema: setOrderTrackingOutputSchema,

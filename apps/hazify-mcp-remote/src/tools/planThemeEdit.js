@@ -12,12 +12,13 @@ import {
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
-const IntentSchema = z.enum([
+const PLAN_INTENT_VALUES = [
   "existing_edit",
   "native_block",
   "new_section",
   "template_placement",
-]);
+];
+const IntentSchema = z.enum(PLAN_INTENT_VALUES);
 const TemplateSchema = z.enum([
   "product",
   "homepage",
@@ -32,6 +33,9 @@ const TemplateSchema = z.enum([
 
 const PlanThemeEditShape = z
   .object({
+    intent: IntentSchema.describe(
+      "VERPLICHT. existing_edit = bestaand bestand patchen, native_block = block in bestaande section/productflow, new_section = nieuwe section maken, template_placement = bestaande section/template placement analyseren."
+    ),
     themeId: z
       .coerce.number()
       .int()
@@ -41,9 +45,6 @@ const PlanThemeEditShape = z
     themeRole: ThemeRoleSchema
       .optional()
       .describe("Theme role when themeId is omitted. Geef altijd expliciet hetzelfde target mee als in je uiteindelijke write-flow."),
-    intent: IntentSchema.describe(
-      "existing_edit = bestaand bestand patchen, native_block = block in bestaande section/productflow, new_section = nieuwe section maken, template_placement = bestaande section/template placement analyseren."
-    ),
     template: TemplateSchema
       .optional()
       .describe("Optioneel template-oppervlak, bijv. product of homepage. Als dit ontbreekt gebruikt de planner een veilige default per intent."),
@@ -101,12 +102,35 @@ const normalizePlanThemeEditInput = (rawInput) => {
     return rawInput;
   }
 
-  const summary = extractThemeToolSummary(rawInput);
-  if (!summary) {
-    return rawInput;
+  let normalized = { ...rawInput };
+  const descriptionAlias =
+    typeof rawInput.description === "string" && rawInput.description.trim()
+      ? rawInput.description.trim()
+      : "";
+
+  if (!normalized.intent) {
+    for (const candidate of [rawInput.intent_type, rawInput.intentType, rawInput.type]) {
+      if (typeof candidate === "string" && PLAN_INTENT_VALUES.includes(candidate)) {
+        normalized.intent = candidate;
+        break;
+      }
+    }
   }
 
-  let normalized = inferThemeTargetFromSummary(rawInput, summary);
+  if (!normalized.query && descriptionAlias) {
+    normalized.query = descriptionAlias.slice(0, 240);
+  }
+
+  if (!normalized.targetFile && Array.isArray(rawInput.targetFiles) && rawInput.targetFiles.length === 1) {
+    normalized.targetFile = rawInput.targetFiles[0];
+  }
+
+  const summary = extractThemeToolSummary(rawInput) || descriptionAlias;
+  if (!summary) {
+    return normalized;
+  }
+
+  normalized = inferThemeTargetFromSummary(normalized, summary);
   if (!normalized.intent) {
     normalized.intent = inferIntentFromSummary(summary, normalized);
   }
@@ -134,7 +158,7 @@ const PlanThemeEditInputSchema = z.preprocess(
 const planThemeEditTool = {
   name: "plan-theme-edit",
   description:
-    "Plan een theme edit voordat je bestanden leest of schrijft. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: patch-existing, multi-file-edit, create-section of template-placement, plus de exacte volgende read/write keys. Voor native product-blocks analyseert de planner templates/*.json al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Bij compatibele clients mag een korte _tool_input_summary ook; de planner probeert daaruit intent, template en theme target af te leiden. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.",
+    "Plan een theme edit voordat je bestanden leest of schrijft. VERPLICHT: geef altijd een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet themeId of themeRole. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: patch-existing, multi-file-edit, create-section of template-placement, plus de exacte volgende read/write keys. Voor native product-blocks analyseert de planner templates/*.json al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen nog een korte `_tool_input_summary` of `description` meesturen, maar die vrije tekst is alleen fallback en vervangt de gestructureerde velden niet.",
   schema: PlanThemeEditInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

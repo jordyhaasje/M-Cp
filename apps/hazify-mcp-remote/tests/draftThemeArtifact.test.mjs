@@ -178,6 +178,7 @@ test("draftThemeArtifact - fails when linter finds issues", async (t) => {
   };
 
   const input = {
+    mode: "create",
     themeId: 111,
     files: [
       {
@@ -207,6 +208,7 @@ test("draftThemeArtifact - rejects raw img tags without reliable dimensions befo
 
   const result = await execute(
     draftThemeArtifact.schema.parse({
+      mode: "create",
       themeId: 111,
       files: [
         {
@@ -260,6 +262,7 @@ test("draftThemeArtifact - rejects sections without presets", async () => {
 
   const result = await execute(
     draftThemeArtifact.schema.parse({
+      mode: "create",
       themeId: 111,
       files: [
         {
@@ -341,6 +344,7 @@ test("draftThemeArtifact - rejects range settings whose default falls outside mi
 
   const result = await execute(
     draftThemeArtifact.schema.parse({
+      mode: "create",
       themeId: 111,
       files: [
         {
@@ -395,6 +399,7 @@ test("draftThemeArtifact - rejects range settings whose default is not aligned t
 
   const result = await execute(
     draftThemeArtifact.schema.parse({
+      mode: "create",
       themeId: 111,
       files: [
         {
@@ -449,6 +454,7 @@ test("draftThemeArtifact - rejects range settings that exceed Shopify's step-cou
 
   const result = await execute(
     draftThemeArtifact.schema.parse({
+      mode: "create",
       themeId: 111,
       files: [
         {
@@ -503,6 +509,7 @@ test("draftThemeArtifact - rejects schema-only section stubs in create mode", as
 
   const result = await execute(
     draftThemeArtifact.schema.parse({
+      mode: "create",
       themeId: 111,
       files: [
         {
@@ -580,6 +587,7 @@ test("draftThemeArtifact - accepts schema blocks that use Liquid whitespace cont
 
   const result = await execute(
     draftThemeArtifact.schema.parse({
+      mode: "create",
       themeId: 111,
       files: [
         {
@@ -611,6 +619,7 @@ test("draftThemeArtifact - distinguishes empty schema blocks from missing schema
 
   const result = await execute(
     draftThemeArtifact.schema.parse({
+      mode: "create",
       themeId: 111,
       files: [
         {
@@ -1024,6 +1033,7 @@ test("draftThemeArtifact - blocks template/config writes in create mode", async 
 
   const result = await execute(
     draftThemeArtifact.schema.parse({
+      mode: "create",
       themeId: 111,
       files: [
         {
@@ -1394,6 +1404,77 @@ test("draftThemeArtifact - infers edit mode and accepts a single patch", async (
     assert.ok(
       result.warnings.some((entry) => entry.includes("top-level mode")),
       "single-patch requests without mode should explain the inferred edit mode"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - infers edit mode for value-only writes when the target file already exists", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const originalSection = `
+<div class="demo">{{ section.settings.heading }}</div>
+
+{% schema %}
+{
+  "name": "Value edit demo",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Value edit demo" }]
+}
+{% endschema %}
+`;
+
+  const updatedSection = `
+<div class="demo demo--updated">{{ section.settings.heading }}</div>
+
+{% schema %}
+{
+  "name": "Value edit demo",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Value edit demo" }]
+}
+{% endschema %}
+`;
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/main-product.liquid",
+    initialValue: originalSection,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        files: [
+          {
+            key: "sections/main-product.liquid",
+            value: updatedSection,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+    assert.match(themeMock.getValue(), /demo--updated/);
+    assert.ok(
+      result.warnings.some((entry) => entry.includes("alle doelbestanden al bestaan")),
+      "value-only requests without mode should explain the inferred edit mode when the target already exists"
     );
   } finally {
     global.fetch = previousFetch;
@@ -2222,6 +2303,7 @@ test("applyThemeDraft - applies an existing draft to an explicit target theme", 
   try {
     const draftResult = await execute(
       draftThemeArtifact.schema.parse({
+        mode: "create",
         themeId: 111,
         files: [{ key: "sections/good-file.liquid", value: goodSectionLiquid }],
       }),
@@ -2377,6 +2459,7 @@ test("applyThemeDraft - returns a structured failure when Shopify apply does not
   try {
     const draftResult = await execute(
       draftThemeArtifact.schema.parse({
+        mode: "create",
         themeId: 111,
         files: [{ key: "sections/good-file.liquid", value: goodSectionLiquid }],
       }),
