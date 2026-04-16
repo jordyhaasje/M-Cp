@@ -410,6 +410,9 @@ try {
   });
   assert.equal(toolsListResponse.status, 200, "tools/list should succeed");
   const toolsListBody = await toolsListResponse.json();
+  const tools = Array.isArray(toolsListBody?.result?.tools)
+    ? toolsListBody.result.tools
+    : [];
   const toolNames = Array.isArray(toolsListBody?.result?.tools)
     ? toolsListBody.result.tools.map((tool) => String(tool?.name || ""))
     : [];
@@ -423,6 +426,54 @@ try {
   ]) {
     assert.equal(toolNames.includes(expectedTool), true, `tools/list should expose ${expectedTool}`);
   }
+
+  const planThemeEditDefinition = tools.find((tool) => tool?.name === "plan-theme-edit");
+  assert.ok(planThemeEditDefinition, "tools/list should expose plan-theme-edit");
+  assert.notEqual(
+    planThemeEditDefinition.inputSchema?.additionalProperties,
+    true,
+    "plan-theme-edit should not emit an open additionalProperties=true schema"
+  );
+  assert.equal(
+    Array.isArray(planThemeEditDefinition.inputSchema?.required) &&
+      planThemeEditDefinition.inputSchema.required.includes("intent"),
+    false,
+    "plan-theme-edit should not hard-require intent in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(planThemeEditDefinition.inputSchema?.properties?._tool_input_summary),
+    true,
+    "plan-theme-edit should expose _tool_input_summary in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(planThemeEditDefinition.inputSchema?.properties?.targetFiles),
+    true,
+    "plan-theme-edit should expose compat targetFiles in emitted JSON schema"
+  );
+
+  const draftThemeArtifactDefinition = tools.find((tool) => tool?.name === "draft-theme-artifact");
+  assert.ok(draftThemeArtifactDefinition, "tools/list should expose draft-theme-artifact");
+  assert.notEqual(
+    draftThemeArtifactDefinition.inputSchema?.additionalProperties,
+    true,
+    "draft-theme-artifact should not emit an open additionalProperties=true schema"
+  );
+  assert.equal(
+    Array.isArray(draftThemeArtifactDefinition.inputSchema?.required) &&
+      draftThemeArtifactDefinition.inputSchema.required.includes("files"),
+    false,
+    "draft-theme-artifact should not hard-require files in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(draftThemeArtifactDefinition.inputSchema?.properties?.content),
+    true,
+    "draft-theme-artifact should expose content as a compat alias in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(draftThemeArtifactDefinition.inputSchema?.properties?._tool_input_summary),
+    true,
+    "draft-theme-artifact should expose _tool_input_summary in emitted JSON schema"
+  );
 
   console.log("mcpHttpAuth.test.mjs passed");
 } finally {

@@ -198,9 +198,16 @@ try {
   });
   assert.equal(
     invalidCreatePatchPayload.success,
-    false,
-    "draft-theme-artifact should reject patch-based payloads when mode='create'"
+    true,
+    "draft-theme-artifact should expose compat payloads publicly and defer guarded create/edit validation to execution"
   );
+  const invalidCreatePatchResult = await draftThemeArtifact.execute(
+    invalidCreatePatchPayload.data,
+    {}
+  );
+  assert.equal(invalidCreatePatchResult.success, false);
+  assert.equal(invalidCreatePatchResult.errorCode, "invalid_draft_theme_artifact_input");
+  assert.equal(invalidCreatePatchResult.nextAction, "fix_input");
 
   const patchThemeFilePayload = patchThemeFileTool.schema.safeParse({
     key: "snippets/product-info.liquid",
@@ -252,6 +259,22 @@ try {
   });
   assert.equal(planThemeEditNewSectionPayload.success, true, "explicit new section wording should still infer new_section");
   assert.equal(planThemeEditNewSectionPayload.data.intent, "new_section");
+
+  const ambiguousPlanPayload = planThemeEditTool.schema.safeParse({
+    _tool_input_summary: "Bepaal wat hier aangepast moet worden",
+  });
+  assert.equal(
+    ambiguousPlanPayload.success,
+    true,
+    "plan-theme-edit should expose ambiguous compat payloads publicly and return a repair response at execution time"
+  );
+  const ambiguousPlanResult = await planThemeEditTool.execute(
+    ambiguousPlanPayload.data,
+    {}
+  );
+  assert.equal(ambiguousPlanResult.success, false);
+  assert.equal(ambiguousPlanResult.errorCode, "missing_plan_theme_target");
+  assert.equal(ambiguousPlanResult.nextAction, "provide_theme_target");
 
   const searchThemeFilesSummaryPayload = SearchThemeFilesInputSchema.safeParse({
     _tool_input_summary: "Zoek buy_buttons in de productpagina van het live theme",
@@ -338,12 +361,19 @@ try {
   });
   assert.equal(
     draftSummaryOnlyPayload.success,
-    false,
-    "draft-theme-artifact should not treat summary text as a replacement for structured files[] content"
+    true,
+    "draft-theme-artifact should expose summary-only compat payloads publicly and repair them at execution time"
   );
+  const draftSummaryOnlyResult = await draftThemeArtifact.execute(
+    draftSummaryOnlyPayload.data,
+    {}
+  );
+  assert.equal(draftSummaryOnlyResult.success, false);
+  assert.equal(draftSummaryOnlyResult.errorCode, "missing_draft_files");
+  assert.equal(draftSummaryOnlyResult.nextAction, "provide_structured_write_payload");
   assert.ok(
-    draftSummaryOnlyPayload.error.issues.some((issue) => issue.path.join(".") === "files"),
-    "summary-only draft payloads should fail because files[] remains required"
+    draftSummaryOnlyResult.errors.some((issue) => issue.path.join(".") === "files"),
+    "summary-only draft payloads should fail with a structured repair error on the missing write payload"
   );
 
   const invalidDraftSchemaPayload = draftThemeArtifact.schema.safeParse({
@@ -392,7 +422,11 @@ try {
     { shopifyClient: mockShopifyClient }
   );
   assert.equal(invalidDraftResult.success, false);
-  assert.equal(invalidDraftResult.errorCode, "inspection_failed_css");
+  assert.equal(invalidDraftResult.errorCode, "inspection_failed_multiple");
+  assert.ok(
+    invalidDraftResult.errors.some((issue) => issue.issueCode === "inspection_failed_css"),
+    "aggregated inspection failures should still preserve the css-specific machine-readable issue code"
+  );
   assert.ok(
     invalidDraftResult.suggestedFixes.some((entry) => entry.includes("<style>")),
     "draft-theme-artifact should explain how to fix Liquid inside {% stylesheet %}"

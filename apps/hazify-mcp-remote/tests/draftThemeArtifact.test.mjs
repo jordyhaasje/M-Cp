@@ -303,6 +303,65 @@ test("draftThemeArtifact - rejects sections without presets", async () => {
   assert.ok(result.suggestedFixes.some((entry) => entry.includes("preset")));
 });
 
+test("draftThemeArtifact - aggregates multiple local create validation issues in one response", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/multi-issue-section.liquid",
+          value: `
+{% schema %}
+{
+  "name": "Multi issue section",
+  "settings": [
+    { "type": "range", "id": "card_height", "label": "Card height", "min": 0, "max": 220, "step": 2, "default": 6 },
+    { "type": "range", "id": "visible_cards_mobile", "label": "Visible cards mobile", "min": 1, "max": 2, "step": 1, "default": 1 }
+  ]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "inspection_failed_multiple");
+  assert.ok(Array.isArray(result.errors) && result.errors.length >= 3);
+  assert.ok(
+    result.errors.some((issue) => issue.problem.includes("presets")),
+    "aggregated inspection should include the missing presets failure"
+  );
+  assert.ok(
+    result.errors.some((issue) => issue.problem.includes("renderbare markup")),
+    "aggregated inspection should include the missing renderable markup failure"
+  );
+  assert.ok(
+    result.errors.some((issue) => issue.problem.includes("card_height")),
+    "aggregated inspection should include the oversized range failure"
+  );
+  assert.ok(
+    result.preferSelectFor?.some((entry) => JSON.stringify(entry.path).includes("visible_cards_mobile")),
+    "aggregated inspection should flag tiny discrete ranges for select conversion"
+  );
+  assert.ok(
+    result.suggestedSchemaRewrites?.some((entry) => entry.suggestedType === "select"),
+    "aggregated inspection should include schema rewrite suggestions"
+  );
+});
+
 test("draftThemeArtifact - rejects blocks without a schema block in create mode", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -495,6 +554,55 @@ test("draftThemeArtifact - rejects range settings that exceed Shopify's step-cou
   assert.equal(result.errorCode, "inspection_failed_schema_range");
   assert.match(result.message, /101 stappen/i);
   assert.match(result.message, /card_offset_right/i);
+});
+
+test("draftThemeArtifact - advises select for ranges with too few discrete values", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/tiny-range.liquid",
+          value: `
+<div class="demo">{{ section.settings.heading }}</div>
+{% schema %}
+{
+  "name": "Tiny range",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "range", "id": "visible_cards_mobile", "label": "Visible cards mobile", "min": 1, "max": 2, "step": 1, "default": 1 },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Tiny range" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "inspection_failed_schema_range");
+  assert.ok(
+    result.preferSelectFor?.some((entry) => JSON.stringify(entry.path).includes("visible_cards_mobile")),
+    "tiny discrete ranges should return preferSelectFor guidance"
+  );
+  assert.ok(
+    result.suggestedSchemaRewrites?.some((entry) => entry.suggestedType === "select"),
+    "tiny discrete ranges should suggest converting the schema to select"
+  );
 });
 
 test("draftThemeArtifact - rejects schema-only section stubs in create mode", async () => {
@@ -2201,6 +2309,71 @@ test("draftThemeArtifact - success when linter passes (pushes directly to chosen
     assert.ok(result.verify.summary.match >= 1);
     assert.ok(result.draft);
     
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("draftThemeArtifact - warns when a valid create payload is likely still a minimal scaffold", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const originalFetch = global.fetch;
+  const themeFileMock = createThemeFileFetchMock({
+    key: "sections/minimal-scaffold.liquid",
+    initialValue: `
+<div class="demo">{{ section.settings.heading }}</div>
+{% schema %}
+{
+  "name": "Minimal scaffold",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Minimal scaffold" }]
+}
+{% endschema %}
+`,
+  });
+  global.fetch = themeFileMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        files: [
+          {
+            key: "sections/minimal-scaffold.liquid",
+            value: `
+<div class="demo">{{ section.settings.heading }}</div>
+{% schema %}
+{
+  "name": "Minimal scaffold",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Minimal scaffold" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+    assert.ok(
+      result.warnings?.some((warning) => warning.includes("likely_minimal_scaffold")),
+      "successful minimal stubs should remain deployable but carry a scaffold quality warning"
+    );
   } finally {
     global.fetch = originalFetch;
   }

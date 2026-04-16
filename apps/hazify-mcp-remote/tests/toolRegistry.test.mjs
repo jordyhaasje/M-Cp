@@ -95,3 +95,57 @@ registry.byName.get("delete-product-variants").outputSchema.parse({
     remainingVariants: [],
   },
 });
+
+registry.byName.get("plan-theme-edit").outputSchema.parse({
+  success: false,
+  status: "needs_input",
+  message: "Planner mist een theme target.",
+  errorCode: "missing_plan_theme_target",
+  retryable: true,
+  nextAction: "provide_theme_target",
+  retryMode: "same_request_with_theme_target",
+  normalizedArgs: {
+    intent: "existing_edit",
+    themeRole: null,
+  },
+  errors: [
+    {
+      path: ["themeRole"],
+      problem: "Theme target ontbreekt.",
+      fixSuggestion: "Voeg themeRole of themeId toe.",
+    },
+  ],
+});
+
+registry.byName.get("draft-theme-artifact").outputSchema.parse({
+  success: false,
+  status: "inspection_failed",
+  message: "Building Inspection Failed: lokale validatie faalde.",
+  errorCode: "inspection_failed_multiple",
+  retryable: true,
+  nextAction: "fix_local_validation",
+  retryMode: "same_request_after_fix",
+  normalizedArgs: {
+    themeRole: "main",
+    mode: "create",
+  },
+  errors: [
+    {
+      path: ["files", 0, "schema"],
+      problem: "Schema mist presets.",
+      fixSuggestion: "Voeg een preset toe.",
+    },
+  ],
+  suggestedSchemaRewrites: [
+    {
+      path: ["section", "settings", "visible_cards_mobile"],
+      suggestedType: "select",
+    },
+  ],
+  preferSelectFor: [
+    {
+      path: ["section", "settings", "visible_cards_mobile"],
+      valuesCount: 2,
+    },
+  ],
+});

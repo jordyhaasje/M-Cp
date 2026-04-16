@@ -31,9 +31,22 @@ const TemplateSchema = z.enum([
   "search",
 ]);
 
-const PlanThemeEditShape = z
+const SummaryAliasFieldDescriptions = {
+  _tool_input_summary:
+    "Compat summary voor beperkte clients. Alleen veilige inferentie voor intent, theme target, template en exact één targetFile.",
+  tool_input_summary:
+    "Legacy alias van _tool_input_summary voor backwards compatibility.",
+  summary:
+    "Legacy alias van _tool_input_summary voor backwards compatibility.",
+  prompt:
+    "Legacy alias van _tool_input_summary voor backwards compatibility.",
+  request:
+    "Legacy alias van _tool_input_summary voor backwards compatibility.",
+};
+
+const PlanThemeEditPublicObjectSchema = z
   .object({
-    intent: IntentSchema.describe(
+    intent: IntentSchema.optional().describe(
       "Bij voorkeur expliciet meegeven. existing_edit = bestaand bestand patchen, native_block = block in bestaande section/productflow, new_section = nieuwe section maken, template_placement = bestaande section/template placement analyseren. Compat-aliassen en summary-fallback blijven alleen bedoeld voor oudere clients."
     ),
     themeId: z
@@ -63,6 +76,56 @@ const PlanThemeEditShape = z
       .max(120)
       .optional()
       .describe("Optionele hint voor de section type/handle, bijvoorbeeld main-product."),
+    _tool_input_summary: z
+      .string()
+      .max(4000)
+      .optional()
+      .describe(SummaryAliasFieldDescriptions._tool_input_summary),
+    tool_input_summary: z
+      .string()
+      .max(4000)
+      .optional()
+      .describe(SummaryAliasFieldDescriptions.tool_input_summary),
+    summary: z
+      .string()
+      .max(4000)
+      .optional()
+      .describe(SummaryAliasFieldDescriptions.summary),
+    prompt: z
+      .string()
+      .max(4000)
+      .optional()
+      .describe(SummaryAliasFieldDescriptions.prompt),
+    request: z
+      .string()
+      .max(4000)
+      .optional()
+      .describe(SummaryAliasFieldDescriptions.request),
+    description: z
+      .string()
+      .max(240)
+      .optional()
+      .describe("Compat alias voor query; wordt alleen gebruikt als query ontbreekt."),
+    type: z
+      .string()
+      .max(80)
+      .optional()
+      .describe("Compat alias voor intent. Alleen ondersteund voor bekende intent-waarden."),
+    intentType: z
+      .string()
+      .max(80)
+      .optional()
+      .describe("Compat alias voor intent. Alleen ondersteund voor bekende intent-waarden."),
+    intent_type: z
+      .string()
+      .max(80)
+      .optional()
+      .describe("Compat alias voor intent. Alleen ondersteund voor bekende intent-waarden."),
+    targetFiles: z
+      .array(z.string().min(1))
+      .max(10)
+      .optional()
+      .describe("Compat alias. Alleen een array van exact één targetFile wordt automatisch genormaliseerd."),
     snippetLimit: z
       .number()
       .int()
@@ -71,15 +134,10 @@ const PlanThemeEditShape = z
       .default(3)
       .describe("Maximaal aantal gerelateerde snippets om compact mee te nemen in de plan-output."),
   })
-  .superRefine((input, ctx) => {
-    if (!input.themeId && !input.themeRole) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["themeRole"],
-        message: "Geef themeId of themeRole op. Deze planner default niet stilzwijgend naar een theme.",
-      });
-    }
+  .strict();
 
+const PlanThemeEditPublicShape = PlanThemeEditPublicObjectSchema
+  .superRefine((input, ctx) => {
     if (input.themeId && input.themeRole) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -88,7 +146,37 @@ const PlanThemeEditShape = z
       });
     }
 
-    if (input.intent !== "existing_edit" && input.targetFile) {
+    if (input.intent && input.intent !== "existing_edit" && input.targetFile) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetFile"],
+        message: "targetFile is alleen bedoeld voor existing_edit flows.",
+      });
+    }
+  });
+
+const PlanThemeEditNormalizedShape = z
+  .object({
+    intent: IntentSchema.optional(),
+    themeId: z.coerce.number().int().positive().optional(),
+    themeRole: ThemeRoleSchema.optional(),
+    template: TemplateSchema.optional(),
+    query: z.string().max(240).optional(),
+    targetFile: z.string().min(1).optional(),
+    sectionTypeHint: z.string().max(120).optional(),
+    snippetLimit: z.number().int().min(1).max(5).default(3),
+  })
+  .strict()
+  .superRefine((input, ctx) => {
+    if (input.themeId && input.themeRole) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["themeId"],
+        message: "Gebruik themeId of themeRole, niet allebei tegelijk.",
+      });
+    }
+
+    if (input.intent && input.intent !== "existing_edit" && input.targetFile) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["targetFile"],
@@ -102,7 +190,16 @@ const normalizePlanThemeEditInput = (rawInput) => {
     return rawInput;
   }
 
-  let normalized = { ...rawInput };
+  let normalized = {
+    intent: rawInput.intent,
+    themeId: rawInput.themeId,
+    themeRole: rawInput.themeRole,
+    template: rawInput.template,
+    query: rawInput.query,
+    targetFile: rawInput.targetFile,
+    sectionTypeHint: rawInput.sectionTypeHint,
+    snippetLimit: rawInput.snippetLimit,
+  };
   const descriptionAlias =
     typeof rawInput.description === "string" && rawInput.description.trim()
       ? rawInput.description.trim()
@@ -123,6 +220,10 @@ const normalizePlanThemeEditInput = (rawInput) => {
 
   if (!normalized.targetFile && Array.isArray(rawInput.targetFiles) && rawInput.targetFiles.length === 1) {
     normalized.targetFile = rawInput.targetFiles[0];
+  }
+
+  if (!normalized.intent && normalized.targetFile) {
+    normalized.intent = "existing_edit";
   }
 
   const summary = extractThemeToolSummary(rawInput) || descriptionAlias;
@@ -152,18 +253,162 @@ const normalizePlanThemeEditInput = (rawInput) => {
 
 const PlanThemeEditInputSchema = z.preprocess(
   normalizePlanThemeEditInput,
-  PlanThemeEditShape
+  PlanThemeEditPublicShape
 );
+
+const NormalizedPlanThemeEditInputSchema = z.preprocess(
+  normalizePlanThemeEditInput,
+  PlanThemeEditNormalizedShape
+);
+
+const summarizeNormalizedPlanInput = (input = {}) => ({
+  intent: input.intent || null,
+  themeId: input.themeId ?? null,
+  themeRole: input.themeRole || null,
+  template: input.template || null,
+  query: input.query || null,
+  targetFile: input.targetFile || null,
+  sectionTypeHint: input.sectionTypeHint || null,
+  snippetLimit: input.snippetLimit ?? 3,
+});
+
+const buildPlanInputError = ({
+  path,
+  problem,
+  fixSuggestion,
+  suggestedReplacement,
+}) => ({
+  path,
+  problem,
+  fixSuggestion,
+  ...(suggestedReplacement !== undefined ? { suggestedReplacement } : {}),
+});
+
+const buildPlanRepairResponse = ({
+  status = "needs_input",
+  message,
+  errorCode,
+  errors = [],
+  normalizedArgs,
+  nextAction,
+  retryMode = "same_request_with_structured_fields",
+  warnings = [],
+}) => ({
+  success: false,
+  status,
+  message,
+  errorCode,
+  retryable: true,
+  nextAction,
+  retryMode,
+  normalizedArgs,
+  warnings,
+  errors,
+});
 
 const planThemeEditTool = {
   name: "plan-theme-edit",
   description:
-    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet themeId of themeRole. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: patch-existing, multi-file-edit, create-section of template-placement, plus de exacte volgende read/write keys. Voor native product-blocks analyseert de planner templates/*.json al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen nog een korte `_tool_input_summary` of `description` meesturen, maar die vrije tekst is alleen fallback en vervangt gestructureerde write-inputs niet.",
+    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet themeId of themeRole. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: patch-existing, multi-file-edit, create-section of template-placement, plus de exacte volgende read/write keys. Voor native product-blocks analyseert de planner templates/*.json al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand targetFile.",
+  inputSchema: PlanThemeEditPublicObjectSchema,
   schema: PlanThemeEditInputSchema,
-  execute: async (input, context = {}) => {
+  execute: async (rawInput, context = {}) => {
+    const normalizedParse = NormalizedPlanThemeEditInputSchema.safeParse(rawInput);
+    if (!normalizedParse.success) {
+      const normalizedArgs = summarizeNormalizedPlanInput(
+        normalizePlanThemeEditInput(rawInput)
+      );
+      return buildPlanRepairResponse({
+        message:
+          "De planner kon deze compat-input niet veilig normaliseren. Corrigeer de conflicterende velden en probeer opnieuw.",
+        errorCode: "invalid_plan_theme_edit_input",
+        nextAction: "fix_input",
+        normalizedArgs,
+        errors: normalizedParse.error.issues.map((issue) =>
+          buildPlanInputError({
+            path: issue.path,
+            problem: issue.message,
+            fixSuggestion:
+              issue.path.join(".") === "themeId"
+                ? "Stuur alleen themeId of alleen themeRole mee."
+                : "Corrigeer dit invoerveld en probeer dezelfde toolcall opnieuw.",
+          })
+        ),
+      });
+    }
+
+    const input = normalizedParse.data;
+    const normalizedArgs = summarizeNormalizedPlanInput(input);
+    const errors = [];
+
+    if (!input.themeId && !input.themeRole) {
+      errors.push(
+        buildPlanInputError({
+          path: ["themeRole"],
+          problem:
+            "Geef themeId of themeRole op. Deze planner default niet stilzwijgend naar een theme.",
+          fixSuggestion:
+            "Voeg een expliciet theme target toe, bijvoorbeeld themeRole='main' of themeId=123456789.",
+        })
+      );
+    }
+
+    if (!input.intent) {
+      errors.push(
+        buildPlanInputError({
+          path: ["intent"],
+          problem:
+            "De planner kon geen veilige intent afleiden uit deze input.",
+          fixSuggestion:
+            "Geef intent expliciet mee als existing_edit, native_block, new_section of template_placement.",
+        })
+      );
+    }
+
+    if (errors.length > 0) {
+      const missingThemeTarget = errors.some(
+        (entry) => entry.path.join(".") === "themeRole"
+      );
+      const missingIntent = errors.some(
+        (entry) => entry.path.join(".") === "intent"
+      );
+
+      return buildPlanRepairResponse({
+        message:
+          missingThemeTarget && missingIntent
+            ? "De planner mist zowel een expliciet theme target als een veilige intent."
+            : missingThemeTarget
+              ? "De planner mist een expliciet theme target."
+              : "De planner mist een veilige intent.",
+        errorCode:
+          missingThemeTarget && missingIntent
+            ? "missing_plan_theme_target_and_intent"
+            : missingThemeTarget
+              ? "missing_plan_theme_target"
+              : "missing_plan_intent",
+        nextAction:
+          missingThemeTarget && missingIntent
+            ? "provide_theme_target_and_intent"
+            : missingThemeTarget
+              ? "provide_theme_target"
+              : "provide_intent",
+        normalizedArgs,
+        errors,
+      });
+    }
+
     const shopifyClient = requireShopifyClient(context);
-    return planThemeEdit(shopifyClient, API_VERSION, input);
+    const result = await planThemeEdit(shopifyClient, API_VERSION, input);
+    return {
+      success: true,
+      normalizedArgs,
+      ...result,
+    };
   },
 };
 
-export { PlanThemeEditInputSchema, planThemeEditTool };
+export {
+  NormalizedPlanThemeEditInputSchema,
+  PlanThemeEditInputSchema,
+  planThemeEditTool,
+};

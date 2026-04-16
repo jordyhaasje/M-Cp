@@ -29,15 +29,17 @@ npm run --workspace @hazify/mcp-remote start:remote
 - Shopify credentials worden niet via introspection gedeeld; de remote haalt per token een interne Shopify access token op via `/v1/mcp/token/exchange`
 
 ## Theme edit flow
-- `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`
+- Canonical agent flow: `get-themes` -> `plan-theme-edit` -> compacte read/preflight -> `draft-theme-artifact mode="create"` voor nieuwe sections -> optioneel aparte `mode="edit"` of `patch-theme-file` voor vervolgfixes.
+- `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact` blijft de standaardflow voor bestaande single-file theme edits.
 - Start voor native product-blocks, theme blocks en template placement eerst met `plan-theme-edit` op hetzelfde expliciet gekozen theme. Die planner houdt de read-scope klein en voorkomt one-file writes op themes waar de renderflow via snippets loopt.
 - Na `plan-theme-edit` gebruik je bij voorkeur `search-theme-files` met de exacte `keys` uit `nextReadKeys` om eerst compacte snippets te vinden, in plaats van meteen volledige template/section reads te doen.
-- Preferred compat input voor wrappers/LLM-clients is `_tool_input_summary`. Legacy aliases zoals `summary`, `prompt`, `request` en `tool_input_summary` blijven alleen voor backwards compatibility ondersteund.
+- Compat-input voor wrappers/LLM-clients mag `_tool_input_summary` gebruiken voor veilige inferentie van theme target, intent/template en exact één bestaand file path. Die summary vervangt nooit echte write-inhoud. Legacy aliases zoals `summary`, `prompt`, `request` en `tool_input_summary` blijven alleen voor backwards compatibility ondersteund.
 - Gebruik `get-theme-file` om na search alleen het exacte doelbestand volledig in te lezen
 - Gebruik bij voorkeur `patch` voor één gerichte wijziging of `patches` voor meerdere sequentiële wijzigingen in hetzelfde bestand om token-verbruik te beperken en truncation te voorkomen
 - Gebruik `patch-theme-file` voor kleine, bestaande single-file edits wanneer je het exacte targetbestand al weet. Top-level `key + searchString + replaceString` wordt compatibel naar `patch` genormaliseerd.
-- `draft-theme-artifact` valideert, lint en pusht naar het expliciet gekozen target theme. Bevat automatische JSON/JSONC-structuur validatie voor templates/config, blokkeert schema-only section stubs in create-mode en valideert Shopify-range regels (bounds, step-alignment, max 101 stappen) voordat Shopify de write afwijst.
-- `draft-theme-artifact` ondersteunt voor single-file requests ook top-level `key + value` of `key + searchString + replaceString`, en valideert nieuwe `blocks/*.liquid` files nu ook op block-basisregels.
+- `draft-theme-artifact` valideert, lint en pusht naar het expliciet gekozen target theme. Bevat automatische JSON/JSONC-structuur validatie voor templates/config, blokkeert schema-only section stubs in create-mode en valideert Shopify-range regels (bounds, step-alignment, <3 discrete waarden => select-advies, Hazify preflight-guard max 101 stappen) voordat Shopify de write afwijst.
+- `draft-theme-artifact` ondersteunt voor single-file requests ook top-level `key + value`, `key + content`, `key + liquid` of `key + searchString + replaceString`, en valideert nieuwe `blocks/*.liquid` files nu ook op block-basisregels.
+- Lokale create-validatie bundelt meerdere deterministische fouten in één response met machine-readable velden zoals `errorCode`, `errors[]`, `normalizedArgs`, `nextAction`, `retryMode`, `suggestedSchemaRewrites` en `preferSelectFor`. Operationele blockers zoals patch-anchor fouten, mixed create/edit zonder mode en preview write failures blijven fail-fast.
 - `apply-theme-draft` promoveert een eerder goedgekeurde draft alleen naar een expliciet target; er is geen write-default naar live
 - `verify-theme-files` en `get-theme-file(s)` helpen bij verificatie en readback
 - Gebruik in nieuwe sections `video` voor merchant-uploaded video bestanden; `video_url` is alleen voor externe YouTube/Vimeo bronnen

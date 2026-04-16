@@ -201,8 +201,17 @@ const searchThemeFilesOutputSchema = z
 
 const planThemeEditOutputSchema = z
   .object({
-    theme: themeSummarySchema,
-    intent: z.string(),
+    success: z.boolean().optional(),
+    status: z.string().optional(),
+    message: z.string().optional(),
+    errorCode: z.string().optional(),
+    retryable: z.boolean().optional(),
+    errors: z.array(passthroughObject()).optional(),
+    normalizedArgs: passthroughObject().optional(),
+    nextAction: z.string().optional(),
+    retryMode: z.string().optional(),
+    theme: themeSummarySchema.optional(),
+    intent: z.string().optional(),
     template: z
       .object({
         requested: z.string(),
@@ -210,11 +219,12 @@ const planThemeEditOutputSchema = z
         primary: passthroughObject().nullable(),
         alternates: z.array(passthroughObject()),
       })
-      .passthrough(),
-    recommendedFlow: z.string(),
-    shouldUse: z.string(),
-    likelyNeedsMultiFileEdit: z.boolean(),
-    reason: z.string(),
+      .passthrough()
+      .optional(),
+    recommendedFlow: z.string().optional(),
+    shouldUse: z.string().optional(),
+    likelyNeedsMultiFileEdit: z.boolean().optional(),
+    reason: z.string().optional(),
     candidateFiles: z.array(
       z
         .object({
@@ -223,13 +233,13 @@ const planThemeEditOutputSchema = z
           found: z.boolean(),
         })
         .passthrough()
-    ),
-    nextReadKeys: z.array(z.string()),
-    nextWriteKeys: z.array(z.string()),
-    newFileSuggestions: z.array(z.string()),
-    searchQueries: z.array(z.string()),
-    warnings: z.array(z.string()),
-    architecture: passthroughObject(),
+    ).optional(),
+    nextReadKeys: z.array(z.string()).optional(),
+    nextWriteKeys: z.array(z.string()).optional(),
+    newFileSuggestions: z.array(z.string()).optional(),
+    searchQueries: z.array(z.string()).optional(),
+    warnings: z.array(z.string()).optional(),
+    architecture: passthroughObject().optional(),
   })
   .passthrough();
 
@@ -250,6 +260,11 @@ const draftThemeArtifactOutputSchema = z
     retryable: z.boolean().optional(),
     suggestedFixes: z.array(z.string()).optional(),
     shouldNarrowScope: z.boolean().optional(),
+    nextAction: z.string().optional(),
+    retryMode: z.string().optional(),
+    normalizedArgs: passthroughObject().optional(),
+    suggestedSchemaRewrites: z.array(passthroughObject()).optional(),
+    preferSelectFor: z.array(passthroughObject()).optional(),
   })
   .passthrough();
 

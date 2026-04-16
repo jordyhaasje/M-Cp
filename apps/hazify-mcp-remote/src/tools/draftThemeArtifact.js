@@ -49,7 +49,7 @@ const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 const ThemeDraftPatchSchema = z.object({
   searchString: z.string().min(1).describe("De te vervangen string in het originele bestand. Gebruik een unieke literal anchor die exact één keer voorkomt in het doelbestand."),
   replaceString: z.string().describe("De nieuwe string"),
-});
+}).strict();
 
 const ThemeDraftPatchesSchema = z
   .array(ThemeDraftPatchSchema)
@@ -68,7 +68,7 @@ const ThemeDraftFileSchema = z.object({
   patch: ThemeDraftPatchSchema.optional().describe("Verander een specifieke string zonder het hele bestand in te sturen. Bespaart tokens en voorkomt truncated writes."),
   patches: ThemeDraftPatchesSchema.optional(),
   baseChecksumMd5: z.string().optional().describe("Optioneel MD5 checksum voor optimistic locking. De write faalt als het bestand tussentijds is gewijzigd."),
-}).refine((data) => {
+}).strict().refine((data) => {
   const hasValue = data.value !== undefined;
   const hasPatch = data.patch !== undefined;
   const hasPatches = Array.isArray(data.patches) && data.patches.length > 0;
@@ -77,31 +77,142 @@ const ThemeDraftFileSchema = z.object({
   message: "Provide exactly one of 'value', 'patch', or 'patches'",
 });
 
-const ThemeDraftArtifactInputShape = z.object({
-  files: z.array(ThemeDraftFileSchema).min(1).max(10).describe("Verplicht. Maximale file batch is 10 items conform veiligheidsregels. Vrije summary-tekst mag files[] of file-content niet vervangen."),
-  themeId: z.string().or(z.number()).optional().describe("Optioneel expliciet doel theme ID. Laat weg om via themeRole te resolven."),
-  themeRole: ThemeRoleSchema.optional().describe("Target theme role. Verplicht als themeId niet is opgegeven. Vraag de gebruiker welk thema."),
-  mode: z.enum(["create", "edit"]).optional().describe("'create' = nieuw sectionbestand met volledige inspectie. 'edit' = bestaand bestand fixen met lichtere checks. Zet mode altijd op het TOP-LEVEL request, nooit in files[]. Als mode ontbreekt en je patch/patches gebruikt, behandelt de pipeline dit automatisch als edit; value-only writes worden dan eerst tegen het doeltheme geprobed om create/edit veilig af te leiden."),
-  isStandalone: z.boolean().optional().describe("Mark as standalone workflow"),
-}).superRefine((data, ctx) => {
-  if (data.mode !== "create") {
-    return;
-  }
+const SummaryFieldSchema = z.string().max(4000).optional();
 
-  data.files.forEach((file, index) => {
-    const hasPatch = file.patch !== undefined;
-    const hasPatches = Array.isArray(file.patches) && file.patches.length > 0;
-    if (!hasPatch && !hasPatches) {
+const DraftThemeArtifactPublicObjectSchema = z
+  .object({
+    files: z
+      .array(ThemeDraftFileSchema)
+      .min(1)
+      .max(10)
+      .optional()
+      .describe(
+        "Canonieke file batch. Maximale file batch is 10 items conform veiligheidsregels."
+      ),
+    file: ThemeDraftFileSchema
+      .optional()
+      .describe("Compat shorthand voor één file-object; wordt intern naar files[] genormaliseerd."),
+    key: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Compat shorthand voor één targetbestand; alleen veilig in combinatie met value/content/liquid of patch-data."),
+    targetFile: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Compat alias van key voor single-file flows."),
+    value: z
+      .string()
+      .optional()
+      .describe("Compat single-file shorthand. Heeft prioriteit boven content en liquid."),
+    content: z
+      .string()
+      .optional()
+      .describe("Compat alias van value voor single-file flows."),
+    liquid: z
+      .string()
+      .optional()
+      .describe("Compat alias van value voor single-file Liquid writes."),
+    searchString: z
+      .string()
+      .optional()
+      .describe("Compat shorthand. Alleen samen met replaceString wordt dit intern naar patch genormaliseerd."),
+    replaceString: z
+      .string()
+      .optional()
+      .describe("Compat shorthand. Alleen samen met searchString wordt dit intern naar patch genormaliseerd."),
+    patch: ThemeDraftPatchSchema.optional(),
+    patches: ThemeDraftPatchesSchema.optional(),
+    baseChecksumMd5: z
+      .string()
+      .optional()
+      .describe("Compat shorthand voor single-file optimistic locking."),
+    _tool_input_summary: SummaryFieldSchema.describe(
+      "Compat summary voor beperkte clients. Alleen veilige inferentie voor theme target en exact één file path."
+    ),
+    tool_input_summary: SummaryFieldSchema.describe(
+      "Legacy alias van _tool_input_summary voor backwards compatibility."
+    ),
+    summary: SummaryFieldSchema.describe(
+      "Legacy alias van _tool_input_summary voor backwards compatibility."
+    ),
+    prompt: SummaryFieldSchema.describe(
+      "Legacy alias van _tool_input_summary voor backwards compatibility."
+    ),
+    request: SummaryFieldSchema.describe(
+      "Legacy alias van _tool_input_summary voor backwards compatibility."
+    ),
+    themeId: z
+      .string()
+      .or(z.number())
+      .optional()
+      .describe("Optioneel expliciet doel theme ID. Laat weg om via themeRole te resolven."),
+    themeRole: ThemeRoleSchema
+      .optional()
+      .describe("Target theme role. Verplicht als themeId niet is opgegeven. Vraag de gebruiker welk thema."),
+    mode: z
+      .enum(["create", "edit"])
+      .optional()
+      .describe(
+        "'create' = nieuw sectionbestand met volledige inspectie. 'edit' = bestaand bestand fixen met lichtere checks. Zet mode altijd op het TOP-LEVEL request, nooit in files[]. Als mode ontbreekt en je patch/patches gebruikt, behandelt de pipeline dit automatisch als edit; value-only writes worden dan eerst tegen het doeltheme geprobed om create/edit veilig af te leiden."
+      ),
+    isStandalone: z.boolean().optional().describe("Mark as standalone workflow"),
+  })
+  .strict();
+
+const DraftThemeArtifactPublicShape = DraftThemeArtifactPublicObjectSchema
+  .superRefine((data, ctx) => {
+    if (data.themeId && data.themeRole) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["themeId"],
+        message: "Gebruik themeId of themeRole, niet allebei tegelijk.",
+      });
+    }
+  });
+
+const NormalizedThemeDraftArtifactShape = z
+  .object({
+    files: z
+      .array(ThemeDraftFileSchema)
+      .min(1)
+      .max(10)
+      .optional(),
+    themeId: z.string().or(z.number()).optional(),
+    themeRole: ThemeRoleSchema.optional(),
+    mode: z.enum(["create", "edit"]).optional(),
+    isStandalone: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.themeId && data.themeRole) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["themeId"],
+        message: "Gebruik themeId of themeRole, niet allebei tegelijk.",
+      });
+    }
+
+    if (data.mode !== "create" || !Array.isArray(data.files)) {
       return;
     }
 
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["files", index, hasPatch ? "patch" : "patches"],
-      message: "mode='create' ondersteunt alleen volledige value-writes. Gebruik mode='edit' voor patch of patches.",
+    data.files.forEach((file, index) => {
+      const hasPatch = file.patch !== undefined;
+      const hasPatches = Array.isArray(file.patches) && file.patches.length > 0;
+      if (!hasPatch && !hasPatches) {
+        return;
+      }
+
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["files", index, hasPatch ? "patch" : "patches"],
+        message:
+          "mode='create' ondersteunt alleen volledige value-writes. Gebruik mode='edit' voor patch of patches.",
+      });
     });
   });
-});
 
 const normalizeDraftThemeArtifactInput = (rawInput) => {
   if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
@@ -109,7 +220,17 @@ const normalizeDraftThemeArtifactInput = (rawInput) => {
   }
 
   const summary = extractThemeToolSummary(rawInput);
-  let normalized = summary ? inferThemeTargetFromSummary(rawInput, summary) : { ...rawInput };
+  let normalized = {
+    files: rawInput.files,
+    themeId: rawInput.themeId,
+    themeRole: rawInput.themeRole,
+    mode: rawInput.mode,
+    isStandalone: rawInput.isStandalone,
+  };
+
+  if (summary) {
+    normalized = inferThemeTargetFromSummary(normalized, summary);
+  }
 
   const singlePatch =
     rawInput.searchString !== undefined &&
@@ -162,7 +283,12 @@ const normalizeDraftThemeArtifactInput = (rawInput) => {
 
 export const inputSchema = z.preprocess(
   normalizeDraftThemeArtifactInput,
-  ThemeDraftArtifactInputShape
+  DraftThemeArtifactPublicShape
+);
+
+const NormalizedThemeDraftArtifactInputSchema = z.preprocess(
+  normalizeDraftThemeArtifactInput,
+  NormalizedThemeDraftArtifactShape
 );
 
 function escapeRegExp(value) {
@@ -249,6 +375,12 @@ function isRangeValueAlignedToStep(value, min, step) {
 
 function buildRangeIssueSuggestedFixes(issue) {
   switch (issue?.code) {
+    case "range_too_few_steps":
+      return [
+        `Gebruik voor ${issue.label} liever een select-setting. De huidige range levert maar ${issue.stepCount} discrete waarden op.`,
+        `Of verlaag step / vergroot het bereik zodat ${issue.label} minstens 3 keuzes biedt.`,
+        "Controleer alle range settings in de section schema voordat je opnieuw schrijft.",
+      ];
     case "range_default_not_on_step":
       return [
         `Pas default van ${issue.label} aan zodat deze exact op het step-raster valt vanaf min ${issue.min} met step ${issue.step}.`,
@@ -258,7 +390,9 @@ function buildRangeIssueSuggestedFixes(issue) {
     case "range_too_many_steps":
       return [
         `Beperk ${issue.label} tot maximaal 101 bereikstappen. De huidige configuratie levert ${issue.stepCount} waarden op.`,
-        `Verhoog step of verklein het bereik ${issue.min}-${issue.max} voordat je opnieuw schrijft.`,
+        issue.suggestedMinStep
+          ? `Verhoog step naar minimaal ${issue.suggestedMinStep} of verklein het bereik ${issue.min}-${issue.max} voordat je opnieuw schrijft.`
+          : `Verhoog step of verklein het bereik ${issue.min}-${issue.max} voordat je opnieuw schrijft.`,
         "Controleer alle range settings in de section schema voordat je opnieuw schrijft.",
       ];
     default:
@@ -272,13 +406,14 @@ function buildRangeIssueSuggestedFixes(issue) {
 
 function collectSchemaRangeIssues(schema) {
   const issues = [];
-  const addIssue = (setting, ownerLabel) => {
+  const addIssue = (setting, ownerLabel, basePath) => {
     if (!setting || setting.type !== "range") {
       return;
     }
 
     const id = String(setting.id || "unknown");
     const label = `${ownerLabel} setting '${id}'`;
+    const path = [...basePath, "settings", id];
     const min = setting.min;
     const max = setting.max;
     const defaultValue = setting.default;
@@ -298,6 +433,7 @@ function collectSchemaRangeIssues(schema) {
       issues.push({
         code: "range_non_numeric",
         label,
+        path,
         min,
         max,
         defaultValue,
@@ -312,6 +448,7 @@ function collectSchemaRangeIssues(schema) {
       issues.push({
         code: "range_invalid_step",
         label,
+        path,
         min,
         max,
         defaultValue,
@@ -325,6 +462,7 @@ function collectSchemaRangeIssues(schema) {
       issues.push({
         code: "range_min_gt_max",
         label,
+        path,
         min,
         max,
         defaultValue,
@@ -338,6 +476,7 @@ function collectSchemaRangeIssues(schema) {
       issues.push({
         code: "range_default_out_of_bounds",
         label,
+        path,
         min,
         max,
         defaultValue,
@@ -352,6 +491,7 @@ function collectSchemaRangeIssues(schema) {
       issues.push({
         code: "range_default_not_on_step",
         label,
+        path,
         min,
         max,
         defaultValue,
@@ -363,24 +503,45 @@ function collectSchemaRangeIssues(schema) {
     }
 
     const stepCount = Math.floor((max - min) / step) + 1;
-    if (stepCount > 101) {
+    if (stepCount < 3) {
       issues.push({
-        code: "range_too_many_steps",
+        code: "range_too_few_steps",
         label,
+        path,
         min,
         max,
         defaultValue,
         step,
         stepCount,
         message:
-          `${label} gebruikt ${stepCount} bereikstappen. Shopify accepteert maximaal 101 stappen per range setting.`,
+          `${label} gebruikt maar ${stepCount} discrete waarden. Gebruik voor zulke kleine keuzes liever een select-setting.`,
+        preferSelect: true,
+      });
+      return;
+    }
+
+    if (stepCount > 101) {
+      const suggestedMinStep =
+        max > min ? Math.ceil((max - min) / 100) : null;
+      issues.push({
+        code: "range_too_many_steps",
+        label,
+        path,
+        min,
+        max,
+        defaultValue,
+        step,
+        stepCount,
+        suggestedMinStep,
+        message:
+          `${label} gebruikt ${stepCount} bereikstappen. Hazify blokkeert ranges met meer dan 101 stappen/waarden als preflight-guard voor Shopify theme schemas.`,
       });
     }
   };
 
   const sectionSettings = Array.isArray(schema?.settings) ? schema.settings : [];
   for (const setting of sectionSettings) {
-    addIssue(setting, "Section");
+    addIssue(setting, "Section", ["section"]);
   }
 
   const blocks = Array.isArray(schema?.blocks) ? schema.blocks : [];
@@ -388,7 +549,7 @@ function collectSchemaRangeIssues(schema) {
     const blockType = String(block?.type || block?.name || "unknown");
     const blockSettings = Array.isArray(block?.settings) ? block.settings : [];
     for (const setting of blockSettings) {
-      addIssue(setting, `Block '${blockType}'`);
+      addIssue(setting, `Block '${blockType}'`, ["blocks", blockType]);
     }
   }
 
@@ -399,6 +560,73 @@ function collectSchemaSettingTypes(schema) {
   return new Set(
     collectSchemaSettings(schema).map((setting) => String(setting?.type || ""))
   );
+}
+
+function buildRangeIssueDiagnostic(issue) {
+  const base = {
+    path: issue.path || [],
+    problem: issue.message,
+    fixSuggestion: buildRangeIssueSuggestedFixes(issue)[0],
+    issueCode: "inspection_failed_schema_range",
+  };
+
+  if (issue.code === "range_too_many_steps" && issue.suggestedMinStep) {
+    return {
+      ...base,
+      suggestedReplacement: {
+        step: issue.suggestedMinStep,
+      },
+    };
+  }
+
+  if (issue.code === "range_too_few_steps") {
+    return {
+      ...base,
+      suggestedReplacement: {
+        type: "select",
+      },
+    };
+  }
+
+  return base;
+}
+
+function buildRangeIssueSchemaRewrites(issue) {
+  if (issue.code === "range_too_few_steps") {
+    return [
+      {
+        path: issue.path || [],
+        currentType: "range",
+        suggestedType: "select",
+        reason: `${issue.label} heeft maar ${issue.stepCount} discrete waarden.`,
+      },
+    ];
+  }
+
+  if (issue.code === "range_too_many_steps" && issue.suggestedMinStep) {
+    return [
+      {
+        path: issue.path || [],
+        currentType: "range",
+        suggestedStep: issue.suggestedMinStep,
+        reason: `${issue.label} overschrijdt de Hazify preflight-guard van maximaal 101 waarden.`,
+      },
+    ];
+  }
+
+  return [];
+}
+
+function buildPreferSelectEntry(issue) {
+  if (issue.code !== "range_too_few_steps") {
+    return null;
+  }
+
+  return {
+    path: issue.path || [],
+    valuesCount: issue.stepCount,
+    reason: `${issue.label} heeft te weinig discrete waarden voor een zinvolle range.`,
+  };
 }
 
 function collectColorSchemeGroupIds(node, ids = new Set()) {
@@ -606,42 +834,123 @@ function hasRenderableContentOutsideSchema(value) {
   return source.trim().length > 0;
 }
 
+function createInspectionIssue({
+  path = [],
+  problem,
+  fixSuggestion,
+  suggestedReplacement,
+  issueCode = "inspection_failed_local_validation",
+}) {
+  return {
+    path,
+    problem,
+    fixSuggestion,
+    issueCode,
+    ...(suggestedReplacement !== undefined ? { suggestedReplacement } : {}),
+  };
+}
+
+function buildInspectionResult({
+  issues = [],
+  warnings = [],
+  suggestedFixes = [],
+  shouldNarrowScope = false,
+  suggestedSchemaRewrites = [],
+  preferSelectFor = [],
+  qualityWarnings = [],
+}) {
+  const flattenedIssues = (issues || []).filter(Boolean);
+  return {
+    ok: flattenedIssues.length === 0,
+    issues: flattenedIssues,
+    warnings: uniqueStrings([...(warnings || []), ...(qualityWarnings || [])]),
+    suggestedFixes: uniqueStrings([
+      ...(suggestedFixes || []),
+      ...flattenedIssues.map((issue) => issue.fixSuggestion).filter(Boolean),
+    ]),
+    shouldNarrowScope,
+    suggestedSchemaRewrites: (suggestedSchemaRewrites || []).filter(Boolean),
+    preferSelectFor: (preferSelectFor || []).filter(Boolean),
+    qualityWarnings: uniqueStrings(qualityWarnings || []),
+  };
+}
+
+function summarizeMinimalSectionQuality(value, schema) {
+  const warnings = [];
+  const source = String(value || "");
+  const settings = collectSchemaSettings(schema);
+  const hasScopedCss = /{%\s*stylesheet\s*%}|<style\b/i.test(source);
+  const hasResponsive = /@media\b|clamp\(/i.test(source);
+  const hasLayoutPrimitive =
+    /display\s*:\s*(?:grid|flex|inline-grid|inline-flex)/i.test(source) ||
+    /grid-template-columns\s*:/i.test(source) ||
+    /flex-direction\s*:/i.test(source);
+  const hasSpacing = /(?:padding|margin|gap)\s*:/i.test(source);
+  const hasVisualTreatment = /(?:border-radius|box-shadow|background(?:-color)?|border)\s*:/i.test(source);
+  const settingCount = settings.length;
+  const markupLength = removeLiquidBlock(source, "schema").trim().length;
+
+  if (!hasScopedCss && settingCount <= 1 && markupLength < 160) {
+    warnings.push(
+      "likely_minimal_scaffold: de section is uploadbaar, maar nog erg minimaal en waarschijnlijk alleen een scaffold."
+    );
+  }
+
+  if (!hasResponsive && !hasVisualTreatment && settingCount <= 2) {
+    warnings.push(
+      "likely_minimal_scaffold: voeg responsieve en visuele afwerking toe voordat deze section als afgerond wordt beschouwd."
+    );
+  }
+
+  if (!hasLayoutPrimitive && !hasSpacing && markupLength < 220) {
+    warnings.push(
+      "likely_minimal_scaffold: de section bevat weinig layout-signaal; controleer of dit niet alleen een minimale stub is."
+    );
+  }
+
+  return uniqueStrings(warnings);
+}
+
 function inspectEditableLiquidSchema(value, fileLabel) {
   if (!hasLiquidBlockTag(value, "schema")) {
-    return { ok: true };
+    return buildInspectionResult({});
   }
 
   const { schema, error } = parseSectionSchema(value);
   if (error || !schema) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_schema",
-      retryable: true,
-      message: `${fileLabel} bevat een ongeldig {% schema %} block: ${error || "Schema ontbreekt."}`,
+    return buildInspectionResult({
+      issues: [
+        createInspectionIssue({
+          path: ["schema"],
+          problem: `${fileLabel} bevat een ongeldig {% schema %} block: ${error || "Schema ontbreekt."}`,
+          fixSuggestion: "Controleer of de schema JSON parsebaar is en behoud een geldig {% schema %} block.",
+          issueCode: "inspection_failed_schema",
+        }),
+      ],
       suggestedFixes: [
         "Controleer of de schema JSON parsebaar is.",
         "Behoud een geldig {% schema %} block in section- en block-bestanden.",
       ],
-      shouldNarrowScope: false,
-    };
+    });
   }
 
   const rangeIssues = collectSchemaRangeIssues(schema);
   if (rangeIssues.length > 0) {
-    const firstIssue = rangeIssues[0];
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_schema_range",
-      retryable: true,
-      message: `Building Inspection Failed: ${firstIssue.message}`,
-      suggestedFixes: buildRangeIssueSuggestedFixes(firstIssue),
-      shouldNarrowScope: false,
-    };
+    return buildInspectionResult({
+      issues: rangeIssues.map((issue) => buildRangeIssueDiagnostic(issue)),
+      suggestedFixes: rangeIssues.flatMap((issue) =>
+        buildRangeIssueSuggestedFixes(issue)
+      ),
+      suggestedSchemaRewrites: rangeIssues.flatMap((issue) =>
+        buildRangeIssueSchemaRewrites(issue)
+      ),
+      preferSelectFor: rangeIssues
+        .map((issue) => buildPreferSelectEntry(issue))
+        .filter(Boolean),
+    });
   }
 
-  return { ok: true };
+  return buildInspectionResult({});
 }
 
 function inspectConfigFile(file) {
@@ -649,38 +958,38 @@ function inspectConfigFile(file) {
   try {
     parsed = parseJsonLike(file.value);
   } catch (e) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_json",
-      retryable: true,
-      message: `Config bestand '${file.key}' bevat ongeldige JSON: ${e.message}`,
-      warnings: [],
+    return buildInspectionResult({
+      issues: [
+        createInspectionIssue({
+          path: [file.key],
+          problem: `Config bestand '${file.key}' bevat ongeldige JSON: ${e.message}`,
+          fixSuggestion: "Controleer de JSON syntax en probeer opnieuw.",
+          issueCode: "inspection_failed_json",
+        }),
+      ],
       suggestedFixes: ["Controleer de JSON syntax en probeer opnieuw."],
-      shouldNarrowScope: false,
-    };
+    });
   }
 
   if (file.key === "config/settings_data.json") {
     if (!parsed || typeof parsed.current !== "object") {
-      return {
-        ok: false,
-        status: "inspection_failed",
-        errorCode: "inspection_failed_json",
-        retryable: true,
-        message: "settings_data.json moet een 'current' object bevatten (Shopify vereiste).",
-        warnings: [],
+      return buildInspectionResult({
+        issues: [
+          createInspectionIssue({
+            path: [file.key, "current"],
+            problem: "settings_data.json moet een 'current' object bevatten (Shopify vereiste).",
+            fixSuggestion: "Voeg een 'current' object toe aan de root van settings_data.json.",
+            issueCode: "inspection_failed_json",
+          }),
+        ],
         suggestedFixes: ["Voeg een 'current' object toe aan de root van settings_data.json."],
-        shouldNarrowScope: false,
-      };
+      });
     }
   }
 
-  return {
-    ok: true,
+  return buildInspectionResult({
     warnings: [`⚠️ Config write (${file.key}): wijzigingen zijn direct zichtbaar op het thema.`],
-    suggestedFixes: [],
-  };
+  });
 }
 
 function inspectTemplateFile(file) {
@@ -688,195 +997,202 @@ function inspectTemplateFile(file) {
   try {
     parsed = parseJsonLike(file.value);
   } catch (e) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_json",
-      retryable: true,
-      message: `Template bestand '${file.key}' bevat ongeldige JSON/JSONC: ${e.message}`,
-      warnings: [],
+    return buildInspectionResult({
+      issues: [
+        createInspectionIssue({
+          path: [file.key],
+          problem: `Template bestand '${file.key}' bevat ongeldige JSON/JSONC: ${e.message}`,
+          fixSuggestion: "Controleer de JSON/JSONC syntax en probeer opnieuw.",
+          issueCode: "inspection_failed_json",
+        }),
+      ],
       suggestedFixes: ["Controleer de JSON/JSONC syntax en probeer opnieuw."],
-      shouldNarrowScope: false,
-    };
+    });
   }
 
   if (!parsed || typeof parsed.sections !== "object") {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_json",
-      retryable: true,
-      message: `Template '${file.key}' moet een 'sections' object bevatten (Shopify vereiste).`,
-      warnings: [],
+    return buildInspectionResult({
+      issues: [
+        createInspectionIssue({
+          path: [file.key, "sections"],
+          problem: `Template '${file.key}' moet een 'sections' object bevatten (Shopify vereiste).`,
+          fixSuggestion: "Voeg een 'sections' object toe aan de root van het template JSON bestand.",
+          issueCode: "inspection_failed_json",
+        }),
+      ],
       suggestedFixes: ["Voeg een 'sections' object toe aan de root van het template JSON bestand."],
-      shouldNarrowScope: false,
-    };
+    });
   }
   if (!Array.isArray(parsed.order)) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_json",
-      retryable: true,
-      message: `Template '${file.key}' moet een 'order' array bevatten (Shopify vereiste).`,
-      warnings: [],
+    return buildInspectionResult({
+      issues: [
+        createInspectionIssue({
+          path: [file.key, "order"],
+          problem: `Template '${file.key}' moet een 'order' array bevatten (Shopify vereiste).`,
+          fixSuggestion: "Voeg een 'order' array toe die de section-volgorde definieert.",
+          issueCode: "inspection_failed_json",
+        }),
+      ],
       suggestedFixes: ["Voeg een 'order' array toe die de section-volgorde definieert."],
-      shouldNarrowScope: false,
-    };
+    });
   }
 
-  return {
-    ok: true,
+  return buildInspectionResult({
     warnings: [`⚠️ Template write (${file.key}): dit wijzigt de pagina-layout direct.`],
-    suggestedFixes: [],
-  };
+  });
 }
 
 function inspectSectionFile(file) {
   const value = String(file.value || "");
   const warnings = [];
   const suggestedFixes = [];
+  const issues = [];
+  const suggestedSchemaRewrites = [];
+  const preferSelectFor = [];
 
   if (/^(templates|config)\//.test(file.key)) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_schema",
-      retryable: false,
-      message:
-        "Template/config writes zijn niet toegestaan in create mode. Gebruik mode='edit' voor wijzigingen aan bestaande template/config bestanden.",
-      warnings,
+    return buildInspectionResult({
+      issues: [
+        createInspectionIssue({
+          path: [file.key],
+          problem:
+            "Template/config writes zijn niet toegestaan in create mode. Gebruik mode='edit' voor wijzigingen aan bestaande template/config bestanden.",
+          fixSuggestion:
+            "Gebruik mode='edit' voor template/config-writes en beperk create mode tot nieuwe sections/<handle>.liquid bestanden.",
+          issueCode: "inspection_failed_schema",
+        }),
+      ],
       suggestedFixes: [
         "Gebruik mode='edit' als je een bestaand template of config bestand wilt wijzigen.",
         "Beperk nieuwe section writes in create mode tot sections/<handle>.liquid.",
       ],
       shouldNarrowScope: true,
-    };
+    });
   }
 
   if (containsLiquidInSpecialBlock(value, "stylesheet") || containsLiquidInSpecialBlock(value, "javascript")) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_css",
-      retryable: true,
-      message:
-        "Shopify rendert geen Liquid binnen {% stylesheet %} of {% javascript %}. Gebruik <style> of markup-level CSS variables wanneer section.id-scoping nodig is.",
-      warnings,
-      suggestedFixes: [
-        "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
-        "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten.",
-      ],
-      shouldNarrowScope: false,
-    };
+    issues.push(
+      createInspectionIssue({
+        path: [file.key],
+        problem:
+          "Shopify rendert geen Liquid binnen {% stylesheet %} of {% javascript %}. Gebruik <style> of markup-level CSS variables wanneer section.id-scoping nodig is.",
+        fixSuggestion: "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
+        issueCode: "inspection_failed_css",
+      })
+    );
+    suggestedFixes.push(
+      "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
+      "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten."
+    );
   }
 
   const { schema, error } = parseSectionSchema(value);
   if (error || !schema) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_schema",
-      retryable: true,
-      message:
-        "Building Inspection Failed: section files moeten een geldige {% schema %} JSON-definitie bevatten.",
+    issues.push(
+      createInspectionIssue({
+        path: [file.key, "schema"],
+        problem:
+          "Building Inspection Failed: section files moeten een geldige {% schema %} JSON-definitie bevatten.",
+        fixSuggestion: "Voeg een valide {% schema %} block toe en controleer of de schema JSON parsebaar is.",
+        suggestedReplacement: error || "Schema ontbreekt volledig.",
+        issueCode: "inspection_failed_schema",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg een valide {% schema %} block toe.",
+      "Controleer of de schema JSON parsebaar is en presets bevat.",
+      error || "Schema ontbreekt volledig."
+    );
+    return buildInspectionResult({
+      issues,
       warnings,
-      suggestedFixes: [
-        "Voeg een valide {% schema %} block toe.",
-        "Controleer of de schema JSON parsebaar is en presets bevat.",
-        error || "Schema ontbreekt volledig.",
-      ].filter(Boolean),
+      suggestedFixes,
       shouldNarrowScope: false,
-    };
+    });
   }
 
-  const settings = collectSchemaSettings(schema);
   const blocks = Array.isArray(schema.blocks) ? schema.blocks : [];
   const presets = Array.isArray(schema.presets) ? schema.presets : [];
 
   if (hasRawImgWithoutDimensions(value)) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_media",
-      retryable: true,
-      message:
-        "Building Inspection Failed: raw <img> tags zonder width en height veroorzaken instabiele Shopify sections. Gebruik image_url + image_tag of geef expliciete afmetingen mee.",
-      warnings,
-      suggestedFixes: [
-        "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen.",
-        "Gebruik image_picker, collection of andere Shopify resource settings voor merchant-editable media.",
-      ],
-      shouldNarrowScope: false,
-    };
+    issues.push(
+      createInspectionIssue({
+        path: [file.key],
+        problem:
+          "Building Inspection Failed: raw <img> tags zonder width en height veroorzaken instabiele Shopify sections. Gebruik image_url + image_tag of geef expliciete afmetingen mee.",
+        fixSuggestion:
+          "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen.",
+        issueCode: "inspection_failed_media",
+      })
+    );
+    suggestedFixes.push(
+      "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen.",
+      "Gebruik image_picker, collection of andere Shopify resource settings voor merchant-editable media."
+    );
   }
 
   if (presets.length === 0) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_schema",
-      retryable: true,
-      message:
-        "Building Inspection Failed: nieuwe sections moeten presets bevatten zodat ze zichtbaar zijn in de Theme Editor.",
-      warnings,
-      suggestedFixes: [
-        "Voeg minimaal één preset toe aan de schema JSON.",
-        "Geef de preset default blocks mee wanneer de section herhaalbare content gebruikt.",
-      ],
-      shouldNarrowScope: false,
-    };
+    issues.push(
+      createInspectionIssue({
+        path: [file.key, "schema", "presets"],
+        problem:
+          "Building Inspection Failed: nieuwe sections moeten presets bevatten zodat ze zichtbaar zijn in de Theme Editor.",
+        fixSuggestion: "Voeg minimaal één preset toe aan de schema JSON.",
+        issueCode: "inspection_failed_schema",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg minimaal één preset toe aan de schema JSON.",
+      "Geef de preset default blocks mee wanneer de section herhaalbare content gebruikt."
+    );
   }
 
   if (!hasRenderableContentOutsideSchema(value)) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_incomplete_section",
-      retryable: true,
-      message:
-        "Building Inspection Failed: nieuwe sections moeten renderbare markup of block-rendering bevatten. Een schema-only of style-only stub is niet toegestaan.",
-      warnings,
-      suggestedFixes: [
-        "Voeg daadwerkelijke section-markup toe buiten het {% schema %} block.",
-        "Gebruik desnoods {% content_for 'blocks' %} of renderbare HTML/Liquid in de section body.",
-      ],
-      shouldNarrowScope: false,
-    };
+    issues.push(
+      createInspectionIssue({
+        path: [file.key],
+        problem:
+          "Building Inspection Failed: nieuwe sections moeten renderbare markup of block-rendering bevatten. Een schema-only of style-only stub is niet toegestaan.",
+        fixSuggestion: "Voeg daadwerkelijke section-markup toe buiten het {% schema %} block.",
+        issueCode: "inspection_failed_incomplete_section",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg daadwerkelijke section-markup toe buiten het {% schema %} block.",
+      "Gebruik desnoods {% content_for 'blocks' %} of renderbare HTML/Liquid in de section body."
+    );
   }
 
   const rangeIssues = collectSchemaRangeIssues(schema);
   if (rangeIssues.length > 0) {
-    const firstIssue = rangeIssues[0];
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_schema_range",
-      retryable: true,
-      message: `Building Inspection Failed: ${firstIssue.message}`,
-      warnings,
-      suggestedFixes: buildRangeIssueSuggestedFixes(firstIssue),
-      shouldNarrowScope: false,
-    };
+    issues.push(...rangeIssues.map((issue) => buildRangeIssueDiagnostic(issue)));
+    suggestedFixes.push(
+      ...rangeIssues.flatMap((issue) => buildRangeIssueSuggestedFixes(issue))
+    );
+    suggestedSchemaRewrites.push(
+      ...rangeIssues.flatMap((issue) => buildRangeIssueSchemaRewrites(issue))
+    );
+    preferSelectFor.push(
+      ...rangeIssues.map((issue) => buildPreferSelectEntry(issue)).filter(Boolean)
+    );
   }
 
   const settingTypes = collectSchemaSettingTypes(schema);
 
   if (settingTypes.has("color_scheme_group")) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_schema",
-      retryable: true,
-      message:
-        "Building Inspection Failed: color_scheme_group hoort in config/settings_schema.json en niet in een section schema.",
-      warnings,
-      suggestedFixes: [
-        "Verwijder color_scheme_group uit de section schema settings.",
-        "Gebruik in sections alleen color_scheme wanneer het theme al globale color schemes heeft.",
-      ],
-      shouldNarrowScope: false,
-    };
+    issues.push(
+      createInspectionIssue({
+        path: [file.key, "schema", "settings"],
+        problem:
+          "Building Inspection Failed: color_scheme_group hoort in config/settings_schema.json en niet in een section schema.",
+        fixSuggestion: "Verwijder color_scheme_group uit de section schema settings.",
+        issueCode: "inspection_failed_schema",
+      })
+    );
+    suggestedFixes.push(
+      "Verwijder color_scheme_group uit de section schema settings.",
+      "Gebruik in sections alleen color_scheme wanneer het theme al globale color schemes heeft."
+    );
   }
 
   const hasScopedCss = /{%\s*stylesheet\s*%}|<style\b/i.test(value);
@@ -890,21 +1206,20 @@ function inspectSectionFile(file) {
   const cssSignalCount = [hasResponsive, hasLayoutPrimitive, hasSpacing, hasVisualTreatment].filter(Boolean).length;
 
   if (hasScopedCss && cssSignalCount <= 1) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_css",
-      retryable: true,
-      message:
-        "Building Inspection Failed: de section bevat lokale CSS, maar die is te minimaal om als premium standalone section te slagen.",
-      warnings,
-      suggestedFixes: [
-        "Voeg responsieve regels, spacing en een duidelijke layout primitive toe.",
-        "Gebruik grid/flex wanneer de section een meerkoloms of card-based layout heeft.",
-        "Geef de section een visuele afwerking zoals border-radius, borders of background treatment.",
-      ],
-      shouldNarrowScope: false,
-    };
+    issues.push(
+      createInspectionIssue({
+        path: [file.key],
+        problem:
+          "Building Inspection Failed: de section bevat lokale CSS, maar die is te minimaal om als premium standalone section te slagen.",
+        fixSuggestion: "Voeg responsieve regels, spacing en een duidelijke layout primitive toe.",
+        issueCode: "inspection_failed_incomplete_section",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg responsieve regels, spacing en een duidelijke layout primitive toe.",
+      "Gebruik grid/flex wanneer de section een meerkoloms of card-based layout heeft.",
+      "Geef de section een visuele afwerking zoals border-radius, borders of background treatment."
+    );
   }
 
   if (!hasScopedCss) {
@@ -951,66 +1266,76 @@ function inspectSectionFile(file) {
     );
   }
 
-  return {
-    ok: true,
+  return buildInspectionResult({
+    issues,
     warnings,
     suggestedFixes,
-  };
+    shouldNarrowScope: false,
+    suggestedSchemaRewrites,
+    preferSelectFor,
+    qualityWarnings: summarizeMinimalSectionQuality(value, schema),
+  });
 }
 
 function inspectThemeBlockFile(file) {
   const value = String(file.value || "");
   const warnings = [];
   const suggestedFixes = [];
+  const issues = [];
+  const suggestedSchemaRewrites = [];
+  const preferSelectFor = [];
 
   if (containsLiquidInSpecialBlock(value, "stylesheet") || containsLiquidInSpecialBlock(value, "javascript")) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_css",
-      retryable: true,
-      message:
-        "Shopify rendert geen Liquid binnen {% stylesheet %} of {% javascript %} in blocks/*.liquid. Gebruik <style> of markup-level CSS variables wanneer dynamic block styling nodig is.",
-      warnings,
-      suggestedFixes: [
-        "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
-        "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten.",
-      ],
-      shouldNarrowScope: false,
-    };
+    issues.push(
+      createInspectionIssue({
+        path: [file.key],
+        problem:
+          "Shopify rendert geen Liquid binnen {% stylesheet %} of {% javascript %} in blocks/*.liquid. Gebruik <style> of markup-level CSS variables wanneer dynamic block styling nodig is.",
+        fixSuggestion: "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
+        issueCode: "inspection_failed_css",
+      })
+    );
+    suggestedFixes.push(
+      "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
+      "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten."
+    );
   }
 
   const { schema, error } = parseSectionSchema(value);
   if (error || !schema) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_schema",
-      retryable: true,
-      message:
-        "Building Inspection Failed: blocks/*.liquid bestanden moeten een geldige {% schema %} JSON-definitie bevatten.",
+    issues.push(
+      createInspectionIssue({
+        path: [file.key, "schema"],
+        problem:
+          "Building Inspection Failed: blocks/*.liquid bestanden moeten een geldige {% schema %} JSON-definitie bevatten.",
+        fixSuggestion: "Voeg een valide {% schema %} block toe aan het block-bestand.",
+        suggestedReplacement: error || "Schema ontbreekt volledig.",
+        issueCode: "inspection_failed_schema",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg een valide {% schema %} block toe aan het block-bestand.",
+      error || "Schema ontbreekt volledig."
+    );
+    return buildInspectionResult({
+      issues,
       warnings,
-      suggestedFixes: [
-        "Voeg een valide {% schema %} block toe aan het block-bestand.",
-        error || "Schema ontbreekt volledig.",
-      ].filter(Boolean),
-      shouldNarrowScope: false,
-    };
+      suggestedFixes,
+    });
   }
 
   const rangeIssues = collectSchemaRangeIssues(schema);
   if (rangeIssues.length > 0) {
-    const firstIssue = rangeIssues[0];
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_schema_range",
-      retryable: true,
-      message: `Building Inspection Failed: ${firstIssue.message}`,
-      warnings,
-      suggestedFixes: buildRangeIssueSuggestedFixes(firstIssue),
-      shouldNarrowScope: false,
-    };
+    issues.push(...rangeIssues.map((issue) => buildRangeIssueDiagnostic(issue)));
+    suggestedFixes.push(
+      ...rangeIssues.flatMap((issue) => buildRangeIssueSuggestedFixes(issue))
+    );
+    suggestedSchemaRewrites.push(
+      ...rangeIssues.flatMap((issue) => buildRangeIssueSchemaRewrites(issue))
+    );
+    preferSelectFor.push(
+      ...rangeIssues.map((issue) => buildPreferSelectEntry(issue)).filter(Boolean)
+    );
   }
 
   const settingTypes = collectSchemaSettingTypes(schema);
@@ -1024,19 +1349,19 @@ function inspectThemeBlockFile(file) {
   }
 
   if (hasRawImgWithoutDimensions(value)) {
-    return {
-      ok: false,
-      status: "inspection_failed",
-      errorCode: "inspection_failed_media",
-      retryable: true,
-      message:
-        "Building Inspection Failed: raw <img> tags zonder width en height veroorzaken instabiele Shopify blocks. Gebruik image_url + image_tag of geef expliciete afmetingen mee.",
-      warnings,
-      suggestedFixes: [
-        "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen.",
-      ],
-      shouldNarrowScope: false,
-    };
+    issues.push(
+      createInspectionIssue({
+        path: [file.key],
+        problem:
+          "Building Inspection Failed: raw <img> tags zonder width en height veroorzaken instabiele Shopify blocks. Gebruik image_url + image_tag of geef expliciete afmetingen mee.",
+        fixSuggestion:
+          "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen.",
+        issueCode: "inspection_failed_media",
+      })
+    );
+    suggestedFixes.push(
+      "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen."
+    );
   }
 
   if (!hasLiquidBlockTag(value, "doc")) {
@@ -1048,11 +1373,13 @@ function inspectThemeBlockFile(file) {
     );
   }
 
-  return {
-    ok: true,
+  return buildInspectionResult({
+    issues,
     warnings,
     suggestedFixes,
-  };
+    suggestedSchemaRewrites,
+    preferSelectFor,
+  });
 }
 
 function normalizeLintErrors(offenses, tmpDir) {
@@ -1081,6 +1408,30 @@ function buildDraftPayload(record, { targetTheme, verifySummary, verifyResults, 
   };
 }
 
+function summarizeNormalizedDraftArgs(input = {}) {
+  return {
+    themeId: input.themeId ?? null,
+    themeRole: input.themeRole || null,
+    mode: input.mode || null,
+    isStandalone: Boolean(input.isStandalone),
+    files: Array.isArray(input.files)
+      ? input.files.map((file) => ({
+          key: file.key,
+          writeMode:
+            file.value !== undefined
+              ? "value"
+              : Array.isArray(file.patches) && file.patches.length > 1
+                ? "patches"
+                : "patch",
+          patchCount: Array.isArray(file.patches) ? file.patches.length : 0,
+          valueLength:
+            typeof file.value === "string" ? file.value.length : undefined,
+          hasBaseChecksumMd5: Boolean(file.baseChecksumMd5),
+        }))
+      : [],
+  };
+}
+
 function buildFailureResponse({
   status,
   message,
@@ -1092,6 +1443,11 @@ function buildFailureResponse({
   retryable,
   suggestedFixes = [],
   shouldNarrowScope = false,
+  nextAction,
+  retryMode,
+  normalizedArgs,
+  suggestedSchemaRewrites = [],
+  preferSelectFor = [],
 }) {
   return {
     success: false,
@@ -1105,11 +1461,60 @@ function buildFailureResponse({
     retryable,
     suggestedFixes: uniqueStrings(suggestedFixes),
     shouldNarrowScope,
+    ...(nextAction ? { nextAction } : {}),
+    ...(retryMode ? { retryMode } : {}),
+    ...(normalizedArgs ? { normalizedArgs } : {}),
+    ...(suggestedSchemaRewrites.length > 0
+      ? { suggestedSchemaRewrites }
+      : {}),
+    ...(preferSelectFor.length > 0 ? { preferSelectFor } : {}),
   };
 }
 
 function uniqueStrings(values) {
   return Array.from(new Set((values || []).filter(Boolean)));
+}
+
+function buildAggregatedInspectionFailure({
+  normalizedArgs,
+  warnings = [],
+  issues = [],
+  suggestedFixes = [],
+  suggestedSchemaRewrites = [],
+  preferSelectFor = [],
+  shouldNarrowScope = false,
+}) {
+  const normalizedIssues = (issues || []).filter(Boolean);
+  const primaryIssue = normalizedIssues[0];
+  const primaryProblem =
+    primaryIssue?.problem ||
+    "Lokale validatie van de section-artifact faalde.";
+  const distinctIssueCodes = Array.from(
+    new Set(normalizedIssues.map((issue) => issue?.issueCode).filter(Boolean))
+  );
+  const errorCode =
+    normalizedIssues.length > 1
+      ? "inspection_failed_multiple"
+      : distinctIssueCodes[0] ||
+        (preferSelectFor.length > 0
+          ? "inspection_failed_schema_range"
+          : "inspection_failed_local_validation");
+
+  return buildFailureResponse({
+    status: "inspection_failed",
+    message: `Building Inspection Failed: ${primaryProblem}`,
+    warnings,
+    errors: normalizedIssues,
+    errorCode,
+    retryable: true,
+    suggestedFixes,
+    shouldNarrowScope,
+    nextAction: "fix_local_validation",
+    retryMode: "same_request_after_fix",
+    normalizedArgs,
+    suggestedSchemaRewrites,
+    preferSelectFor,
+  });
 }
 
 function suggestFixesFromLintErrors(lintErrors = []) {
@@ -1124,6 +1529,32 @@ function suggestFixesFromLintErrors(lintErrors = []) {
       return `${error.file}: ${error.message}`;
     })
   );
+}
+
+function buildDraftInputError({
+  path = [],
+  problem,
+  fixSuggestion,
+  suggestedReplacement,
+}) {
+  return {
+    path,
+    problem,
+    fixSuggestion,
+    ...(suggestedReplacement !== undefined ? { suggestedReplacement } : {}),
+  };
+}
+
+function mergeInspectionIntoAccumulator(accumulator, inspection = {}) {
+  accumulator.issues.push(...(inspection.issues || []));
+  accumulator.warnings.push(...(inspection.warnings || []));
+  accumulator.suggestedFixes.push(...(inspection.suggestedFixes || []));
+  accumulator.suggestedSchemaRewrites.push(
+    ...(inspection.suggestedSchemaRewrites || [])
+  );
+  accumulator.preferSelectFor.push(...(inspection.preferSelectFor || []));
+  accumulator.shouldNarrowScope =
+    accumulator.shouldNarrowScope || Boolean(inspection.shouldNarrowScope);
 }
 
 function classifyLintErrors(lintErrors = [], files = []) {
@@ -1318,29 +1749,125 @@ async function validateThemeCompatibilityForSections({
 export const draftThemeArtifact = {
   name: toolName,
   description,
+  inputSchema: DraftThemeArtifactPublicObjectSchema,
   schema: inputSchema,
-  execute: async (args, context = {}) => {
-    const shopifyClient = requireShopifyClient(context);
-    let { files, themeId, themeRole, mode: requestedMode } = args;
+  execute: async (rawArgs, context = {}) => {
+    const normalizedCandidate = normalizeDraftThemeArtifactInput(rawArgs);
+    const normalizedCandidateArgs =
+      normalizedCandidate &&
+      typeof normalizedCandidate === "object" &&
+      !Array.isArray(normalizedCandidate)
+        ? summarizeNormalizedDraftArgs(normalizedCandidate)
+        : summarizeNormalizedDraftArgs({});
+
+    const normalizedParse =
+      NormalizedThemeDraftArtifactInputSchema.safeParse(rawArgs);
+    if (!normalizedParse.success) {
+      return buildFailureResponse({
+        status: "needs_input",
+        message:
+          "De draft kon deze compat-input niet veilig normaliseren. Corrigeer de conflicterende velden en probeer opnieuw.",
+        errorCode: "invalid_draft_theme_artifact_input",
+        retryable: true,
+        nextAction: "fix_input",
+        retryMode: "same_request_with_structured_fields",
+        normalizedArgs: normalizedCandidateArgs,
+        errors: normalizedParse.error.issues.map((issue) =>
+          buildDraftInputError({
+            path: issue.path,
+            problem: issue.message,
+            fixSuggestion:
+              issue.path.join(".") === "themeId"
+                ? "Stuur alleen themeId of alleen themeRole mee."
+                : issue.path.join(".").includes("patch") &&
+                    issue.message.includes("mode='create'")
+                  ? "Gebruik mode='edit' voor patch/patches of stuur in create mode een volledige value-write."
+                  : "Corrigeer dit invoerveld en probeer dezelfde toolcall opnieuw.",
+          })
+        ),
+      });
+    }
+
+    const input = normalizedParse.data;
+    let {
+      files = [],
+      themeId,
+      themeRole,
+      mode: requestedMode,
+    } = input;
+    let mode = requestedMode;
     const warnings = [];
     const suggestedFixes = [];
-    const resolvedMode = resolveDraftMode(requestedMode, files);
-    const shouldProbeExistingFiles = resolvedMode.probeExistingFiles;
-    let mode = resolvedMode.mode;
-
-    if (resolvedMode.warning) {
-      warnings.push(resolvedMode.warning);
-    }
+    const getNormalizedArgs = () =>
+      summarizeNormalizedDraftArgs({
+        themeId,
+        themeRole,
+        mode,
+        isStandalone: input.isStandalone,
+        files,
+      });
 
     if (!themeId && !themeRole) {
       return buildFailureResponse({
         status: "missing_theme_target",
-        message: "Geef aan op welk thema je wilt schrijven via themeRole ('main', 'development', 'unpublished') of themeId. Vraag dit aan de gebruiker als het niet is opgegeven.",
+        message:
+          "Geef aan op welk thema je wilt schrijven via themeRole ('main', 'development', 'unpublished') of themeId. Vraag dit aan de gebruiker als het niet is opgegeven.",
         errorCode: "missing_theme_target",
         retryable: true,
-        suggestedFixes: ["Vraag de gebruiker: 'Op welk thema wil je dit toepassen?'"],
+        suggestedFixes: [
+          "Vraag de gebruiker: 'Op welk thema wil je dit toepassen?'",
+        ],
         shouldNarrowScope: false,
+        nextAction: "provide_theme_target",
+        retryMode: "same_request_with_theme_target",
+        normalizedArgs: getNormalizedArgs(),
+        errors: [
+          buildDraftInputError({
+            path: ["themeRole"],
+            problem:
+              "Er ontbreekt een expliciet theme target. Deze tool kiest nooit stilzwijgend een theme.",
+            fixSuggestion:
+              "Voeg themeRole of themeId toe, bijvoorbeeld themeRole='main' of themeId=123456789.",
+          }),
+        ],
       });
+    }
+
+    if (!Array.isArray(files) || files.length === 0) {
+      return buildFailureResponse({
+        status: "needs_write_payload",
+        message:
+          "Deze draft mist gestructureerde write-inhoud. Summary-only input mag hooguit theme target en exact één file path infereren.",
+        errorCode: "missing_draft_files",
+        retryable: true,
+        suggestedFixes: [
+          "Geef files[] mee voor canonieke multi-file writes.",
+          "Of gebruik een veilige single-file shorthand: key + value/content/liquid of key + patch/patches.",
+          "Vrije summary-tekst mag nooit de daadwerkelijke file-inhoud vervangen.",
+        ],
+        shouldNarrowScope: false,
+        nextAction: "provide_structured_write_payload",
+        retryMode: "same_request_with_structured_fields",
+        normalizedArgs: getNormalizedArgs(),
+        errors: [
+          buildDraftInputError({
+            path: ["files"],
+            problem:
+              "De draft bevat geen files[] payload en ook geen veilige single-file shorthand met write-inhoud.",
+            fixSuggestion:
+              "Stuur files[] mee of gebruik key + value/content/liquid of key + patch/patches.",
+          }),
+        ],
+      });
+    }
+
+    const shopifyClient = requireShopifyClient(context);
+    const resolvedMode = resolveDraftMode(requestedMode, files);
+    const shouldProbeExistingFiles = resolvedMode.probeExistingFiles;
+    mode = resolvedMode.mode;
+
+    if (resolvedMode.warning) {
+      warnings.push(resolvedMode.warning);
     }
 
     if (!themeId && themeRole === "main") {
@@ -1363,6 +1890,17 @@ export const draftThemeArtifact = {
           "Gebruik 'patches' om meerdere patches sequentieel binnen hetzelfde bestand uit te voeren.",
         ],
         shouldNarrowScope: false,
+        nextAction: "deduplicate_file_entries",
+        retryMode: "same_request_after_fix",
+        normalizedArgs: getNormalizedArgs(),
+        errors: [
+          buildDraftInputError({
+            path: ["files"],
+            problem: `Dubbele file key gedetecteerd: '${duplicateKey}'.`,
+            fixSuggestion:
+              "Gebruik per key precies één files[] entry en combineer meerdere vervangingen desnoods met patches[].",
+          }),
+        ],
       });
     }
 
@@ -1380,6 +1918,17 @@ export const draftThemeArtifact = {
             "Gebruik 'patch' voor één gerichte vervanging, of 'patches' voor meerdere vervangingen in dezelfde file.",
           ],
           shouldNarrowScope: false,
+          nextAction: "fix_file_write_mode",
+          retryMode: "same_request_after_fix",
+          normalizedArgs: getNormalizedArgs(),
+          errors: [
+            buildDraftInputError({
+              path: ["files", files.indexOf(file)],
+              problem: `Bestand '${file.key}' gebruikt geen eenduidige write-mode.`,
+              fixSuggestion:
+                "Gebruik precies één van value, patch of patches per bestand.",
+            }),
+          ],
         });
       }
     }
@@ -1423,6 +1972,9 @@ export const draftThemeArtifact = {
                 "Zet top-level mode expliciet op 'create' als alle bestanden nieuw zijn, of splits create/edit in aparte requests.",
               ],
               shouldNarrowScope: false,
+              nextAction: "set_explicit_mode",
+              retryMode: "same_request_after_fix",
+              normalizedArgs: getNormalizedArgs(),
             });
           }
         }
@@ -1457,11 +2009,22 @@ export const draftThemeArtifact = {
                   message: `Patch ${index + 1} failed: De searchString '${searchString.substring(0, 50)}...' werd niet gevonden in '${file.key}'.`,
                   errorCode: "patch_failed_nomatch",
                   retryable: true,
-                  suggestedFixes: [
-                    "Gebruik search-theme-files om de exacte string of omliggende context te achterhalen.",
-                    "Zorg dat witruimte, quotes en inspringing exact overeenkomen met het doelbestand.",
-                  ],
-                  shouldNarrowScope: false,
+                 suggestedFixes: [
+                   "Gebruik search-theme-files om de exacte string of omliggende context te achterhalen.",
+                   "Zorg dat witruimte, quotes en inspringing exact overeenkomen met het doelbestand.",
+                 ],
+                 shouldNarrowScope: false,
+                 nextAction: "refresh_patch_anchor",
+                 retryMode: "same_request_after_fix",
+                 normalizedArgs: getNormalizedArgs(),
+                 errors: [
+                   buildDraftInputError({
+                     path: ["files", files.indexOf(file), "patches", index, "searchString"],
+                     problem: `De searchString voor '${file.key}' matchte niet in het huidige doelbestand.`,
+                     fixSuggestion:
+                       "Lees het doelbestand opnieuw of maak de anchor nauwkeuriger met unieke omliggende context.",
+                   }),
+                 ],
                 });
                }
                if (matchCount > 1) {
@@ -1476,6 +2039,17 @@ export const draftThemeArtifact = {
                     "Voor section schema patches: kies een anchor die alleen in het {% schema %} block voorkomt, niet alleen een block type of setting-id.",
                   ],
                   shouldNarrowScope: false,
+                  nextAction: "make_patch_anchor_unique",
+                  retryMode: "same_request_after_fix",
+                  normalizedArgs: getNormalizedArgs(),
+                  errors: [
+                    buildDraftInputError({
+                      path: ["files", files.indexOf(file), "patches", index, "searchString"],
+                      problem: `De searchString voor '${file.key}' matchte ${matchCount} keer en is daardoor niet veilig uniek.`,
+                      fixSuggestion:
+                        "Maak de anchor specifieker zodat deze exact één keer voorkomt.",
+                    }),
+                  ],
                 });
                }
                newValue = newValue.replace(searchString, patch.replaceString);
@@ -1491,6 +2065,9 @@ export const draftThemeArtifact = {
                   retryable: true,
                   suggestedFixes: ["Stuur het VOLLEDIGE bestand terug, of gebruik het nieuwe 'patch' argument om een specifieke regel aan te passen."],
                   shouldNarrowScope: false,
+                  nextAction: "send_complete_file_or_patch",
+                  retryMode: "same_request_after_fix",
+                  normalizedArgs: getNormalizedArgs(),
                 });
              }
 
@@ -1505,6 +2082,9 @@ export const draftThemeArtifact = {
                    retryable: true,
                    suggestedFixes: ["Behoud altijd het {% schema %} block op bestaande sections (met presets settings) tenzij je hem expliciet wilt weggooien (niet aanbevolen)."],
                    shouldNarrowScope: false,
+                   nextAction: "restore_schema_block",
+                   retryMode: "same_request_after_fix",
+                   normalizedArgs: getNormalizedArgs(),
                  });
                }
              }
@@ -1523,6 +2103,9 @@ export const draftThemeArtifact = {
           errorCode: "inspection_failed_read",
           retryable: true,
           shouldNarrowScope: false,
+          nextAction: "retry_after_read",
+          retryMode: "same_request_after_fix",
+          normalizedArgs: getNormalizedArgs(),
         });
       }
     } else {
@@ -1552,6 +2135,17 @@ export const draftThemeArtifact = {
             "Of patch eerst config/settings_schema.json met een color_scheme_group en voeg de bijbehorende data toe in config/settings_data.json via mode='edit'.",
           ],
           shouldNarrowScope: false,
+          nextAction: "rewrite_color_scheme_settings",
+          retryMode: "same_request_after_fix",
+          normalizedArgs: getNormalizedArgs(),
+          errors: [
+            buildDraftInputError({
+              path: ["files"],
+              problem: themeCompatibility.reason,
+              fixSuggestion:
+                "Gebruik simpele color settings of maak eerst het theme compatibel met color_scheme via een aparte edit-flow.",
+            }),
+          ],
         });
       }
     } catch (error) {
@@ -1566,135 +2160,149 @@ export const draftThemeArtifact = {
           "Gebruik themeId wanneer themeRole niet eenduidig resolveert.",
         ],
         shouldNarrowScope: false,
+        nextAction: "retry_theme_compatibility_check",
+        retryMode: "same_request_after_fix",
+        normalizedArgs: getNormalizedArgs(),
       });
     }
+
+    const localInspection = {
+      issues: [],
+      warnings: [...warnings],
+      suggestedFixes: [...suggestedFixes],
+      suggestedSchemaRewrites: [],
+      preferSelectFor: [],
+      shouldNarrowScope: false,
+    };
 
     for (const file of files) {
       const isTemplateConfig = /^(templates|config)\//.test(file.key);
       const isSectionFile = file.key.endsWith(".liquid") && file.key.startsWith("sections/");
       const isBlockFile = file.key.endsWith(".liquid") && file.key.startsWith("blocks/");
+      let inspection = null;
 
       if (isTemplateConfig) {
         if (mode === "create") {
-          const inspection = inspectSectionFile(file);
-          return buildFailureResponse({
-            status: inspection.status,
-            message: inspection.message,
-            warnings: inspection.warnings || [],
-            errorCode: inspection.errorCode,
-            retryable: inspection.retryable,
-            suggestedFixes: inspection.suggestedFixes || [],
-            shouldNarrowScope: inspection.shouldNarrowScope || false,
-          });
+          inspection = inspectSectionFile(file);
+        } else {
+          inspection = file.key.startsWith("config/")
+            ? inspectConfigFile(file)
+            : inspectTemplateFile(file);
         }
-        // edit mode: JSON validatie voor templates/config
-        const inspection = file.key.startsWith("config/")
-          ? inspectConfigFile(file)
-          : inspectTemplateFile(file);
-        if (!inspection.ok) {
-          return buildFailureResponse({
-            status: inspection.status,
-            message: inspection.message,
-            warnings: inspection.warnings || [],
-            errorCode: inspection.errorCode,
-            retryable: inspection.retryable,
-            suggestedFixes: inspection.suggestedFixes || [],
-            shouldNarrowScope: inspection.shouldNarrowScope || false,
-          });
-        }
-        warnings.push(...(inspection.warnings || []));
-        suggestedFixes.push(...(inspection.suggestedFixes || []));
       } else if (isSectionFile) {
         if (mode === "create") {
-          // Create mode: volledige inspectie (schema, presets, CSS kwaliteit)
-          const inspection = inspectSectionFile(file);
-          if (!inspection.ok) {
-            return buildFailureResponse({
-              status: inspection.status,
-              message: inspection.message,
-              warnings: inspection.warnings || [],
-              errorCode: inspection.errorCode,
-              retryable: inspection.retryable,
-              suggestedFixes: inspection.suggestedFixes || [],
-              shouldNarrowScope: inspection.shouldNarrowScope || false,
-            });
-          }
-          warnings.push(...(inspection.warnings || []));
-          suggestedFixes.push(...(inspection.suggestedFixes || []));
+          inspection = inspectSectionFile(file);
         } else {
-          // Edit mode: Liquid-in-special-block check + harde schema-validatie wanneer een schema aanwezig is
           const value = String(file.value || "");
+          const editIssues = [];
+          const editWarnings = [];
+          const editSuggestedFixes = [];
+          const editSchemaRewrites = [];
+          const editPreferSelectFor = [];
+
           if (containsLiquidInSpecialBlock(value, "stylesheet") || containsLiquidInSpecialBlock(value, "javascript")) {
-            return buildFailureResponse({
-              status: "inspection_failed",
-              message: "Liquid binnen {% stylesheet %} of {% javascript %} is niet toegestaan. Gebruik <style> of markup-level CSS variables.",
-              errorCode: "inspection_failed_css",
-              retryable: true,
-              suggestedFixes: [
-                "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
-                "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten.",
-              ],
-              shouldNarrowScope: false,
-            });
+            editIssues.push(
+              createInspectionIssue({
+                path: [file.key],
+                problem:
+                  "Liquid binnen {% stylesheet %} of {% javascript %} is niet toegestaan. Gebruik <style> of markup-level CSS variables.",
+                fixSuggestion:
+                  "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
+                issueCode: "inspection_failed_css",
+              })
+            );
+            editSuggestedFixes.push(
+              "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
+              "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten."
+            );
           }
           const schemaInspection = inspectEditableLiquidSchema(value, `Section '${file.key}'`);
-          if (!schemaInspection.ok) {
-            return buildFailureResponse({
-              status: schemaInspection.status,
-              message: schemaInspection.message,
-              errorCode: schemaInspection.errorCode,
-              retryable: schemaInspection.retryable,
-              suggestedFixes: schemaInspection.suggestedFixes || [],
-              shouldNarrowScope: schemaInspection.shouldNarrowScope || false,
-            });
-          }
+          editIssues.push(...(schemaInspection.issues || []));
+          editWarnings.push(...(schemaInspection.warnings || []));
+          editSuggestedFixes.push(...(schemaInspection.suggestedFixes || []));
+          editSchemaRewrites.push(
+            ...(schemaInspection.suggestedSchemaRewrites || [])
+          );
+          editPreferSelectFor.push(...(schemaInspection.preferSelectFor || []));
+
+          inspection = buildInspectionResult({
+            issues: editIssues,
+            warnings: editWarnings,
+            suggestedFixes: editSuggestedFixes,
+            suggestedSchemaRewrites: editSchemaRewrites,
+            preferSelectFor: editPreferSelectFor,
+          });
         }
       } else if (isBlockFile) {
         if (mode === "create") {
-          const inspection = inspectThemeBlockFile(file);
-          if (!inspection.ok) {
-            return buildFailureResponse({
-              status: inspection.status,
-              message: inspection.message,
-              warnings: inspection.warnings || [],
-              errorCode: inspection.errorCode,
-              retryable: inspection.retryable,
-              suggestedFixes: inspection.suggestedFixes || [],
-              shouldNarrowScope: inspection.shouldNarrowScope || false,
-            });
-          }
-          warnings.push(...(inspection.warnings || []));
-          suggestedFixes.push(...(inspection.suggestedFixes || []));
+          inspection = inspectThemeBlockFile(file);
         } else {
           const value = String(file.value || "");
+          const editIssues = [];
+          const editWarnings = [];
+          const editSuggestedFixes = [];
+          const editSchemaRewrites = [];
+          const editPreferSelectFor = [];
+
           if (containsLiquidInSpecialBlock(value, "stylesheet") || containsLiquidInSpecialBlock(value, "javascript")) {
-            return buildFailureResponse({
-              status: "inspection_failed",
-              message: "Liquid binnen {% stylesheet %} of {% javascript %} is niet toegestaan. Gebruik <style> of markup-level CSS variables.",
-              errorCode: "inspection_failed_css",
-              retryable: true,
-              suggestedFixes: [
-                "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
-                "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten.",
-              ],
-              shouldNarrowScope: false,
-            });
+            editIssues.push(
+              createInspectionIssue({
+                path: [file.key],
+                problem:
+                  "Liquid binnen {% stylesheet %} of {% javascript %} is niet toegestaan. Gebruik <style> of markup-level CSS variables.",
+                fixSuggestion:
+                  "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
+                issueCode: "inspection_failed_css",
+              })
+            );
+            editSuggestedFixes.push(
+              "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
+              "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten."
+            );
           }
           const schemaInspection = inspectEditableLiquidSchema(value, `Block '${file.key}'`);
-          if (!schemaInspection.ok) {
-            return buildFailureResponse({
-              status: schemaInspection.status,
-              message: schemaInspection.message,
-              errorCode: schemaInspection.errorCode,
-              retryable: schemaInspection.retryable,
-              suggestedFixes: schemaInspection.suggestedFixes || [],
-              shouldNarrowScope: schemaInspection.shouldNarrowScope || false,
-            });
-          }
+          editIssues.push(...(schemaInspection.issues || []));
+          editWarnings.push(...(schemaInspection.warnings || []));
+          editSuggestedFixes.push(...(schemaInspection.suggestedFixes || []));
+          editSchemaRewrites.push(
+            ...(schemaInspection.suggestedSchemaRewrites || [])
+          );
+          editPreferSelectFor.push(...(schemaInspection.preferSelectFor || []));
+
+          inspection = buildInspectionResult({
+            issues: editIssues,
+            warnings: editWarnings,
+            suggestedFixes: editSuggestedFixes,
+            suggestedSchemaRewrites: editSchemaRewrites,
+            preferSelectFor: editPreferSelectFor,
+          });
         }
+      }
+
+      if (inspection) {
+        mergeInspectionIntoAccumulator(localInspection, inspection);
       }
       // Snippets, assets, locales: geen aanvullende inspectie nodig
     }
+
+    if (localInspection.issues.length > 0) {
+      return buildAggregatedInspectionFailure({
+        normalizedArgs: getNormalizedArgs(),
+        warnings: uniqueStrings(localInspection.warnings),
+        issues: localInspection.issues,
+        suggestedFixes: uniqueStrings(localInspection.suggestedFixes),
+        suggestedSchemaRewrites: localInspection.suggestedSchemaRewrites,
+        preferSelectFor: localInspection.preferSelectFor,
+        shouldNarrowScope: localInspection.shouldNarrowScope,
+      });
+    }
+
+    warnings.splice(0, warnings.length, ...uniqueStrings(localInspection.warnings));
+    suggestedFixes.splice(
+      0,
+      suggestedFixes.length,
+      ...uniqueStrings(localInspection.suggestedFixes)
+    );
 
     const shopDomain = getShopDomainFromClient(shopifyClient);
 
@@ -1798,6 +2406,9 @@ export const draftThemeArtifact = {
         retryable: classifiedLint.retryable,
         suggestedFixes: [...suggestedFixes, ...classifiedLint.suggestedFixes],
         shouldNarrowScope: classifiedLint.shouldNarrowScope,
+        nextAction: "fix_lint_errors",
+        retryMode: "same_request_after_fix",
+        normalizedArgs: getNormalizedArgs(),
       });
     }
 
@@ -1839,6 +2450,15 @@ export const draftThemeArtifact = {
           retryable: classified.retryable,
           suggestedFixes: [...suggestedFixes, ...classified.suggestedFixes],
           shouldNarrowScope: classified.shouldNarrowScope,
+          nextAction:
+            classified.errorCode === "preview_failed_precondition"
+              ? "refresh_checksum_and_retry"
+              : "retry_preview_upload",
+          retryMode:
+            classified.errorCode === "preview_failed_precondition"
+              ? "same_request_after_refresh"
+              : "same_request_after_fix",
+          normalizedArgs: getNormalizedArgs(),
         });
       }
 
@@ -1890,6 +2510,7 @@ export const draftThemeArtifact = {
           verifyResults: upsertResult.results || [],
           warnings,
         }),
+        normalizedArgs: getNormalizedArgs(),
         suggestedFixes: uniqueStrings(suggestedFixes),
       };
     } catch (error) {
@@ -1907,6 +2528,9 @@ export const draftThemeArtifact = {
         retryable: classified.retryable,
         suggestedFixes: [...suggestedFixes, ...classified.suggestedFixes],
         shouldNarrowScope: classified.shouldNarrowScope,
+        nextAction: "retry_preview_upload",
+        retryMode: "same_request_after_fix",
+        normalizedArgs: getNormalizedArgs(),
       });
     }
   },
