@@ -270,6 +270,21 @@ try {
   assert.equal(patchThemeFileSummaryPayload.data.themeRole, "main");
   assert.equal(patchThemeFileSummaryPayload.data.patch.searchString, "{%- when 'title' -%}");
 
+  const patchThemeFileVagueSummaryPayload = patchThemeFileTool.schema.safeParse({
+    _tool_input_summary: "Patch de product info snippet in het live theme",
+    searchString: "{%- when 'title' -%}",
+    replaceString: "{%- when 'title' -%}\n  <span>Badge</span>",
+  });
+  assert.equal(
+    patchThemeFileVagueSummaryPayload.success,
+    false,
+    "patch-theme-file should keep requiring an explicit key when summary text does not contain one exact theme file path"
+  );
+  assert.ok(
+    patchThemeFileVagueSummaryPayload.error.issues.some((issue) => issue.path.join(".") === "key"),
+    "vague summaries should fail on the missing key field instead of inventing a best-guess file path"
+  );
+
   const patchThemeFileReplacementsPayload = patchThemeFileTool.schema.safeParse({
     key: "sections/main-product.liquid",
     themeRole: "development",
@@ -317,6 +332,19 @@ try {
   });
   assert.equal(draftContentAliasPayload.success, true, "draft-theme-artifact should accept content as a compatibility alias for value");
   assert.equal(draftContentAliasPayload.data.files[0].value.includes("Demo content alias"), true);
+
+  const draftSummaryOnlyPayload = draftThemeArtifact.schema.safeParse({
+    _tool_input_summary: "Schrijf sections/stock-pulse.liquid naar het live theme",
+  });
+  assert.equal(
+    draftSummaryOnlyPayload.success,
+    false,
+    "draft-theme-artifact should not treat summary text as a replacement for structured files[] content"
+  );
+  assert.ok(
+    draftSummaryOnlyPayload.error.issues.some((issue) => issue.path.join(".") === "files"),
+    "summary-only draft payloads should fail because files[] remains required"
+  );
 
   const invalidDraftSchemaPayload = draftThemeArtifact.schema.safeParse({
     files: [

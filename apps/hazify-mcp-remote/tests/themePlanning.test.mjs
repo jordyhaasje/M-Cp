@@ -298,6 +298,29 @@ try {
     "exact-key search should still surface compact snippets from the target files"
   );
 
+  global.fetch = createGraphqlFetch(homepageJsonFiles);
+
+  const newSectionPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak een nieuwe promo section",
+  });
+  assert.equal(newSectionPlan.recommendedFlow, "create-section");
+  assert.ok(
+    newSectionPlan.nextReadKeys.includes("sections/hero-banner.liquid"),
+    "new section planning should point to one representative existing section so the client can mirror theme conventions before writing"
+  );
+  assert.ok(
+    newSectionPlan.warnings.some((warning) => warning.includes("padding_top") && warning.includes("padding_bottom")),
+    "new section planning should warn about mirroring theme-specific spacing conventions"
+  );
+  assert.ok(
+    newSectionPlan.searchQueries.includes("padding_top") &&
+      newSectionPlan.searchQueries.includes("section_padding"),
+    "new section planning should surface convention-oriented search queries for spacing patterns"
+  );
+
   global.fetch = createGraphqlFetch(productThemeBlockFiles);
 
   const productThemeBlockPlan = await planThemeEdit(shopifyClient, "2026-01", {

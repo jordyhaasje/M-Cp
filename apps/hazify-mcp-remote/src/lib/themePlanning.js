@@ -439,7 +439,7 @@ const buildPlanFromAnalysis = ({
     shouldUse = "draft-theme-artifact";
     likelyNeedsMultiFileEdit = false;
     reason =
-      "Nieuwe sections horen eerst als los sections/<handle>.liquid bestand gemaakt te worden; template placement is een aparte stap.";
+      "Nieuwe sections horen eerst als los sections/<handle>.liquid bestand gemaakt te worden; template placement is een aparte stap. Spiegel vooraf ook de spacing- en setting-conventies van een vergelijkbare bestaande section in het doeltheme.";
     nextWriteKeys = [];
     newFileSuggestions = ["sections/<new-section>.liquid"];
     if (templateFile?.key) {
@@ -447,7 +447,14 @@ const buildPlanFromAnalysis = ({
         "Plaats de nieuwe section pas in het template nadat de user dat expliciet vraagt."
       );
     }
-    nextReadKeys = [];
+    warnings.push(
+      "Lees vóór het schrijven bij voorkeur één vergelijkbare bestaande section in hetzelfde theme om padding/color-conventies te spiegelen, bijvoorbeeld aparte ids zoals padding_top/padding_bottom versus een gecombineerde spacing-setting."
+    );
+    nextReadKeys = uniqueStrings([sectionFile?.key]);
+    searchQueries.push("padding_top");
+    searchQueries.push("padding_bottom");
+    searchQueries.push("section_padding");
+    searchQueries.push("color_scheme");
   } else if (intent === "template_placement") {
     recommendedFlow = "template-placement";
     shouldUse = "draft-theme-artifact";
