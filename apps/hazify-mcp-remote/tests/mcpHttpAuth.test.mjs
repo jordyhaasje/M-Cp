@@ -421,6 +421,7 @@ try {
     "patch-theme-file",
     "refund-order",
     "get-theme-files",
+    "read-theme-file",
     "draft-theme-artifact",
     "verify-theme-files",
   ]) {
@@ -449,6 +450,11 @@ try {
     Boolean(planThemeEditDefinition.inputSchema?.properties?.targetFiles),
     true,
     "plan-theme-edit should expose compat targetFiles in emitted JSON schema"
+  );
+  assert.equal(
+    Number(planThemeEditDefinition.inputSchema?.properties?.query?.maxLength || 0) > 240,
+    true,
+    "plan-theme-edit should expose a query maxLength above the internal 240-char planner budget"
   );
 
   const draftThemeArtifactDefinition = tools.find((tool) => tool?.name === "draft-theme-artifact");

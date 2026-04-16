@@ -225,6 +225,18 @@ try {
   });
   assert.equal(planThemeEditPayload.success, true, "plan-theme-edit should require an explicit theme target");
 
+  const longPlanQueryPayload = planThemeEditTool.schema.safeParse({
+    themeRole: "main",
+    intent: "new_section",
+    query: "Maak deze section exact na met desktop, mobiel, animaties en merchant-editable instellingen. ".repeat(8),
+  });
+  assert.equal(longPlanQueryPayload.success, true, "plan-theme-edit should accept longer client prompts");
+  assert.equal(
+    longPlanQueryPayload.data.query.length <= 240,
+    true,
+    "plan-theme-edit should compact long prompts into the internal short query budget"
+  );
+
   const planThemeEditSummaryPayload = planThemeEditTool.schema.safeParse({
     _tool_input_summary: "Maak een native block in de productpagina van het live theme",
   });

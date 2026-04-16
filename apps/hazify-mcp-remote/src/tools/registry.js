@@ -541,6 +541,8 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
 const buildAliasToolDefinitions = (canonicalDefinitions) => {
   const canonicalMap = new Map(canonicalDefinitions.map((tool) => [tool.name, tool]));
   const setOrderTrackingManifest = canonicalMap.get("set-order-tracking");
+  const getThemeFileManifest = canonicalMap.get("get-theme-file");
+  const getThemeFilesManifest = canonicalMap.get("get-theme-files");
   return [
     defineAliasManifest("update-order-tracking", setOrderTrackingManifest, {
       description: "Legacy alias of set-order-tracking. Prefer set-order-tracking for new tool calls; this alias is kept only for compatibility.",
@@ -553,6 +555,16 @@ const buildAliasToolDefinitions = (canonicalDefinitions) => {
       writeScopeRequired: true,
       idempotent: false,
       outputSchema: setOrderTrackingOutputSchema,
+    }),
+    defineAliasManifest("read-theme-file", getThemeFileManifest, {
+      description:
+        "Legacy alias of get-theme-file. Prefer get-theme-file for new tool calls; this alias is kept only for compatibility with clients that guess read-* naming.",
+      outputSchema: getThemeFileOutputSchema,
+    }),
+    defineAliasManifest("read-theme-files", getThemeFilesManifest, {
+      description:
+        "Legacy alias of get-theme-files. Prefer get-theme-files for new tool calls; this alias is kept only for compatibility with clients that guess read-* naming.",
+      outputSchema: getThemeFilesOutputSchema,
     }),
   ];
 };

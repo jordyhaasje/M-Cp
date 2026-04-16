@@ -31,6 +31,7 @@ Theme-aware section regels:
 - Compatibele shorthand: voor één file mag een client ook top-level key + value of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
 - Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting.
+- richtext defaults moeten Shopify-veilige HTML gebruiken. Gebruik top-level <p> of <ul>; tags zoals <mark> in richtext.default worden door Shopify afgewezen.
 - Nieuwe blocks/*.liquid files krijgen in create mode ook een basisinspectie op geldige schema JSON en block-veilige markup.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
@@ -1211,12 +1212,14 @@ function inspectSectionFile(file) {
         path: [file.key],
         problem:
           "Building Inspection Failed: de section bevat lokale CSS, maar die is te minimaal om als premium standalone section te slagen.",
-        fixSuggestion: "Voeg responsieve regels, spacing en een duidelijke layout primitive toe.",
-        issueCode: "inspection_failed_incomplete_section",
+        fixSuggestion:
+          "Voeg responsieve regels, spacing en een duidelijke layout primitive toe zodat de section meer dan een minimale CSS-stub bevat.",
+        issueCode: "standalone_section_too_minimal",
       })
     );
     suggestedFixes.push(
       "Voeg responsieve regels, spacing en een duidelijke layout primitive toe.",
+      "Laat standalone sections meer dan een minimale CSS-stub zien: combineer bij voorkeur responsiviteit, layout, spacing en visuele afwerking.",
       "Gebruik grid/flex wanneer de section een meerkoloms of card-based layout heeft.",
       "Geef de section een visuele afwerking zoals border-radius, borders of background treatment."
     );
@@ -1230,8 +1233,12 @@ function inspectSectionFile(file) {
     suggestedFixes.push("Voeg responsieve spacing en stacking toe voor mobiele breakpoints.");
   }
   if (!settingTypes.has("range")) {
-    warnings.push("Schema mist een range setting voor spacing/layout. Dit is niet verplicht, maar wel aanbevolen.");
-    suggestedFixes.push("Voeg minimaal één range setting toe voor spacing of layoutcontrole.");
+    warnings.push(
+      "Schema mist een merchant-editable spacing/layout control. Dit is optioneel; gebruik alleen een range of select als die layoutkeuze echt door merchants verstelbaar moet zijn."
+    );
+    suggestedFixes.push(
+      "Voeg alleen een range of select toe voor spacing/layout als deze controle daadwerkelijk merchant-editable moet zijn."
+    );
   }
   if (!settingTypes.has("color")) {
     warnings.push("Schema mist een color setting voor merchant-editable styling. Dit is aanbevolen voor theme editing.");
@@ -1536,11 +1543,13 @@ function buildDraftInputError({
   problem,
   fixSuggestion,
   suggestedReplacement,
+  issueCode,
 }) {
   return {
     path,
     problem,
     fixSuggestion,
+    ...(issueCode ? { issueCode } : {}),
     ...(suggestedReplacement !== undefined ? { suggestedReplacement } : {}),
   };
 }
@@ -1575,8 +1584,94 @@ function classifyLintErrors(lintErrors = [], files = []) {
   };
 }
 
+function parseRichtextDefaultFailure(message) {
+  const source = String(message || "");
+  if (!/invalid richtext/i.test(source)) {
+    return null;
+  }
+
+  const forbiddenTagMatch = source.match(/Tag '<([^>]+)>' is not permitted/i);
+  const blockMatch = source.match(/Invalid block '([^']+)'/i);
+  const settingMatch = source.match(/setting with id="([^"]+)"/i);
+  const topLevelNodeViolation = /top[- ]level nodes must be '<(?:p|ul)>' tags/i.test(source);
+
+  return {
+    source,
+    forbiddenTag: forbiddenTagMatch?.[1] || null,
+    blockId: blockMatch?.[1] || null,
+    settingId: settingMatch?.[1] || null,
+    topLevelNodeViolation,
+  };
+}
+
+function buildRichtextDefaultFailurePath(key, violation) {
+  const path = [key];
+  if (violation?.blockId) {
+    path.push("schema", "blocks", violation.blockId, "settings");
+  } else {
+    path.push("schema", "settings");
+  }
+  if (violation?.settingId) {
+    path.push(violation.settingId, "default");
+  }
+  return path;
+}
+
+function classifyRichtextDefaultFailure({ message, failedKeys = [] } = {}) {
+  const violation = parseRichtextDefaultFailure(message);
+  if (!violation) {
+    return null;
+  }
+
+  const failedKey = failedKeys[0] || "files";
+  const topLevelHint = violation.topLevelNodeViolation
+    ? "Gebruik `<p>` of `<ul>` als top-level richtext node."
+    : "Wrap richtext defaults bij voorkeur in `<p>` of `<ul>`.";
+  const forbiddenTagHint = violation.forbiddenTag
+    ? `Vervang \`<${violation.forbiddenTag}>\` door platte tekst of een toegestane richtext tag zoals \`<strong>\`, \`<em>\`, \`<u>\`, \`<span>\` of \`<a>\`.`
+    : "Gebruik alleen Shopify-toegestane richtext tags in richtext defaults.";
+  const issueCode = violation.forbiddenTag
+    ? "richtext_default_forbidden_tag"
+    : "richtext_default_invalid_html";
+
+  return {
+    errorCode: issueCode,
+    retryable: true,
+    shouldNarrowScope: false,
+    message: `Na linten is de preview niet volledig toegepast: ${violation.source}`,
+    suggestedFixes: uniqueStrings([
+      forbiddenTagHint,
+      topLevelHint,
+      "Gebruik `html` of `liquid` settings als je bewust rijkere markup nodig hebt dan Shopify richtext defaults toestaan.",
+    ]),
+    nextAction: "fix_richtext_default",
+    retryMode: "same_request_after_fix",
+    errors: [
+      buildDraftInputError({
+        path: buildRichtextDefaultFailurePath(failedKey, violation),
+        problem: violation.forbiddenTag
+          ? `Shopify accepteert \`<${violation.forbiddenTag}>\` niet in richtext.default.`
+          : "Shopify accepteert deze richtext.default niet.",
+        fixSuggestion: `${forbiddenTagHint} ${topLevelHint}`,
+        suggestedReplacement: violation.forbiddenTag
+          ? "<p>Gebruik platte tekst of <strong>nadruk</strong> binnen de richtext default.</p>"
+          : "<p>Gebruik alleen toegestane richtext HTML binnen de default.</p>",
+        issueCode,
+      }),
+    ],
+  };
+}
+
 function classifyPreviewUploadError(error, files) {
   const message = String(error?.message || error || "");
+  const richtextFailure = classifyRichtextDefaultFailure({
+    message,
+    failedKeys: files.map((file) => file.key).filter(Boolean),
+  });
+  if (richtextFailure) {
+    return richtextFailure;
+  }
+
   if (/Geen theme gevonden met role|Theme met ID .* niet gevonden|theme of bestand niet gevonden/i.test(message)) {
     return {
       errorCode: "preview_target_ambiguous",
@@ -1620,6 +1715,17 @@ function classifyPreviewUpsertFailures(upsertResult, files) {
   const hasPreconditionFailure = failures.some((result) => result.status === "failed_precondition");
   const failedKeys = failures.map((result) => result.key).filter(Boolean);
   const firstFailureMessage = failures[0]?.error?.message || "Onbekende preview write-fout.";
+  const richtextFailure = classifyRichtextDefaultFailure({
+    message: firstFailureMessage,
+    failedKeys,
+  });
+
+  if (richtextFailure) {
+    return {
+      failures,
+      ...richtextFailure,
+    };
+  }
 
   return {
     failures,
@@ -2440,7 +2546,7 @@ export const draftThemeArtifact = {
           draftId,
           message: classified.message,
           warnings,
-          errors: failedPreviewWrites,
+          errors: classified.errors || failedPreviewWrites,
           draft: buildDraftPayload(draftRecord, {
             verifySummary: upsertResult.verifySummary || null,
             verifyResults: upsertResult.results || [],
@@ -2451,13 +2557,15 @@ export const draftThemeArtifact = {
           suggestedFixes: [...suggestedFixes, ...classified.suggestedFixes],
           shouldNarrowScope: classified.shouldNarrowScope,
           nextAction:
-            classified.errorCode === "preview_failed_precondition"
+            classified.nextAction ||
+            (classified.errorCode === "preview_failed_precondition"
               ? "refresh_checksum_and_retry"
-              : "retry_preview_upload",
+              : "retry_preview_upload"),
           retryMode:
-            classified.errorCode === "preview_failed_precondition"
+            classified.retryMode ||
+            (classified.errorCode === "preview_failed_precondition"
               ? "same_request_after_refresh"
-              : "same_request_after_fix",
+              : "same_request_after_fix"),
           normalizedArgs: getNormalizedArgs(),
         });
       }
@@ -2521,15 +2629,17 @@ export const draftThemeArtifact = {
       return buildFailureResponse({
         status: "preview_failed",
         draftId,
-        message: `Na linten faalde de Shopify preview upload: ${error.message}`,
+        message:
+          classified.message || `Na linten faalde de Shopify preview upload: ${error.message}`,
         warnings,
+        errors: classified.errors,
         draft: buildDraftPayload(draftRecord, { warnings }),
         errorCode: classified.errorCode,
         retryable: classified.retryable,
         suggestedFixes: [...suggestedFixes, ...classified.suggestedFixes],
         shouldNarrowScope: classified.shouldNarrowScope,
-        nextAction: "retry_preview_upload",
-        retryMode: "same_request_after_fix",
+        nextAction: classified.nextAction || "retry_preview_upload",
+        retryMode: classified.retryMode || "same_request_after_fix",
         normalizedArgs: getNormalizedArgs(),
       });
     }

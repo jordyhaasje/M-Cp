@@ -44,6 +44,14 @@ const SummaryAliasFieldDescriptions = {
     "Legacy alias van _tool_input_summary voor backwards compatibility.",
 };
 
+const PLAN_QUERY_PUBLIC_MAX_LENGTH = 4000;
+const PLAN_QUERY_INTERNAL_MAX_LENGTH = 240;
+
+const compactPlanQuery = (value) =>
+  typeof value === "string" && value.trim()
+    ? value.trim().slice(0, PLAN_QUERY_INTERNAL_MAX_LENGTH)
+    : undefined;
+
 const PlanThemeEditPublicObjectSchema = z
   .object({
     intent: IntentSchema.optional().describe(
@@ -63,9 +71,11 @@ const PlanThemeEditPublicObjectSchema = z
       .describe("Optioneel template-oppervlak, bijv. product of homepage. Als dit ontbreekt gebruikt de planner een veilige default per intent."),
     query: z
       .string()
-      .max(240)
+      .max(PLAN_QUERY_PUBLIC_MAX_LENGTH)
       .optional()
-      .describe("Korte taakomschrijving of zichtbare anchor, alleen voor compactere planning en snippet-prioritering."),
+      .describe(
+        "Taakomschrijving of zichtbare anchor. Langere client-prompts zijn toegestaan; de planner compacteert deze intern tot een korte query voor tokenzuinige planning."
+      ),
     targetFile: z
       .string()
       .min(1)
@@ -103,9 +113,11 @@ const PlanThemeEditPublicObjectSchema = z
       .describe(SummaryAliasFieldDescriptions.request),
     description: z
       .string()
-      .max(240)
+      .max(PLAN_QUERY_PUBLIC_MAX_LENGTH)
       .optional()
-      .describe("Compat alias voor query; wordt alleen gebruikt als query ontbreekt."),
+      .describe(
+        "Compat alias voor query; wordt alleen gebruikt als query ontbreekt en intern compact gemaakt."
+      ),
     type: z
       .string()
       .max(80)
@@ -195,15 +207,13 @@ const normalizePlanThemeEditInput = (rawInput) => {
     themeId: rawInput.themeId,
     themeRole: rawInput.themeRole,
     template: rawInput.template,
-    query: rawInput.query,
+    query: compactPlanQuery(rawInput.query),
     targetFile: rawInput.targetFile,
     sectionTypeHint: rawInput.sectionTypeHint,
     snippetLimit: rawInput.snippetLimit,
   };
   const descriptionAlias =
-    typeof rawInput.description === "string" && rawInput.description.trim()
-      ? rawInput.description.trim()
-      : "";
+    compactPlanQuery(rawInput.description) || "";
 
   if (!normalized.intent) {
     for (const candidate of [rawInput.intent_type, rawInput.intentType, rawInput.type]) {
@@ -215,7 +225,7 @@ const normalizePlanThemeEditInput = (rawInput) => {
   }
 
   if (!normalized.query && descriptionAlias) {
-    normalized.query = descriptionAlias.slice(0, 240);
+    normalized.query = descriptionAlias;
   }
 
   if (!normalized.targetFile && Array.isArray(rawInput.targetFiles) && rawInput.targetFiles.length === 1) {
@@ -239,7 +249,7 @@ const normalizePlanThemeEditInput = (rawInput) => {
     normalized.template = inferTemplateFromSummary(summary) || normalized.template;
   }
   if (!normalized.query) {
-    normalized.query = summary.slice(0, 240);
+    normalized.query = compactPlanQuery(summary);
   }
   if (!normalized.targetFile && normalized.intent === "existing_edit") {
     normalized.targetFile = inferSingleThemeFile(summary) || normalized.targetFile;
@@ -309,7 +319,7 @@ const buildPlanRepairResponse = ({
 const planThemeEditTool = {
   name: "plan-theme-edit",
   description:
-    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet themeId of themeRole. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: patch-existing, multi-file-edit, create-section of template-placement, plus de exacte volgende read/write keys. Voor native product-blocks analyseert de planner templates/*.json al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand targetFile.",
+    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet themeId of themeRole. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: patch-existing, multi-file-edit, create-section of template-placement, plus de exacte volgende read/write keys. Langere query- of description-prompts zijn toegestaan; de planner compacteert die intern naar een korte query voor tokenzuinige planning. Voor native product-blocks analyseert de planner templates/*.json al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand targetFile.",
   inputSchema: PlanThemeEditPublicObjectSchema,
   schema: PlanThemeEditInputSchema,
   execute: async (rawInput, context = {}) => {

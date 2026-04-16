@@ -44,6 +44,18 @@ assert.strictEqual(
   "tracking alias should reuse the canonical set-order-tracking schema"
 );
 
+assert.strictEqual(
+  registry.byName.get("read-theme-file").inputSchema,
+  registry.byName.get("get-theme-file").inputSchema,
+  "read-theme-file should reuse the canonical get-theme-file schema"
+);
+
+assert.strictEqual(
+  registry.byName.get("read-theme-files").inputSchema,
+  registry.byName.get("get-theme-files").inputSchema,
+  "read-theme-files should reuse the canonical get-theme-files schema"
+);
+
 for (const criticalToolName of [
   "apply-theme-draft",
   "get-orders",
@@ -67,6 +79,7 @@ for (const expectedToolName of [
   "draft-theme-artifact",
   "patch-theme-file",
   "plan-theme-edit",
+  "read-theme-file",
   "search-theme-files",
 ]) {
   assert.ok(registry.byName.has(expectedToolName), `${expectedToolName} should be present in the shared registry`);

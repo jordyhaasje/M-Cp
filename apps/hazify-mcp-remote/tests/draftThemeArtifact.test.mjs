@@ -642,6 +642,52 @@ test("draftThemeArtifact - rejects schema-only section stubs in create mode", as
   assert.match(result.message, /schema-only|renderbare markup/i);
 });
 
+test("draftThemeArtifact - classifies standalone sections with only minimal local CSS explicitly", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/minimal-css-only.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .demo {
+    color: {{ section.settings.text_color }};
+  }
+</style>
+<div class="demo">{{ section.settings.heading }}</div>
+{% schema %}
+{
+  "name": "Minimal css only",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "color", "id": "text_color", "label": "Text color", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Minimal css only" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "standalone_section_too_minimal");
+  assert.match(result.message, /te minimaal|premium standalone section/i);
+});
+
 test("draftThemeArtifact - rejects invalid range schemas in edit mode before preview upload", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -1854,6 +1900,101 @@ test("draftThemeArtifact - fails when checksum precondition blocks the preview w
     assert.equal(result.status, "preview_failed");
     assert.equal(result.errorCode, "preview_failed_precondition");
     assert.match(result.message, /conflict-safe write check faalde/i);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("draftThemeArtifact - classifies Shopify richtext default tag failures with a specific repair code", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const originalFetch = global.fetch;
+  global.fetch = async (_url, options = {}) => {
+    const payload = options.body ? JSON.parse(String(options.body)) : {};
+    const query = String(payload.query || "");
+    const themeId = String(payload.variables?.themeId || "");
+    const numericThemeId = Number(themeId.match(/\/(\d+)$/)?.[1] || 111);
+
+    if (query.includes("ThemeById")) {
+      const resPayload = {
+        data: {
+          theme: {
+            id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+            name: "Main Theme",
+            role: "MAIN",
+            processing: false,
+            createdAt: "2026-04-02T00:00:00Z",
+            updatedAt: "2026-04-02T00:00:00Z"
+          }
+        }
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => resPayload,
+        text: async () => JSON.stringify(resPayload)
+      };
+    }
+
+    if (query.includes("ThemeFilesUpsert")) {
+      const resPayload = {
+        data: {
+          themeFilesUpsert: {
+            upsertedThemeFiles: [],
+            job: { id: "gid://shopify/Job/77" },
+            userErrors: [
+              {
+                filename: "sections/review-replica.liquid",
+                code: "FILE_VALIDATION_ERROR",
+                message:
+                  "Invalid block 'review': setting with id=\"quote\" default is invalid richtext: Tag '<mark>' is not permitted"
+              }
+            ]
+          }
+        }
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => resPayload,
+        text: async () => JSON.stringify(resPayload)
+      };
+    }
+
+    throw new Error(`Unexpected GraphQL query in richtext failure test: ${query}`);
+  };
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "create",
+        themeId: 111,
+        files: [{ key: "sections/review-replica.liquid", value: goodSectionLiquid }],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "preview_failed");
+    assert.equal(result.errorCode, "richtext_default_forbidden_tag");
+    assert.equal(result.nextAction, "fix_richtext_default");
+    assert.match(result.message, /<mark>|invalid richtext/i);
+    assert.ok(
+      result.errors?.some(
+        (entry) =>
+          Array.isArray(entry.path) &&
+          entry.path.includes("quote") &&
+          entry.issueCode === "richtext_default_forbidden_tag"
+      ),
+      "richtext preview failures should return a machine-readable error path and issueCode"
+    );
   } finally {
     global.fetch = originalFetch;
   }
