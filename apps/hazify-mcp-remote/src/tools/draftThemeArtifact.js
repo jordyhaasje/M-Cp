@@ -30,7 +30,7 @@ Theme-aware section regels:
 - Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
 - Compatibele shorthand: voor één file mag een client ook top-level key + value of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
-- Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting.
+- Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting. Bij range-fouten geeft de tool exacte suggestedReplacement/default-hints terug.
 - richtext defaults moeten Shopify-veilige HTML gebruiken. Gebruik top-level <p> of <ul>; tags zoals <mark> in richtext.default worden door Shopify afgewezen.
 - Nieuwe blocks/*.liquid files krijgen in create mode ook een basisinspectie op geldige schema JSON en block-veilige markup.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
@@ -38,6 +38,7 @@ Theme-aware section regels:
 - Voor native blocks binnen een bestaande section (bijv. product-info of main-product): gebruik mode="edit" en patch de bestaande schema.blocks plus de render markup/snippet. Dit is geen los blocks/*.liquid bestand.
 - Als de gebruiker een nieuwe section ook op een homepage/productpagina geplaatst wil hebben, maak eerst sections/<handle>.liquid in mode="create" en doe daarna alleen bij expliciete placement-vraag een aparte mode="edit" call voor templates/*.json op hetzelfde expliciet gekozen thema. Gebruik config/settings_data.json alleen als uitzonderingsroute.
 - Gebruik voor nieuwe sections bij voorkeur enabled_on/disabled_on in de schema in plaats van legacy "templates" wanneer je beschikbaarheid per template wilt sturen.
+- Lokale inspectie en theme-check lint worden waar mogelijk samen als lokale preflight teruggegeven, zodat een retry meerdere deterministische fouten tegelijk kan repareren.
 
 Rules for valid Shopify Liquid:
 
@@ -374,7 +375,110 @@ function isRangeValueAlignedToStep(value, min, step) {
   return Math.abs(stepsFromMin - Math.round(stepsFromMin)) < RANGE_ALIGNMENT_EPSILON;
 }
 
+function normalizeRangeNumericValue(value) {
+  if (!Number.isFinite(value)) {
+    return value;
+  }
+  return Number(value.toFixed(6));
+}
+
+function getAlignedRangeEndpoints(min, max, step) {
+  if (
+    !Number.isFinite(min) ||
+    !Number.isFinite(max) ||
+    !Number.isFinite(step) ||
+    step <= 0 ||
+    min > max
+  ) {
+    return { first: null, last: null };
+  }
+
+  const maxSteps = Math.floor((max - min) / step);
+  return {
+    first: normalizeRangeNumericValue(min),
+    last: normalizeRangeNumericValue(min + maxSteps * step),
+  };
+}
+
+function getRangeDefaultRepairHints({ min, max, step, defaultValue }) {
+  const { first, last } = getAlignedRangeEndpoints(min, max, step);
+  if (first === null || last === null) {
+    return {
+      suggestedDefault: null,
+      validDefaultCandidates: [],
+    };
+  }
+
+  let rawCandidates = [];
+  if (defaultValue <= first) {
+    rawCandidates = [first];
+  } else if (defaultValue >= last) {
+    rawCandidates = [last];
+  } else {
+    const lowerSteps = Math.floor((defaultValue - min) / step);
+    const higherSteps = Math.ceil((defaultValue - min) / step);
+    rawCandidates = [min + lowerSteps * step, min + higherSteps * step];
+  }
+
+  const validDefaultCandidates = Array.from(
+    new Set(
+      rawCandidates
+        .map((candidate) => normalizeRangeNumericValue(candidate))
+        .filter(
+          (candidate) =>
+            Number.isFinite(candidate) &&
+            candidate >= first - RANGE_ALIGNMENT_EPSILON &&
+            candidate <= last + RANGE_ALIGNMENT_EPSILON &&
+            isRangeValueAlignedToStep(candidate, min, step)
+        )
+    )
+  ).sort((a, b) => a - b);
+
+  const suggestedDefault =
+    validDefaultCandidates.length === 0
+      ? null
+      : validDefaultCandidates.reduce((best, candidate) => {
+          if (best === null) {
+            return candidate;
+          }
+          const bestDistance = Math.abs(best - defaultValue);
+          const candidateDistance = Math.abs(candidate - defaultValue);
+          if (candidateDistance < bestDistance) {
+            return candidate;
+          }
+          if (
+            Math.abs(candidateDistance - bestDistance) < RANGE_ALIGNMENT_EPSILON &&
+            candidate < best
+          ) {
+            return candidate;
+          }
+          return best;
+        }, null);
+
+  return {
+    suggestedDefault,
+    validDefaultCandidates,
+  };
+}
+
+function formatRangeCandidateList(candidates = []) {
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return null;
+  }
+
+  if (candidates.length === 1) {
+    return String(candidates[0]);
+  }
+
+  if (candidates.length === 2) {
+    return `${candidates[0]} of ${candidates[1]}`;
+  }
+
+  return `${candidates.slice(0, -1).join(", ")} of ${candidates.at(-1)}`;
+}
+
 function buildRangeIssueSuggestedFixes(issue) {
+  const candidateList = formatRangeCandidateList(issue?.validDefaultCandidates);
   switch (issue?.code) {
     case "range_too_few_steps":
       return [
@@ -384,8 +488,10 @@ function buildRangeIssueSuggestedFixes(issue) {
       ];
     case "range_default_not_on_step":
       return [
-        `Pas default van ${issue.label} aan zodat deze exact op het step-raster valt vanaf min ${issue.min} met step ${issue.step}.`,
-        `Of wijzig min/step zodat default ${issue.defaultValue} een geldige stap binnen ${issue.min}-${issue.max} wordt.`,
+        `Pas default van ${issue.label} aan zodat deze exact op het step-raster valt vanaf min ${issue.min} met step ${issue.step}${candidateList ? `, bijvoorbeeld ${candidateList}` : ""}.`,
+        issue.suggestedDefault !== null
+          ? `Een veilige retry is default ${issue.suggestedDefault}.${candidateList && issue.validDefaultCandidates.length > 1 ? ` Andere geldige defaults zijn ${candidateList}.` : ""}`
+          : `Of wijzig min/step zodat default ${issue.defaultValue} een geldige stap binnen ${issue.min}-${issue.max} wordt.`,
         "Controleer alle range settings in de section schema voordat je opnieuw schrijft.",
       ];
     case "range_too_many_steps":
@@ -398,8 +504,10 @@ function buildRangeIssueSuggestedFixes(issue) {
       ];
     default:
       return [
-        `Pas default van ${issue.label} aan zodat deze binnen min/max valt.`,
-        `Of wijzig min/max zodat default ${issue.defaultValue} geldig wordt binnen het bereik ${issue.min}-${issue.max}.`,
+        `Pas default van ${issue.label} aan zodat deze binnen min/max valt${candidateList ? `, bijvoorbeeld ${candidateList}` : ""}.`,
+        issue.suggestedDefault !== null
+          ? `Een veilige retry is default ${issue.suggestedDefault} binnen het bereik ${issue.min}-${issue.max}.`
+          : `Of wijzig min/max zodat default ${issue.defaultValue} geldig wordt binnen het bereik ${issue.min}-${issue.max}.`,
         "Controleer alle range settings in de section schema voordat je opnieuw schrijft.",
       ];
   }
@@ -420,6 +528,12 @@ function collectSchemaRangeIssues(schema) {
     const defaultValue = setting.default;
     const rawStep = setting.step;
     const step = rawStep === undefined ? 1 : rawStep;
+    const defaultRepairHints = getRangeDefaultRepairHints({
+      min,
+      max,
+      step,
+      defaultValue,
+    });
 
     if (
       typeof min !== "number" ||
@@ -482,6 +596,7 @@ function collectSchemaRangeIssues(schema) {
         max,
         defaultValue,
         step,
+        ...defaultRepairHints,
         message:
           `${label} heeft default ${defaultValue}, maar deze moet tussen min ${min} en max ${max} vallen.`,
       });
@@ -497,6 +612,7 @@ function collectSchemaRangeIssues(schema) {
         max,
         defaultValue,
         step,
+        ...defaultRepairHints,
         message:
           `${label} heeft default ${defaultValue}, maar deze moet exact op een geldige step vanaf min ${min} liggen (step ${step}).`,
       });
@@ -589,6 +705,27 @@ function buildRangeIssueDiagnostic(issue) {
     };
   }
 
+  if (
+    (issue.code === "range_default_not_on_step" ||
+      issue.code === "range_default_out_of_bounds") &&
+    (issue.suggestedDefault !== null ||
+      (Array.isArray(issue.validDefaultCandidates) &&
+        issue.validDefaultCandidates.length > 0))
+  ) {
+    return {
+      ...base,
+      suggestedReplacement: {
+        ...(issue.suggestedDefault !== null
+          ? { default: issue.suggestedDefault }
+          : {}),
+        ...(Array.isArray(issue.validDefaultCandidates) &&
+        issue.validDefaultCandidates.length > 0
+          ? { validDefaultCandidates: issue.validDefaultCandidates }
+          : {}),
+      },
+    };
+  }
+
   return base;
 }
 
@@ -611,6 +748,25 @@ function buildRangeIssueSchemaRewrites(issue) {
         currentType: "range",
         suggestedStep: issue.suggestedMinStep,
         reason: `${issue.label} overschrijdt de Hazify preflight-guard van maximaal 101 waarden.`,
+      },
+    ];
+  }
+
+  if (
+    (issue.code === "range_default_not_on_step" ||
+      issue.code === "range_default_out_of_bounds") &&
+    issue.suggestedDefault !== null
+  ) {
+    return [
+      {
+        path: issue.path || [],
+        currentType: "range",
+        suggestedDefault: issue.suggestedDefault,
+        ...(Array.isArray(issue.validDefaultCandidates) &&
+        issue.validDefaultCandidates.length > 0
+          ? { validDefaultCandidates: issue.validDefaultCandidates }
+          : {}),
+        reason: `${issue.label} heeft een default die niet geldig is voor de huidige min/max/step configuratie.`,
       },
     ];
   }
@@ -1396,6 +1552,17 @@ function normalizeLintErrors(offenses, tmpDir) {
     message: offense.message,
     severity: offense.severity === 0 ? "error" : "warning",
     start: offense.start || null,
+    line:
+      offense.start && Number.isInteger(offense.start.line)
+        ? offense.start.line
+        : null,
+    column:
+      offense.start &&
+      (Number.isInteger(offense.start.character)
+        ? offense.start.character
+        : Number.isInteger(offense.start.column)
+          ? offense.start.column
+          : null),
   }));
 }
 
@@ -1445,6 +1612,7 @@ function buildFailureResponse({
   draftId,
   warnings = [],
   errors,
+  lintIssues,
   draft,
   errorCode,
   retryable,
@@ -1462,6 +1630,7 @@ function buildFailureResponse({
     ...(draftId ? { draftId } : {}),
     message,
     ...(errors ? { errors } : {}),
+    ...(lintIssues ? { lintIssues } : {}),
     warnings,
     ...(draft ? { draft } : {}),
     errorCode,
@@ -1486,10 +1655,12 @@ function buildAggregatedInspectionFailure({
   normalizedArgs,
   warnings = [],
   issues = [],
+  lintIssues = [],
   suggestedFixes = [],
   suggestedSchemaRewrites = [],
   preferSelectFor = [],
   shouldNarrowScope = false,
+  nextAction = "fix_local_validation",
 }) {
   const normalizedIssues = (issues || []).filter(Boolean);
   const primaryIssue = normalizedIssues[0];
@@ -1512,11 +1683,12 @@ function buildAggregatedInspectionFailure({
     message: `Building Inspection Failed: ${primaryProblem}`,
     warnings,
     errors: normalizedIssues,
+    ...(lintIssues.length > 0 ? { lintIssues } : {}),
     errorCode,
     retryable: true,
     suggestedFixes,
     shouldNarrowScope,
-    nextAction: "fix_local_validation",
+    nextAction,
     retryMode: "same_request_after_fix",
     normalizedArgs,
     suggestedSchemaRewrites,
@@ -1524,17 +1696,101 @@ function buildAggregatedInspectionFailure({
   });
 }
 
+function extractExpectedTokenFromLintMessage(message) {
+  return String(message || "").match(/expected "([^"]+)"/i)?.[1] || null;
+}
+
+function describeLintLocation(error) {
+  if (Number.isInteger(error?.line) && Number.isInteger(error?.column)) {
+    return `${error.file}:${error.line}:${error.column}`;
+  }
+
+  if (Number.isInteger(error?.line)) {
+    return `${error.file}:${error.line}`;
+  }
+
+  return error?.file || "root";
+}
+
+function buildLintFixSuggestions(error) {
+  const location = describeLintLocation(error);
+  const expectedToken = extractExpectedTokenFromLintMessage(error?.message);
+
+  switch (error?.check) {
+    case "ImgWidthAndHeight":
+      return [
+        `${location}: gebruik image_url + image_tag in plaats van een raw <img> zonder betrouwbare afmetingen.`,
+        `${location}: als een raw <img> toch nodig is, voeg dan expliciete width en height attributen toe.`,
+      ];
+    case "LiquidHTMLSyntaxError":
+      return [
+        `${location}: herstel de Liquid-syntax door alle {{ ... }}, {% ... %} en HTML-tags correct te sluiten${expectedToken ? `; theme-check verwacht hier ${expectedToken}` : ""}.`,
+        `${location}: controleer op een afgebroken expressie, een ontbrekende end-tag of een niet-afgesloten haakje/string in Liquid markup.`,
+      ];
+    case "UnsupportedDocTag":
+      return [
+        `${location}: gebruik alleen ondersteunde {% doc %} annotaties of verwijder de ongeldige doc-tag.`,
+        `${location}: houd doc-blokken compact en syntactisch geldig zodat theme-check ze kan parsen.`,
+      ];
+    case "UnknownObject":
+    case "UnknownFilter":
+      return [
+        `${location}: controleer of het gebruikte Liquid object of filter echt in Shopify beschikbaar is binnen deze theme-context.`,
+      ];
+    case "theme-check-runtime":
+      return [
+        `${location}: de lint-sandbox zelf faalde. Controleer de gegenereerde bestanden op ongeldige paden of corrupte Liquid/JSON inhoud en probeer daarna opnieuw.`,
+      ];
+    default:
+      return [`${location}: ${error?.message}`];
+  }
+}
+
+function buildLintDiagnostic(error) {
+  const expectedToken = extractExpectedTokenFromLintMessage(error?.message);
+  let issueCode = "lint_failed_liquid";
+
+  switch (error?.check) {
+    case "ImgWidthAndHeight":
+      issueCode = "lint_failed_img_dimensions";
+      break;
+    case "LiquidHTMLSyntaxError":
+      issueCode = "lint_failed_liquid_syntax";
+      break;
+    case "UnsupportedDocTag":
+      issueCode = "lint_failed_unsupported_doc_tag";
+      break;
+    case "UnknownObject":
+    case "UnknownFilter":
+      issueCode = "lint_failed_unknown_reference";
+      break;
+    case "theme-check-runtime":
+      issueCode = "lint_failed_runtime";
+      break;
+    default:
+      break;
+  }
+
+  return {
+    path: error?.file ? [error.file] : ["root"],
+    problem: error?.message || "theme-check vond een lintfout.",
+    fixSuggestion: buildLintFixSuggestions(error)[0],
+    issueCode,
+    check: error?.check || "Unknown",
+    severity: error?.severity || "error",
+    ...(Number.isInteger(error?.line) ? { line: error.line } : {}),
+    ...(Number.isInteger(error?.column) ? { column: error.column } : {}),
+    ...(expectedToken ? { suggestedReplacement: { expectedToken } } : {}),
+  };
+}
+
+function buildLintDiagnostics(lintErrors = []) {
+  return lintErrors.map((error) => buildLintDiagnostic(error));
+}
+
 function suggestFixesFromLintErrors(lintErrors = []) {
   return uniqueStrings(
-    lintErrors.slice(0, 5).flatMap((error) => {
-      if (error.check === "ImgWidthAndHeight") {
-        return [
-          `${error.file}: gebruik image_url + image_tag in plaats van een raw <img> zonder betrouwbare afmetingen.`,
-          `${error.file}: als een raw <img> toch nodig is, voeg dan expliciete width en height attributen toe.`,
-        ];
-      }
-      return `${error.file}: ${error.message}`;
-    })
+    lintErrors.slice(0, 5).flatMap((error) => buildLintFixSuggestions(error))
   );
 }
 
@@ -1567,12 +1823,58 @@ function mergeInspectionIntoAccumulator(accumulator, inspection = {}) {
 }
 
 function classifyLintErrors(lintErrors = [], files = []) {
+  if (lintErrors.some((error) => error.check === "LiquidHTMLSyntaxError")) {
+    return {
+      errorCode: "lint_failed_liquid_syntax",
+      retryable: true,
+      shouldNarrowScope: files.length > 3,
+      suggestedFixes: suggestFixesFromLintErrors(lintErrors),
+      nextAction: "rewrite_liquid_syntax",
+    };
+  }
+
   if (lintErrors.some((error) => error.check === "ImgWidthAndHeight")) {
     return {
       errorCode: "lint_failed_img_dimensions",
       retryable: true,
       shouldNarrowScope: false,
       suggestedFixes: suggestFixesFromLintErrors(lintErrors),
+      nextAction: "fix_image_dimensions",
+    };
+  }
+
+  if (lintErrors.some((error) => error.check === "UnsupportedDocTag")) {
+    return {
+      errorCode: "lint_failed_unsupported_doc_tag",
+      retryable: true,
+      shouldNarrowScope: false,
+      suggestedFixes: suggestFixesFromLintErrors(lintErrors),
+      nextAction: "fix_doc_tag_usage",
+    };
+  }
+
+  if (
+    lintErrors.some(
+      (error) =>
+        error.check === "UnknownObject" || error.check === "UnknownFilter"
+    )
+  ) {
+    return {
+      errorCode: "lint_failed_unknown_reference",
+      retryable: true,
+      shouldNarrowScope: files.length > 3,
+      suggestedFixes: suggestFixesFromLintErrors(lintErrors),
+      nextAction: "fix_unknown_reference",
+    };
+  }
+
+  if (lintErrors.some((error) => error.check === "theme-check-runtime")) {
+    return {
+      errorCode: "lint_failed_runtime",
+      retryable: true,
+      shouldNarrowScope: false,
+      suggestedFixes: suggestFixesFromLintErrors(lintErrors),
+      nextAction: "retry_lint_after_runtime_fix",
     };
   }
 
@@ -1581,6 +1883,100 @@ function classifyLintErrors(lintErrors = [], files = []) {
     retryable: true,
     shouldNarrowScope: files.length > 3,
     suggestedFixes: suggestFixesFromLintErrors(lintErrors),
+    nextAction: "fix_lint_errors",
+  };
+}
+
+async function runThemeCheckSandbox({
+  files,
+  shopifyClient,
+  apiVersion,
+  themeId,
+  themeRole,
+}) {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "hazify-sandbox-"));
+  let lintErrors = null;
+  const warnings = [];
+  let lintSupportFiles = [];
+
+  try {
+    try {
+      lintSupportFiles = await fetchLocaleLintSupportFiles({
+        files,
+        shopifyClient,
+        apiVersion,
+        themeId,
+        themeRole,
+      });
+
+      if (needsLocaleLintContext(files) && lintSupportFiles.length === 0) {
+        warnings.push(
+          "Geen default locale files opgehaald voor de lint-sandbox. Translation checks kunnen daardoor strenger uitvallen dan in het echte theme."
+        );
+      }
+    } catch (error) {
+      warnings.push(
+        `Kon default locale files niet ophalen voor de lint-sandbox: ${error.message}`
+      );
+    }
+
+    await fs.mkdir(path.join(tmpDir, "locales"), { recursive: true });
+    for (const file of [...lintSupportFiles, ...files]) {
+      const fullPath = path.join(tmpDir, file.key);
+      await fs.mkdir(path.dirname(fullPath), { recursive: true });
+      await fs.writeFile(fullPath, file.value, "utf8");
+    }
+
+    let offenses = await check(tmpDir);
+
+    const preExistingChecks = [
+      "MissingSnippet",
+      "MissingAsset",
+      "MissingTemplate",
+      "UnknownObject",
+      "UnknownFilter",
+    ];
+
+    offenses = offenses.map((offense) => {
+      if (offense.severity === 0 && preExistingChecks.includes(offense.check)) {
+        return { ...offense, severity: 1 };
+      }
+      return offense;
+    });
+
+    const preExistingWarningCount = offenses.filter(
+      (offense) =>
+        offense.severity === 1 && preExistingChecks.includes(offense.check)
+    ).length;
+    if (preExistingWarningCount > 0) {
+      warnings.push(
+        `Gevonden ${preExistingWarningCount} pre-existing referentie(s) in het target thema (MissingSnippet/MissingAsset). Linter faalt hier niet meer hard op.`
+      );
+    }
+
+    const criticalErrors = offenses.filter((offense) => offense.severity === 0);
+    if (criticalErrors.length > 0) {
+      lintErrors = normalizeLintErrors(criticalErrors, tmpDir);
+    }
+  } catch (error) {
+    lintErrors = [
+      {
+        file: "root",
+        check: "theme-check-runtime",
+        message: `Linter runtime error: ${error.message}`,
+        severity: "error",
+        start: null,
+        line: null,
+        column: null,
+      },
+    ];
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
+
+  return {
+    lintErrors,
+    warnings,
   };
 }
 
@@ -2391,23 +2787,52 @@ export const draftThemeArtifact = {
       // Snippets, assets, locales: geen aanvullende inspectie nodig
     }
 
+    const {
+      lintErrors,
+      warnings: lintSupportWarnings,
+    } = await runThemeCheckSandbox({
+      files,
+      shopifyClient,
+      apiVersion: process.env.SHOPIFY_API_VERSION || "2026-01",
+      themeId,
+      themeRole,
+    });
+    const lintDiagnostics = lintErrors ? buildLintDiagnostics(lintErrors) : [];
+    const classifiedLint = lintErrors
+      ? classifyLintErrors(lintErrors, files)
+      : null;
+    const preflightWarnings = uniqueStrings([
+      ...localInspection.warnings,
+      ...lintSupportWarnings,
+    ]);
+    const preflightSuggestedFixes = uniqueStrings([
+      ...localInspection.suggestedFixes,
+      ...(classifiedLint?.suggestedFixes || []),
+    ]);
+
     if (localInspection.issues.length > 0) {
       return buildAggregatedInspectionFailure({
         normalizedArgs: getNormalizedArgs(),
-        warnings: uniqueStrings(localInspection.warnings),
-        issues: localInspection.issues,
-        suggestedFixes: uniqueStrings(localInspection.suggestedFixes),
+        warnings: preflightWarnings,
+        issues: [...localInspection.issues, ...lintDiagnostics],
+        lintIssues: lintDiagnostics,
+        suggestedFixes: preflightSuggestedFixes,
         suggestedSchemaRewrites: localInspection.suggestedSchemaRewrites,
         preferSelectFor: localInspection.preferSelectFor,
-        shouldNarrowScope: localInspection.shouldNarrowScope,
+        shouldNarrowScope:
+          localInspection.shouldNarrowScope ||
+          Boolean(classifiedLint?.shouldNarrowScope),
+        nextAction: lintDiagnostics.length > 0
+          ? "fix_local_preflight"
+          : "fix_local_validation",
       });
     }
 
-    warnings.splice(0, warnings.length, ...uniqueStrings(localInspection.warnings));
+    warnings.splice(0, warnings.length, ...preflightWarnings);
     suggestedFixes.splice(
       0,
       suggestedFixes.length,
-      ...uniqueStrings(localInspection.suggestedFixes)
+      ...preflightSuggestedFixes
     );
 
     const shopDomain = getShopDomainFromClient(shopifyClient);
@@ -2421,76 +2846,7 @@ export const draftThemeArtifact = {
     });
     const draftId = draftRecord?.id || `mock-${Date.now()}`;
 
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "hazify-sandbox-"));
-    let lintErrors = null;
-    let lintSupportWarnings = [];
-    let lintSupportFiles = [];
-
-    try {
-      try {
-        lintSupportFiles = await fetchLocaleLintSupportFiles({
-          files,
-          shopifyClient,
-          apiVersion: process.env.SHOPIFY_API_VERSION || "2026-01",
-          themeId,
-          themeRole,
-        });
-
-        if (needsLocaleLintContext(files) && lintSupportFiles.length === 0) {
-          lintSupportWarnings.push(
-            "Geen default locale files opgehaald voor de lint-sandbox. Translation checks kunnen daardoor strenger uitvallen dan in het echte theme."
-          );
-        }
-      } catch (error) {
-        lintSupportWarnings.push(
-          `Kon default locale files niet ophalen voor de lint-sandbox: ${error.message}`
-        );
-      }
-
-      await fs.mkdir(path.join(tmpDir, "locales"), { recursive: true });
-      for (const file of [...lintSupportFiles, ...files]) {
-        const fullPath = path.join(tmpDir, file.key);
-        await fs.mkdir(path.dirname(fullPath), { recursive: true });
-        await fs.writeFile(fullPath, file.value, "utf8");
-      }
-      warnings.push(...lintSupportWarnings);
-
-      let offenses = await check(tmpDir);
-      
-      const preExistingChecks = ["MissingSnippet", "MissingAsset", "MissingTemplate", "UnknownObject", "UnknownFilter"];
-      
-      offenses = offenses.map(offense => {
-        if (offense.severity === 0 && preExistingChecks.includes(offense.check)) {
-           return { ...offense, severity: 1 };
-        }
-        return offense;
-      });
-
-      const preExistingWarningCount = offenses.filter(o => o.severity === 1 && preExistingChecks.includes(o.check)).length;
-      if (preExistingWarningCount > 0) {
-        warnings.push(`Gevonden ${preExistingWarningCount} pre-existing referentie(s) in het target thema (MissingSnippet/MissingAsset). Linter faalt hier niet meer hard op.`);
-      }
-
-      const criticalErrors = offenses.filter((offense) => offense.severity === 0);
-      if (criticalErrors.length > 0) {
-        lintErrors = normalizeLintErrors(criticalErrors, tmpDir);
-      }
-    } catch (error) {
-      lintErrors = [
-        {
-          file: "root",
-          check: "theme-check-runtime",
-          message: `Linter runtime error: ${error.message}`,
-          severity: "error",
-          start: null,
-        },
-      ];
-    } finally {
-      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    }
-
     if (lintErrors) {
-      const classifiedLint = classifyLintErrors(lintErrors, files);
       draftRecord = await updateThemeDraftRecord(draftId, {
         status: "lint_failed",
         lintReport: {
@@ -2505,14 +2861,15 @@ export const draftThemeArtifact = {
         status: "lint_failed",
         draftId,
         message: "Linter heeft syntaxfouten gevonden in de Liquid code. Fix deze bestanden voordat ze naar een preview theme worden gepusht.",
-        errors: lintErrors,
+        errors: lintDiagnostics,
+        lintIssues: lintDiagnostics,
         warnings,
         draft: buildDraftPayload(draftRecord, { warnings }),
         errorCode: classifiedLint.errorCode,
         retryable: classifiedLint.retryable,
-        suggestedFixes: [...suggestedFixes, ...classifiedLint.suggestedFixes],
+        suggestedFixes,
         shouldNarrowScope: classifiedLint.shouldNarrowScope,
-        nextAction: "fix_lint_errors",
+        nextAction: classifiedLint.nextAction,
         retryMode: "same_request_after_fix",
         normalizedArgs: getNormalizedArgs(),
       });

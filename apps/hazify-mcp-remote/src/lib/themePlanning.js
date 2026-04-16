@@ -450,6 +450,9 @@ const buildPlanFromAnalysis = ({
     warnings.push(
       "Lees vóór het schrijven bij voorkeur één vergelijkbare bestaande section in hetzelfde theme om padding/color-conventies te spiegelen, bijvoorbeeld aparte ids zoals padding_top/padding_bottom versus een gecombineerde spacing-setting."
     );
+    warnings.push(
+      "Controleer bij range-settings altijd dat default exact op het step-raster ligt vanaf min. Gebruik bij minder dan 3 discrete waarden liever een select-setting."
+    );
     nextReadKeys = uniqueStrings([sectionFile?.key]);
     searchQueries.push("padding_top");
     searchQueries.push("padding_bottom");

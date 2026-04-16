@@ -192,8 +192,12 @@ test("draftThemeArtifact - fails when linter finds issues", async (t) => {
 
   assert.strictEqual(result.success, false);
   assert.strictEqual(result.status, "lint_failed");
+  assert.strictEqual(result.errorCode, "lint_failed_liquid_syntax");
   assert.ok(result.errors.length > 0, "Should return linter errors");
   assert.strictEqual(result.errors[0].severity, "error");
+  assert.strictEqual(result.errors[0].issueCode, "lint_failed_liquid_syntax");
+  assert.strictEqual(result.lintIssues?.[0]?.check, "LiquidHTMLSyntaxError");
+  assert.ok(Number.isInteger(result.lintIssues?.[0]?.line));
 });
 
 test("draftThemeArtifact - rejects raw img tags without reliable dimensions before lint upload", async () => {
@@ -243,7 +247,16 @@ test("draftThemeArtifact - rejects raw img tags without reliable dimensions befo
   );
 
   assert.equal(result.success, false);
-  assert.equal(result.errorCode, "inspection_failed_media");
+  assert.equal(result.status, "inspection_failed");
+  assert.equal(result.errorCode, "inspection_failed_multiple");
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "inspection_failed_media"),
+    "raw img inspection issue should remain present"
+  );
+  assert.ok(
+    result.lintIssues?.some((issue) => issue.issueCode === "lint_failed_img_dimensions"),
+    "theme-check image dimension lint should be exposed in the same preflight response"
+  );
   assert.ok(
     result.suggestedFixes.some((entry) => entry.includes("image_tag")),
     "media failures should steer the model toward Shopify image_tag rendering"
@@ -499,6 +512,63 @@ test("draftThemeArtifact - rejects range settings whose default is not aligned t
   assert.equal(result.errorCode, "inspection_failed_schema_range");
   assert.match(result.message, /step/i);
   assert.match(result.message, /padding_top/i);
+  assert.equal(result.errors?.[0]?.suggestedReplacement?.default, 8);
+  assert.deepEqual(result.errors?.[0]?.suggestedReplacement?.validDefaultCandidates, [8, 16]);
+});
+
+test("draftThemeArtifact - bundles local range issues and liquid lint errors into one preflight response", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/combined-preflight-failure.liquid",
+          value: `
+<div class="demo">{{ section.settings.heading </div>
+{% schema %}
+{
+  "name": "Combined preflight failure",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "range", "id": "padding_top", "label": "Padding top", "min": 40, "max": 180, "step": 4, "default": 90 },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Combined preflight failure" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.equal(result.errorCode, "inspection_failed_multiple");
+  assert.equal(result.nextAction, "fix_local_preflight");
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "inspection_failed_schema_range"),
+    "range inspection issue should be present"
+  );
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "lint_failed_liquid_syntax"),
+    "lint syntax issue should be present in the same preflight response"
+  );
+  assert.ok(
+    result.lintIssues?.some((issue) => issue.check === "LiquidHTMLSyntaxError"),
+    "typed lint issues should be exposed separately"
+  );
 });
 
 test("draftThemeArtifact - rejects range settings that exceed Shopify's step-count limit", async () => {

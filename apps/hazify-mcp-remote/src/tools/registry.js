@@ -256,6 +256,7 @@ const draftThemeArtifactOutputSchema = z
     warnings: z.array(z.string()).optional(),
     draft: passthroughObject().optional(),
     errors: z.array(passthroughObject()).optional(),
+    lintIssues: z.array(passthroughObject()).optional(),
     errorCode: z.string().optional(),
     retryable: z.boolean().optional(),
     suggestedFixes: z.array(z.string()).optional(),
