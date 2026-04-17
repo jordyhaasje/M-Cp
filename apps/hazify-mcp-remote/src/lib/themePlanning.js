@@ -1,5 +1,6 @@
 import { getThemeFiles, searchThemeFiles } from "./themeFiles.js";
 import { parseJsonLike } from "./jsonLike.js";
+import { buildThemeSectionContext } from "./themeSectionContext.js";
 
 const DEFAULT_THEME_SEARCH_LIMIT = 10;
 const DEFAULT_SNIPPET_LIMIT = 3;
@@ -37,6 +38,34 @@ const PRODUCT_SNIPPET_HINTS = [
   /review/i,
   /accordion/i,
   /inventory/i,
+];
+
+const CONTENT_SECTION_HINTS = [
+  /testimonial/i,
+  /review/i,
+  /rich[-_]?text/i,
+  /multi[-_]?column/i,
+  /multicolumn/i,
+  /image[-_]?with[-_]?text/i,
+  /featured[-_]?collection/i,
+  /collection[-_]?list/i,
+  /faq/i,
+  /collapsible/i,
+  /text[-_]?columns/i,
+  /content/i,
+];
+
+const NON_CONTENT_SECTION_HINTS = [
+  /hero/i,
+  /banner/i,
+  /slideshow/i,
+  /announcement/i,
+  /header/i,
+  /footer/i,
+  /marquee/i,
+  /ticker/i,
+  /popup/i,
+  /drawer/i,
 ];
 
 const uniqueStrings = (values) => Array.from(new Set(values.filter(Boolean)));
@@ -267,7 +296,10 @@ const choosePrimaryTemplateFile = (files, templateSurface) => {
   return candidates[0] || null;
 };
 
-const scoreSectionEntry = (entry, { templateSurface, sectionTypeHint, index = 0 } = {}) => {
+const scoreSectionEntry = (
+  entry,
+  { templateSurface, sectionTypeHint, index = 0, preferContentLike = false } = {}
+) => {
   const haystack = `${entry?.id || ""} ${entry?.type || ""} ${entry?.fileKey || ""}`;
   let score = Math.max(0, 30 - index);
 
@@ -279,6 +311,22 @@ const scoreSectionEntry = (entry, { templateSurface, sectionTypeHint, index = 0 
     const bonusIndex = PRODUCT_SECTION_HINTS.findIndex((pattern) => pattern.test(haystack));
     if (bonusIndex >= 0) {
       score += 60 - bonusIndex * 10;
+    }
+  }
+
+  if (preferContentLike) {
+    const contentBonusIndex = CONTENT_SECTION_HINTS.findIndex((pattern) =>
+      pattern.test(haystack)
+    );
+    if (contentBonusIndex >= 0) {
+      score += 40 - contentBonusIndex * 4;
+    }
+
+    const nonContentPenaltyIndex = NON_CONTENT_SECTION_HINTS.findIndex((pattern) =>
+      pattern.test(haystack)
+    );
+    if (nonContentPenaltyIndex >= 0) {
+      score -= 70 - nonContentPenaltyIndex * 5;
     }
   }
 
@@ -296,7 +344,10 @@ const choosePrimarySectionEntry = (entries, options = {}) => {
   return ranked[0]?.entry || null;
 };
 
-const analyzeTemplateFile = (file, { templateSurface, sectionTypeHint } = {}) => {
+const analyzeTemplateFile = (
+  file,
+  { templateSurface, sectionTypeHint, preferContentLike = false } = {}
+) => {
   const key = String(file?.key || "");
   const value = String(file?.value || "");
 
@@ -321,6 +372,7 @@ const analyzeTemplateFile = (file, { templateSurface, sectionTypeHint } = {}) =>
       primarySection: choosePrimarySectionEntry(sectionEntries, {
         templateSurface,
         sectionTypeHint,
+        preferContentLike,
       }),
     };
   }
@@ -332,6 +384,7 @@ const analyzeTemplateFile = (file, { templateSurface, sectionTypeHint } = {}) =>
     primarySection: choosePrimarySectionEntry(sectionEntries, {
       templateSurface,
       sectionTypeHint,
+      preferContentLike,
     }),
   };
 };
@@ -771,6 +824,7 @@ export const planThemeEdit = async (
   const templateAnalysis = analyzeTemplateFile(templateFile, {
     templateSurface,
     sectionTypeHint,
+    preferContentLike: intent === "new_section",
   });
 
   let sectionFile = null;
@@ -787,6 +841,14 @@ export const planThemeEdit = async (
   const sectionAnalysis = sectionFile?.found
     ? analyzeLiquidFile(sectionFile.value)
     : null;
+  const themeContext =
+    intent === "new_section"
+      ? buildThemeSectionContext({
+          templateSurface,
+          representativeSectionFile: sectionFile,
+          representativeSectionType: templateAnalysis.primarySection?.type || null,
+        })
+      : null;
 
   const snippetNames = prioritizeSnippetNames(sectionAnalysis?.renderSnippets || [], {
     templateSurface,
@@ -858,6 +920,7 @@ export const planThemeEdit = async (
     newFileSuggestions: plan.newFileSuggestions,
     searchQueries: plan.searchQueries,
     warnings: plan.warnings,
+    ...(themeContext ? { themeContext } : {}),
     architecture: {
       templateFormat: templateAnalysis.format,
       primarySectionId: templateAnalysis.primarySection?.id || null,

@@ -124,10 +124,24 @@ const homepageJsonFiles = {
     <div>{{ section.settings.heading }}</div>
   `),
   "sections/testimonials.liquid": makeTextAsset(`
+    <style>
+      .testimonials .title {
+        font-size: 2.5rem;
+      }
+
+      .testimonials .card-grid {
+        gap: 24px;
+      }
+    </style>
+    <section class="testimonials page-width">
+      <div class="card-grid rte">headline testimonial block</div>
+    </section>
     {% schema %}
-    {"name":"Testimonials","presets":[{"name":"Customer quotes"}]}
+    {"name":"Testimonials","settings":[
+      {"type":"range","id":"padding_top","label":"Padding top","min":0,"max":80,"step":4,"default":36},
+      {"type":"range","id":"padding_bottom","label":"Padding bottom","min":0,"max":80,"step":4,"default":36}
+    ],"presets":[{"name":"Customer quotes"}]}
     {% endschema %}
-    <div>headline testimonial block</div>
   `),
   "sections/announcement-bar.liquid": makeTextAsset(`
     {% schema %}
@@ -313,8 +327,8 @@ try {
     "new section planning should point to the direct section create tool"
   );
   assert.ok(
-    newSectionPlan.nextReadKeys.includes("sections/hero-banner.liquid"),
-    "new section planning should point to one representative existing section so the client can mirror theme conventions before writing"
+    newSectionPlan.nextReadKeys.includes("sections/testimonials.liquid"),
+    "new section planning should prefer a content-like representative section so the client can mirror theme conventions before writing"
   );
   assert.ok(
     newSectionPlan.warnings.some((warning) => warning.includes("padding_top") && warning.includes("padding_bottom")),
@@ -324,6 +338,16 @@ try {
     newSectionPlan.searchQueries.includes("padding_top") &&
       newSectionPlan.searchQueries.includes("section_padding"),
     "new section planning should surface convention-oriented search queries for spacing patterns"
+  );
+  assert.equal(
+    newSectionPlan.themeContext?.representativeSection?.key,
+    "sections/testimonials.liquid",
+    "new section planning should expose compact theme context from the representative content section"
+  );
+  assert.ok(
+    Array.isArray(newSectionPlan.themeContext?.guardrails) &&
+      newSectionPlan.themeContext.guardrails.length > 0,
+    "new section planning should expose scale guardrails for new sections"
   );
 
   global.fetch = createGraphqlFetch(productThemeBlockFiles);

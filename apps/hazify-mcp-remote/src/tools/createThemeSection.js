@@ -1,12 +1,15 @@
 import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { draftThemeArtifact } from "./draftThemeArtifact.js";
+import { planThemeEdit } from "../lib/themePlanning.js";
+import { inferTemplateSurfaceFromSectionLiquid } from "../lib/themeSectionContext.js";
 import {
   extractThemeToolSummary,
   inferSingleThemeFile,
   inferThemeTargetFromSummary,
 } from "./_themeToolCompatibility.js";
 
+const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 const SummaryFieldSchema = z.string().max(4000).optional();
 const SECTION_KEY_PATTERN = /^sections\/[A-Za-z0-9._-]+\.liquid$/;
@@ -220,9 +223,9 @@ const createThemeSectionTool = {
   name: "create-theme-section",
   title: "Create Theme Section",
   description:
-    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Do not use apply-theme-draft first. Required: explicit themeId or themeRole, one section file path or handle, and the complete Liquid file with a valid {% schema %}. For small edits to existing files use patch-theme-file.",
+    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Do not use apply-theme-draft first. Required: explicit themeId or themeRole, one section file path or handle, and the complete Liquid file with a valid {% schema %}. Internally the create-flow derives compact theme context and scale guardrails before validating. For small edits to existing files use patch-theme-file.",
   docsDescription:
-    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Vereist: expliciet `themeId` of `themeRole`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint en preview-write validatie.",
+    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Vereist: expliciet `themeId` of `themeRole`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context af via `plan-theme-edit`-achtige logica, zodat create-validatie niet blind op hero-schaal aannames schrijft. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks en preview-write validatie.",
   inputSchema: CreateThemeSectionPublicObjectSchema,
   schema: CreateThemeSectionInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -341,7 +344,30 @@ const createThemeSectionTool = {
       });
     }
 
-    requireShopifyClient(context);
+    const shopifyClient = requireShopifyClient(context);
+    let themeSectionContext = null;
+    const internalWarnings = [];
+
+    try {
+      const planningResult = await planThemeEdit(shopifyClient, API_VERSION, {
+        themeId: input.themeId,
+        themeRole: input.themeRole,
+        intent: "new_section",
+        template: inferTemplateSurfaceFromSectionLiquid(input.liquid),
+        query: input.key,
+      });
+
+      themeSectionContext = planningResult?.themeContext || null;
+      if (!themeSectionContext) {
+        internalWarnings.push(
+          "Kon geen compacte theme-context afleiden vóór create-validatie; de write-flow valt terug op generieke section-validatie."
+        );
+      }
+    } catch (error) {
+      internalWarnings.push(
+        `Kon geen compacte theme-context afleiden vóór create-validatie: ${error.message}`
+      );
+    }
 
     const result = await draftThemeArtifact.execute(
       {
@@ -356,14 +382,34 @@ const createThemeSectionTool = {
           },
         ],
       },
-      context
+      {
+        ...context,
+        themeSectionContext,
+        themeContextWarnings: internalWarnings,
+      }
     );
 
     if (result && typeof result === "object" && result.success === false) {
       return {
         ...result,
+        ...(internalWarnings.length > 0
+          ? {
+              warnings: Array.from(
+                new Set([...(result.warnings || []), ...internalWarnings])
+              ),
+            }
+          : {}),
         nextTool: "create-theme-section",
         nextArgsTemplate,
+      };
+    }
+
+    if (result && typeof result === "object" && internalWarnings.length > 0) {
+      return {
+        ...result,
+        warnings: Array.from(
+          new Set([...(result.warnings || []), ...internalWarnings])
+        ),
       };
     }
 

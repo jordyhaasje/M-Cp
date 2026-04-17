@@ -571,6 +571,98 @@ test("draftThemeArtifact - bundles local range issues and liquid lint errors int
   );
 });
 
+test("draftThemeArtifact - rejects hero-scale typography when theme context says the section should stay content-sized", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/oversized-content-section.liquid",
+          value: `
+<style>
+  .oversized-content .title {
+    font-size: 5.6rem;
+  }
+
+  .oversized-content .card {
+    display: grid;
+    gap: 24px;
+    padding: 32px;
+  }
+</style>
+<section class="oversized-content">
+  <div class="card">
+    <h2 class="title">{{ section.settings.heading }}</h2>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Oversized content section",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Oversized content section" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    {
+      shopifyClient: mockShopifyClient,
+      themeSectionContext: {
+        representativeSection: {
+          key: "sections/testimonials.liquid",
+          type: "testimonials",
+        },
+        usesPageWidth: true,
+        usesRte: false,
+        scaleGuide: {
+          maxExplicitFontSizePx: 40,
+          maxExplicitPaddingYPx: 64,
+          maxGapPx: 24,
+          maxMinHeightPx: null,
+          maxSpacingSettingDefaultPx: 36,
+        },
+        spacingSettings: [
+          {
+            id: "padding_top",
+            type: "range",
+            default: 36,
+            min: 0,
+            max: 80,
+            step: 4,
+          },
+        ],
+        guardrails: [
+          "Gebruik de page-width wrapper van het doeltheme voor gewone content sections.",
+        ],
+      },
+    }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "inspection_failed_theme_scale");
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "inspection_failed_theme_scale"),
+    "theme-scale diagnostics should be returned when the generated section is much larger than the target theme convention"
+  );
+  assert.equal(
+    result.themeContext?.representativeSection?.key,
+    "sections/testimonials.liquid"
+  );
+});
+
 test("draftThemeArtifact - rejects range settings that exceed Shopify's step-count limit", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",

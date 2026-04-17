@@ -5,6 +5,7 @@ import * as path from "path";
 import { check } from "@shopify/theme-check-node";
 import { createThemeDraftRecord, updateThemeDraftRecord } from "../lib/db.js";
 import { parseJsonLike } from "../lib/jsonLike.js";
+import { inspectSectionScaleAgainstTheme } from "../lib/themeSectionContext.js";
 import { getShopDomainFromClient, upsertThemeFiles, getThemeFiles, searchThemeFiles } from "../lib/themeFiles.js";
 import { requireShopifyClient } from "./_context.js";
 import {
@@ -33,6 +34,7 @@ Theme-aware section regels:
 - Compatibele shorthand: voor één file mag een client ook top-level key + value of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
 - Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting. Bij range-fouten geeft de tool exacte suggestedReplacement/default-hints terug.
+- Wanneer de create-flow compacte theme-context heeft afgeleid, controleert de pipeline ook op hero-achtige oversizing van typography, spacing, gaps en min-heights ten opzichte van representatieve content sections in het doeltheme.
 - richtext defaults moeten Shopify-veilige HTML gebruiken. Gebruik top-level <p> of <ul>; tags zoals <mark> in richtext.default worden door Shopify afgewezen.
 - Nieuwe blocks/*.liquid files krijgen in create mode ook een basisinspectie op geldige schema JSON en block-veilige markup.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
@@ -1201,7 +1203,7 @@ function inspectTemplateFile(file) {
   });
 }
 
-function inspectSectionFile(file) {
+function inspectSectionFile(file, { themeContext = null } = {}) {
   const value = String(file.value || "");
   const warnings = [];
   const suggestedFixes = [];
@@ -1334,6 +1336,17 @@ function inspectSectionFile(file) {
     preferSelectFor.push(
       ...rangeIssues.map((issue) => buildPreferSelectEntry(issue)).filter(Boolean)
     );
+  }
+
+  if (themeContext) {
+    const themeScaleInspection = inspectSectionScaleAgainstTheme({
+      value,
+      fileKey: file.key,
+      themeContext,
+    });
+    issues.push(...(themeScaleInspection.issues || []));
+    warnings.push(...(themeScaleInspection.warnings || []));
+    suggestedFixes.push(...(themeScaleInspection.suggestedFixes || []));
   }
 
   const settingTypes = collectSchemaSettingTypes(schema);
@@ -1627,6 +1640,7 @@ function buildFailureResponse({
   normalizedArgs,
   suggestedSchemaRewrites = [],
   preferSelectFor = [],
+  themeContext,
 }) {
   return {
     success: false,
@@ -1646,6 +1660,7 @@ function buildFailureResponse({
     ...(nextArgsTemplate ? { nextArgsTemplate } : {}),
     ...(retryMode ? { retryMode } : {}),
     ...(normalizedArgs ? { normalizedArgs } : {}),
+    ...(themeContext ? { themeContext } : {}),
     ...(suggestedSchemaRewrites.length > 0
       ? { suggestedSchemaRewrites }
       : {}),
@@ -1667,6 +1682,7 @@ function buildAggregatedInspectionFailure({
   preferSelectFor = [],
   shouldNarrowScope = false,
   nextAction = "fix_local_validation",
+  themeContext = null,
 }) {
   const normalizedIssues = (issues || []).filter(Boolean);
   const primaryIssue = normalizedIssues[0];
@@ -1697,6 +1713,7 @@ function buildAggregatedInspectionFailure({
     nextAction,
     retryMode: "same_request_after_fix",
     normalizedArgs,
+    themeContext,
     suggestedSchemaRewrites,
     preferSelectFor,
   });
@@ -2678,7 +2695,12 @@ export const draftThemeArtifact = {
 
     const localInspection = {
       issues: [],
-      warnings: [...warnings],
+      warnings: [
+        ...warnings,
+        ...((Array.isArray(context?.themeContextWarnings)
+          ? context.themeContextWarnings
+          : [])),
+      ],
       suggestedFixes: [...suggestedFixes],
       suggestedSchemaRewrites: [],
       preferSelectFor: [],
@@ -2701,7 +2723,9 @@ export const draftThemeArtifact = {
         }
       } else if (isSectionFile) {
         if (mode === "create") {
-          inspection = inspectSectionFile(file);
+          inspection = inspectSectionFile(file, {
+            themeContext: context?.themeSectionContext || null,
+          });
         } else {
           const value = String(file.value || "");
           const editIssues = [];
@@ -2827,6 +2851,7 @@ export const draftThemeArtifact = {
         suggestedFixes: preflightSuggestedFixes,
         suggestedSchemaRewrites: localInspection.suggestedSchemaRewrites,
         preferSelectFor: localInspection.preferSelectFor,
+        themeContext: context?.themeSectionContext || null,
         shouldNarrowScope:
           localInspection.shouldNarrowScope ||
           Boolean(classifiedLint?.shouldNarrowScope),
@@ -2880,6 +2905,7 @@ export const draftThemeArtifact = {
         nextAction: classifiedLint.nextAction,
         retryMode: "same_request_after_fix",
         normalizedArgs: getNormalizedArgs(),
+        themeContext: context?.themeSectionContext || null,
       });
     }
 
@@ -2932,6 +2958,7 @@ export const draftThemeArtifact = {
               ? "same_request_after_refresh"
               : "same_request_after_fix"),
           normalizedArgs: getNormalizedArgs(),
+          themeContext: context?.themeSectionContext || null,
         });
       }
 
@@ -2984,6 +3011,9 @@ export const draftThemeArtifact = {
           warnings,
         }),
         normalizedArgs: getNormalizedArgs(),
+        ...(context?.themeSectionContext
+          ? { themeContext: context.themeSectionContext }
+          : {}),
         suggestedFixes: uniqueStrings(suggestedFixes),
       };
     } catch (error) {
@@ -3006,6 +3036,7 @@ export const draftThemeArtifact = {
         nextAction: classified.nextAction || "retry_preview_upload",
         retryMode: classified.retryMode || "same_request_after_fix",
         normalizedArgs: getNormalizedArgs(),
+        themeContext: context?.themeSectionContext || null,
       });
     }
   },
