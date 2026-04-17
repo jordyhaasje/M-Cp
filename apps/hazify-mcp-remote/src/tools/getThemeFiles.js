@@ -5,27 +5,53 @@ import { getThemeFiles } from "../lib/themeFiles.js";
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 
+const normalizeGetThemeFilesInput = (rawInput) => {
+  if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
+    return rawInput;
+  }
+
+  return {
+    themeId: rawInput.themeId,
+    themeRole: rawInput.themeRole ?? rawInput.role,
+    keys: rawInput.keys ?? rawInput.filenames,
+    includeContent: rawInput.includeContent,
+  };
+};
+
 const GetThemeFilesInputSchema = z
-  .object({
-    themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-    themeRole: ThemeRoleSchema.optional().describe("Optionele theme role. Geef deze in editflows expliciet mee; alleen voor backwards compatibility valt deze read-tool anders terug op main."),
-    keys: z
-      .array(z.string().min(1))
-      .min(1)
-      .max(10)
-      .describe("EXACT, VOLLEDIGE file paths, e.g. ['sections/hero.liquid']. GEEN GLOBBING OF WILDCARDS (*). Gebruik search-theme-files als je een path niet zeker weet (hard limit: 10)."),
-    includeContent: z.boolean().default(false).describe("Include file content (value/attachment) in response"),
-  })
-  .superRefine((input, ctx) => {
-    const normalized = input.keys.map((key) => String(key).trim());
-    if (new Set(normalized).size !== normalized.length) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["keys"],
-        message: "Duplicate keys are not allowed.",
-      });
-    }
-  });
+  .preprocess(
+    normalizeGetThemeFilesInput,
+    z
+      .object({
+        themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
+        themeRole: ThemeRoleSchema.optional().describe("Optionele theme role. Geef deze in editflows expliciet mee; alleen voor backwards compatibility valt deze read-tool anders terug op main."),
+        keys: z
+          .array(z.string().min(1))
+          .min(1)
+          .max(10)
+          .describe("EXACT, VOLLEDIGE file paths, e.g. ['sections/hero.liquid']. GEEN GLOBBING OF WILDCARDS (*). Gebruik search-theme-files als je een path niet zeker weet (hard limit: 10)."),
+        includeContent: z.boolean().default(false).describe("Include file content (value/attachment) in response"),
+      })
+      .superRefine((input, ctx) => {
+        const normalized = input.keys.map((key) => String(key).trim());
+        if (new Set(normalized).size !== normalized.length) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["keys"],
+            message: "Duplicate keys are not allowed.",
+          });
+        }
+
+        const wildcardKey = normalized.find((key) => /[*?]/.test(key));
+        if (wildcardKey) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["keys"],
+            message: `Gebruik alleen exacte keys. Wildcards zoals '${wildcardKey}' horen bij search-theme-files, niet bij get-theme-files.`,
+          });
+        }
+      })
+  );
 
 const getThemeFilesTool = {
   name: "get-theme-files",

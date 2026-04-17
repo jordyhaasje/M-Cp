@@ -8,6 +8,7 @@ await import("./toolHardening.test.mjs");
 await import("./toolRegistry.test.mjs");
 await import("./themeFilesBatch.test.mjs");
 await import("./themePlanning.test.mjs");
+await import("./createThemeSection.test.mjs");
 await import("./runtimeExecutionBehavior.test.mjs");
 await import("./tenantIsolation.test.mjs");
 await import("./tenantIsolationAllTools.test.mjs");

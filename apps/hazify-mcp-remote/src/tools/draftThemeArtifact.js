@@ -5,7 +5,10 @@ import * as path from "path";
 import { check } from "@shopify/theme-check-node";
 import { createThemeDraftRecord, updateThemeDraftRecord } from "../lib/db.js";
 import { parseJsonLike } from "../lib/jsonLike.js";
-import { inspectSectionScaleAgainstTheme } from "../lib/themeSectionContext.js";
+import {
+  classifySectionGeneration,
+  inspectSectionScaleAgainstTheme,
+} from "../lib/themeSectionContext.js";
 import { getShopDomainFromClient, upsertThemeFiles, getThemeFiles, searchThemeFiles } from "../lib/themeFiles.js";
 import { requireShopifyClient } from "./_context.js";
 import {
@@ -995,6 +998,155 @@ function hasRenderableContentOutsideSchema(value) {
   return source.trim().length > 0;
 }
 
+function extractInlineScriptContents(value) {
+  return Array.from(
+    String(value || "").matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi),
+    (match) => String(match[1] || "")
+  );
+}
+
+function detectLiquidInsideJsTemplateInterpolation(scriptSource) {
+  return /\$\{[\s\S]{0,200}?(?:{{|{%)[\s\S]{0,200}?(?:}}|%})[\s\S]{0,120}?\}/.test(
+    String(scriptSource || "")
+  );
+}
+
+function usesGlobalJsSelector(scriptSource) {
+  return /document\.(querySelector(?:All)?|getElementById|getElementsByClassName|getElementsByTagName)\s*\(/.test(
+    String(scriptSource || "")
+  );
+}
+
+function usesLocallyScopedJsSelector(scriptSource) {
+  return /\b(root|sectionRoot|sectionEl|container|sliderRoot|accordionRoot|host)\.(querySelector(?:All)?|getElementById)\s*\(/.test(
+    String(scriptSource || "")
+  );
+}
+
+function hasSectionScopeMarker(source) {
+  return /{{\s*section\.id\b|shopify-section-|data-section-id|data-section-root|dataset\.sectionId|document\.currentScript\.closest|closest\([^)]*(?:shopify-section|data-section-id|data-section-root)/i.test(
+    String(source || "")
+  );
+}
+
+function collectInteractiveSectionSafety(value, fileKey) {
+  const issues = [];
+  const warnings = [];
+  const suggestedFixes = [];
+  const scriptBodies = [
+    ...extractInlineScriptContents(value),
+    ...getSpecialBlockContents(value, "javascript"),
+  ].filter((entry) => entry.trim().length > 0);
+
+  if (scriptBodies.length === 0) {
+    return { issues, warnings, suggestedFixes };
+  }
+
+  if (scriptBodies.some((scriptBody) => detectLiquidInsideJsTemplateInterpolation(scriptBody))) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Building Inspection Failed: interactieve section-JS mixt JavaScript template interpolation (${...}) met Liquid-output ({{ ... }} of {% ... %}) in dezelfde expressie. Dat breekt Liquid parsing of levert onvoorspelbare output op.",
+        fixSuggestion:
+          "Zet Liquid-waarden eerst in losse JS-variabelen of data-attributen, en gebruik daarna alleen pure JS-interpolatie binnen template literals.",
+        issueCode: "inspection_failed_js_liquid_interpolation",
+      })
+    );
+    suggestedFixes.push(
+      "Zet bijvoorbeeld const sectionId = {{ section.id | json }}; en gebruik daarna `...${sectionId}...` in plaats van Liquid binnen ${...}.",
+      "Of gebruik data-section-id/data-* attributen op de markup en lees die in JavaScript uit."
+    );
+  }
+
+  const hasScopeMarker = hasSectionScopeMarker(value);
+  const hasGlobalSelector = scriptBodies.some((scriptBody) =>
+    usesGlobalJsSelector(scriptBody)
+  );
+  const hasScopedSelector = hasScopeMarker || scriptBodies.some((scriptBody) =>
+    usesLocallyScopedJsSelector(scriptBody)
+  );
+
+  if (hasGlobalSelector && !hasScopedSelector) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Building Inspection Failed: interactieve section-JS gebruikt globale selectors zonder duidelijke section-scoping. Daardoor kunnen meerdere instances op dezelfde pagina elkaar beïnvloeden.",
+        fixSuggestion:
+          "Scope alle selectors per section-root via section.id, data-section-id of een lokaal root-element voordat je querySelector gebruikt.",
+        issueCode: "inspection_failed_unscoped_js",
+      })
+    );
+    suggestedFixes.push(
+      "Maak eerst een lokaal root-element, bijvoorbeeld const root = document.getElementById(`shopify-section-${sectionId}`), en query daarna alleen binnen root.",
+      "Gebruik data-section-id of data-section-root op de section-wrapper als stabiele JS-scope."
+    );
+  } else if (!hasScopedSelector) {
+    warnings.push(
+      "Interactieve section bevat JS maar geen duidelijke section-scope marker zoals section.id of data-section-id. Controleer of meerdere section instances elkaar niet kunnen raken."
+    );
+    suggestedFixes.push(
+      "Scope JS per section-root met section.id of data-section-id om instance-conflicten te voorkomen."
+    );
+  }
+
+  return {
+    issues,
+    warnings,
+    suggestedFixes,
+  };
+}
+
+function collectMediaSectionSafety(value, fileKey, settingTypes) {
+  const warnings = [];
+  const suggestedFixes = [];
+  const hasVideoMarkup = /<video\b|video_tag\b/i.test(String(value || ""));
+  const hasIframeEmbed = /<iframe\b/i.test(String(value || ""));
+  const hasMediaMarkup =
+    /image_tag\b|<img\b|<video\b|video_tag\b|<iframe\b|placeholder_svg_tag\b/i.test(
+      String(value || "")
+    );
+
+  if (hasVideoMarkup && !settingTypes.has("video") && !settingTypes.has("video_url")) {
+    warnings.push(
+      `De media-heavy section '${fileKey}' rendert video markup, maar schema mist een video of video_url setting.`
+    );
+    suggestedFixes.push(
+      "Gebruik type 'video' voor merchant-uploaded videobestanden of video_url voor externe YouTube/Vimeo embeds."
+    );
+  }
+
+  if (hasIframeEmbed && !settingTypes.has("video_url")) {
+    warnings.push(
+      `De media-heavy section '${fileKey}' gebruikt een iframe embed zonder video_url setting.`
+    );
+    suggestedFixes.push(
+      "Gebruik een video_url setting voor externe video-embeds zodat merchants de bron veilig kunnen beheren."
+    );
+  }
+
+  if (
+    hasMediaMarkup &&
+    !settingTypes.has("image_picker") &&
+    !settingTypes.has("video") &&
+    !settingTypes.has("video_url")
+  ) {
+    warnings.push(
+      `De media-heavy section '${fileKey}' gebruikt media-rendering zonder merchant-editable image/video setting.`
+    );
+    suggestedFixes.push(
+      "Voeg image_picker, video of video_url settings toe wanneer imagery of video merchant-editable moet zijn."
+    );
+  }
+
+  return {
+    issues: [],
+    warnings,
+    suggestedFixes,
+  };
+}
+
 function createInspectionIssue({
   path = [],
   problem,
@@ -1203,7 +1355,7 @@ function inspectTemplateFile(file) {
   });
 }
 
-function inspectSectionFile(file, { themeContext = null } = {}) {
+function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null } = {}) {
   const value = String(file.value || "");
   const warnings = [];
   const suggestedFixes = [];
@@ -1274,6 +1426,15 @@ function inspectSectionFile(file, { themeContext = null } = {}) {
 
   const blocks = Array.isArray(schema.blocks) ? schema.blocks : [];
   const presets = Array.isArray(schema.presets) ? schema.presets : [];
+  const sectionProfile = classifySectionGeneration({
+    fileKey: file.key,
+    source: value,
+    schema,
+    query:
+      sectionBlueprint?.category && sectionBlueprint.category !== "hybrid"
+        ? sectionBlueprint.category
+        : "",
+  });
 
   if (hasRawImgWithoutDimensions(value)) {
     issues.push(
@@ -1350,6 +1511,32 @@ function inspectSectionFile(file, { themeContext = null } = {}) {
   }
 
   const settingTypes = collectSchemaSettingTypes(schema);
+  const isInteractiveSection =
+    sectionProfile.category === "interactive" ||
+    sectionProfile.category === "hybrid" ||
+    sectionProfile.categorySignals.includes("interactive");
+  const isMediaHeavySection =
+    sectionProfile.category === "media" ||
+    sectionProfile.category === "hybrid" ||
+    sectionProfile.categorySignals.includes("media");
+
+  if (isInteractiveSection) {
+    const interactiveInspection = collectInteractiveSectionSafety(value, file.key);
+    issues.push(...(interactiveInspection.issues || []));
+    warnings.push(...(interactiveInspection.warnings || []));
+    suggestedFixes.push(...(interactiveInspection.suggestedFixes || []));
+  }
+
+  if (isMediaHeavySection) {
+    const mediaInspection = collectMediaSectionSafety(
+      value,
+      file.key,
+      settingTypes
+    );
+    issues.push(...(mediaInspection.issues || []));
+    warnings.push(...(mediaInspection.warnings || []));
+    suggestedFixes.push(...(mediaInspection.suggestedFixes || []));
+  }
 
   if (settingTypes.has("color_scheme_group")) {
     issues.push(
@@ -1641,6 +1828,7 @@ function buildFailureResponse({
   suggestedSchemaRewrites = [],
   preferSelectFor = [],
   themeContext,
+  sectionBlueprint,
 }) {
   return {
     success: false,
@@ -1661,6 +1849,7 @@ function buildFailureResponse({
     ...(retryMode ? { retryMode } : {}),
     ...(normalizedArgs ? { normalizedArgs } : {}),
     ...(themeContext ? { themeContext } : {}),
+    ...(sectionBlueprint ? { sectionBlueprint } : {}),
     ...(suggestedSchemaRewrites.length > 0
       ? { suggestedSchemaRewrites }
       : {}),
@@ -1683,6 +1872,7 @@ function buildAggregatedInspectionFailure({
   shouldNarrowScope = false,
   nextAction = "fix_local_validation",
   themeContext = null,
+  sectionBlueprint = null,
 }) {
   const normalizedIssues = (issues || []).filter(Boolean);
   const primaryIssue = normalizedIssues[0];
@@ -1714,6 +1904,7 @@ function buildAggregatedInspectionFailure({
     retryMode: "same_request_after_fix",
     normalizedArgs,
     themeContext,
+    sectionBlueprint,
     suggestedSchemaRewrites,
     preferSelectFor,
   });
@@ -2725,6 +2916,7 @@ export const draftThemeArtifact = {
         if (mode === "create") {
           inspection = inspectSectionFile(file, {
             themeContext: context?.themeSectionContext || null,
+            sectionBlueprint: context?.sectionBlueprint || null,
           });
         } else {
           const value = String(file.value || "");
@@ -2852,6 +3044,7 @@ export const draftThemeArtifact = {
         suggestedSchemaRewrites: localInspection.suggestedSchemaRewrites,
         preferSelectFor: localInspection.preferSelectFor,
         themeContext: context?.themeSectionContext || null,
+        sectionBlueprint: context?.sectionBlueprint || null,
         shouldNarrowScope:
           localInspection.shouldNarrowScope ||
           Boolean(classifiedLint?.shouldNarrowScope),
@@ -2906,6 +3099,7 @@ export const draftThemeArtifact = {
         retryMode: "same_request_after_fix",
         normalizedArgs: getNormalizedArgs(),
         themeContext: context?.themeSectionContext || null,
+        sectionBlueprint: context?.sectionBlueprint || null,
       });
     }
 
@@ -2959,6 +3153,7 @@ export const draftThemeArtifact = {
               : "same_request_after_fix"),
           normalizedArgs: getNormalizedArgs(),
           themeContext: context?.themeSectionContext || null,
+          sectionBlueprint: context?.sectionBlueprint || null,
         });
       }
 
@@ -3014,6 +3209,9 @@ export const draftThemeArtifact = {
         ...(context?.themeSectionContext
           ? { themeContext: context.themeSectionContext }
           : {}),
+        ...(context?.sectionBlueprint
+          ? { sectionBlueprint: context.sectionBlueprint }
+          : {}),
         suggestedFixes: uniqueStrings(suggestedFixes),
       };
     } catch (error) {
@@ -3037,6 +3235,7 @@ export const draftThemeArtifact = {
         retryMode: classified.retryMode || "same_request_after_fix",
         normalizedArgs: getNormalizedArgs(),
         themeContext: context?.themeSectionContext || null,
+        sectionBlueprint: context?.sectionBlueprint || null,
       });
     }
   },

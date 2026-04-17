@@ -134,7 +134,9 @@ const homepageJsonFiles = {
       }
     </style>
     <section class="testimonials page-width">
+      {% render 'section-properties', section: section %}
       <div class="card-grid rte">headline testimonial block</div>
+      {% render 'button', label: section.settings.heading %}
     </section>
     {% schema %}
     {"name":"Testimonials","settings":[
@@ -154,6 +156,12 @@ const homepageJsonFiles = {
     {"name":"Footer links","presets":[{"name":"Footer links"}]}
     {% endschema %}
     <div>Footer links</div>
+  `),
+  "snippets/section-properties.liquid": makeTextAsset(`
+    <div class="section-properties" data-section-id="{{ section.id }}"></div>
+  `),
+  "snippets/button.liquid": makeTextAsset(`
+    <button class="button button--primary">{{ label }}</button>
   `),
 };
 
@@ -348,6 +356,55 @@ try {
     Array.isArray(newSectionPlan.themeContext?.guardrails) &&
       newSectionPlan.themeContext.guardrails.length > 0,
     "new section planning should expose scale guardrails for new sections"
+  );
+  assert.equal(
+    newSectionPlan.sectionBlueprint?.category,
+    "static",
+    "review/testimonial-like new sections should classify as static content by default"
+  );
+  assert.ok(
+    newSectionPlan.nextReadKeys.includes("snippets/section-properties.liquid") &&
+      newSectionPlan.nextReadKeys.includes("snippets/button.liquid"),
+    "new section planning should surface exact helper snippets so the client can mirror wrappers/helpers in one compact read call"
+  );
+  assert.ok(
+    newSectionPlan.sectionBlueprint?.requiredReads?.some(
+      (entry) => entry.key === "sections/testimonials.liquid"
+    ),
+    "section blueprint should expose required read reasons"
+  );
+  assert.ok(
+    newSectionPlan.sectionBlueprint?.safeUnitStrategy?.typography,
+    "section blueprint should expose a safe unit strategy"
+  );
+  assert.ok(
+    newSectionPlan.sectionBlueprint?.forbiddenPatterns?.some((entry) =>
+      entry.includes("{% javascript %}")
+    ),
+    "section blueprint should expose forbidden patterns for generic section generation"
+  );
+
+  const mediaSectionPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak een hero video slider section",
+  });
+  assert.ok(
+    ["media", "hybrid"].includes(mediaSectionPlan.sectionBlueprint?.category),
+    "hero/video-like new sections should be classified as media or hybrid"
+  );
+  assert.ok(
+    mediaSectionPlan.sectionBlueprint?.optionalReads?.some(
+      (entry) => entry.key === "layout/theme.liquid"
+    ),
+    "media and interactive section plans should expose optional global context reads"
+  );
+  assert.ok(
+    mediaSectionPlan.sectionBlueprint?.preflightChecks?.some((entry) =>
+      entry.toLowerCase().includes("media")
+    ),
+    "media plans should surface media-focused preflight checks"
   );
 
   global.fetch = createGraphqlFetch(productThemeBlockFiles);

@@ -663,6 +663,215 @@ test("draftThemeArtifact - rejects hero-scale typography when theme context says
   );
 });
 
+test("draftThemeArtifact - rejects JS template interpolation that mixes Liquid and JavaScript", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/testimonial-slider-v2.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .slider {
+    display: grid;
+  }
+</style>
+<section class="slider" data-section-id="{{ section.id }}">
+  <div class="track">{{ section.settings.heading }}</div>
+</section>
+<script>
+  const i = 1;
+  const track = document.getElementById('shopify-section-{{ section.id }}');
+  track.style.transform = \`translateX(-\${i{{ section.id }} * 340}px)\`;
+</script>
+{% schema %}
+{
+  "name": "Testimonial slider",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Testimonial slider" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some(
+      (issue) => issue.issueCode === "inspection_failed_js_liquid_interpolation"
+    ),
+    "parser-unsafe JS/Liquid interpolation should be caught in local preflight"
+  );
+  assert.equal(result.nextAction, "fix_local_validation");
+});
+
+test("draftThemeArtifact - rejects interactive JS that is not scoped per section instance", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/logo-carousel.liquid",
+          value: `
+<style>
+  .logo-carousel {
+    display: flex;
+    gap: 24px;
+  }
+</style>
+<section class="logo-carousel">
+  <div class="logo-carousel__track">{{ section.settings.heading }}</div>
+</section>
+<script>
+  const track = document.querySelector('.logo-carousel__track');
+  track.classList.add('is-ready');
+</script>
+{% schema %}
+{
+  "name": "Logo carousel",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Trusted by" }
+  ],
+  "presets": [{ "name": "Logo carousel" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "inspection_failed_unscoped_js"),
+    "interactive sections should fail fast when global selectors are not scoped to the section"
+  );
+});
+
+test("draftThemeArtifact - keeps hero-sized hero sections as warnings instead of theme-scale hard failures", async (t) => {
+  const originalFetch = global.fetch;
+  const fetchMock = createThemeFileFetchMock({
+    key: "sections/hero-video.liquid",
+    initialValue: goodSectionLiquid,
+  });
+  global.fetch = fetchMock.handler;
+  t.after(() => {
+    global.fetch = originalFetch;
+  });
+
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/hero-video.liquid",
+          value: `
+<style>
+  .hero-video .title {
+    font-size: 5.6rem;
+  }
+
+  .hero-video {
+    min-height: 720px;
+    display: grid;
+    gap: 32px;
+  }
+</style>
+<section class="hero-video">
+  <h2 class="title">{{ section.settings.heading }}</h2>
+</section>
+{% schema %}
+{
+  "name": "Hero video",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hero headline" },
+    { "type": "video", "id": "background_video", "label": "Background video" }
+  ],
+  "presets": [{ "name": "Hero video" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    {
+      shopifyClient: mockShopifyClient,
+      themeSectionContext: {
+        representativeSection: {
+          key: "sections/testimonials.liquid",
+          type: "testimonials",
+        },
+        usesPageWidth: true,
+        usesRte: false,
+        scaleGuide: {
+          maxExplicitFontSizePx: 40,
+          maxExplicitPaddingYPx: 64,
+          maxGapPx: 24,
+          maxMinHeightPx: null,
+          maxSpacingSettingDefaultPx: 36,
+        },
+        spacingSettings: [
+          {
+            id: "padding_top",
+            type: "range",
+            default: 36,
+            min: 0,
+            max: 80,
+            step: 4,
+          },
+        ],
+        guardrails: [
+          "Gebruik de page-width wrapper van het doeltheme voor gewone content sections.",
+        ],
+      },
+    }
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(result.status, "preview_ready");
+  assert.ok(
+    result.warnings?.some((entry) => entry.includes("hero-achtig")),
+    "hero-like sections should downgrade oversizing to warnings instead of hard failures"
+  );
+});
+
 test("draftThemeArtifact - rejects range settings that exceed Shopify's step-count limit", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",

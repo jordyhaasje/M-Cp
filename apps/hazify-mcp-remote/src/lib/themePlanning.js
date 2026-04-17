@@ -1,6 +1,9 @@
 import { getThemeFiles, searchThemeFiles } from "./themeFiles.js";
 import { parseJsonLike } from "./jsonLike.js";
-import { buildThemeSectionContext } from "./themeSectionContext.js";
+import {
+  buildSectionGenerationBlueprint,
+  buildThemeSectionContext,
+} from "./themeSectionContext.js";
 
 const DEFAULT_THEME_SEARCH_LIMIT = 10;
 const DEFAULT_SNIPPET_LIMIT = 3;
@@ -460,6 +463,8 @@ const buildPlanFromAnalysis = ({
   sectionAnalysis,
   snippetFiles,
   snippetAnalyses,
+  themeContext,
+  sectionBlueprint,
   query,
 }) => {
   const readKeys = uniqueStrings(
@@ -506,11 +511,26 @@ const buildPlanFromAnalysis = ({
     warnings.push(
       "Controleer bij range-settings altijd dat default exact op het step-raster ligt vanaf min. Gebruik bij minder dan 3 discrete waarden liever een select-setting."
     );
-    nextReadKeys = uniqueStrings([sectionFile?.key]);
+    if (Array.isArray(sectionBlueprint?.requiredReads) && sectionBlueprint.requiredReads.length > 0) {
+      nextReadKeys = uniqueStrings(
+        sectionBlueprint.requiredReads.map((entry) => entry.key)
+      );
+      warnings.push(
+        "Lees de planner-provided required reads liefst in één compacte get-theme-files call voordat je de nieuwe section genereert."
+      );
+    } else {
+      nextReadKeys = uniqueStrings([sectionFile?.key]);
+    }
     searchQueries.push("padding_top");
     searchQueries.push("padding_bottom");
     searchQueries.push("section_padding");
     searchQueries.push("color_scheme");
+    searchQueries.push(...(sectionBlueprint?.helperSearchQueries || []));
+    if (Array.isArray(sectionBlueprint?.guardrails) && sectionBlueprint.guardrails.length > 0) {
+      warnings.push(
+        `Nieuwe section category: ${sectionBlueprint.category}. Volg de planner-guardrails voor theme wrappers, units en parser-safe patterns.`
+      );
+    }
   } else if (intent === "template_placement") {
     recommendedFlow = "template-placement";
     shouldUse = "draft-theme-artifact";
@@ -871,6 +891,18 @@ export const planThemeEdit = async (
     key: file.key,
     analysis: analyzeLiquidFile(file.value),
   }));
+  const sectionBlueprint =
+    intent === "new_section"
+      ? buildSectionGenerationBlueprint({
+          templateSurface,
+          query,
+          sectionTypeHint,
+          representativeSectionFile: sectionFile,
+          representativeSectionType: templateAnalysis.primarySection?.type || null,
+          snippetFiles,
+          themeContext,
+        })
+      : null;
 
   const plan = buildPlanFromAnalysis({
     intent,
@@ -881,6 +913,8 @@ export const planThemeEdit = async (
     sectionAnalysis,
     snippetFiles,
     snippetAnalyses,
+    themeContext,
+    sectionBlueprint,
     query,
   });
 
@@ -921,6 +955,7 @@ export const planThemeEdit = async (
     searchQueries: plan.searchQueries,
     warnings: plan.warnings,
     ...(themeContext ? { themeContext } : {}),
+    ...(sectionBlueprint ? { sectionBlueprint } : {}),
     architecture: {
       templateFormat: templateAnalysis.format,
       primarySectionId: templateAnalysis.primarySection?.id || null,

@@ -1,0 +1,301 @@
+import test from "node:test";
+import assert from "node:assert";
+import { createThemeSectionTool } from "../src/tools/createThemeSection.js";
+import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
+
+const originalFetch = global.fetch;
+const originalDraftExecute = draftThemeArtifact.execute;
+
+const shopifyClient = {
+  url: "https://unit-test-shop.myshopify.com/admin/api/2026-01/graphql.json",
+  requestConfig: {
+    headers: {
+      "X-Shopify-Access-Token": "shpat_unit_test",
+    },
+  },
+  session: { shop: "unit-test-shop.myshopify.com" },
+  request: async () => {},
+};
+
+const themeNode = {
+  id: "gid://shopify/OnlineStoreTheme/123",
+  name: "Main theme",
+  role: "MAIN",
+  processing: false,
+  createdAt: "2026-03-10T10:00:00Z",
+  updatedAt: "2026-03-11T10:00:00Z",
+};
+
+function makeTextAsset(content, contentType = "TEXT") {
+  return {
+    checksumMd5: "checksum",
+    contentType,
+    createdAt: "2026-03-10T10:00:00Z",
+    updatedAt: "2026-03-11T10:00:00Z",
+    size: Buffer.byteLength(content, "utf8"),
+    body: {
+      content,
+    },
+  };
+}
+
+function patternMatches(filename, pattern) {
+  if (!pattern.includes("*")) {
+    return filename === pattern;
+  }
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(`^${escaped}$`).test(filename);
+}
+
+function createGraphqlFetch(files) {
+  return async (_url, init = {}) => {
+    const payload = JSON.parse(init.body || "{}");
+    const query = String(payload.query || "");
+    const variables = payload.variables || {};
+
+    if (query.includes("query ThemeById")) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            theme: themeNode,
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (query.includes("ThemeFilesByIdWithContent") || query.includes("ThemeFilesByIdMetadata")) {
+      const filenames = Array.isArray(variables.filenames) ? variables.filenames : [];
+      const first = Number(variables.first || filenames.length || 50);
+      const matched = Object.entries(files)
+        .filter(([filename]) => filenames.some((pattern) => patternMatches(filename, pattern)))
+        .slice(0, first)
+        .map(([filename, file]) => ({
+          filename,
+          ...file,
+        }));
+      return new Response(
+        JSON.stringify({
+          data: {
+            theme: {
+              ...themeNode,
+              files: {
+                nodes: matched,
+                userErrors: [],
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    throw new Error(`Unexpected GraphQL query in createThemeSection test: ${query.slice(0, 80)}`);
+  };
+}
+
+const plannerFiles = {
+  "templates/index.json": makeTextAsset(
+    JSON.stringify({
+      sections: {
+        hero_1: { type: "hero-banner" },
+        testimonials_1: { type: "testimonials" },
+      },
+      order: ["hero_1", "testimonials_1"],
+    })
+  ),
+  "sections/hero-banner.liquid": makeTextAsset(`
+    {% schema %}
+    {"name":"Hero banner","presets":[{"name":"Homepage hero"}]}
+    {% endschema %}
+    <div>{{ section.settings.heading }}</div>
+  `),
+  "sections/testimonials.liquid": makeTextAsset(`
+    <section class="testimonials page-width">
+      {% render 'section-properties', section: section %}
+      <div class="card-grid rte">{{ section.settings.heading }}</div>
+      {% render 'button', label: section.settings.heading %}
+    </section>
+    {% schema %}
+    {
+      "name":"Testimonials",
+      "settings":[
+        { "type":"range","id":"padding_top","label":"Padding top","min":0,"max":80,"step":4,"default":36 },
+        { "type":"range","id":"padding_bottom","label":"Padding bottom","min":0,"max":80,"step":4,"default":36 }
+      ],
+      "presets":[{"name":"Customer quotes"}]
+    }
+    {% endschema %}
+  `),
+  "snippets/section-properties.liquid": makeTextAsset(`
+    <div class="section-properties" data-section-id="{{ section.id }}"></div>
+  `),
+  "snippets/button.liquid": makeTextAsset(`
+    <button class="button button--primary">{{ label }}</button>
+  `),
+};
+
+test.afterEach(() => {
+  global.fetch = originalFetch;
+  draftThemeArtifact.execute = originalDraftExecute;
+});
+
+test("createThemeSection - forwards static section blueprint and theme context from the planner", async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let capturedInput = null;
+  let capturedContext = null;
+  draftThemeArtifact.execute = async (input, context) => {
+    capturedInput = input;
+    capturedContext = context;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/review-replica.liquid",
+      liquid: `
+<style>
+  #shopify-section-{{ section.id }} .review-replica {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<section class="review-replica page-width">
+  <div class="rte">{{ section.settings.heading }}</div>
+</section>
+{% schema %}
+{
+  "name": "Review replica",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Great reviews" }
+  ],
+  "presets": [{ "name": "Review replica" }]
+}
+{% endschema %}
+`,
+    },
+    { shopifyClient }
+  );
+
+  assert.equal(capturedInput.mode, "create");
+  assert.equal(capturedInput.files[0].key, "sections/review-replica.liquid");
+  assert.equal(
+    capturedContext.themeSectionContext?.representativeSection?.key,
+    "sections/testimonials.liquid"
+  );
+  assert.equal(capturedContext.sectionBlueprint?.category, "static");
+  assert.ok(
+    capturedContext.sectionBlueprint?.requiredReads?.some(
+      (entry) => entry.key === "snippets/section-properties.liquid"
+    )
+  );
+  assert.ok(
+    capturedContext.sectionBlueprint?.safeUnitStrategy?.spacing,
+    "planner metadata should forward a spacing strategy into the create flow"
+  );
+  assert.equal(
+    result.sectionBlueprint?.category,
+    "static",
+    "create-theme-section should surface planner metadata back to the client"
+  );
+});
+
+test("createThemeSection - forwards media-oriented blueprint hints for hero/video sections", async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let capturedContext = null;
+  draftThemeArtifact.execute = async (_input, context) => {
+    capturedContext = context;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/hero-video.liquid",
+      liquid: `
+<style>
+  #shopify-section-{{ section.id }} .hero-video {
+    min-height: 540px;
+  }
+</style>
+<section class="hero-video">
+  {{ section.settings.background_video | video_tag: autoplay: true, muted: true, loop: true, playsinline: true }}
+</section>
+{% schema %}
+{
+  "name": "Hero video",
+  "settings": [
+    { "type": "video", "id": "background_video", "label": "Background video" }
+  ],
+  "presets": [{ "name": "Hero video" }]
+}
+{% endschema %}
+`,
+    },
+    { shopifyClient }
+  );
+
+  assert.ok(
+    ["media", "hybrid"].includes(capturedContext.sectionBlueprint?.category),
+    "hero/video-like sections should get media-oriented planning metadata"
+  );
+  assert.ok(
+    capturedContext.sectionBlueprint?.optionalReads?.some(
+      (entry) => entry.key === "layout/theme.liquid"
+    ),
+    "media sections should advertise optional global-context reads"
+  );
+  assert.ok(
+    result.sectionBlueprint?.forbiddenPatterns?.some((entry) =>
+      entry.includes("video_url")
+    )
+  );
+});
+
+test("createThemeSection - blocks overwriting an existing section key", async () => {
+  global.fetch = createGraphqlFetch({
+    ...plannerFiles,
+    "sections/existing-section.liquid": makeTextAsset(`
+      <div>Existing</div>
+      {% schema %}
+      {"name":"Existing","presets":[{"name":"Existing"}]}
+      {% endschema %}
+    `),
+  });
+
+  let draftExecuteCalls = 0;
+  draftThemeArtifact.execute = async () => {
+    draftExecuteCalls += 1;
+    return { success: true, status: "preview_ready" };
+  };
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/existing-section.liquid",
+      liquid: `
+<div>Overwrite attempt</div>
+{% schema %}
+{"name":"Overwrite attempt","presets":[{"name":"Overwrite attempt"}]}
+{% endschema %}
+`,
+    },
+    { shopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "existing_section_key_conflict");
+  assert.equal(result.nextTool, "plan-theme-edit");
+  assert.equal(draftExecuteCalls, 0);
+});

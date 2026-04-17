@@ -137,6 +137,22 @@ try {
   assert.equal(metadataBatchReadPayload.data.includeContent, false, "get-theme-files default includeContent=false");
   assert.equal(metadataBatchReadPayload.data.themeRole, undefined, "get-theme-files should not silently inject main at schema level");
 
+  const metadataBatchReadAliasPayload = getThemeFilesTool.schema.safeParse({
+    role: "main",
+    filenames: ["sections/test.liquid", "snippets/button.liquid"],
+  });
+  assert.equal(metadataBatchReadAliasPayload.success, true, "get-theme-files should accept safe role/filenames aliases");
+  assert.equal(metadataBatchReadAliasPayload.data.themeRole, "main");
+  assert.deepEqual(metadataBatchReadAliasPayload.data.keys, [
+    "sections/test.liquid",
+    "snippets/button.liquid",
+  ]);
+
+  const metadataBatchReadWildcardPayload = getThemeFilesTool.schema.safeParse({
+    filenames: ["sections/*.liquid"],
+  });
+  assert.equal(metadataBatchReadWildcardPayload.success, false, "get-theme-files should reject wildcard keys and steer the caller to search-theme-files");
+
   const verifyBatchPayload = verifyThemeFilesTool.schema.safeParse({
     expected: [{ key: "sections/test.liquid" }],
   });

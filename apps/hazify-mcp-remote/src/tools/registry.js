@@ -242,6 +242,8 @@ const planThemeEditOutputSchema = z
     newFileSuggestions: z.array(z.string()).optional(),
     searchQueries: z.array(z.string()).optional(),
     warnings: z.array(z.string()).optional(),
+    themeContext: passthroughObject().optional(),
+    sectionBlueprint: passthroughObject().optional(),
     architecture: passthroughObject().optional(),
   })
   .passthrough();
@@ -271,6 +273,8 @@ const draftThemeArtifactOutputSchema = z
     normalizedArgs: passthroughObject().optional(),
     suggestedSchemaRewrites: z.array(passthroughObject()).optional(),
     preferSelectFor: z.array(passthroughObject()).optional(),
+    themeContext: passthroughObject().optional(),
+    sectionBlueprint: passthroughObject().optional(),
   })
   .passthrough();
 
