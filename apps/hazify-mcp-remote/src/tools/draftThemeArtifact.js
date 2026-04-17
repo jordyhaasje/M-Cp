@@ -14,7 +14,9 @@ import {
 } from "./_themeToolCompatibility.js";
 
 export const toolName = "draft-theme-artifact";
-export const description = `Draft and validate Shopify theme files through the guarded pipeline.
+export const title = "Write Theme Files";
+export const description = `Primary write tool for Shopify theme files. Use this for multi-file edits, full rewrites, or advanced theme writes. For a brand-new section prefer create-theme-section. For small single-file edits prefer patch-theme-file. Do not use apply-theme-draft for the first write.`;
+export const docsDescription = `Draft and validate Shopify theme files through the guarded pipeline.
 
 Modes:
 - mode="create": Volledige inspectie voor nieuwe sections (geldig schema, presets, renderbare markup en Shopify-veilige range settings). Templates/config geblokkeerd.
@@ -1619,6 +1621,8 @@ function buildFailureResponse({
   suggestedFixes = [],
   shouldNarrowScope = false,
   nextAction,
+  nextTool = "draft-theme-artifact",
+  nextArgsTemplate,
   retryMode,
   normalizedArgs,
   suggestedSchemaRewrites = [],
@@ -1638,6 +1642,8 @@ function buildFailureResponse({
     suggestedFixes: uniqueStrings(suggestedFixes),
     shouldNarrowScope,
     ...(nextAction ? { nextAction } : {}),
+    ...(nextTool ? { nextTool } : {}),
+    ...(nextArgsTemplate ? { nextArgsTemplate } : {}),
     ...(retryMode ? { retryMode } : {}),
     ...(normalizedArgs ? { normalizedArgs } : {}),
     ...(suggestedSchemaRewrites.length > 0
@@ -2250,7 +2256,9 @@ async function validateThemeCompatibilityForSections({
 
 export const draftThemeArtifact = {
   name: toolName,
+  title,
   description,
+  docsDescription,
   inputSchema: DraftThemeArtifactPublicObjectSchema,
   schema: inputSchema,
   execute: async (rawArgs, context = {}) => {

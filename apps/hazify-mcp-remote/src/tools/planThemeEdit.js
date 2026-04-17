@@ -301,6 +301,8 @@ const buildPlanRepairResponse = ({
   errors = [],
   normalizedArgs,
   nextAction,
+  nextTool,
+  nextArgsTemplate,
   retryMode = "same_request_with_structured_fields",
   warnings = [],
 }) => ({
@@ -310,16 +312,69 @@ const buildPlanRepairResponse = ({
   errorCode,
   retryable: true,
   nextAction,
+  ...(nextTool ? { nextTool } : {}),
+  ...(nextArgsTemplate ? { nextArgsTemplate } : {}),
   retryMode,
   normalizedArgs,
   warnings,
   errors,
 });
 
+const buildPlanNextArgsTemplate = (input = {}, result = {}) => {
+  const explicitThemeTarget =
+    input.themeId !== undefined
+      ? { themeId: input.themeId }
+      : input.themeRole
+        ? { themeRole: input.themeRole }
+        : {};
+
+  if (result?.shouldUse === "create-theme-section") {
+    return {
+      ...explicitThemeTarget,
+      key: result?.newFileSuggestions?.[0] || "sections/<new-section>.liquid",
+      liquid: "<complete Shopify Liquid section with valid {% schema %}>",
+    };
+  }
+
+  if (result?.shouldUse === "patch-theme-file") {
+    return {
+      ...explicitThemeTarget,
+      key: input.targetFile || result?.nextWriteKeys?.[0] || "<existing-theme-file>",
+      searchString: "<exact literal anchor from the file>",
+      replaceString: "<updated markup/liquid>",
+    };
+  }
+
+  if (result?.shouldUse === "draft-theme-artifact") {
+    return {
+      ...explicitThemeTarget,
+      mode:
+        result?.recommendedFlow === "template-placement" ||
+        result?.recommendedFlow === "multi-file-edit"
+          ? "edit"
+          : "create",
+      files: [
+        {
+          key:
+            result?.nextWriteKeys?.[0] ||
+            result?.newFileSuggestions?.[0] ||
+            "<theme-file>",
+          value: "<complete file content or use patch/patches for edits>",
+        },
+      ],
+    };
+  }
+
+  return undefined;
+};
+
 const planThemeEditTool = {
   name: "plan-theme-edit",
+  title: "Plan Theme Edit",
   description:
-    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet themeId of themeRole. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: patch-existing, multi-file-edit, create-section of template-placement, plus de exacte volgende read/write keys. Langere query- of description-prompts zijn toegestaan; de planner compacteert die intern naar een korte query voor tokenzuinige planning. Voor native product-blocks analyseert de planner templates/*.json al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand targetFile. Voor nieuwe sections hoort de planner agents ook te sturen richting step-aligned range defaults en select-settings bij kleine discrete keuzes.",
+    "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Gebruik plan-theme-edit voor native blocks, placement-vragen en andere theme-aware flows. Geef bij voorkeur intent plus themeId of themeRole mee. De planner retourneert het aanbevolen volgende toolpad, compacte nextReadKeys, nextWriteKeys en waarschuwingen die retries helpen voorkomen.",
+  docsDescription:
+    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole`. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: `patch-existing`, `multi-file-edit`, `create-section` of `template-placement`, plus de exacte volgende read/write keys. Langere `query`- of `description`-prompts zijn toegestaan; de planner compacteert die intern naar een korte query voor tokenzuinige planning. Voor native product-blocks analyseert de planner `templates/*.json` al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand `targetFile`. Voor nieuwe sections stuurt de planner nu expliciet richting step-aligned range defaults, select-settings bij kleine discrete keuzes en de smalle create-tool `create-theme-section` als eerste write stap.",
   inputSchema: PlanThemeEditPublicObjectSchema,
   schema: PlanThemeEditInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -333,6 +388,7 @@ const planThemeEditTool = {
           "De planner kon deze compat-input niet veilig normaliseren. Corrigeer de conflicterende velden en probeer opnieuw.",
         errorCode: "invalid_plan_theme_edit_input",
         nextAction: "fix_input",
+        nextTool: "plan-theme-edit",
         normalizedArgs,
         errors: normalizedParse.error.issues.map((issue) =>
           buildPlanInputError({
@@ -402,6 +458,7 @@ const planThemeEditTool = {
             : missingThemeTarget
               ? "provide_theme_target"
               : "provide_intent",
+        nextTool: "plan-theme-edit",
         normalizedArgs,
         errors,
       });
@@ -409,9 +466,13 @@ const planThemeEditTool = {
 
     const shopifyClient = requireShopifyClient(context);
     const result = await planThemeEdit(shopifyClient, API_VERSION, input);
+    const nextTool = typeof result?.shouldUse === "string" ? result.shouldUse : undefined;
+    const nextArgsTemplate = buildPlanNextArgsTemplate(input, result);
     return {
       success: true,
       normalizedArgs,
+      ...(nextTool ? { nextTool } : {}),
+      ...(nextArgsTemplate ? { nextArgsTemplate } : {}),
       ...result,
     };
   },

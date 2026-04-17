@@ -147,7 +147,6 @@ async function main() {
     },
   };
   const forbiddenToolMentions = [
-    "create-theme-section",
     "upsert-theme-file",
     "upsert-theme-files",
   ];
@@ -208,7 +207,7 @@ async function main() {
       [
         workflowManifest.workflows.existingThemeEdit.label,
         "`search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`",
-        "Theme create/update loopt via `draft-theme-artifact`.",
+        "Nieuwe section creates lopen bij voorkeur via `create-theme-section`",
         "Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.",
       ],
     ],

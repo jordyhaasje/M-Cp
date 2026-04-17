@@ -4,9 +4,16 @@ import { getShopDomainFromClient, upsertThemeFiles } from "../lib/themeFiles.js"
 import { requireShopifyClient } from "./_context.js";
 
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ApplyThemeDraftInputSchema = z.object({
-  draftId: z.string().min(1).describe("Theme draft ID returned by draft-theme-artifact."),
+  draftId: z
+    .string()
+    .min(1)
+    .describe(
+      "UUID draft ID returned by draft-theme-artifact. Gebruik hier geen bestandsnaam, slug of zelfverzonnen placeholder."
+    ),
   themeId: z.coerce.number().int().positive().optional().describe("Optional explicit target theme ID."),
   themeRole: ThemeRoleSchema.optional().describe("Target theme role when themeId is omitted. Verplicht als themeId niet is opgegeven; vraag de gebruiker welk thema bedoeld wordt."),
   confirmation: z.literal("APPLY_THEME_DRAFT").describe("Verplicht type: 'APPLY_THEME_DRAFT' ter bevestiging."),
@@ -36,23 +43,119 @@ function getUpsertFailures(upsertResult) {
 
 const applyThemeDraft = {
   name: "apply-theme-draft",
+  title: "Promote Existing Draft",
   description:
-    "Apply a previously drafted theme artifact to an explicit target theme. This is the promote/apply step after draft-theme-artifact has prepared and verified the files. themeId of themeRole is verplicht; kies nooit stilzwijgend een live target.",
+    "Promote a previously saved theme draft to an explicit target theme. Do not use this to create a new section or for the first write of files. First create/write via create-theme-section or draft-theme-artifact, then apply only with the returned draftId.",
+  docsDescription:
+    "Apply a previously drafted theme artifact to an explicit target theme. Dit is de promote/apply stap nadat `draft-theme-artifact` of `create-theme-section` eerst een echte draft/write heeft voorbereid en geverifieerd. Gebruik deze tool dus niet om een nieuwe section voor het eerst te schrijven. `themeId` of `themeRole` is verplicht; kies nooit stilzwijgend een live target.",
   schema: ApplyThemeDraftInputSchema,
   execute: async (input, context = {}) => {
-    const shopifyClient = requireShopifyClient(context);
     if (!input.themeId && !input.themeRole) {
-      throw new Error("Geef themeId of themeRole op. Vraag de gebruiker expliciet op welk thema het draft toegepast moet worden.");
+      return {
+        success: false,
+        status: "needs_input",
+        draftId: input.draftId,
+        message:
+          "Geef expliciet aan op welk thema dit bestaande draft toegepast moet worden via themeRole of themeId.",
+        errorCode: "missing_apply_theme_target",
+        retryable: true,
+        nextAction: "provide_theme_target",
+        nextTool: "apply-theme-draft",
+        nextArgsTemplate: {
+          draftId: input.draftId,
+          themeRole: "main",
+          confirmation: "APPLY_THEME_DRAFT",
+          reason: input.reason,
+        },
+        errors: [
+          {
+            path: ["themeRole"],
+            problem:
+              "Er ontbreekt een expliciet apply-target. Deze tool kiest nooit stilzwijgend een theme.",
+            fixSuggestion:
+              "Voeg themeRole of themeId toe, bijvoorbeeld themeRole='main' of themeId=123456789.",
+          },
+        ],
+      };
+    }
+    if (!UUID_PATTERN.test(input.draftId)) {
+      return {
+        success: false,
+        status: "invalid_input",
+        draftId: input.draftId,
+        message:
+          "apply-theme-draft verwacht een echte UUID draftId van een eerdere create/write stap. Gebruik deze tool niet voor de eerste write van een nieuwe section.",
+        errorCode: "invalid_apply_theme_draft_id",
+        retryable: true,
+        nextAction: "create_or_write_first",
+        nextTool: "create-theme-section",
+        nextArgsTemplate: {
+          ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
+          ...(input.themeRole ? { themeRole: input.themeRole } : {}),
+          key: "sections/<new-section>.liquid",
+          liquid: "<complete Shopify Liquid section with valid {% schema %}>",
+        },
+        errors: [
+          {
+            path: ["draftId"],
+            problem:
+              "draftId is geen geldige UUID van een eerder theme draft record.",
+            fixSuggestion:
+              "Gebruik voor een nieuwe section eerst create-theme-section of draft-theme-artifact en hergebruik daarna pas de geretourneerde draftId.",
+          },
+        ],
+      };
     }
     const draftRecord = await getThemeDraftRecord(input.draftId);
     if (!draftRecord) {
-      throw new Error(`Theme draft '${input.draftId}' kon niet worden gevonden.`);
+      return {
+        success: false,
+        status: "missing_draft",
+        draftId: input.draftId,
+        message:
+          `Theme draft '${input.draftId}' kon niet worden gevonden. Voor de eerste write van een nieuwe section gebruik je create-theme-section of draft-theme-artifact.`,
+        errorCode: "missing_theme_draft",
+        retryable: true,
+        nextAction: "create_or_write_first",
+        nextTool: "draft-theme-artifact",
+        nextArgsTemplate: {
+          ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
+          ...(input.themeRole ? { themeRole: input.themeRole } : {}),
+          mode: "edit",
+          files: [
+            {
+              key: "<theme-file>",
+              value: "<complete file content or use patch/patches for edits>",
+            },
+          ],
+        },
+        errors: [
+          {
+            path: ["draftId"],
+            problem:
+              "Er bestaat geen opgeslagen theme draft record met deze draftId.",
+            fixSuggestion:
+              "Voer eerst een create/write uit via create-theme-section of draft-theme-artifact en gebruik daarna de echte draftId uit die response.",
+          },
+        ],
+      };
     }
 
     const files = normalizeStoredFiles(draftRecord.files_json);
     if (files.length === 0) {
-      throw new Error(`Theme draft '${input.draftId}' bevat geen toepasbare files.`);
+      return {
+        success: false,
+        status: "missing_draft_files",
+        draftId: input.draftId,
+        message: `Theme draft '${input.draftId}' bevat geen toepasbare files.`,
+        errorCode: "missing_theme_draft_files",
+        retryable: true,
+        nextAction: "rewrite_draft_first",
+        nextTool: "draft-theme-artifact",
+      };
     }
+
+    const shopifyClient = requireShopifyClient(context);
 
     const apiVersion = process.env.SHOPIFY_API_VERSION || "2026-01";
     const upsertResult = await upsertThemeFiles(shopifyClient, apiVersion, {

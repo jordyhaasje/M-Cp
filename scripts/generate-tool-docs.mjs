@@ -12,7 +12,7 @@ async function main() {
 
   let markdownList = "<!-- BEGIN: TOOLS_LIST -->\n";
   for (const tool of tools) {
-    markdownList += `- **\`${tool.name}\`**: ${tool.description}\n`;
+    markdownList += `- **\`${tool.name}\`**: ${tool.docsDescription || tool.description}\n`;
   }
   markdownList += "<!-- END: TOOLS_LIST -->";
 

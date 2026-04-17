@@ -607,7 +607,11 @@ const summarizeToolResultForLog = (result) => ({
     draftId: typeof result?.draftId === "string" ? result.draftId : null,
     themeId: result?.themeId ?? null,
     analysisId: typeof result?.analysisId === "string" ? result.analysisId : null,
-    nextTool: typeof result?.nextAction?.tool === "string" ? result.nextAction.tool : null,
+    nextTool: typeof result?.nextTool === "string"
+        ? result.nextTool
+        : typeof result?.nextAction?.tool === "string"
+            ? result.nextAction.tool
+            : null,
 });
 const requestLogContext = (req) => ({
     method: req.method || null,

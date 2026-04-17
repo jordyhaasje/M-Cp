@@ -58,6 +58,7 @@ assert.strictEqual(
 
 for (const criticalToolName of [
   "apply-theme-draft",
+  "create-theme-section",
   "get-orders",
   "get-order-by-id",
   "get-customers",
@@ -76,6 +77,7 @@ for (const criticalToolName of [
 
 for (const expectedToolName of [
   "apply-theme-draft",
+  "create-theme-section",
   "draft-theme-artifact",
   "patch-theme-file",
   "plan-theme-edit",
@@ -87,8 +89,14 @@ for (const expectedToolName of [
 
 assert.equal(
   registry.byName.get("draft-theme-artifact").title,
-  "Draft Theme Artifact",
+  "Write Theme Files",
   "registry should expose human-friendly tool titles"
+);
+
+assert.equal(
+  registry.byName.get("create-theme-section").title,
+  "Create Theme Section",
+  "registry should expose a direct create tool title for new section flows"
 );
 
 registry.byName.get("manage-product-variants").outputSchema.parse({
@@ -116,6 +124,7 @@ registry.byName.get("plan-theme-edit").outputSchema.parse({
   errorCode: "missing_plan_theme_target",
   retryable: true,
   nextAction: "provide_theme_target",
+  nextTool: "plan-theme-edit",
   retryMode: "same_request_with_theme_target",
   normalizedArgs: {
     intent: "existing_edit",
@@ -137,6 +146,7 @@ registry.byName.get("draft-theme-artifact").outputSchema.parse({
   errorCode: "inspection_failed_multiple",
   retryable: true,
   nextAction: "fix_local_validation",
+  nextTool: "draft-theme-artifact",
   retryMode: "same_request_after_fix",
   normalizedArgs: {
     themeRole: "main",

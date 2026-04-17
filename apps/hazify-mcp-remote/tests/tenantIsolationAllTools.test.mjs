@@ -8,6 +8,7 @@ import { deleteProduct } from "../src/tools/deleteProduct.js";
 import { deleteProductVariants } from "../src/tools/deleteProductVariants.js";
 import { deleteThemeFileTool } from "../src/tools/deleteThemeFile.js";
 import { applyThemeDraft } from "../src/tools/applyThemeDraft.js";
+import { createThemeSectionTool } from "../src/tools/createThemeSection.js";
 import { getCustomerOrders } from "../src/tools/getCustomerOrders.js";
 import { getCustomers } from "../src/tools/getCustomers.js";
 import { getOrderById } from "../src/tools/getOrderById.js";
@@ -42,6 +43,15 @@ const shopifyScopedTools = [
   },
   { name: "delete-theme-file", tool: deleteThemeFileTool, input: { key: "sections/demo.liquid", confirmation: "DELETE_THEME_FILE", reason: "test reason" } },
   { name: "apply-theme-draft", tool: applyThemeDraft, input: { draftId: "mock-1", confirmation: "APPLY_THEME_DRAFT", reason: "test reason" } },
+  {
+    name: "create-theme-section",
+    tool: createThemeSectionTool,
+    input: {
+      themeRole: "main",
+      key: "sections/demo.liquid",
+      value: "<div>Demo</div>{% schema %}{\"name\":\"Demo\",\"settings\":[],\"presets\":[{\"name\":\"Demo\"}]}{% endschema %}",
+    },
+  },
   { name: "get-customer-orders", tool: getCustomerOrders, input: { customerId: "123" } },
   { name: "get-customers", tool: getCustomers, input: {} },
   { name: "get-order-by-id", tool: getOrderById, input: { orderId: "gid://shopify/Order/1" } },
@@ -105,10 +115,23 @@ const shopifyScopedTools = [
 
 for (const entry of shopifyScopedTools) {
   const parsed = entry.tool.schema.parse(entry.input);
-  await assert.rejects(
-    () => entry.tool.execute(parsed, {}),
-    /Missing Shopify client in execution context/,
-    `${entry.name} should fail closed without tenant-scoped Shopify client`
+  let returnedStructuredFailure = false;
+  try {
+    const result = await entry.tool.execute(parsed, {});
+    returnedStructuredFailure = Boolean(result && typeof result === "object" && result.success === false);
+  } catch (error) {
+    assert.match(
+      String(error?.message || error),
+      /Missing Shopify client in execution context/,
+      `${entry.name} should fail closed without tenant-scoped Shopify client`
+    );
+    continue;
+  }
+
+  assert.equal(
+    returnedStructuredFailure,
+    true,
+    `${entry.name} should either reject without a Shopify client or return an explicit structured failure before any Shopify access`
   );
 }
 

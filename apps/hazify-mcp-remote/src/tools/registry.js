@@ -5,6 +5,7 @@ import { deleteProduct } from "./deleteProduct.js";
 import { deleteProductVariants } from "./deleteProductVariants.js";
 import { deleteThemeFileTool } from "./deleteThemeFile.js";
 import { applyThemeDraft } from "./applyThemeDraft.js";
+import { createThemeSectionTool } from "./createThemeSection.js";
 import { draftThemeArtifact } from "./draftThemeArtifact.js";
 
 import { getCustomerOrders } from "./getCustomerOrders.js";
@@ -209,6 +210,8 @@ const planThemeEditOutputSchema = z
     errors: z.array(passthroughObject()).optional(),
     normalizedArgs: passthroughObject().optional(),
     nextAction: z.string().optional(),
+    nextTool: z.string().optional(),
+    nextArgsTemplate: passthroughObject().optional(),
     retryMode: z.string().optional(),
     theme: themeSummarySchema.optional(),
     intent: z.string().optional(),
@@ -262,6 +265,8 @@ const draftThemeArtifactOutputSchema = z
     suggestedFixes: z.array(z.string()).optional(),
     shouldNarrowScope: z.boolean().optional(),
     nextAction: z.string().optional(),
+    nextTool: z.string().optional(),
+    nextArgsTemplate: passthroughObject().optional(),
     retryMode: z.string().optional(),
     normalizedArgs: passthroughObject().optional(),
     suggestedSchemaRewrites: z.array(passthroughObject()).optional(),
@@ -279,6 +284,12 @@ const applyThemeDraftOutputSchema = z
     message: z.string(),
     editorUrl: z.string().nullable().optional(),
     draft: passthroughObject().nullable().optional(),
+    errorCode: z.string().optional(),
+    retryable: z.boolean().optional(),
+    errors: z.array(passthroughObject()).optional(),
+    nextAction: z.string().optional(),
+    nextTool: z.string().optional(),
+    nextArgsTemplate: passthroughObject().optional(),
   })
   .passthrough();
 
@@ -404,9 +415,10 @@ const createAnnotations = ({ writeScopeRequired = false, destructive = false, id
 
 const defineToolManifest = (tool, options = {}) => ({
   name: tool.name,
-  title: options.title || humanizeToolTitle(options.canonicalName || tool.name),
+  title: options.title || tool.title || humanizeToolTitle(options.canonicalName || tool.name),
   canonicalName: options.canonicalName || tool.name,
   description: options.description || tool.description,
+  docsDescription: options.docsDescription || tool.docsDescription || options.description || tool.description,
   inputSchema: options.inputSchema || tool.inputSchema || tool.schema || z.object({}),
   ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}),
   annotations: options.annotations || createAnnotations(options),
@@ -430,6 +442,46 @@ const defineAliasManifest = (name, sourceTool, options = {}) =>
   );
 
 const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
+  defineToolManifest(createGetLicenseStatusTool(getLicenseStatusExecute), {
+    requiresShopifyClient: false,
+    outputSchema: getLicenseStatusOutputSchema,
+  }),
+  defineToolManifest(getThemes, { outputSchema: getThemesOutputSchema }),
+  defineToolManifest(planThemeEditTool, {
+    outputSchema: planThemeEditOutputSchema,
+  }),
+  defineToolManifest(createThemeSectionTool, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: draftThemeArtifactOutputSchema,
+  }),
+  defineToolManifest(searchThemeFilesTool, {
+    outputSchema: searchThemeFilesOutputSchema,
+  }),
+  defineToolManifest(getThemeFileTool, { outputSchema: getThemeFileOutputSchema }),
+  defineToolManifest(getThemeFilesTool, { outputSchema: getThemeFilesOutputSchema }),
+  defineToolManifest(patchThemeFileTool, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: draftThemeArtifactOutputSchema,
+  }),
+  defineToolManifest(draftThemeArtifact, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: draftThemeArtifactOutputSchema,
+  }),
+  defineToolManifest(applyThemeDraft, {
+    writeScopeRequired: true,
+    idempotent: false,
+    outputSchema: applyThemeDraftOutputSchema,
+  }),
+  defineToolManifest(verifyThemeFilesTool, { outputSchema: verifyThemeFilesOutputSchema }),
+  defineToolManifest(deleteThemeFileTool, {
+    writeScopeRequired: true,
+    destructive: true,
+    idempotent: false,
+    outputSchema: deleteThemeFileOutputSchema,
+  }),
   defineToolManifest(getProducts, { outputSchema: getProductsOutputSchema }),
   defineToolManifest(getProductById, { outputSchema: getProductByIdOutputSchema }),
   defineToolManifest(getCustomers, { outputSchema: getCustomersOutputSchema }),
@@ -499,43 +551,6 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
     writeScopeRequired: true,
     idempotent: false,
     outputSchema: cloneProductOutputSchema,
-  }),
-  defineToolManifest(getThemes, { outputSchema: getThemesOutputSchema }),
-
-  defineToolManifest(searchThemeFilesTool, {
-    outputSchema: searchThemeFilesOutputSchema,
-  }),
-  defineToolManifest(planThemeEditTool, {
-    outputSchema: planThemeEditOutputSchema,
-  }),
-  defineToolManifest(patchThemeFileTool, {
-    writeScopeRequired: true,
-    idempotent: false,
-    outputSchema: draftThemeArtifactOutputSchema,
-  }),
-  defineToolManifest(getThemeFileTool, { outputSchema: getThemeFileOutputSchema }),
-  defineToolManifest(getThemeFilesTool, { outputSchema: getThemeFilesOutputSchema }),
-
-  defineToolManifest(deleteThemeFileTool, {
-    writeScopeRequired: true,
-    destructive: true,
-    idempotent: false,
-    outputSchema: deleteThemeFileOutputSchema,
-  }),
-  defineToolManifest(verifyThemeFilesTool, { outputSchema: verifyThemeFilesOutputSchema }),
-  defineToolManifest(createGetLicenseStatusTool(getLicenseStatusExecute), {
-    requiresShopifyClient: false,
-    outputSchema: getLicenseStatusOutputSchema,
-  }),
-  defineToolManifest(draftThemeArtifact, {
-    writeScopeRequired: true,
-    idempotent: false,
-    outputSchema: draftThemeArtifactOutputSchema,
-  }),
-  defineToolManifest(applyThemeDraft, {
-    writeScopeRequired: true,
-    idempotent: false,
-    outputSchema: applyThemeDraftOutputSchema,
   }),
 ];
 

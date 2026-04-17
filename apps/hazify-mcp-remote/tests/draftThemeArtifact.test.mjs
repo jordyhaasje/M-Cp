@@ -2715,29 +2715,28 @@ test("applyThemeDraft - applies an existing draft to an explicit target theme", 
 });
 
 test("applyThemeDraft - requires an explicit target theme", async () => {
-  await assert.rejects(
-    () =>
-      applyThemeDraft.execute(
-        applyThemeDraft.schema.parse({
-          draftId: "mock-1",
-          confirmation: "APPLY_THEME_DRAFT",
-          reason: "Explicit target required",
-        }),
-        {
-          shopifyClient: {
-            url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
-            requestConfig: {
-              headers: new Headers({ "x-shopify-access-token": "fake-token" }),
-            },
-            session: { shop: "unit-test.myshopify.com" },
-            request: async () => {
-              throw new Error("should not reach Shopify without an explicit target");
-            },
-          },
-        }
-      ),
-    /themeId of themeRole/i
+  const result = await applyThemeDraft.execute(
+    applyThemeDraft.schema.parse({
+      draftId: "mock-1",
+      confirmation: "APPLY_THEME_DRAFT",
+      reason: "Explicit target required",
+    }),
+    {
+      shopifyClient: {
+        url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+        requestConfig: {
+          headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+        },
+        session: { shop: "unit-test.myshopify.com" },
+        request: async () => {
+          throw new Error("should not reach Shopify without an explicit target");
+        },
+      },
+    }
   );
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "missing_apply_theme_target");
+  assert.equal(result.nextTool, "apply-theme-draft");
 });
 
 test("applyThemeDraft - returns a structured failure when Shopify apply does not write files", async () => {

@@ -418,6 +418,7 @@ try {
     : [];
   for (const expectedTool of [
     "get-products",
+    "create-theme-section",
     "patch-theme-file",
     "refund-order",
     "get-theme-files",
@@ -479,6 +480,19 @@ try {
     Boolean(draftThemeArtifactDefinition.inputSchema?.properties?._tool_input_summary),
     true,
     "draft-theme-artifact should expose _tool_input_summary in emitted JSON schema"
+  );
+
+  const createThemeSectionDefinition = tools.find((tool) => tool?.name === "create-theme-section");
+  assert.ok(createThemeSectionDefinition, "tools/list should expose create-theme-section");
+  assert.equal(
+    Boolean(createThemeSectionDefinition.inputSchema?.properties?.handle),
+    true,
+    "create-theme-section should expose handle shorthand in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(createThemeSectionDefinition.inputSchema?.properties?.content),
+    true,
+    "create-theme-section should expose content as a compat alias in emitted JSON schema"
   );
 
   console.log("mcpHttpAuth.test.mjs passed");

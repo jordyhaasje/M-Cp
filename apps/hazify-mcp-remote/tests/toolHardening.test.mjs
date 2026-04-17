@@ -11,6 +11,7 @@ import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
 import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
 import { applyThemeDraft } from "../src/tools/applyThemeDraft.js";
+import { createThemeSectionTool } from "../src/tools/createThemeSection.js";
 import { patchThemeFileTool } from "../src/tools/patchThemeFile.js";
 import { planThemeEditTool } from "../src/tools/planThemeEdit.js";
 import { SearchThemeFilesInputSchema } from "../src/tools/searchThemeFiles.js";
@@ -272,6 +273,40 @@ try {
   assert.equal(planThemeEditNewSectionPayload.success, true, "explicit new section wording should still infer new_section");
   assert.equal(planThemeEditNewSectionPayload.data.intent, "new_section");
 
+  const createThemeSectionPayload = createThemeSectionTool.schema.safeParse({
+    themeRole: "main",
+    handle: "review-replica",
+    content: `
+<div>Demo</div>
+{% schema %}
+{
+  "name": "Demo section",
+  "settings": [],
+  "presets": [{ "name": "Demo section" }]
+}
+{% endschema %}
+`,
+  });
+  assert.equal(createThemeSectionPayload.success, true, "create-theme-section should accept handle + content shorthands");
+  assert.equal(createThemeSectionPayload.data.key, "sections/review-replica.liquid");
+  assert.equal(createThemeSectionPayload.data.liquid.includes("Demo section"), true);
+
+  const createThemeSectionSummaryPayload = createThemeSectionTool.schema.safeParse({
+    _tool_input_summary: "Maak sections/review-replica.liquid aan in het live theme",
+  });
+  assert.equal(
+    createThemeSectionSummaryPayload.success,
+    true,
+    "create-theme-section should expose summary-only compat payloads publicly and repair them at execution time"
+  );
+  const createThemeSectionSummaryResult = await createThemeSectionTool.execute(
+    createThemeSectionSummaryPayload.data,
+    {}
+  );
+  assert.equal(createThemeSectionSummaryResult.success, false);
+  assert.equal(createThemeSectionSummaryResult.errorCode, "missing_section_liquid");
+  assert.equal(createThemeSectionSummaryResult.nextTool, "create-theme-section");
+
   const ambiguousPlanPayload = planThemeEditTool.schema.safeParse({
     _tool_input_summary: "Bepaal wat hier aangepast moet worden",
   });
@@ -450,6 +485,23 @@ try {
     reason: "Promote approved preview",
   });
   assert.equal(applyPayload.themeRole, undefined, "apply-theme-draft should require an explicit target instead of defaulting to main");
+
+  const invalidApplyDraftIdResult = await applyThemeDraft.execute(
+    applyThemeDraft.schema.parse({
+      draftId: "review-replica-inline-draft",
+      themeRole: "main",
+      confirmation: "APPLY_THEME_DRAFT",
+      reason: "Promote approved preview",
+    }),
+    {}
+  );
+  assert.equal(invalidApplyDraftIdResult.success, false);
+  assert.equal(invalidApplyDraftIdResult.errorCode, "invalid_apply_theme_draft_id");
+  assert.equal(
+    invalidApplyDraftIdResult.nextTool,
+    "create-theme-section",
+    "apply-theme-draft should point new-section callers back to the direct create tool when no real draft UUID exists"
+  );
 
   const refundResult = await refundOrder.execute(
     refundOrder.schema.parse({

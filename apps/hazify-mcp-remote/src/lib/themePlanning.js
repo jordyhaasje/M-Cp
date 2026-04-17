@@ -436,7 +436,7 @@ const buildPlanFromAnalysis = ({
     nextWriteKeys = sectionFile?.key ? [sectionFile.key] : readKeys.slice(0, 1);
   } else if (intent === "new_section") {
     recommendedFlow = "create-section";
-    shouldUse = "draft-theme-artifact";
+    shouldUse = "create-theme-section";
     likelyNeedsMultiFileEdit = false;
     reason =
       "Nieuwe sections horen eerst als los sections/<handle>.liquid bestand gemaakt te worden; template placement is een aparte stap. Spiegel vooraf ook de spacing- en setting-conventies van een vergelijkbare bestaande section in het doeltheme.";
@@ -501,7 +501,7 @@ const buildPlanFromAnalysis = ({
     );
   } else if (templateFile?.key) {
     recommendedFlow = "create-section";
-    shouldUse = "draft-theme-artifact";
+    shouldUse = "create-theme-section";
     likelyNeedsMultiFileEdit = true;
     reason =
       "Er is geen consistente native block-architectuur gedetecteerd; een losse section plus expliciete template placement is veiliger.";

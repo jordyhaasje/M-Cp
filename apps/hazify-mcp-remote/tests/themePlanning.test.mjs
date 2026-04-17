@@ -307,6 +307,11 @@ try {
     query: "Maak een nieuwe promo section",
   });
   assert.equal(newSectionPlan.recommendedFlow, "create-section");
+  assert.equal(
+    newSectionPlan.shouldUse,
+    "create-theme-section",
+    "new section planning should point to the direct section create tool"
+  );
   assert.ok(
     newSectionPlan.nextReadKeys.includes("sections/hero-banner.liquid"),
     "new section planning should point to one representative existing section so the client can mirror theme conventions before writing"
