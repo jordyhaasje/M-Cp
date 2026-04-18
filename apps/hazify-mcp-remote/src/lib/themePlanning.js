@@ -616,6 +616,9 @@ const buildPlanFromAnalysis = ({
       warnings.push(
         "Als bredere visuele correcties na create nog nodig zijn, gebruik dan draft-theme-artifact mode='edit' met een volledige rewrite van dezelfde section in plaats van lange patch-arrays."
       );
+      warnings.push(
+        "Vraag de gebruiker niet eerst of de section daarna pixel-perfect moet worden gemaakt; ga uit van de gevraagde finale styling in de eerste write en stel alleen vervolgvragen bij echte blockers."
+      );
     }
     if (Array.isArray(sectionBlueprint?.requiredReads) && sectionBlueprint.requiredReads.length > 0) {
       nextReadKeys = uniqueStrings(
@@ -1140,6 +1143,7 @@ export const planThemeEdit = async (
     warnings: plan.warnings,
     qualityTarget: sectionBlueprint?.qualityTarget || null,
     generationMode: sectionBlueprint?.generationMode || null,
+    completionPolicy: sectionBlueprint?.completionPolicy || null,
     allowedRefineStrategy:
       sectionBlueprint?.writeStrategy?.allowedRefineStrategy || null,
     ...(themeContext ? { themeContext } : {}),

@@ -521,6 +521,32 @@ const inferQualityTarget = ({ query = "", sectionTypeHint = "", fileKey = "" } =
     : "theme_consistent";
 };
 
+const buildCompletionPolicy = ({ qualityTarget = "theme_consistent" } = {}) => {
+  if (qualityTarget === "exact_match") {
+    return {
+      deliveryExpectation: "final_reference_match_in_first_write",
+      askBeforeVisualRefinement: false,
+      askBeforePlacement: true,
+      stagedVisualUpgradeAllowed: false,
+      onlyAskFollowUpOnValidationBlockers: true,
+      treatReferenceImagesAsFinalTarget: true,
+      hint:
+        "Als de gebruiker vraagt om een screenshot of referentie na te maken, lever dan direct de volledige styling, interactie en responsive afwerking in de eerste write. Vraag niet eerst of je hem daarna pixel-perfect moet maken.",
+    };
+  }
+
+  return {
+    deliveryExpectation: "complete_theme_consistent_section_in_first_write",
+    askBeforeVisualRefinement: false,
+    askBeforePlacement: true,
+    stagedVisualUpgradeAllowed: false,
+    onlyAskFollowUpOnValidationBlockers: true,
+    treatReferenceImagesAsFinalTarget: false,
+    hint:
+      "Lever direct een complete, bruikbare section in de eerste write. Gebruik follow-up alleen voor validatiefixes of wanneer placement expliciet extra gevraagd wordt.",
+  };
+};
+
 const buildWriteStrategy = ({ category, qualityTarget = "theme_consistent" } = {}) => {
   if (qualityTarget === "exact_match") {
     return {
@@ -772,6 +798,7 @@ const buildSectionGenerationBlueprint = ({
 
   const effectiveScaleGuide = themeContext?.scaleGuide || {};
   const effectiveSpacingSettings = themeContext?.spacingSettings || [];
+  const completionPolicy = buildCompletionPolicy({ qualityTarget });
 
   return {
     category: profile.category,
@@ -779,6 +806,7 @@ const buildSectionGenerationBlueprint = ({
     qualityTarget,
     generationMode:
       qualityTarget === "exact_match" ? "precision_first" : "theme_aware_baseline",
+    completionPolicy,
     requiredReads,
     optionalReads,
     relevantHelpers,
@@ -817,6 +845,7 @@ const buildSectionGenerationBlueprint = ({
         ? [
             "Gebruik geen snelle baseline-first aanpak: besteed extra aandacht aan typography, spacing en compositie vóór de eerste write.",
             "Gebruik bij bredere visuele refinements na create liever één volledige rewrite dan een lange patch-batch.",
+            "Vraag niet eerst of je de section daarna pixel-perfect moet maken; de referentieprompt vraagt al om de finale styling in de eerste write.",
           ]
         : []),
     ]),

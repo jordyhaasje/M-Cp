@@ -445,6 +445,19 @@ try {
   assert.equal(exactReplicaPlan.qualityTarget, "exact_match");
   assert.equal(exactReplicaPlan.generationMode, "precision_first");
   assert.equal(
+    exactReplicaPlan.completionPolicy?.deliveryExpectation,
+    "final_reference_match_in_first_write"
+  );
+  assert.equal(
+    exactReplicaPlan.completionPolicy?.askBeforeVisualRefinement,
+    false
+  );
+  assert.equal(
+    exactReplicaPlan.sectionBlueprint?.completionPolicy
+      ?.stagedVisualUpgradeAllowed,
+    false
+  );
+  assert.equal(
     exactReplicaPlan.allowedRefineStrategy,
     "full_rewrite_only",
     "exact-match new sections should discourage patch-batch refinement"
@@ -461,7 +474,8 @@ try {
   assert.ok(
     exactReplicaPlan.warnings.some((warning) =>
       warning.toLowerCase().includes("replica") ||
-      warning.toLowerCase().includes("baseline-first")
+      warning.toLowerCase().includes("baseline-first") ||
+      warning.toLowerCase().includes("pixel-perfect")
     ),
     "exact-match plans should surface precision-first warnings"
   );

@@ -222,6 +222,9 @@ const buildCreateSectionRepairResponse = ({
   errors,
   ...(themeContext ? { themeContext } : {}),
   ...(sectionBlueprint ? { sectionBlueprint } : {}),
+  ...(sectionBlueprint?.completionPolicy
+    ? { completionPolicy: sectionBlueprint.completionPolicy }
+    : {}),
   ...(nextArgsTemplate ? { nextArgsTemplate } : {}),
 });
 
@@ -229,7 +232,8 @@ const buildCreateSectionArgsTemplate = (input = {}) => ({
   ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
   ...(input.themeRole ? { themeRole: input.themeRole } : {}),
   key: input.key || "sections/<new-section>.liquid",
-  liquid: "<complete Shopify Liquid section with valid {% schema %}>",
+  liquid:
+    "<complete Shopify Liquid section with the final requested styling and valid {% schema %}; do not send a rough baseline>",
   ...(input.isStandalone ? { isStandalone: true } : {}),
 });
 
@@ -237,9 +241,9 @@ const createThemeSectionTool = {
   name: "create-theme-section",
   title: "Create Theme Section",
   description:
-    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Do not use apply-theme-draft first. Required: explicit themeId or themeRole, one section file path or handle, and the complete Liquid file with a valid {% schema %}. After plan-theme-edit, read the exact nextReadKeys first; deze tool blokkeert nu bewust wanneer die verplichte theme-context reads nog ontbreken. Voor exacte screenshot/design-replica sections: doe eerst één precieze create-write en gebruik daarna alleen een volledige rewrite-edit als bredere visuele correcties nog nodig zijn.",
+    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Do not use apply-theme-draft first. Required: explicit themeId or themeRole, one section file path or handle, and the complete Liquid file with a valid {% schema %}. After plan-theme-edit, read the exact nextReadKeys first; deze tool blokkeert nu bewust wanneer die verplichte theme-context reads nog ontbreken. Voor screenshot/design-replica requests: lever de finale styling in de eerste create-write, niet eerst een veilige baseline gevolgd door een vraag of het pixel-perfect moet worden gemaakt.",
   docsDescription:
-    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Vereist: expliciet `themeId` of `themeRole`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Lees na `plan-theme-edit` eerst de exacte `nextReadKeys` in; deze tool weigert nu create-writes zolang die verplichte theme-context reads nog niet met `includeContent=true` zijn gebeurd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
+    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Vereist: expliciet `themeId` of `themeRole`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Lees na `plan-theme-edit` eerst de exacte `nextReadKeys` in; deze tool weigert nu create-writes zolang die verplichte theme-context reads nog niet met `includeContent=true` zijn gebeurd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Voor zulke replica-prompts verwacht deze tool directe finale styling in de eerste create-write; vraag dus niet eerst om extra toestemming om het daarna pixel-perfect te maken. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
   inputSchema: CreateThemeSectionPublicObjectSchema,
   schema: CreateThemeSectionInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -533,11 +537,14 @@ const createThemeSectionTool = {
     );
 
     if (result && typeof result === "object" && result.success === false) {
-      return {
-        ...result,
-        ...(internalWarnings.length > 0
-          ? {
-              warnings: Array.from(
+        return {
+          ...result,
+          ...(sectionBlueprint?.completionPolicy && !result.completionPolicy
+            ? { completionPolicy: sectionBlueprint.completionPolicy }
+            : {}),
+          ...(internalWarnings.length > 0
+            ? {
+                warnings: Array.from(
                 new Set([...(result.warnings || []), ...internalWarnings])
               ),
             }
@@ -566,6 +573,9 @@ const createThemeSectionTool = {
       }
       return {
         ...result,
+        ...(sectionBlueprint?.completionPolicy && !result.completionPolicy
+          ? { completionPolicy: sectionBlueprint.completionPolicy }
+          : {}),
         warnings: Array.from(
           new Set([...(result.warnings || []), ...internalWarnings])
         ),
@@ -591,6 +601,9 @@ const createThemeSectionTool = {
       }
       return {
         ...result,
+        ...(sectionBlueprint?.completionPolicy && !result.completionPolicy
+          ? { completionPolicy: sectionBlueprint.completionPolicy }
+          : {}),
         ...(themeSectionContext && !result.themeContext
           ? { themeContext: themeSectionContext }
           : {}),

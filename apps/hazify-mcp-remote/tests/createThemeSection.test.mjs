@@ -275,6 +275,10 @@ test("createThemeSection - reuses precision-first planner metadata for exact scr
   assert.equal(capturedContext.sectionBlueprint?.qualityTarget, "exact_match");
   assert.equal(capturedContext.sectionBlueprint?.generationMode, "precision_first");
   assert.equal(
+    capturedContext.sectionBlueprint?.completionPolicy?.deliveryExpectation,
+    "final_reference_match_in_first_write"
+  );
+  assert.equal(
     capturedContext.sectionBlueprint?.writeStrategy?.followUpTool,
     "draft-theme-artifact"
   );
@@ -283,6 +287,11 @@ test("createThemeSection - reuses precision-first planner metadata for exact scr
     true
   );
   assert.equal(result.sectionBlueprint?.qualityTarget, "exact_match");
+  assert.equal(
+    result.completionPolicy?.deliveryExpectation,
+    "final_reference_match_in_first_write"
+  );
+  assert.equal(result.completionPolicy?.askBeforeVisualRefinement, false);
 });
 
 test("createThemeSection - forwards media-oriented blueprint hints for hero/video sections", async () => {
