@@ -587,11 +587,15 @@ const buildPlanFromAnalysis = ({
       );
     }
   } else if (intent === "new_section") {
+    const precisionFirst =
+      sectionBlueprint?.qualityTarget === "exact_match" ||
+      sectionBlueprint?.generationMode === "precision_first";
     recommendedFlow = "create-section";
     shouldUse = "create-theme-section";
     likelyNeedsMultiFileEdit = false;
-    reason =
-      "Nieuwe sections horen eerst als los sections/<handle>.liquid bestand gemaakt te worden; template placement is een aparte stap. Spiegel vooraf ook de spacing- en setting-conventies van een vergelijkbare bestaande section in het doeltheme.";
+    reason = precisionFirst
+      ? "Deze nieuwe section vraagt om een zo exact mogelijke design/screenshot-replica. Lees eerst alle planner-reads, doe daarna één precieze create-write en gebruik pas daarna zo nodig een volledige rewrite-edit."
+      : "Nieuwe sections horen eerst als los sections/<handle>.liquid bestand gemaakt te worden; template placement is een aparte stap. Spiegel vooraf ook de spacing- en setting-conventies van een vergelijkbare bestaande section in het doeltheme.";
     nextWriteKeys = [];
     newFileSuggestions = ["sections/<new-section>.liquid"];
     if (templateFile?.key) {
@@ -605,6 +609,14 @@ const buildPlanFromAnalysis = ({
     warnings.push(
       "Controleer bij range-settings altijd dat default exact op het step-raster ligt vanaf min. Gebruik bij minder dan 3 discrete waarden liever een select-setting."
     );
+    if (precisionFirst) {
+      warnings.push(
+        "De prompt lijkt op een exacte replica/screenshot-match. Vermijd een snelle baseline-first create; besteed extra aandacht aan typography, spacing, compositie en responsive rhythm vóór de eerste write."
+      );
+      warnings.push(
+        "Als bredere visuele correcties na create nog nodig zijn, gebruik dan draft-theme-artifact mode='edit' met een volledige rewrite van dezelfde section in plaats van lange patch-arrays."
+      );
+    }
     if (Array.isArray(sectionBlueprint?.requiredReads) && sectionBlueprint.requiredReads.length > 0) {
       nextReadKeys = uniqueStrings(
         sectionBlueprint.requiredReads.map((entry) => entry.key)
@@ -1126,6 +1138,10 @@ export const planThemeEdit = async (
     newFileSuggestions: plan.newFileSuggestions,
     searchQueries: plan.searchQueries,
     warnings: plan.warnings,
+    qualityTarget: sectionBlueprint?.qualityTarget || null,
+    generationMode: sectionBlueprint?.generationMode || null,
+    allowedRefineStrategy:
+      sectionBlueprint?.writeStrategy?.allowedRefineStrategy || null,
     ...(themeContext ? { themeContext } : {}),
     ...(sectionBlueprint ? { sectionBlueprint } : {}),
     architecture: {

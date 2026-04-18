@@ -25,7 +25,7 @@ import {
 
 export const toolName = "draft-theme-artifact";
 export const title = "Write Theme Files";
-export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, or broader theme changes. For a brand-new section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. Do not use apply-theme-draft for the first write.`;
+export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, or broader theme changes. For a brand-new section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. For broad visual refinements of an existing section, prefer mode='edit' with a full rewrite over long patch arrays. Do not use apply-theme-draft for the first write.`;
 export const docsDescription = `Draft and validate Shopify theme files through the guarded pipeline.
 
 Modes:
@@ -40,7 +40,7 @@ Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als
 
 Theme-aware section regels:
 - Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
-- Compatibele shorthand: voor één file mag een client ook top-level key + value of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
+- Compatibele shorthand: voor één file mag een client ook top-level key + value/content/liquid of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Binnen files[] worden value/content/liquid nu ook veilig naar dezelfde canonieke value-write genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
 - Wanneer plan-theme-edit eerst exact nextReadKeys voorschrijft, verwacht deze tool nu dat die reads ook echt met includeContent=true zijn uitgevoerd voordat dezelfde write-flow doorgaat.
 - Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting. Bij range-fouten geeft de tool exacte suggestedReplacement/default-hints terug.
@@ -74,39 +74,77 @@ const ThemeDraftPatchesSchema = z
   .max(10)
   .describe("Voer meerdere patches sequentieel uit binnen hetzelfde bestand. Gebruik dit wanneer een bestaand bestand meerdere losse wijzigingen nodig heeft of wanneer één unieke patch-anchor niet genoeg is.");
 
-const ThemeDraftFileSchema = z.object({
-  key: z.string().min(1).describe("De exacte filelocatie (bijv. sections/feature-sandbox.liquid)"),
-  value: z
-    .string()
-    .optional()
-    .describe(
-      "De volledige inhoud / broncode. Payloads falen als ze niet Shopify OS 2.0 proof zijn: geldige schema settings en een presets-array zijn verplicht."
-    ),
-  patch: ThemeDraftPatchSchema.optional().describe("Verander een specifieke string zonder het hele bestand in te sturen. Bespaart tokens en voorkomt truncated writes."),
-  patches: ThemeDraftPatchesSchema.optional(),
-  baseChecksumMd5: z.string().optional().describe("Optioneel MD5 checksum voor optimistic locking. De write faalt als het bestand tussentijds is gewijzigd."),
-}).strict().refine((data) => {
-  const hasValue = data.value !== undefined;
-  const hasPatch = data.patch !== undefined;
-  const hasPatches = Array.isArray(data.patches) && data.patches.length > 0;
-  return [hasValue, hasPatch, hasPatches].filter(Boolean).length === 1;
-}, {
-  message: "Provide exactly one of 'value', 'patch', or 'patches'",
-});
+const ThemeDraftFilePublicSchema = z
+  .object({
+    key: z.string().min(1).describe("De exacte filelocatie (bijv. sections/feature-sandbox.liquid)"),
+    value: z
+      .string()
+      .optional()
+      .describe(
+        "De volledige inhoud / broncode. Payloads falen als ze niet Shopify OS 2.0 proof zijn: geldige schema settings en een presets-array zijn verplicht."
+      ),
+    content: z
+      .string()
+      .optional()
+      .describe("Compat alias van value binnen files[]."),
+    liquid: z
+      .string()
+      .optional()
+      .describe("Compat alias van value binnen files[]."),
+    patch: ThemeDraftPatchSchema.optional().describe("Verander een specifieke string zonder het hele bestand in te sturen. Bespaart tokens en voorkomt truncated writes."),
+    patches: ThemeDraftPatchesSchema.optional(),
+    baseChecksumMd5: z.string().optional().describe("Optioneel MD5 checksum voor optimistic locking. De write faalt als het bestand tussentijds is gewijzigd."),
+  })
+  .strict()
+  .refine((data) => {
+    const hasValueLike =
+      data.value !== undefined ||
+      data.content !== undefined ||
+      data.liquid !== undefined;
+    const hasPatch = data.patch !== undefined;
+    const hasPatches = Array.isArray(data.patches) && data.patches.length > 0;
+    return [hasValueLike, hasPatch, hasPatches].filter(Boolean).length === 1;
+  }, {
+    message:
+      "Provide exactly one logical write mode: one of 'value'/'content'/'liquid', 'patch', or 'patches'",
+  });
+
+const ThemeDraftFileSchema = z
+  .object({
+    key: z.string().min(1).describe("De exacte filelocatie (bijv. sections/feature-sandbox.liquid)"),
+    value: z
+      .string()
+      .optional()
+      .describe(
+        "De volledige inhoud / broncode. Payloads falen als ze niet Shopify OS 2.0 proof zijn: geldige schema settings en een presets-array zijn verplicht."
+      ),
+    patch: ThemeDraftPatchSchema.optional().describe("Verander een specifieke string zonder het hele bestand in te sturen. Bespaart tokens en voorkomt truncated writes."),
+    patches: ThemeDraftPatchesSchema.optional(),
+    baseChecksumMd5: z.string().optional().describe("Optioneel MD5 checksum voor optimistic locking. De write faalt als het bestand tussentijds is gewijzigd."),
+  })
+  .strict()
+  .refine((data) => {
+    const hasValue = data.value !== undefined;
+    const hasPatch = data.patch !== undefined;
+    const hasPatches = Array.isArray(data.patches) && data.patches.length > 0;
+    return [hasValue, hasPatch, hasPatches].filter(Boolean).length === 1;
+  }, {
+    message: "Provide exactly one of 'value', 'patch', or 'patches'",
+  });
 
 const SummaryFieldSchema = z.string().max(4000).optional();
 
 const DraftThemeArtifactPublicObjectSchema = z
   .object({
     files: z
-      .array(ThemeDraftFileSchema)
+      .array(ThemeDraftFilePublicSchema)
       .min(1)
       .max(10)
       .optional()
       .describe(
         "Canonieke file batch. Maximale file batch is 10 items conform veiligheidsregels."
       ),
-    file: ThemeDraftFileSchema
+    file: ThemeDraftFilePublicSchema
       .optional()
       .describe("Compat shorthand voor één file-object; wordt intern naar files[] genormaliseerd."),
     key: z
@@ -231,6 +269,30 @@ const NormalizedThemeDraftArtifactShape = z
     });
   });
 
+const normalizeDraftFileInput = (file) => {
+  if (!file || typeof file !== "object" || Array.isArray(file)) {
+    return file;
+  }
+
+  const normalized = {
+    key: file.key,
+    ...(file.value !== undefined
+      ? { value: file.value }
+      : file.content !== undefined
+        ? { value: file.content }
+        : file.liquid !== undefined
+          ? { value: file.liquid }
+          : {}),
+    ...(file.patch !== undefined ? { patch: file.patch } : {}),
+    ...(file.patches !== undefined ? { patches: file.patches } : {}),
+    ...(file.baseChecksumMd5 !== undefined
+      ? { baseChecksumMd5: file.baseChecksumMd5 }
+      : {}),
+  };
+
+  return normalized;
+};
+
 const normalizeDraftThemeArtifactInput = (rawInput) => {
   if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
     return rawInput;
@@ -238,7 +300,9 @@ const normalizeDraftThemeArtifactInput = (rawInput) => {
 
   const summary = extractThemeToolSummary(rawInput);
   let normalized = {
-    files: rawInput.files,
+    files: Array.isArray(rawInput.files)
+      ? rawInput.files.map((file) => normalizeDraftFileInput(file))
+      : rawInput.files,
     themeId: rawInput.themeId,
     themeRole: rawInput.themeRole,
     mode: rawInput.mode,
@@ -262,7 +326,7 @@ const normalizeDraftThemeArtifactInput = (rawInput) => {
 
   if (!normalized.files) {
     if (rawInput.file && typeof rawInput.file === "object" && !Array.isArray(rawInput.file)) {
-      normalized.files = [rawInput.file];
+      normalized.files = [normalizeDraftFileInput(rawInput.file)];
     }
   }
 
@@ -2639,28 +2703,79 @@ export const draftThemeArtifact = {
     const normalizedParse =
       NormalizedThemeDraftArtifactInputSchema.safeParse(rawArgs);
     if (!normalizedParse.success) {
+      const patchOverflowIssue = normalizedParse.error.issues.find(
+        (issue) =>
+          issue.path.includes("patches") &&
+          (issue.code === "too_big" ||
+            /at most|max/i.test(issue.message || ""))
+      );
+      const patchOverflowIndex =
+        patchOverflowIssue && Number.isInteger(patchOverflowIssue.path?.[1])
+          ? Number(patchOverflowIssue.path[1])
+          : null;
+      const patchOverflowKey =
+        patchOverflowIndex !== null
+          ? normalizedCandidateArgs.files?.[patchOverflowIndex]?.key || null
+          : normalizedCandidateArgs.files?.[0]?.key || null;
+      const patchOverflowTemplate = patchOverflowIssue
+        ? {
+            ...(normalizedCandidateArgs.themeId !== null
+              ? { themeId: normalizedCandidateArgs.themeId }
+              : {}),
+            ...(normalizedCandidateArgs.themeRole
+              ? { themeRole: normalizedCandidateArgs.themeRole }
+              : {}),
+            mode: "edit",
+            files: [
+              {
+                key: patchOverflowKey || "<theme-file>",
+                value: "<full rewritten file content>",
+              },
+            ],
+          }
+        : undefined;
       return buildFailureResponse({
         status: "needs_input",
         message:
-          "De draft kon deze compat-input niet veilig normaliseren. Corrigeer de conflicterende velden en probeer opnieuw.",
+          patchOverflowIssue
+            ? "Deze draft-edit bevat te veel losse patches voor een veilige retry. Gebruik liever één volledige rewrite van hetzelfde bestand."
+            : "De draft kon deze compat-input niet veilig normaliseren. Corrigeer de conflicterende velden en probeer opnieuw.",
         errorCode: "invalid_draft_theme_artifact_input",
         retryable: true,
-        nextAction: "fix_input",
-        retryMode: "same_request_with_structured_fields",
+        nextAction: patchOverflowIssue ? "rewrite_with_full_value" : "fix_input",
+        nextArgsTemplate: patchOverflowTemplate,
+        retryMode: patchOverflowIssue
+          ? "same_request_with_full_rewrite"
+          : "same_request_with_structured_fields",
         normalizedArgs: normalizedCandidateArgs,
         errors: normalizedParse.error.issues.map((issue) =>
           buildDraftInputError({
             path: issue.path,
             problem: issue.message,
+            issueCode:
+              issue.path.includes("patches") &&
+              (issue.code === "too_big" || /at most|max/i.test(issue.message || ""))
+                ? "patch_batch_too_large"
+                : undefined,
             fixSuggestion:
               issue.path.join(".") === "themeId"
                 ? "Stuur alleen themeId of alleen themeRole mee."
+                : issue.path.includes("patches") &&
+                    (issue.code === "too_big" ||
+                      /at most|max/i.test(issue.message || ""))
+                  ? "Gebruik voor een bredere visual/markup rewrite liever één volledige value-write in draft-theme-artifact mode='edit' in plaats van een lange patches-array."
                 : issue.path.join(".").includes("patch") &&
                     issue.message.includes("mode='create'")
                   ? "Gebruik mode='edit' voor patch/patches of stuur in create mode een volledige value-write."
                   : "Corrigeer dit invoerveld en probeer dezelfde toolcall opnieuw.",
           })
         ),
+        suggestedFixes: patchOverflowIssue
+          ? [
+              "Gebruik voor bredere section-refinements liever één volledige rewrite in draft-theme-artifact mode='edit'.",
+              "Reserveer patch/patches voor kleine, unieke literal fixes.",
+            ]
+          : [],
       });
     }
 

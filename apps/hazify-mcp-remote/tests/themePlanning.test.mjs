@@ -401,6 +401,11 @@ try {
     newSectionPlan.sectionBlueprint?.safeUnitStrategy?.typography,
     "section blueprint should expose a safe unit strategy"
   );
+  assert.equal(
+    newSectionPlan.qualityTarget,
+    "theme_consistent",
+    "ordinary new-section planning should default to theme-consistent quality"
+  );
   assert.ok(
     newSectionPlan.sectionBlueprint?.forbiddenPatterns?.some((entry) =>
       entry.includes("{% javascript %}")
@@ -429,6 +434,36 @@ try {
       entry.toLowerCase().includes("media")
     ),
     "media plans should surface media-focused preflight checks"
+  );
+
+  const exactReplicaPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak deze review slider exact na van de screenshot als Trustpilot replica",
+  });
+  assert.equal(exactReplicaPlan.qualityTarget, "exact_match");
+  assert.equal(exactReplicaPlan.generationMode, "precision_first");
+  assert.equal(
+    exactReplicaPlan.allowedRefineStrategy,
+    "full_rewrite_only",
+    "exact-match new sections should discourage patch-batch refinement"
+  );
+  assert.equal(
+    exactReplicaPlan.sectionBlueprint?.writeStrategy?.followUpTool,
+    "draft-theme-artifact",
+    "exact-match new sections should prefer full rewrite follow-ups"
+  );
+  assert.equal(
+    exactReplicaPlan.sectionBlueprint?.writeStrategy?.disallowPatchBatchRefine,
+    true
+  );
+  assert.ok(
+    exactReplicaPlan.warnings.some((warning) =>
+      warning.toLowerCase().includes("replica") ||
+      warning.toLowerCase().includes("baseline-first")
+    ),
+    "exact-match plans should surface precision-first warnings"
   );
 
   global.fetch = createGraphqlFetch(productThemeBlockFiles);

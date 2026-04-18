@@ -5,8 +5,10 @@ import { planThemeEdit } from "../lib/themePlanning.js";
 import { getThemeFiles } from "../lib/themeFiles.js";
 import { inferTemplateSurfaceFromSectionLiquid } from "../lib/themeSectionContext.js";
 import {
+  getThemeEditMemory,
   haveRecentThemeReads,
   rememberThemeWrite,
+  themeTargetsCompatible,
 } from "../lib/themeEditMemory.js";
 import {
   extractThemeToolSummary,
@@ -235,9 +237,9 @@ const createThemeSectionTool = {
   name: "create-theme-section",
   title: "Create Theme Section",
   description:
-    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Do not use apply-theme-draft first. Required: explicit themeId or themeRole, one section file path or handle, and the complete Liquid file with a valid {% schema %}. After plan-theme-edit, read the exact nextReadKeys first; deze tool blokkeert nu bewust wanneer die verplichte theme-context reads nog ontbreken.",
+    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Do not use apply-theme-draft first. Required: explicit themeId or themeRole, one section file path or handle, and the complete Liquid file with a valid {% schema %}. After plan-theme-edit, read the exact nextReadKeys first; deze tool blokkeert nu bewust wanneer die verplichte theme-context reads nog ontbreken. Voor exacte screenshot/design-replica sections: doe eerst één precieze create-write en gebruik daarna alleen een volledige rewrite-edit als bredere visuele correcties nog nodig zijn.",
   docsDescription:
-    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Vereist: expliciet `themeId` of `themeRole`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Lees na `plan-theme-edit` eerst de exacte `nextReadKeys` in; deze tool weigert nu create-writes zolang die verplichte theme-context reads nog niet met `includeContent=true` zijn gebeurd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
+    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Vereist: expliciet `themeId` of `themeRole`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Lees na `plan-theme-edit` eerst de exacte `nextReadKeys` in; deze tool weigert nu create-writes zolang die verplichte theme-context reads nog niet met `includeContent=true` zijn gebeurd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
   inputSchema: CreateThemeSectionPublicObjectSchema,
   schema: CreateThemeSectionInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -267,6 +269,7 @@ const createThemeSectionTool = {
     }
 
     const input = normalizedParse.data;
+    const summary = extractThemeToolSummary(rawInput);
     const normalizedArgs = summarizeNormalizedCreateArgs(input);
     const nextArgsTemplate = buildCreateSectionArgsTemplate({
       ...input,
@@ -357,6 +360,18 @@ const createThemeSectionTool = {
     }
 
     const shopifyClient = requireShopifyClient(context);
+    const memoryState = getThemeEditMemory(context);
+    const recentPlan =
+      !summary &&
+      memoryState?.lastPlan &&
+      memoryState.lastPlan.intent === "new_section" &&
+      themeTargetsCompatible(memoryState.themeTarget, {
+        themeId: input.themeId,
+        themeRole: input.themeRole,
+      })
+        ? memoryState.lastPlan
+        : null;
+    const planningQuery = summary || recentPlan?.query || input.key;
     let themeSectionContext = null;
     let sectionBlueprint = null;
     const internalWarnings = [];
@@ -405,16 +420,28 @@ const createThemeSectionTool = {
     }
 
     try {
-      const planningResult = await planThemeEdit(shopifyClient, API_VERSION, {
-        themeId: input.themeId,
-        themeRole: input.themeRole,
-        intent: "new_section",
-        template: inferTemplateSurfaceFromSectionLiquid(input.liquid),
-        query: input.key,
-      });
+      themeSectionContext =
+        recentPlan?.themeContext && typeof recentPlan.themeContext === "object"
+          ? recentPlan.themeContext
+          : null;
+      sectionBlueprint =
+        recentPlan?.sectionBlueprint && typeof recentPlan.sectionBlueprint === "object"
+          ? recentPlan.sectionBlueprint
+          : null;
 
-      themeSectionContext = planningResult?.themeContext || null;
-      sectionBlueprint = planningResult?.sectionBlueprint || null;
+      if (!themeSectionContext || !sectionBlueprint) {
+        const planningResult = await planThemeEdit(shopifyClient, API_VERSION, {
+          themeId: input.themeId,
+          themeRole: input.themeRole,
+          intent: "new_section",
+          template: inferTemplateSurfaceFromSectionLiquid(input.liquid),
+          query: planningQuery,
+        });
+
+        themeSectionContext = planningResult?.themeContext || themeSectionContext;
+        sectionBlueprint = planningResult?.sectionBlueprint || sectionBlueprint;
+      }
+
       if (!themeSectionContext) {
         internalWarnings.push(
           "Kon geen compacte theme-context afleiden vóór create-validatie; de write-flow valt terug op generieke section-validatie."

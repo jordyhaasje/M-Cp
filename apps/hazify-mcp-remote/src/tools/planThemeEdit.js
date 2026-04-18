@@ -458,6 +458,9 @@ const buildPlanWriteArgsTemplate = (input = {}, result = {}) => {
   }
 
   if (result?.shouldUse === "draft-theme-artifact") {
+    const preferFullRewrite =
+      result?.recommendedFlow === "rewrite-existing" ||
+      result?.sectionBlueprint?.writeStrategy?.preferFullRewriteAfterCreate === true;
     return {
       ...explicitThemeTarget,
       mode:
@@ -471,7 +474,9 @@ const buildPlanWriteArgsTemplate = (input = {}, result = {}) => {
             result?.nextWriteKeys?.[0] ||
             result?.newFileSuggestions?.[0] ||
             "<theme-file>",
-          value: "<complete file content or use patch/patches for edits>",
+          value: preferFullRewrite
+            ? "<full rewritten file content>"
+            : "<complete file content or use patch/patches for edits>",
         },
       ],
     };
@@ -541,9 +546,9 @@ const planThemeEditTool = {
   name: "plan-theme-edit",
   title: "Plan Theme Edit",
   description:
-    "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Gebruik plan-theme-edit voor native blocks, placement-vragen en andere theme-aware flows. Geef bij voorkeur intent plus themeId of themeRole mee. De planner retourneert de directe volgende stap: eerst lezen als nextReadKeys nodig zijn, pas daarna schrijven. Bredere refinements van bestaande sections/snippets worden nu expliciet richting draft-theme-artifact gestuurd; patch-theme-file blijft alleen voor kleine, gerichte fixes.",
+    "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Gebruik plan-theme-edit voor native blocks, placement-vragen en andere theme-aware flows. Geef bij voorkeur intent plus themeId of themeRole mee. De planner retourneert de directe volgende stap: eerst lezen als nextReadKeys nodig zijn, pas daarna schrijven. Bredere refinements van bestaande sections/snippets gaan expliciet richting draft-theme-artifact; patch-theme-file blijft alleen voor kleine, gerichte fixes. Voor exacte screenshot/design-replica sections stuurt de planner nu ook op één precieze create-write en daarna hooguit een volledige rewrite-edit.",
   docsDescription:
-    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole`. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: `patch-existing`, `multi-file-edit`, `create-section` of `template-placement`, plus de exacte volgende read/write keys. `nextTool` en `nextArgsTemplate` beschrijven nu de onmiddellijke volgende stap: meestal eerst `get-theme-file` of `get-theme-files` voor verplichte contextreads, en pas daarna de uiteindelijke write-tool via `writeTool` en `writeArgsTemplate`. Langere `query`- of `description`-prompts zijn toegestaan; de planner compacteert die intern naar een korte query voor tokenzuinige planning. Voor native product-blocks analyseert de planner `templates/*.json` al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand `targetFile`. Wanneer in dezelfde flow net een section is aangemaakt, kunnen vervolgprompts zoals 'optimaliseer hem' of 'maak V2' automatisch blijven wijzen naar datzelfde created target. Voor nieuwe sections retourneert de planner nu naast `themeContext` ook een `sectionBlueprint` met category, required reads, relevante helpers, risky inherited classes, safe unit strategy, forbidden patterns, preflight checks en write-strategy hints.",
+    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole`. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: `patch-existing`, `multi-file-edit`, `create-section` of `template-placement`, plus de exacte volgende read/write keys. `nextTool` en `nextArgsTemplate` beschrijven nu de onmiddellijke volgende stap: meestal eerst `get-theme-file` of `get-theme-files` voor verplichte contextreads, en pas daarna de uiteindelijke write-tool via `writeTool` en `writeArgsTemplate`. Langere `query`- of `description`-prompts zijn toegestaan; de planner compacteert die intern naar een korte query voor tokenzuinige planning. Voor native product-blocks analyseert de planner `templates/*.json` al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand `targetFile`. Wanneer in dezelfde flow net een section is aangemaakt, kunnen vervolgprompts zoals 'optimaliseer hem' of 'maak V2' automatisch blijven wijzen naar datzelfde created target. Voor nieuwe sections retourneert de planner nu naast `themeContext` ook een `sectionBlueprint` met category, qualityTarget, generationMode, required reads, relevante helpers, risky inherited classes, safe unit strategy, forbidden patterns, preflight checks en write-strategy hints. Exacte screenshot/design-replica prompts krijgen extra precision-first guardrails: liever één sterke create-write en daarna hooguit een volledige rewrite-edit, niet een baseline gevolgd door grote patch-batches.",
   inputSchema: PlanThemeEditPublicObjectSchema,
   schema: PlanThemeEditInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -647,11 +652,14 @@ const planThemeEditTool = {
       themeRole: input.themeRole,
       intent: input.intent,
       template: input.template,
+      query: input.query,
       targetFile: input.targetFile,
       nextReadKeys: result?.nextReadKeys || [],
       nextWriteKeys: result?.nextWriteKeys || [],
       immediateNextTool: immediateStep.nextTool || null,
       writeTool,
+      themeContext: result?.themeContext || null,
+      sectionBlueprint: result?.sectionBlueprint || null,
     });
     return {
       success: true,

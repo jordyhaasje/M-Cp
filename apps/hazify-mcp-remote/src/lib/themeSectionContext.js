@@ -163,8 +163,28 @@ const CATEGORY_EXTRA_VALIDATIONS = {
   ],
 };
 
+const EXACT_MATCH_PATTERNS = [
+  /\bexact(?:ly|e)?\b/i,
+  /\bpixel(?:[- ]?perfect)?\b/i,
+  /\b1[:\- ]?1\b/i,
+  /\breplica\b/i,
+  /\bscreenshot\b/i,
+  /\breference\b/i,
+  /\bidentiek\b/i,
+  /\bprecies\b/i,
+  /\bcopy this\b/i,
+  /\bmatch(?:ing|en)?\b/i,
+  /\bna(?:maken|bouwen)\b/i,
+  /\bzoals op (?:de )?(?:afbeelding|screenshot|referentie)\b/i,
+];
+
 const uniqueStrings = (values) =>
   Array.from(new Set((values || []).filter(Boolean)));
+
+const normalizeText = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
 
 const escapeRegExp = (value) =>
   String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -490,12 +510,41 @@ const scoreHelperSnippet = (file, { category, themeContext = null } = {}) => {
   return score;
 };
 
-const buildWriteStrategy = (category) => {
+const inferQualityTarget = ({ query = "", sectionTypeHint = "", fileKey = "" } = {}) => {
+  const haystack = normalizeText(`${query} ${sectionTypeHint} ${fileKey}`);
+  if (!haystack) {
+    return "theme_consistent";
+  }
+
+  return EXACT_MATCH_PATTERNS.some((pattern) => pattern.test(haystack))
+    ? "exact_match"
+    : "theme_consistent";
+};
+
+const buildWriteStrategy = ({ category, qualityTarget = "theme_consistent" } = {}) => {
+  if (qualityTarget === "exact_match") {
+    return {
+      mode: "single_precise_create_then_full_edit_if_needed",
+      firstTool: "create-theme-section",
+      followUpTool: "draft-theme-artifact",
+      allowedRefineStrategy: "full_rewrite_only",
+      maxCreateAttempts: 1,
+      preferFullRewriteAfterCreate: true,
+      disallowPatchBatchRefine: true,
+      hint:
+        "Voor exacte screenshot/design-replica's: lees eerst alle required reads, doe daarna één precieze create-write en gebruik alleen draft-theme-artifact mode='edit' met een volledige rewrite als bredere visuele correcties nog nodig zijn.",
+    };
+  }
+
   if (category === "interactive" || category === "hybrid") {
     return {
       mode: "single_create_then_full_edit_if_needed",
       firstTool: "create-theme-section",
       followUpTool: "draft-theme-artifact",
+      allowedRefineStrategy: "full_rewrite_preferred",
+      maxCreateAttempts: 1,
+      preferFullRewriteAfterCreate: true,
+      disallowPatchBatchRefine: true,
       hint:
         "Maak eerst één volledige section-write met parser-veilige JS en theme-aware wrappers. Gebruik voor bredere vervolgverbeteringen of rewrites daarna draft-theme-artifact mode='edit'; reserveer patch-theme-file alleen voor kleine, unieke literal fixes.",
     };
@@ -506,6 +555,10 @@ const buildWriteStrategy = (category) => {
       mode: "single_create_then_media_edit_if_needed",
       firstTool: "create-theme-section",
       followUpTool: "draft-theme-artifact",
+      allowedRefineStrategy: "full_rewrite_preferred",
+      maxCreateAttempts: 1,
+      preferFullRewriteAfterCreate: true,
+      disallowPatchBatchRefine: true,
       hint:
         "Maak eerst één complete section en laat media-rendering vooraf valideren op image_tag/video settings en responsieve wrappers. Gebruik voor bredere vervolgstappen liever draft-theme-artifact mode='edit' dan losse grote patches.",
     };
@@ -516,6 +569,10 @@ const buildWriteStrategy = (category) => {
       mode: "single_create_with_theme_helpers",
       firstTool: "create-theme-section",
       followUpTool: "draft-theme-artifact",
+      allowedRefineStrategy: "full_rewrite_preferred",
+      maxCreateAttempts: 1,
+      preferFullRewriteAfterCreate: true,
+      disallowPatchBatchRefine: true,
       hint:
         "Spiegel bestaande price/button/product helpers en gebruik alleen een multi-file edit als de planner daar expliciet om vraagt.",
     };
@@ -525,6 +582,10 @@ const buildWriteStrategy = (category) => {
     mode: "single_create",
     firstTool: "create-theme-section",
     followUpTool: "patch-theme-file",
+    allowedRefineStrategy: "literal_patch_or_full_rewrite",
+    maxCreateAttempts: 1,
+    preferFullRewriteAfterCreate: false,
+    disallowPatchBatchRefine: false,
     hint:
       "Lees de planner-provided referenties in één compacte read-call en doe daarna één complete create-write.",
   };
@@ -648,6 +709,15 @@ const buildSectionGenerationBlueprint = ({
     source,
     schema,
   });
+  const qualityTarget = inferQualityTarget({
+    query,
+    sectionTypeHint,
+    fileKey:
+      representativeSectionFile?.key ||
+      (representativeSectionType
+        ? `sections/${representativeSectionType}.liquid`
+        : ""),
+  });
 
   const relevantHelpers = (snippetFiles || [])
     .map((file) => ({
@@ -706,6 +776,9 @@ const buildSectionGenerationBlueprint = ({
   return {
     category: profile.category,
     categorySignals: profile.categorySignals,
+    qualityTarget,
+    generationMode:
+      qualityTarget === "exact_match" ? "precision_first" : "theme_aware_baseline",
     requiredReads,
     optionalReads,
     relevantHelpers,
@@ -740,12 +813,21 @@ const buildSectionGenerationBlueprint = ({
             ...CATEGORY_EXTRA_VALIDATIONS.media,
           ]
         : []),
+      ...(qualityTarget === "exact_match"
+        ? [
+            "Gebruik geen snelle baseline-first aanpak: besteed extra aandacht aan typography, spacing en compositie vóór de eerste write.",
+            "Gebruik bij bredere visuele refinements na create liever één volledige rewrite dan een lange patch-batch.",
+          ]
+        : []),
     ]),
     helperSearchQueries: uniqueStrings([
       ...CATEGORY_SEARCH_HINTS.static,
       ...(CATEGORY_SEARCH_HINTS[profile.category] || []),
     ]).slice(0, 6),
-    writeStrategy: buildWriteStrategy(profile.category),
+    writeStrategy: buildWriteStrategy({
+      category: profile.category,
+      qualityTarget,
+    }),
   };
 };
 
@@ -1108,6 +1190,7 @@ export {
   buildSectionGenerationBlueprint,
   buildThemeSectionContext,
   classifySectionGeneration,
+  inferQualityTarget,
   inferTemplateSurfaceFromSectionLiquid,
   inspectSectionScaleAgainstTheme,
 };

@@ -224,6 +224,67 @@ test("createThemeSection - forwards static section blueprint and theme context f
   );
 });
 
+test("createThemeSection - reuses precision-first planner metadata for exact screenshot replicas", async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let capturedContext = null;
+  draftThemeArtifact.execute = async (_input, context) => {
+    capturedContext = context;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const requestContext = { shopifyClient, tokenHash: "create-theme-exact-match" };
+  const planResult = await planThemeEditTool.execute(
+    {
+      themeId: 123,
+      intent: "new_section",
+      template: "homepage",
+      query: "Maak deze Trustpilot review slider exact na van de screenshot",
+    },
+    requestContext
+  );
+
+  await getThemeFilesTool.execute(planResult.nextArgsTemplate, requestContext);
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/trustpilot-slider.liquid",
+      liquid: `
+<section class="trustpilot-slider page-width">
+  <div class="rte">{{ section.settings.heading }}</div>
+</section>
+{% schema %}
+{
+  "name": "Trustpilot slider",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Loved by customers" }
+  ],
+  "presets": [{ "name": "Trustpilot slider" }]
+}
+{% endschema %}
+`,
+    },
+    requestContext
+  );
+
+  assert.equal(capturedContext.sectionBlueprint?.qualityTarget, "exact_match");
+  assert.equal(capturedContext.sectionBlueprint?.generationMode, "precision_first");
+  assert.equal(
+    capturedContext.sectionBlueprint?.writeStrategy?.followUpTool,
+    "draft-theme-artifact"
+  );
+  assert.equal(
+    capturedContext.sectionBlueprint?.writeStrategy?.disallowPatchBatchRefine,
+    true
+  );
+  assert.equal(result.sectionBlueprint?.qualityTarget, "exact_match");
+});
+
 test("createThemeSection - forwards media-oriented blueprint hints for hero/video sections", async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 

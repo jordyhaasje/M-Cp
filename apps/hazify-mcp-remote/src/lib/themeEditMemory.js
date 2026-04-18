@@ -115,11 +115,14 @@ const rememberThemePlan = (
     themeRole,
     intent,
     template,
+    query,
     targetFile,
     nextReadKeys = [],
     nextWriteKeys = [],
     immediateNextTool = null,
     writeTool = null,
+    themeContext = null,
+    sectionBlueprint = null,
   } = {}
 ) =>
   withThemeEditMemoryState(context, (state) => {
@@ -138,10 +141,16 @@ const rememberThemePlan = (
         targetFile: trimToNull(targetFile),
         intent: trimToNull(intent),
         template: trimToNull(template),
+        query: trimToNull(query),
         nextReadKeys: uniqueStrings(nextReadKeys),
         nextWriteKeys: uniqueStrings(nextWriteKeys),
         immediateNextTool: trimToNull(immediateNextTool),
         writeTool: trimToNull(writeTool),
+        themeContext: themeContext && typeof themeContext === "object" ? themeContext : null,
+        sectionBlueprint:
+          sectionBlueprint && typeof sectionBlueprint === "object"
+            ? sectionBlueprint
+            : null,
       },
     };
   });

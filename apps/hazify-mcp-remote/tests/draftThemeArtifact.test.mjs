@@ -2030,6 +2030,75 @@ test("draftThemeArtifact - normalizes single-file top-level aliases into files[]
   });
 });
 
+test("draftThemeArtifact - normalizes files[] content/liquid aliases into canonical value writes", async () => {
+  const contentParsed = draftThemeArtifact.schema.parse({
+    themeRole: "main",
+    mode: "create",
+    files: [
+      {
+        key: "sections/content-alias-demo.liquid",
+        content: `
+<div>Content alias</div>
+{% schema %}
+{
+  "name": "Content alias",
+  "settings": [],
+  "presets": [{ "name": "Content alias" }]
+}
+{% endschema %}
+`,
+      },
+    ],
+  });
+
+  assert.equal(contentParsed.files[0].value.includes("Content alias"), true);
+
+  const liquidParsed = draftThemeArtifact.schema.parse({
+    themeRole: "main",
+    mode: "create",
+    files: [
+      {
+        key: "sections/liquid-alias-demo.liquid",
+        liquid: `
+<div>Liquid alias</div>
+{% schema %}
+{
+  "name": "Liquid alias",
+  "settings": [],
+  "presets": [{ "name": "Liquid alias" }]
+}
+{% endschema %}
+`,
+      },
+    ],
+  });
+
+  assert.equal(liquidParsed.files[0].value.includes("Liquid alias"), true);
+});
+
+test("draftThemeArtifact - oversized patch batches steer toward a full rewrite", async () => {
+  const result = await draftThemeArtifact.execute({
+    themeRole: "main",
+    mode: "edit",
+    files: [
+      {
+        key: "sections/hero-bubble-tea.liquid",
+        patches: Array.from({ length: 11 }, (_, index) => ({
+          searchString: `old-${index}`,
+          replaceString: `new-${index}`,
+        })),
+      },
+    ],
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "invalid_draft_theme_artifact_input");
+  assert.equal(result.nextAction, "rewrite_with_full_value");
+  assert.equal(result.retryMode, "same_request_with_full_rewrite");
+  assert.equal(result.nextArgsTemplate?.files?.[0]?.key, "sections/hero-bubble-tea.liquid");
+  assert.equal(result.errors?.[0]?.issueCode, "patch_batch_too_large");
+});
+
 test("draftThemeArtifact - infers theme target and file path from summary-compatible input", async () => {
   const parsed = draftThemeArtifact.schema.parse({
     _tool_input_summary: "Schrijf sections/stock-pulse.liquid naar het live theme",
