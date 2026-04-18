@@ -23,9 +23,9 @@ const normalizeThemeTarget = ({ themeId, themeRole } = {}) => ({
 const getThemeEditMemoryKey = (context = {}) =>
   trimToNull(
     context?.tokenHash ||
-      context?.tenantId ||
-      context?.shopifyDomain ||
-      context?.shopifyClient?.session?.shop
+      context?.sessionId ||
+      context?.mcpSessionId ||
+      context?.requestSessionId
   );
 
 const pruneExpiredThemeEditMemory = () => {

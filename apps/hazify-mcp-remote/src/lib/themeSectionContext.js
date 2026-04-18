@@ -493,21 +493,21 @@ const scoreHelperSnippet = (file, { category, themeContext = null } = {}) => {
 const buildWriteStrategy = (category) => {
   if (category === "interactive" || category === "hybrid") {
     return {
-      mode: "staged_create_then_tighten",
+      mode: "single_create_then_full_edit_if_needed",
       firstTool: "create-theme-section",
-      followUpTool: "patch-theme-file",
+      followUpTool: "draft-theme-artifact",
       hint:
-        "Maak eerst één volledige section-write met parser-veilige JS en theme-aware wrappers. Gebruik daarna alleen kleine patch/theme-edit follow-ups als de section al bestaat.",
+        "Maak eerst één volledige section-write met parser-veilige JS en theme-aware wrappers. Gebruik voor bredere vervolgverbeteringen of rewrites daarna draft-theme-artifact mode='edit'; reserveer patch-theme-file alleen voor kleine, unieke literal fixes.",
     };
   }
 
   if (category === "media") {
     return {
-      mode: "single_create_with_media_preflight",
+      mode: "single_create_then_media_edit_if_needed",
       firstTool: "create-theme-section",
-      followUpTool: "patch-theme-file",
+      followUpTool: "draft-theme-artifact",
       hint:
-        "Maak eerst één complete section en laat media-rendering vooraf valideren op image_tag/video settings en responsieve wrappers.",
+        "Maak eerst één complete section en laat media-rendering vooraf valideren op image_tag/video settings en responsieve wrappers. Gebruik voor bredere vervolgstappen liever draft-theme-artifact mode='edit' dan losse grote patches.",
     };
   }
 

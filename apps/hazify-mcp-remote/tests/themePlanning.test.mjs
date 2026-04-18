@@ -326,10 +326,23 @@ try {
     targetFile: "sections/main-product.liquid",
     query: "Pas deze section aan",
   });
-  assert.equal(exactExistingEditPlan.recommendedFlow, "patch-existing");
+  assert.equal(exactExistingEditPlan.recommendedFlow, "rewrite-existing");
+  assert.equal(exactExistingEditPlan.shouldUse, "draft-theme-artifact");
   assert.equal(exactExistingEditPlan.template.requested, null);
   assert.equal(exactExistingEditPlan.template.resolved, null);
-  assert.deepEqual(exactExistingEditPlan.nextReadKeys, ["sections/main-product.liquid"]);
+  assert.deepEqual(exactExistingEditPlan.nextReadKeys, [
+    "sections/main-product.liquid",
+    "snippets/product-info.liquid",
+  ]);
+
+  const exactSurgicalEditPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "existing_edit",
+    targetFile: "sections/main-product.liquid",
+    query: "Verklein alleen de padding rond de buy button",
+  });
+  assert.equal(exactSurgicalEditPlan.recommendedFlow, "patch-existing");
+  assert.equal(exactSurgicalEditPlan.shouldUse, "patch-theme-file");
 
   global.fetch = createGraphqlFetch(homepageJsonFiles);
 

@@ -71,6 +71,18 @@ const NON_CONTENT_SECTION_HINTS = [
   /drawer/i,
 ];
 
+const SURGICAL_EXISTING_EDIT_PATTERNS = [
+  /\b(?:padding|margin|gap|spacing|color|colour|radius|border|font(?:[- ]size)?|width|height)\b/i,
+  /\b(?:heading|title|subtitle|label|copy|tekst|text|cta|link|aria(?:-label)?|alt)\b/i,
+  /\b(?:typo|copyfix|copy fix|rename|hernoem|vervang|replace|default|preset)\b/i,
+];
+
+const BROAD_EXISTING_EDIT_PATTERNS = [
+  /\b(?:v2|v3|rewrite|rewriten|rework|rebuild|overhaul|full(?:e|y)?|volledig(?:e)?|complete(?:ly)?|exact(?:ly|e)?)\b/i,
+  /\b(?:optimaliseer|optimize|optimise|verbeter|improve|upgrade|polish|refine|restyle|redesign)\b/i,
+  /\b(?:desktop|mobile|responsive|animat(?:ie|e|ion)|layout|styling|slider|carousel|accordion|trustpilot)\b/i,
+];
+
 const uniqueStrings = (values) => Array.from(new Set(values.filter(Boolean)));
 
 const normalizeText = (value) =>
@@ -423,6 +435,61 @@ const prioritizeSnippetNames = (names, options = {}) =>
         scoreSnippetName(right, options) - scoreSnippetName(left, options)
     );
 
+const looksLikeSurgicalExistingEditQuery = (query) => {
+  const normalized = normalizeText(query);
+  if (!normalized) {
+    return false;
+  }
+
+  if (BROAD_EXISTING_EDIT_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return false;
+  }
+
+  return SURGICAL_EXISTING_EDIT_PATTERNS.some((pattern) => pattern.test(normalized));
+};
+
+const looksLikeBroadExistingEditQuery = (query) =>
+  BROAD_EXISTING_EDIT_PATTERNS.some((pattern) =>
+    pattern.test(normalizeText(query))
+  );
+
+const shouldPreferStructuredExistingEdit = ({
+  query,
+  fileKey,
+  sectionAnalysis,
+  snippetRendererKeys = [],
+}) => {
+  const normalizedFileKey = String(fileKey || "");
+  const isSectionOrBlockFile = /^(sections|blocks)\//.test(normalizedFileKey);
+  const isSnippetFile = /^snippets\//.test(normalizedFileKey);
+  const hasRendererComplexity =
+    snippetRendererKeys.length > 0 ||
+    Boolean(sectionAnalysis?.supportsThemeBlocks) ||
+    Boolean(sectionAnalysis?.hasSectionBlocksLoop) ||
+    Boolean(sectionAnalysis?.hasBlockSwitch) ||
+    Array.isArray(sectionAnalysis?.schemaBlockTypes) &&
+      sectionAnalysis.schemaBlockTypes.length > 0;
+  const surgicalEdit = looksLikeSurgicalExistingEditQuery(query);
+
+  if (looksLikeBroadExistingEditQuery(query)) {
+    return true;
+  }
+
+  if (surgicalEdit) {
+    return false;
+  }
+
+  if (hasRendererComplexity) {
+    return true;
+  }
+
+  if ((isSectionOrBlockFile || isSnippetFile) && !looksLikeSurgicalExistingEditQuery(query)) {
+    return true;
+  }
+
+  return false;
+};
+
 const pickBlockRendererSnippetKeys = (snippetFiles, snippetAnalyses) => {
   const byKey = new Map(snippetFiles.map((file) => [file.key, file]));
   const renderers = snippetAnalyses
@@ -488,10 +555,37 @@ const buildPlanFromAnalysis = ({
   const searchQueries = [];
 
   if (intent === "existing_edit") {
-    recommendedFlow = "patch-existing";
-    shouldUse = "patch-theme-file";
-    reason = "Bestaande single-file edits blijven het veiligst via een gerichte patch-flow.";
-    nextWriteKeys = sectionFile?.key ? [sectionFile.key] : readKeys.slice(0, 1);
+    const existingEditTargetKey = sectionFile?.key || readKeys[0] || null;
+    const preferStructuredEdit = shouldPreferStructuredExistingEdit({
+      query,
+      fileKey: existingEditTargetKey,
+      sectionAnalysis,
+      snippetRendererKeys,
+    });
+
+    recommendedFlow = preferStructuredEdit ? "rewrite-existing" : "patch-existing";
+    shouldUse = preferStructuredEdit ? "draft-theme-artifact" : "patch-theme-file";
+    reason = preferStructuredEdit
+      ? "Deze bestaande section/snippet-aanpassing lijkt breder dan een kleine literal patch. Gebruik liever een volledige edit/rewrite-flow."
+      : "Bestaande single-file edits blijven het veiligst via een gerichte patch-flow.";
+    nextWriteKeys = preferStructuredEdit
+      ? uniqueStrings(
+          [existingEditTargetKey, ...snippetRendererKeys].filter(Boolean)
+        )
+      : sectionFile?.key
+        ? [sectionFile.key]
+        : readKeys.slice(0, 1);
+    nextReadKeys = preferStructuredEdit
+      ? uniqueStrings(
+          [existingEditTargetKey, ...snippetRendererKeys].filter(Boolean)
+        )
+      : nextReadKeys;
+    likelyNeedsMultiFileEdit = preferStructuredEdit && snippetRendererKeys.length > 0;
+    if (preferStructuredEdit && looksLikeBroadExistingEditQuery(query)) {
+      warnings.push(
+        "De prompt lijkt op een bredere refinement/rewrite. Gebruik na de exacte read liever draft-theme-artifact mode='edit' dan losse patches."
+      );
+    }
   } else if (intent === "new_section") {
     recommendedFlow = "create-section";
     shouldUse = "create-theme-section";
@@ -578,9 +672,12 @@ const buildPlanFromAnalysis = ({
     likelyNeedsMultiFileEdit = true;
     reason =
       "Er is geen consistente native block-architectuur gedetecteerd; een losse section plus expliciete template placement is veiliger.";
-    nextWriteKeys = [templateFile.key];
+    nextWriteKeys = [];
     newFileSuggestions = ["sections/<new-section>.liquid"];
     nextReadKeys = [templateFile.key];
+    warnings.push(
+      "De planner stelt hier eerst een losse section-create voor; template placement blijft een aparte vervolgstap."
+    );
   }
 
   if (
@@ -727,10 +824,61 @@ export const planThemeEdit = async (
       themeId,
       themeRole,
       keys: [targetFile],
-      includeContent: false,
+      includeContent: true,
     });
 
     const existingFile = readback.files[0];
+    const existingAnalysis =
+      existingFile?.found && typeof existingFile?.value === "string"
+        ? analyzeLiquidFile(existingFile.value)
+        : null;
+    let snippetFiles = [];
+    let snippetAnalyses = [];
+    let snippetRendererKeys = [];
+    if (existingFile?.found && existingAnalysis?.renderSnippets?.length > 0) {
+      const snippetNames = prioritizeSnippetNames(existingAnalysis.renderSnippets, {
+        templateSurface: explicitTemplateSurface,
+        query,
+      }).slice(0, Math.max(1, Math.min(Number(snippetLimit || DEFAULT_SNIPPET_LIMIT), 3)));
+      const snippetKeys = snippetNames.map((name) => `snippets/${name}.liquid`);
+      if (snippetKeys.length > 0) {
+        const snippetReadback = await getThemeFiles(shopifyClient, apiVersion, {
+          themeId,
+          themeRole,
+          keys: snippetKeys,
+          includeContent: true,
+        });
+        snippetFiles = (snippetReadback.files || []).filter((file) => file.found);
+        snippetAnalyses = snippetFiles.map((file) => ({
+          key: file.key,
+          analysis: analyzeLiquidFile(file.value),
+        }));
+        snippetRendererKeys = pickBlockRendererSnippetKeys(snippetFiles, snippetAnalyses);
+      }
+    }
+    const preferStructuredEdit =
+      Boolean(existingFile?.found) &&
+      shouldPreferStructuredExistingEdit({
+        query,
+        fileKey: targetFile,
+        sectionAnalysis: existingAnalysis,
+        snippetRendererKeys,
+      });
+    const nextReadKeys = preferStructuredEdit
+      ? uniqueStrings([targetFile, ...snippetRendererKeys].filter(Boolean))
+      : [targetFile];
+    const nextWriteKeys =
+      existingFile?.found
+        ? preferStructuredEdit
+          ? uniqueStrings([targetFile, ...snippetRendererKeys].filter(Boolean))
+          : [targetFile]
+        : [];
+    const warnings = [];
+    if (preferStructuredEdit) {
+      warnings.push(
+        "Deze exacte existing_edit lijkt breder dan een kleine patch. Gebruik na de read liever draft-theme-artifact mode='edit' voor een volledige rewrite."
+      );
+    }
     return {
       theme: {
         id: readback.theme.id,
@@ -744,33 +892,54 @@ export const planThemeEdit = async (
         primary: null,
         alternates: [],
       },
-      recommendedFlow: "patch-existing",
-      shouldUse: "patch-theme-file",
-      likelyNeedsMultiFileEdit: false,
+      recommendedFlow: preferStructuredEdit ? "rewrite-existing" : "patch-existing",
+      shouldUse: preferStructuredEdit ? "draft-theme-artifact" : "patch-theme-file",
+      likelyNeedsMultiFileEdit: preferStructuredEdit && snippetRendererKeys.length > 0,
       reason:
         existingFile?.found
-          ? "Exact targetbestand bestaat al; een gerichte patch-flow is hier het meest tokenzuinig."
+          ? preferStructuredEdit
+            ? "Exact targetbestand bestaat al, maar deze wijziging lijkt breder dan een kleine literal patch."
+            : "Exact targetbestand bestaat al; een gerichte patch-flow is hier het meest tokenzuinig."
           : "Exact targetbestand is nog niet gevonden; verifieer eerst of de key klopt voordat je schrijft.",
-      candidateFiles: [summarizeCandidateFile(existingFile || { key: targetFile }, "target")],
-      nextReadKeys: [targetFile],
-      nextWriteKeys: existingFile?.found ? [targetFile] : [],
+      candidateFiles: uniqueStrings([
+        targetFile,
+        ...snippetFiles.map((file) => file.key),
+      ]).map((key) =>
+        summarizeCandidateFile(
+          key === targetFile
+            ? existingFile || { key, found: false }
+            : snippetFiles.find((file) => file.key === key) || { key, found: false },
+          key === targetFile ? "target" : "secondary"
+        )
+      ),
+      nextReadKeys,
+      nextWriteKeys,
       newFileSuggestions: [],
       searchQueries: [],
       warnings: existingFile?.found
-        ? []
+        ? warnings
         : [`Bestand '${targetFile}' bestaat niet op het doeltheme.`],
       architecture: {
         templateFormat: null,
         primarySectionId: null,
         primarySectionType: null,
-        primarySectionFile: null,
-        usesSectionBlocks: false,
-        usesThemeBlocks: false,
-        renderedSnippets: [],
-        snippetRendererKeys: [],
-        hasBlockShopifyAttributes: null,
-        supportsAppBlocks: null,
-        blockTypes: [],
+        primarySectionFile: targetFile,
+        usesSectionBlocks: Boolean(
+          existingAnalysis &&
+            (existingAnalysis.schemaBlockTypes.length > 0 ||
+              existingAnalysis.hasSectionBlocksLoop ||
+              snippetAnalyses.some(
+                (entry) =>
+                  entry.analysis.hasSectionBlocksLoop ||
+                  entry.analysis.hasBlockSwitch
+              ))
+        ),
+        usesThemeBlocks: Boolean(existingAnalysis?.supportsThemeBlocks),
+        renderedSnippets: existingAnalysis?.renderSnippets || [],
+        snippetRendererKeys,
+        hasBlockShopifyAttributes: existingAnalysis?.hasBlockShopifyAttributes ?? null,
+        supportsAppBlocks: existingAnalysis?.supportsThemeBlocks ?? null,
+        blockTypes: existingAnalysis?.schemaBlockTypes || [],
       },
     };
   }

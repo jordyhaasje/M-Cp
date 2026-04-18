@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { getThemeFiles } from "../lib/themeFiles.js";
-import { rememberThemeRead } from "../lib/themeEditMemory.js";
+import {
+  getThemeEditMemory,
+  rememberThemeRead,
+  themeTargetsCompatible,
+} from "../lib/themeEditMemory.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
@@ -31,7 +35,10 @@ const GetThemeFilesInputSchema = z
           .min(1)
           .max(10)
           .describe("EXACT, VOLLEDIGE file paths, e.g. ['sections/hero.liquid']. GEEN GLOBBING OF WILDCARDS (*). Gebruik search-theme-files als je een path niet zeker weet (hard limit: 10)."),
-        includeContent: z.boolean().default(false).describe("Include file content (value/attachment) in response"),
+        includeContent: z
+          .boolean()
+          .optional()
+          .describe("Include file content (value/attachment) in response. Laat dit voor planner-required reads bij voorkeur op true of leeg."),
       })
       .superRefine((input, ctx) => {
         const normalized = input.keys.map((key) => String(key).trim());
@@ -57,18 +64,35 @@ const GetThemeFilesInputSchema = z
 const getThemeFilesTool = {
   name: "get-theme-files",
   description:
-    "Read EXACT files from a Shopify theme. GEEN GLOBBING. Geef in editflows bij voorkeur altijd expliciet themeId of themeRole mee zodat je read-context overeenkomt met plan-theme-edit en je write-call. Alleen voor backwards compatibility valt deze read-tool terug op main als themeId/themeRole ontbreekt; dat levert dan ook een warning op. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path. Gebruik dit bij voorkeur na plan-theme-edit, zodat je alleen de exact voorgestelde files leest. Voor native product-block flows zijn dat meestal sections + snippets; lees templates/*.json daarna alleen opnieuw als placement van het block expliciet gevraagd is. Handig voor bewuste multi-read workflows zoals ['sections/main-product.liquid', 'snippets/product-info.liquid'] of ['templates/product.json'].",
+    "Read EXACT files from a Shopify theme. GEEN GLOBBING. Geef in editflows bij voorkeur altijd expliciet themeId of themeRole mee zodat je read-context overeenkomt met plan-theme-edit en je write-call. Alleen voor backwards compatibility valt deze read-tool terug op main als themeId/themeRole ontbreekt; dat levert dan ook een warning op. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path. Gebruik dit bij voorkeur na plan-theme-edit, zodat je alleen de exact voorgestelde files leest. Wanneer een planner-read content nodig heeft en includeContent ontbreekt, zet deze tool dat nu automatisch op true met een warning.",
   schema: GetThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);
     const usedMainFallback = !input.themeId && !input.themeRole;
     const effectiveThemeRole = input.themeId ? undefined : input.themeRole || "main";
+    const themeEditState = getThemeEditMemory(context);
+    const plannedReadKeys = Array.isArray(themeEditState?.lastPlan?.nextReadKeys)
+      ? themeEditState.lastPlan.nextReadKeys.filter(Boolean)
+      : [];
+    const shouldAutoIncludeContent =
+      input.includeContent === undefined &&
+      plannedReadKeys.length > 0 &&
+      themeTargetsCompatible(themeEditState?.themeTarget, {
+        themeId: input.themeId,
+        themeRole: input.themeRole,
+      }) &&
+      input.keys.every((key) => plannedReadKeys.includes(key));
+    const includeContent = shouldAutoIncludeContent
+      ? true
+      : input.includeContent === undefined
+        ? false
+        : input.includeContent;
     try {
       const result = await getThemeFiles(shopifyClient, API_VERSION, {
         themeId: input.themeId,
         themeRole: effectiveThemeRole,
         keys: input.keys,
-        includeContent: input.includeContent,
+        includeContent,
       });
 
       rememberThemeRead(context, {
@@ -77,11 +101,23 @@ const getThemeFilesTool = {
         files: (result.files || []).map((file) => ({
           key: file.key,
           checksumMd5: file.checksumMd5 || file.checksum || null,
-          hasContent: input.includeContent === true,
-          value: input.includeContent === true ? file.value : undefined,
-          attachment: input.includeContent === true ? file.attachment : undefined,
+          hasContent: includeContent === true,
+          value: includeContent === true ? file.value : undefined,
+          attachment: includeContent === true ? file.attachment : undefined,
         })),
       });
+
+      const warnings = [];
+      if (usedMainFallback) {
+        warnings.push(
+          "⚠️ themeId/themeRole ontbrak; deze read-call viel voor backwards compatibility terug op het LIVE main theme."
+        );
+      }
+      if (shouldAutoIncludeContent) {
+        warnings.push(
+          "Planner-required read gedetecteerd: includeContent is automatisch op true gezet zodat de volgende write-flow genoeg echte filecontext heeft."
+        );
+      }
 
       return {
         theme: {
@@ -90,13 +126,7 @@ const getThemeFilesTool = {
           role: result.theme.role,
         },
         files: result.files,
-        ...(usedMainFallback
-          ? {
-              warnings: [
-                "⚠️ themeId/themeRole ontbrak; deze read-call viel voor backwards compatibility terug op het LIVE main theme.",
-              ],
-            }
-          : {}),
+        ...(warnings.length > 0 ? { warnings } : {}),
       };
     } catch (error) {
       console.error("Error reading theme files:", error);

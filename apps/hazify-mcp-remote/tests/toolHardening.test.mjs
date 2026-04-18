@@ -15,7 +15,10 @@ import { createThemeSectionTool } from "../src/tools/createThemeSection.js";
 import { patchThemeFileTool } from "../src/tools/patchThemeFile.js";
 import { planThemeEditTool } from "../src/tools/planThemeEdit.js";
 import { SearchThemeFilesInputSchema } from "../src/tools/searchThemeFiles.js";
-import { clearThemeEditMemory } from "../src/lib/themeEditMemory.js";
+import {
+  clearThemeEditMemory,
+  rememberThemeRead,
+} from "../src/lib/themeEditMemory.js";
 import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
 const originalLookup = dns.lookup;
@@ -135,7 +138,7 @@ try {
     keys: ["sections/test.liquid"],
   });
   assert.equal(metadataBatchReadPayload.success, true, "get-theme-files should accept key arrays");
-  assert.equal(metadataBatchReadPayload.data.includeContent, false, "get-theme-files default includeContent=false");
+  assert.equal(metadataBatchReadPayload.data.includeContent, undefined, "get-theme-files should not force includeContent at schema level");
   assert.equal(metadataBatchReadPayload.data.themeRole, undefined, "get-theme-files should not silently inject main at schema level");
 
   const metadataBatchReadAliasPayload = getThemeFilesTool.schema.safeParse({
@@ -280,6 +283,16 @@ try {
   assert.equal(planThemeEditSummaryPayload.data.intent, "native_block");
   assert.equal(planThemeEditSummaryPayload.data.template, "product");
 
+  const planThemeEditBlocksInSectionPayload = planThemeEditTool.schema.safeParse({
+    _tool_input_summary: "Maak een nieuwe section met drie review blocks in het live theme",
+  });
+  assert.equal(
+    planThemeEditBlocksInSectionPayload.success,
+    true,
+    "plan-theme-edit should keep obvious new-section prompts as new_section even when they mention blocks"
+  );
+  assert.equal(planThemeEditBlocksInSectionPayload.data.intent, "new_section");
+
   const planThemeEditAliasPayload = planThemeEditTool.schema.safeParse({
     type: "existing_edit",
     themeRole: "development",
@@ -306,6 +319,40 @@ try {
   });
   assert.equal(planThemeEditNewSectionPayload.success, true, "explicit new section wording should still infer new_section");
   assert.equal(planThemeEditNewSectionPayload.data.intent, "new_section");
+
+  rememberThemeRead(
+    { tokenHash: "patch-theme-broad-hardening" },
+    {
+      themeRole: "main",
+      files: [
+        {
+          key: "sections/main-product.liquid",
+          hasContent: true,
+          checksumMd5: "checksum",
+          value: "<div class=\"product__info-wrapper\">Existing content</div>",
+        },
+      ],
+    }
+  );
+  const broadPatchThemeFileResult = await patchThemeFileTool.execute(
+    patchThemeFileTool.schema.parse({
+      themeRole: "main",
+      key: "sections/main-product.liquid",
+      patch: {
+        searchString: "<div class=\"product__info-wrapper\">",
+        replaceString: `<div class="product__info-wrapper">
+  <script>
+    document.addEventListener('click', () => {
+      console.log('broad patch');
+    });
+  </script>`,
+      },
+    }),
+    { shopifyClient: mockShopifyClient, tokenHash: "patch-theme-broad-hardening" }
+  );
+  assert.equal(broadPatchThemeFileResult.success, false);
+  assert.equal(broadPatchThemeFileResult.errorCode, "patch_scope_too_large");
+  assert.equal(broadPatchThemeFileResult.nextTool, "draft-theme-artifact");
 
   const createThemeSectionPayload = createThemeSectionTool.schema.safeParse({
     themeRole: "main",

@@ -25,7 +25,7 @@ import {
 
 export const toolName = "draft-theme-artifact";
 export const title = "Write Theme Files";
-export const description = `Primary write tool for Shopify theme files. Use this for multi-file edits, full rewrites, or advanced theme writes. For a brand-new section prefer create-theme-section. For small single-file edits prefer patch-theme-file. Do not use apply-theme-draft for the first write.`;
+export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, or broader theme changes. For a brand-new section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. Do not use apply-theme-draft for the first write.`;
 export const docsDescription = `Draft and validate Shopify theme files through the guarded pipeline.
 
 Modes:
@@ -1091,6 +1091,7 @@ function collectInteractiveSectionSafety(value, fileKey) {
   const issues = [];
   const warnings = [];
   const suggestedFixes = [];
+  const source = String(value || "");
   const scriptBodies = [
     ...extractInlineScriptContents(value),
     ...getSpecialBlockContents(value, "javascript"),
@@ -1146,6 +1147,35 @@ function collectInteractiveSectionSafety(value, fileKey) {
     );
     suggestedFixes.push(
       "Scope JS per section-root met section.id of data-section-id om instance-conflicten te voorkomen."
+    );
+  }
+
+  const sliderLikeSignal =
+    /slider|carousel|scrollby|snap|prev|next|track|arrow/i.test(
+      `${source} ${scriptBodies.join("\n")}`
+    );
+  const hasSemanticControls =
+    /<button\b|<summary\b|role\s*=\s*["']button["']/i.test(source);
+  if (sliderLikeSignal && !hasSemanticControls) {
+    warnings.push(
+      "Interactieve section lijkt slider/carousel controls te hebben zonder semantische button-markup. Gebruik bij voorkeur echte <button> elementen voor prev/next of andere controls."
+    );
+    suggestedFixes.push(
+      "Gebruik echte <button type=\"button\"> controls met aria-label voor prev/next of andere slider-acties."
+    );
+  }
+
+  const hasCustomizerLifecycleHook = scriptBodies.some((scriptBody) =>
+    /shopify:section:load|shopify:section:select|shopify:block:select|Shopify\.designMode/i.test(
+      scriptBody
+    )
+  );
+  if (scriptBodies.length > 0 && !hasCustomizerLifecycleHook) {
+    warnings.push(
+      "Interactieve section-JS mist expliciete Shopify Theme Editor lifecycle hooks. Controleer of re-initialisatie werkt na section reloads in de customizer."
+    );
+    suggestedFixes.push(
+      "Ondersteun waar nodig Shopify Theme Editor events zoals shopify:section:load of gebruik een veilige re-init per section-root."
     );
   }
 

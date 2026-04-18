@@ -451,5 +451,5 @@ test("planThemeEdit - keeps the last created section as sticky follow-up target"
   assert.equal(planResult.nextTool, "get-theme-file");
   assert.equal(planResult.nextArgsTemplate?.key, "sections/hero-trustpilot.liquid");
   assert.equal(planResult.requiresReadBeforeWrite, true);
-  assert.equal(planResult.writeTool, "patch-theme-file");
+  assert.equal(planResult.writeTool, "draft-theme-artifact");
 });

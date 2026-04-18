@@ -115,6 +115,39 @@ const countLiteralOccurrences = (source, needle) => {
   return count;
 };
 
+const countPatchLines = (value) => String(value || "").split(/\r?\n/).length;
+
+const looksLikeBroadThemePatch = (key, patches = []) => {
+  const normalizedKey = String(key || "");
+  if (!/^(sections|snippets|blocks)\//.test(normalizedKey)) {
+    return false;
+  }
+
+  const structuralPattern =
+    /<script\b|<style\b|{%\s*(?:schema|javascript|stylesheet)\s*%}|{%\s*end(?:schema|javascript|stylesheet)\s*%}|block\.shopify_attributes|addEventListener\s*\(|scrollBy\s*\(/i;
+  const combinedReplaceLength = patches.reduce(
+    (total, patch) => total + String(patch?.replaceString || "").length,
+    0
+  );
+  const hasLargeMultilinePatch = patches.some(
+    (patch) =>
+      countPatchLines(patch?.replaceString) > 8 ||
+      countPatchLines(patch?.searchString) > 8
+  );
+  const touchesStructure = patches.some(
+    (patch) =>
+      structuralPattern.test(String(patch?.replaceString || "")) ||
+      structuralPattern.test(String(patch?.searchString || ""))
+  );
+
+  return (
+    touchesStructure ||
+    combinedReplaceLength > 900 ||
+    patches.length > 3 ||
+    (hasLargeMultilinePatch && combinedReplaceLength > 320)
+  );
+};
+
 const buildPatchThemeFailure = ({
   message,
   errorCode,
@@ -164,7 +197,7 @@ const validatePatchesAgainstRead = (patches, source) => {
 const patchThemeFileTool = {
   name: "patch-theme-file",
   description:
-    "Patch one existing theme file met één of meer letterlijke vervangingen. Gebruik dit voor kleine single-file fixes nadat je eerst met `search-theme-files` en zo nodig `get-theme-file` de exacte anchor hebt bepaald. Deze tool vereist nu eerst een recente exact-read met includeContent=true op hetzelfde bestand, en weigert generieke of niet-unieke anchors voordat de write-flow start.",
+    "Patch one existing theme file met één of meer letterlijke vervangingen. Gebruik dit alleen voor kleine single-file fixes nadat je eerst met `search-theme-files` en daarna `get-theme-file` de exacte anchor hebt bepaald. Deze tool vereist nu eerst een recente exact-read met includeContent=true op hetzelfde bestand, weigert generieke of niet-unieke anchors en blokkeert bredere CSS/JS/schema rewrites die eigenlijk via draft-theme-artifact mode='edit' horen te lopen.",
   schema: PatchThemeFileInputSchema,
   execute: async (input, context = {}) => {
     requireShopifyClient(context);
@@ -214,6 +247,42 @@ const patchThemeFileTool = {
     }
 
     const patches = input.patch ? [input.patch] : input.patches || [];
+
+    if (looksLikeBroadThemePatch(input.key, patches)) {
+      return buildPatchThemeFailure({
+        message:
+          "Deze patch lijkt breder dan een kleine literal fix. Gebruik voor grotere section/snippet rewrites liever draft-theme-artifact mode='edit'.",
+        errorCode: "patch_scope_too_large",
+        normalizedArgs,
+        nextAction: "rewrite_with_draft_tool",
+        nextTool: "draft-theme-artifact",
+        nextArgsTemplate: {
+          ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
+          ...(input.themeRole ? { themeRole: input.themeRole } : {}),
+          mode: "edit",
+          key: input.key,
+          value: "<full rewritten file content>",
+          ...(input.baseChecksumMd5 || recentRead?.checksumMd5
+            ? { baseChecksumMd5: input.baseChecksumMd5 || recentRead.checksumMd5 }
+            : {}),
+        },
+        retryMode: "switch_tool_after_fix",
+        errors: [
+          {
+            path: input.patch ? ["patch"] : ["patches"],
+            problem:
+              "De gevraagde patch raakt structurele CSS/JS/schema-inhoud of is te groot voor een veilige anchor-based patch-flow.",
+            fixSuggestion:
+              "Gebruik draft-theme-artifact mode='edit' met een volledige rewrite of een compact files[] edit-contract wanneer je grotere structurele wijzigingen wilt doorvoeren.",
+          },
+        ],
+        suggestedFixes: [
+          "Gebruik patch-theme-file alleen voor kleine, unieke literal vervangingen.",
+          "Gebruik draft-theme-artifact mode='edit' zodra je CSS, JS, schema of bredere markup in één keer wilt herschrijven.",
+        ],
+      });
+    }
+
     const patchValidation = validatePatchesAgainstRead(patches, recentRead.content);
 
     if (!patchValidation.ok) {

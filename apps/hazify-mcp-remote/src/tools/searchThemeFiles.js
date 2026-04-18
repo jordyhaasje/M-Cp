@@ -88,11 +88,22 @@ const searchThemeFilesTool = {
       ? input.scope.map((bucket) => scopeBucketPatterns[bucket]).filter(Boolean)
       : [];
     const filePatterns = Array.from(new Set([...(input.filePatterns || []), ...scopePatterns]));
-    return searchThemeFilesWithSnippets(shopifyClient, API_VERSION, {
+    const usedMainFallback = !input.themeId && !input.themeRole;
+    const result = await searchThemeFilesWithSnippets(shopifyClient, API_VERSION, {
       ...input,
       keys: input.keys,
       filePatterns,
     });
+    return {
+      ...result,
+      ...(usedMainFallback
+        ? {
+            warnings: [
+              "⚠️ themeId/themeRole ontbrak; deze search-call viel voor backwards compatibility terug op het LIVE main theme.",
+            ],
+          }
+        : {}),
+    };
   },
 };
 

@@ -31,6 +31,19 @@ export function extractThemeToolSummary(input) {
 export function inferThemeTargetFromSummary(input, summary) {
   const next = { ...input };
   const text = normalizeText(summary).toLowerCase();
+  const referencesMainTheme =
+    /\b(?:live|main)(?:\s*\/\s*main)?\s+theme\b/.test(text) ||
+    /\btheme\s+(?:is|=|:)?\s*(?:live|main)\b/.test(text) ||
+    /\btheme(?:\s+role)?\s*(?:is|=|:)?\s*main\b/.test(text);
+  const referencesDevelopmentTheme =
+    /\bdevelopment\s+theme\b/.test(text) ||
+    /\btheme(?:\s+role)?\s*(?:is|=|:)?\s*development\b/.test(text);
+  const referencesUnpublishedTheme =
+    /\b(?:preview|unpublished)\s+theme\b/.test(text) ||
+    /\btheme(?:\s+role)?\s*(?:is|=|:)?\s*unpublished\b/.test(text);
+  const referencesDemoTheme =
+    /\bdemo\s+theme\b/.test(text) ||
+    /\btheme(?:\s+role)?\s*(?:is|=|:)?\s*demo\b/.test(text);
 
   if (!next.themeId) {
     const themeIdMatch = summary.match(/\btheme(?:\s*id)?\s*[:#]?\s*(\d{6,})\b/i);
@@ -40,13 +53,13 @@ export function inferThemeTargetFromSummary(input, summary) {
   }
 
   if (!next.themeRole) {
-    if (/\b(live|main)\b/.test(text)) {
+    if (referencesMainTheme) {
       next.themeRole = "main";
-    } else if (/\bdevelopment\b|\bdev(?:elopment)? theme\b/.test(text)) {
+    } else if (referencesDevelopmentTheme || /\bdev(?:elopment)? theme\b/.test(text)) {
       next.themeRole = "development";
-    } else if (/\bunpublished\b|\bpreview theme\b/.test(text)) {
+    } else if (referencesUnpublishedTheme) {
       next.themeRole = "unpublished";
-    } else if (/\bdemo\b/.test(text)) {
+    } else if (referencesDemoTheme) {
       next.themeRole = "demo";
     }
   }
@@ -110,15 +123,19 @@ export function inferIntentFromSummary(summary, input = {}) {
     return "template_placement";
   }
 
-  if (/\bblock\b/.test(text)) {
-    return "native_block";
-  }
-
   if (
     /\b(?:new|nieuwe|create|maak|build|bouw|add|voeg toe)\b[\w\s-]{0,24}\bsection\b/.test(text) ||
     /\bsection\b[\w\s-]{0,12}\b(?:aanmaken|maken|creëren|build|bouwen|toevoegen)\b/.test(text)
   ) {
     return "new_section";
+  }
+
+  if (
+    /\b(?:native|theme|product)\s+block\b/.test(text) ||
+    /\bblock\b[\w\s-]{0,24}\b(?:toevoegen|aanmaken|maken|creëren|build|bouwen)\b/.test(text) ||
+    /\b(?:add|create|make|build)\b[\w\s-]{0,24}\bblock\b/.test(text)
+  ) {
+    return "native_block";
   }
 
   return "existing_edit";
