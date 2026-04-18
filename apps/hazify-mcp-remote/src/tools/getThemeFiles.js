@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { getThemeFiles } from "../lib/themeFiles.js";
+import { rememberThemeRead } from "../lib/themeEditMemory.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
@@ -68,6 +69,18 @@ const getThemeFilesTool = {
         themeRole: effectiveThemeRole,
         keys: input.keys,
         includeContent: input.includeContent,
+      });
+
+      rememberThemeRead(context, {
+        themeId: result.theme.id,
+        themeRole: result.theme.role?.toLowerCase?.() || input.themeRole || effectiveThemeRole,
+        files: (result.files || []).map((file) => ({
+          key: file.key,
+          checksumMd5: file.checksumMd5 || file.checksum || null,
+          hasContent: input.includeContent === true,
+          value: input.includeContent === true ? file.value : undefined,
+          attachment: input.includeContent === true ? file.attachment : undefined,
+        })),
       });
 
       return {

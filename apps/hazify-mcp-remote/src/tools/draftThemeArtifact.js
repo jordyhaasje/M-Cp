@@ -9,6 +9,12 @@ import {
   classifySectionGeneration,
   inspectSectionScaleAgainstTheme,
 } from "../lib/themeSectionContext.js";
+import {
+  getThemeEditMemory,
+  haveRecentThemeReads,
+  rememberThemeWrite,
+  themeTargetsCompatible,
+} from "../lib/themeEditMemory.js";
 import { getShopDomainFromClient, upsertThemeFiles, getThemeFiles, searchThemeFiles } from "../lib/themeFiles.js";
 import { requireShopifyClient } from "./_context.js";
 import {
@@ -36,10 +42,12 @@ Theme-aware section regels:
 - Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
 - Compatibele shorthand: voor één file mag een client ook top-level key + value of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
+- Wanneer plan-theme-edit eerst exact nextReadKeys voorschrijft, verwacht deze tool nu dat die reads ook echt met includeContent=true zijn uitgevoerd voordat dezelfde write-flow doorgaat.
 - Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting. Bij range-fouten geeft de tool exacte suggestedReplacement/default-hints terug.
 - Wanneer de create-flow compacte theme-context heeft afgeleid, controleert de pipeline ook op hero-achtige oversizing van typography, spacing, gaps en min-heights ten opzichte van representatieve content sections in het doeltheme.
 - richtext defaults moeten Shopify-veilige HTML gebruiken. Gebruik top-level <p> of <ul>; tags zoals <mark> in richtext.default worden door Shopify afgewezen.
 - Nieuwe blocks/*.liquid files krijgen in create mode ook een basisinspectie op geldige schema JSON en block-veilige markup.
+- Renderer-veilige Liquid blijft verplicht: geen geneste {{ ... }} of {% ... %} binnen dezelfde output-tag of filter-argumentstring; bouw zulke waarden eerst op via assign/capture en geef daarna de variabele door.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
 - Voor native blocks binnen een bestaande section (bijv. product-info of main-product): gebruik mode="edit" en patch de bestaande schema.blocks plus de render markup/snippet. Dit is geen los blocks/*.liquid bestand.
@@ -1005,6 +1013,56 @@ function extractInlineScriptContents(value) {
   );
 }
 
+function extractLiquidOutputTags(value) {
+  return Array.from(
+    String(value || "").matchAll(/{{[\s\S]*?}}/g),
+    (match) => String(match[0] || "")
+  );
+}
+
+function collectLiquidRendererSafety(value, fileKey) {
+  const issues = [];
+  const warnings = [];
+  const suggestedFixes = [];
+  const outputTags = extractLiquidOutputTags(value);
+  const nestedLiquidOutput = outputTags.find((tag) => /{{|{%-?\s*|{%\s*/.test(tag.slice(2, -2)));
+
+  if (nestedLiquidOutput) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Building Inspection Failed: een Liquid output-tag bevat opnieuw {{ ... }} of {% ... %} binnen dezelfde expressie. Bouw dynamische strings eerst op via assign/capture/append en geef daarna alleen de variabele door.",
+        fixSuggestion:
+          "Haal geneste Liquid uit dezelfde {{ ... }} expressie en gebruik eerst assign/capture voor dynamische classnames, URLs of filter-argumenten.",
+        issueCode: "inspection_failed_liquid_output_nesting",
+      })
+    );
+    suggestedFixes.push(
+      "Gebruik bijvoorbeeld eerst {% assign avatar_class = 'review-avatars-' | append: block.id | append: '__avatar-image' %} en geef daarna avatar_class door aan image_tag.",
+      "Vermijd strings zoals class: 'foo-{{ block.id }}' binnen dezelfde {{ ... }} output-tag."
+    );
+  }
+
+  if (
+    /for\s+block\s+in\s+section\.blocks/i.test(String(value || "")) &&
+    !/block\.shopify_attributes/.test(String(value || ""))
+  ) {
+    warnings.push(
+      "Renderer loop over section.blocks mist block.shopify_attributes. Daardoor werkt Theme Editor drag-and-drop minder betrouwbaar."
+    );
+    suggestedFixes.push(
+      "Zet {{ block.shopify_attributes }} op de block-wrapper wanneer je over section.blocks rendert."
+    );
+  }
+
+  return {
+    issues,
+    warnings,
+    suggestedFixes,
+  };
+}
+
 function detectLiquidInsideJsTemplateInterpolation(scriptSource) {
   return /\$\{[\s\S]{0,200}?(?:{{|{%)[\s\S]{0,200}?(?:}}|%})[\s\S]{0,120}?\}/.test(
     String(scriptSource || "")
@@ -1399,6 +1457,11 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
     );
   }
 
+  const rendererInspection = collectLiquidRendererSafety(value, file.key);
+  issues.push(...(rendererInspection.issues || []));
+  warnings.push(...(rendererInspection.warnings || []));
+  suggestedFixes.push(...(rendererInspection.suggestedFixes || []));
+
   const { schema, error } = parseSectionSchema(value);
   if (error || !schema) {
     issues.push(
@@ -1666,6 +1729,11 @@ function inspectThemeBlockFile(file) {
     );
   }
 
+  const rendererInspection = collectLiquidRendererSafety(value, file.key);
+  issues.push(...(rendererInspection.issues || []));
+  warnings.push(...(rendererInspection.warnings || []));
+  suggestedFixes.push(...(rendererInspection.suggestedFixes || []));
+
   const { schema, error } = parseSectionSchema(value);
   if (error || !schema) {
     issues.push(
@@ -1744,6 +1812,66 @@ function inspectThemeBlockFile(file) {
     suggestedFixes,
     suggestedSchemaRewrites,
     preferSelectFor,
+  });
+}
+
+function inspectSnippetFile(file) {
+  const value = String(file.value || "");
+  const issues = [];
+  const warnings = [];
+  const suggestedFixes = [];
+
+  if (containsLiquidInSpecialBlock(value, "stylesheet") || containsLiquidInSpecialBlock(value, "javascript")) {
+    issues.push(
+      createInspectionIssue({
+        path: [file.key],
+        problem:
+          "Liquid binnen {% stylesheet %} of {% javascript %} is niet toegestaan. Gebruik <style> of markup-level CSS variables.",
+        fixSuggestion:
+          "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
+        issueCode: "inspection_failed_css",
+      })
+    );
+    suggestedFixes.push(
+      "Verplaats Liquid-afhankelijke CSS naar een <style> block.",
+      "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten."
+    );
+  }
+
+  const rendererInspection = collectLiquidRendererSafety(value, file.key);
+  issues.push(...(rendererInspection.issues || []));
+  warnings.push(...(rendererInspection.warnings || []));
+  suggestedFixes.push(...(rendererInspection.suggestedFixes || []));
+
+  if (hasRawImgWithoutDimensions(value)) {
+    issues.push(
+      createInspectionIssue({
+        path: [file.key],
+        problem:
+          "Building Inspection Failed: raw <img> tags zonder width en height veroorzaken instabiele Shopify renders. Gebruik image_url + image_tag of geef expliciete afmetingen mee.",
+        fixSuggestion:
+          "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen.",
+        issueCode: "inspection_failed_media",
+      })
+    );
+    suggestedFixes.push(
+      "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen."
+    );
+  }
+
+  if (!hasLiquidBlockTag(value, "doc")) {
+    warnings.push(
+      "Snippet mist een {% doc %} block. Dit is aanbevolen voor tooling en maakt snippet-contracten duidelijker."
+    );
+    suggestedFixes.push(
+      "Voeg een compact {% doc %} block toe bovenaan snippets die render-parameters accepteren."
+    );
+  }
+
+  return buildInspectionResult({
+    issues,
+    warnings,
+    suggestedFixes,
   });
 }
 
@@ -2624,6 +2752,76 @@ export const draftThemeArtifact = {
 
     files = files.map(normalizeDraftFile);
 
+    const themeEditState = getThemeEditMemory(context);
+    const plannedReadKeys = Array.isArray(themeEditState?.lastPlan?.nextReadKeys)
+      ? themeEditState.lastPlan.nextReadKeys.filter(Boolean)
+      : [];
+    const plannedWriteKeys = Array.isArray(themeEditState?.lastPlan?.nextWriteKeys)
+      ? themeEditState.lastPlan.nextWriteKeys.filter(Boolean)
+      : [];
+    const planTargetCompatible = themeTargetsCompatible(themeEditState?.themeTarget, {
+      themeId,
+      themeRole,
+    });
+    const shouldEnforcePlannedReads =
+      mode === "edit" &&
+      planTargetCompatible &&
+      plannedReadKeys.length > 0 &&
+      plannedWriteKeys.length > 0 &&
+      files.every((file) => plannedWriteKeys.includes(file.key));
+
+    if (
+      shouldEnforcePlannedReads &&
+      !haveRecentThemeReads(context, {
+        keys: plannedReadKeys,
+        themeId,
+        themeRole,
+      })
+    ) {
+      return buildFailureResponse({
+        status: "inspection_failed",
+        message:
+          "Deze edit-flow mist nog de planner-reads met includeContent=true. Lees eerst de exact voorgestelde bestanden in voordat je schrijft.",
+        errorCode: "missing_theme_context_reads",
+        retryable: true,
+        suggestedFixes: [
+          "Lees eerst de exacte nextReadKeys uit plan-theme-edit in met includeContent=true.",
+          "Gebruik daarna pas patch-theme-file of draft-theme-artifact voor de write.",
+        ],
+        shouldNarrowScope: false,
+        nextAction: "read_theme_context",
+        nextTool:
+          plannedReadKeys.length === 1 ? "get-theme-file" : "get-theme-files",
+        nextArgsTemplate:
+          plannedReadKeys.length === 1
+            ? {
+                ...(themeId !== undefined ? { themeId } : {}),
+                ...(themeRole ? { themeRole } : {}),
+                key: plannedReadKeys[0],
+                includeContent: true,
+              }
+            : {
+                ...(themeId !== undefined ? { themeId } : {}),
+                ...(themeRole ? { themeRole } : {}),
+                keys: plannedReadKeys,
+                includeContent: true,
+              },
+        retryMode: "switch_tool_after_fix",
+        normalizedArgs: getNormalizedArgs(),
+        errors: plannedReadKeys.map((key) =>
+          buildDraftInputError({
+            path: ["files"],
+            problem: `Vereiste planner-read '${key}' ontbreekt nog in deze flow.`,
+            fixSuggestion:
+              "Lees eerst de planner-bestanden met includeContent=true zodat anchors, schema en renderer-context uit het echte theme komen.",
+            issueCode: "missing_theme_context_reads",
+          })
+        ),
+        themeContext: context?.themeSectionContext || null,
+        sectionBlueprint: context?.sectionBlueprint || null,
+      });
+    }
+
     for (const file of files) {
       if (getDraftFileModeCount(file) !== 1) {
         return buildFailureResponse({
@@ -2943,9 +3141,13 @@ export const draftThemeArtifact = {
             );
           }
           const schemaInspection = inspectEditableLiquidSchema(value, `Section '${file.key}'`);
+          const rendererInspection = collectLiquidRendererSafety(value, file.key);
           editIssues.push(...(schemaInspection.issues || []));
+          editIssues.push(...(rendererInspection.issues || []));
           editWarnings.push(...(schemaInspection.warnings || []));
+          editWarnings.push(...(rendererInspection.warnings || []));
           editSuggestedFixes.push(...(schemaInspection.suggestedFixes || []));
+          editSuggestedFixes.push(...(rendererInspection.suggestedFixes || []));
           editSchemaRewrites.push(
             ...(schemaInspection.suggestedSchemaRewrites || [])
           );
@@ -2987,9 +3189,13 @@ export const draftThemeArtifact = {
             );
           }
           const schemaInspection = inspectEditableLiquidSchema(value, `Block '${file.key}'`);
+          const rendererInspection = collectLiquidRendererSafety(value, file.key);
           editIssues.push(...(schemaInspection.issues || []));
+          editIssues.push(...(rendererInspection.issues || []));
           editWarnings.push(...(schemaInspection.warnings || []));
+          editWarnings.push(...(rendererInspection.warnings || []));
           editSuggestedFixes.push(...(schemaInspection.suggestedFixes || []));
+          editSuggestedFixes.push(...(rendererInspection.suggestedFixes || []));
           editSchemaRewrites.push(
             ...(schemaInspection.suggestedSchemaRewrites || [])
           );
@@ -3003,6 +3209,8 @@ export const draftThemeArtifact = {
             preferSelectFor: editPreferSelectFor,
           });
         }
+      } else if (file.key.endsWith(".liquid") && file.key.startsWith("snippets/")) {
+        inspection = inspectSnippetFile(file);
       }
 
       if (inspection) {
@@ -3185,6 +3393,17 @@ export const draftThemeArtifact = {
             name: null,
             role: themeRole,
           };
+
+      rememberThemeWrite(context, {
+        themeId,
+        themeRole,
+        mode,
+        files: files.map((file) => ({ key: file.key })),
+        createdSectionFile:
+          mode === "create" && files.length === 1 && files[0].key.startsWith("sections/")
+            ? files[0].key
+            : null,
+      });
 
       return {
         success: true,

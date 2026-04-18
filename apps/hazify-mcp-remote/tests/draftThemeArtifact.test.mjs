@@ -3,6 +3,10 @@ import assert from "node:assert";
 import crypto from "node:crypto";
 import { applyThemeDraft } from "../src/tools/applyThemeDraft.js";
 import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
+import {
+  clearThemeEditMemory,
+  rememberThemePlan,
+} from "../src/lib/themeEditMemory.js";
 import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
 const execute = draftThemeArtifact.execute;
@@ -10,6 +14,10 @@ const themeDraftDb = createThemeDraftDbHarness();
 
 test.after(async () => {
   await themeDraftDb.cleanup();
+});
+
+test.afterEach(() => {
+  clearThemeEditMemory();
 });
 const goodSectionLiquid = `
 <style>
@@ -2095,6 +2103,106 @@ test("draftThemeArtifact - rejects ambiguous patch anchors before replacing mult
     assert.equal(result.errorCode, "patch_failed_ambiguous_match");
     assert.match(result.message, /matchte 4 keer/i);
     assert.match(themeMock.getValue(), /<div class="demo">Promo<\/div>/);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - requires planner reads before an edit write continues", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const context = {
+    shopifyClient: mockShopifyClient,
+    tokenHash: "draft-read-enforcement",
+  };
+
+  rememberThemePlan(context, {
+    themeId: 111,
+    intent: "native_block",
+    template: "product",
+    nextReadKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+    nextWriteKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+    immediateNextTool: "get-theme-files",
+    writeTool: "draft-theme-artifact",
+  });
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      themeId: 111,
+      mode: "edit",
+      files: [
+        {
+          key: "sections/main-product.liquid",
+          value: goodSectionLiquid,
+        },
+        {
+          key: "snippets/product-info.liquid",
+          value: "{% doc %}{% enddoc %}<div>Review block</div>",
+        },
+      ],
+    }),
+    context
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "missing_theme_context_reads");
+  assert.equal(result.nextTool, "get-theme-files");
+  assert.equal(result.retryMode, "switch_tool_after_fix");
+});
+
+test("draftThemeArtifact - flags nested Liquid delimiters inside a single output tag", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const themeMock = createThemeFileFetchMock({
+    key: "snippets/product-info.liquid",
+    initialValue: `{% doc %}{% enddoc %}<div>{{ product.title }}</div>`,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        files: [
+          {
+            key: "snippets/product-info.liquid",
+            value: `
+{% doc %}
+  @param {product} product
+{% enddoc %}
+<div class="review-badge">
+  {{ block.settings.image | image_url: width: 96 | image_tag: class: 'review-avatars-{{ block.id }}__avatar-image' }}
+</div>
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some(
+        (issue) => issue.issueCode === "inspection_failed_liquid_output_nesting"
+      )
+    );
   } finally {
     global.fetch = previousFetch;
   }

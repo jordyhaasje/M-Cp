@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { draftThemeArtifact } from "./draftThemeArtifact.js";
+import { getRecentThemeRead } from "../lib/themeEditMemory.js";
 import {
   extractThemeToolSummary,
   inferSingleThemeFile,
@@ -94,13 +95,168 @@ const PatchThemeFileInputSchema = z.preprocess(
   PatchThemeFileInputShape
 );
 
+const countLiteralOccurrences = (source, needle) => {
+  const haystack = String(source || "");
+  const search = String(needle || "");
+  if (!search) {
+    return 0;
+  }
+
+  let count = 0;
+  let cursor = 0;
+  while (cursor <= haystack.length) {
+    const index = haystack.indexOf(search, cursor);
+    if (index === -1) {
+      break;
+    }
+    count += 1;
+    cursor = index + search.length;
+  }
+  return count;
+};
+
+const buildPatchThemeFailure = ({
+  message,
+  errorCode,
+  normalizedArgs,
+  nextAction,
+  nextTool = "patch-theme-file",
+  nextArgsTemplate,
+  retryMode = "same_request_after_fix",
+  errors = [],
+  suggestedFixes = [],
+}) => ({
+  success: false,
+  status: "inspection_failed",
+  message,
+  errorCode,
+  retryable: true,
+  nextAction,
+  nextTool,
+  nextArgsTemplate,
+  retryMode,
+  normalizedArgs,
+  errors,
+  suggestedFixes,
+  shouldNarrowScope: false,
+});
+
+const validatePatchesAgainstRead = (patches, source) => {
+  let workingSource = String(source || "");
+
+  for (const [index, patch] of patches.entries()) {
+    const searchString = String(patch?.searchString || "");
+    const occurrenceCount = countLiteralOccurrences(workingSource, searchString);
+    if (occurrenceCount !== 1) {
+      return {
+        ok: false,
+        patchIndex: index,
+        searchString,
+        occurrenceCount,
+      };
+    }
+    workingSource = workingSource.replace(searchString, String(patch?.replaceString || ""));
+  }
+
+  return { ok: true };
+};
+
 const patchThemeFileTool = {
   name: "patch-theme-file",
   description:
-    "Patch one existing theme file met één of meer letterlijke vervangingen. Gebruik dit voor kleine single-file fixes nadat je eerst met `search-theme-files` en zo nodig `get-theme-file` de exacte anchor hebt bepaald. Geef altijd hetzelfde expliciete themeId of themeRole mee als in je read-flow. Gebruik een unieke searchString die exact één keer voorkomt; bij twijfel eerst plan-theme-edit. Niet bedoeld voor native product-block flows die section + snippet tegelijk raken. Compatibele shorthand: `key + searchString + replaceString` op top-level wordt automatisch naar `patch` genormaliseerd, en legacy `replacements[{ find, replace }]` wordt naar `patches` vertaald. Vrije tekst zoals `_tool_input_summary` blijft alleen een compat-fallback voor theme target of exact file path; die vrije tekst mag nooit een vage key of patch-body construeren.",
+    "Patch one existing theme file met één of meer letterlijke vervangingen. Gebruik dit voor kleine single-file fixes nadat je eerst met `search-theme-files` en zo nodig `get-theme-file` de exacte anchor hebt bepaald. Deze tool vereist nu eerst een recente exact-read met includeContent=true op hetzelfde bestand, en weigert generieke of niet-unieke anchors voordat de write-flow start.",
   schema: PatchThemeFileInputSchema,
   execute: async (input, context = {}) => {
     requireShopifyClient(context);
+    const normalizedArgs = {
+      themeId: input.themeId ?? null,
+      themeRole: input.themeRole || null,
+      key: input.key,
+      patchCount: input.patch ? 1 : Array.isArray(input.patches) ? input.patches.length : 0,
+      hasBaseChecksumMd5: Boolean(input.baseChecksumMd5),
+    };
+    const recentRead = getRecentThemeRead(context, {
+      key: input.key,
+      themeId: input.themeId,
+      themeRole: input.themeRole,
+      requireContent: true,
+    });
+    const readArgsTemplate = {
+      ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
+      ...(input.themeRole ? { themeRole: input.themeRole } : {}),
+      key: input.key,
+      includeContent: true,
+    };
+
+    if (!recentRead?.content) {
+      return buildPatchThemeFailure({
+        message:
+          "Patch-theme-file vereist eerst een exacte file-read met includeContent=true. Zo kan de agent een unieke literal anchor kiezen en conflict-safe patchen.",
+        errorCode: "patch_requires_read_context",
+        normalizedArgs,
+        nextAction: "read_target_file",
+        nextTool: "get-theme-file",
+        nextArgsTemplate: readArgsTemplate,
+        retryMode: "switch_tool_after_fix",
+        errors: [
+          {
+            path: ["key"],
+            problem: `Bestand '${input.key}' is nog niet met includeContent=true gelezen in deze flow.`,
+            fixSuggestion:
+              "Lees eerst exact dit bestand in via get-theme-file en kies daarna een unieke searchString uit de echte filecontent.",
+          },
+        ],
+        suggestedFixes: [
+          "Gebruik eerst get-theme-file met includeContent=true op exact hetzelfde theme target.",
+          "Kies daarna een unieke anchor uit de echte filecontent in plaats van een generieke term.",
+        ],
+      });
+    }
+
+    const patches = input.patch ? [input.patch] : input.patches || [];
+    const patchValidation = validatePatchesAgainstRead(patches, recentRead.content);
+
+    if (!patchValidation.ok) {
+      const ambiguous = patchValidation.occurrenceCount > 1;
+      const shortAnchor = `${patchValidation.searchString.slice(0, 60)}${
+        patchValidation.searchString.length > 60 ? "..." : ""
+      }`;
+      return buildPatchThemeFailure({
+        message: ambiguous
+          ? `Patch anchor '${shortAnchor}' is niet veilig uniek in '${input.key}'.`
+          : `Patch anchor '${shortAnchor}' werd niet gevonden in de laatst gelezen inhoud van '${input.key}'.`,
+        errorCode: ambiguous
+          ? "patch_failed_ambiguous_match"
+          : "patch_failed_nomatch",
+        normalizedArgs,
+        nextAction: ambiguous ? "make_patch_anchor_unique" : "refresh_patch_anchor",
+        nextTool: "get-theme-file",
+        nextArgsTemplate: readArgsTemplate,
+        errors: [
+          {
+            path: input.patch
+              ? ["patch", "searchString"]
+              : ["patches", patchValidation.patchIndex, "searchString"],
+            problem: ambiguous
+              ? `De gekozen searchString matcht ${patchValidation.occurrenceCount} keer in '${input.key}'.`
+              : `De gekozen searchString matcht niet meer in '${input.key}'.`,
+            fixSuggestion: ambiguous
+              ? "Gebruik meer omliggende context zodat de anchor exact één keer voorkomt."
+              : "Lees het bestand opnieuw in en kies een exacte literal uit de huidige filecontent.",
+          },
+        ],
+        suggestedFixes: ambiguous
+          ? [
+              "Gebruik een langere literal anchor met omliggende markup of Liquid.",
+              "Vermijd generieke termen zoals trustpilot, button, rating of schema zonder extra context.",
+            ]
+          : [
+              "Lees het bestand opnieuw in en controleer of de anchor nog exact overeenkomt.",
+              "Gebruik desnoods search-theme-files om eerst een compact, uniek snippet te vinden.",
+            ],
+      });
+    }
+
     return draftThemeArtifact.execute(
       {
         themeId: input.themeId,
@@ -111,7 +267,9 @@ const patchThemeFileTool = {
             key: input.key,
             ...(input.patch ? { patch: input.patch } : {}),
             ...(input.patches ? { patches: input.patches } : {}),
-            ...(input.baseChecksumMd5 ? { baseChecksumMd5: input.baseChecksumMd5 } : {}),
+            ...(input.baseChecksumMd5 || recentRead?.checksumMd5
+              ? { baseChecksumMd5: input.baseChecksumMd5 || recentRead.checksumMd5 }
+              : {}),
           },
         ],
       },

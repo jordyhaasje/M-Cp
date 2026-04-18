@@ -320,6 +320,17 @@ try {
     "exact-key search should still surface compact snippets from the target files"
   );
 
+  const exactExistingEditPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "existing_edit",
+    targetFile: "sections/main-product.liquid",
+    query: "Pas deze section aan",
+  });
+  assert.equal(exactExistingEditPlan.recommendedFlow, "patch-existing");
+  assert.equal(exactExistingEditPlan.template.requested, null);
+  assert.equal(exactExistingEditPlan.template.resolved, null);
+  assert.deepEqual(exactExistingEditPlan.nextReadKeys, ["sections/main-product.liquid"]);
+
   global.fetch = createGraphqlFetch(homepageJsonFiles);
 
   const newSectionPlan = await planThemeEdit(shopifyClient, "2026-01", {

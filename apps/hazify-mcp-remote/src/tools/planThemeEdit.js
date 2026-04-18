@@ -9,6 +9,10 @@ import {
   inferTemplateFromSummary,
   inferThemeTargetFromSummary,
 } from "./_themeToolCompatibility.js";
+import {
+  getThemeEditMemory,
+  rememberThemePlan,
+} from "../lib/themeEditMemory.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
@@ -46,6 +50,19 @@ const SummaryAliasFieldDescriptions = {
 
 const PLAN_QUERY_PUBLIC_MAX_LENGTH = 4000;
 const PLAN_QUERY_INTERNAL_MAX_LENGTH = 240;
+const FOLLOW_UP_SECTION_PATTERNS = [
+  /\b(v2|v3|version 2|variant 2)\b/i,
+  /\boptimaliseer\b/i,
+  /\boptimi[sz]e\b/i,
+  /\bverbeter\b/i,
+  /\bimprove\b/i,
+  /\bmaak (hem|haar|die|deze)\b/i,
+  /\bpas (hem|haar|die|deze)\b/i,
+  /\bdie (section|sectie)\b/i,
+  /\bdeze (section|sectie)\b/i,
+  /\bzelfde (section|sectie)\b/i,
+  /\bthat section\b/i,
+];
 
 const compactPlanQuery = (value) =>
   typeof value === "string" && value.trim()
@@ -282,6 +299,106 @@ const summarizeNormalizedPlanInput = (input = {}) => ({
   snippetLimit: input.snippetLimit ?? 3,
 });
 
+const buildExplicitThemeTarget = (input = {}) =>
+  input.themeId !== undefined
+    ? { themeId: input.themeId }
+    : input.themeRole
+      ? { themeRole: input.themeRole }
+      : {};
+
+const getBasenameQueryFromTargetFile = (targetFile) => {
+  const normalized = String(targetFile || "").trim();
+  if (!normalized) {
+    return null;
+  }
+  const filename = normalized.split("/").pop() || normalized;
+  return filename.replace(/\.[^.]+$/, "") || filename;
+};
+
+const getFileScopeFromKey = (key) => {
+  const normalized = String(key || "").trim();
+  if (normalized.startsWith("sections/")) {
+    return ["sections"];
+  }
+  if (normalized.startsWith("snippets/")) {
+    return ["snippets"];
+  }
+  if (normalized.startsWith("blocks/")) {
+    return ["sections", "snippets", "blocks"];
+  }
+  if (normalized.startsWith("templates/")) {
+    return ["templates"];
+  }
+  if (normalized.startsWith("config/")) {
+    return ["config"];
+  }
+  if (normalized.startsWith("assets/")) {
+    return ["assets"];
+  }
+  return undefined;
+};
+
+const looksLikeStickySectionFollowUp = (text, memoryState) => {
+  const normalized = String(text || "").trim();
+  if (!normalized || !memoryState?.lastCreatedSectionFile) {
+    return false;
+  }
+  if (inferSingleThemeFile(normalized)) {
+    return false;
+  }
+  const handle = String(memoryState.lastCreatedSectionHandle || "").trim();
+  if (handle && normalized.toLowerCase().includes(handle.toLowerCase())) {
+    return true;
+  }
+  return FOLLOW_UP_SECTION_PATTERNS.some((pattern) => pattern.test(normalized));
+};
+
+const applyStickyPlanContext = (input, rawInput, context) => {
+  const memoryState = getThemeEditMemory(context);
+  if (!memoryState) {
+    return { input, stickyTarget: null };
+  }
+
+  const summary = extractThemeToolSummary(rawInput) || input.query || "";
+  if (!looksLikeStickySectionFollowUp(summary, memoryState)) {
+    return { input, stickyTarget: null };
+  }
+  if (input.targetFile || inferSingleThemeFile(summary)) {
+    return { input, stickyTarget: null };
+  }
+  if (input.intent && input.intent !== "existing_edit") {
+    return { input, stickyTarget: null };
+  }
+
+  const stickyTargetFile = memoryState.lastCreatedSectionFile || memoryState.lastTargetFile;
+  if (!stickyTargetFile) {
+    return { input, stickyTarget: null };
+  }
+
+  const nextInput = {
+    ...input,
+    intent: "existing_edit",
+    targetFile: stickyTargetFile,
+    themeId:
+      input.themeId !== undefined
+        ? input.themeId
+        : memoryState.themeTarget?.themeId ?? input.themeId,
+    themeRole:
+      input.themeRole ||
+      (input.themeId === undefined ? memoryState.themeTarget?.themeRole || input.themeRole : input.themeRole),
+  };
+
+  return {
+    input: nextInput,
+    stickyTarget: {
+      source: "last_created_section",
+      targetFile: stickyTargetFile,
+      themeId: nextInput.themeId ?? null,
+      themeRole: nextInput.themeRole || null,
+    },
+  };
+};
+
 const buildPlanInputError = ({
   path,
   problem,
@@ -320,13 +437,8 @@ const buildPlanRepairResponse = ({
   errors,
 });
 
-const buildPlanNextArgsTemplate = (input = {}, result = {}) => {
-  const explicitThemeTarget =
-    input.themeId !== undefined
-      ? { themeId: input.themeId }
-      : input.themeRole
-        ? { themeRole: input.themeRole }
-        : {};
+const buildPlanWriteArgsTemplate = (input = {}, result = {}) => {
+  const explicitThemeTarget = buildExplicitThemeTarget(input);
 
   if (result?.shouldUse === "create-theme-section") {
     return {
@@ -368,13 +480,70 @@ const buildPlanNextArgsTemplate = (input = {}, result = {}) => {
   return undefined;
 };
 
+const buildPlanImmediateNextStep = (input = {}, result = {}) => {
+  const explicitThemeTarget = buildExplicitThemeTarget(input);
+  const nextReadKeys = Array.isArray(result?.nextReadKeys)
+    ? result.nextReadKeys.filter(Boolean)
+    : [];
+
+  if (input.intent === "existing_edit" && input.targetFile && (!result?.nextWriteKeys || result.nextWriteKeys.length === 0)) {
+    const recoveryQuery = getBasenameQueryFromTargetFile(input.targetFile);
+    return {
+      nextAction: "search_exact_file",
+      nextTool: "search-theme-files",
+      nextArgsTemplate: {
+        ...explicitThemeTarget,
+        query: recoveryQuery || input.targetFile,
+        ...(getFileScopeFromKey(input.targetFile)
+          ? { scope: getFileScopeFromKey(input.targetFile) }
+          : {}),
+      },
+      requiresReadBeforeWrite: true,
+    };
+  }
+
+  if (nextReadKeys.length === 1) {
+    return {
+      nextAction: "read_target_file",
+      nextTool: "get-theme-file",
+      nextArgsTemplate: {
+        ...explicitThemeTarget,
+        key: nextReadKeys[0],
+        includeContent: true,
+      },
+      requiresReadBeforeWrite: true,
+    };
+  }
+
+  if (nextReadKeys.length > 1) {
+    return {
+      nextAction: "read_target_files",
+      nextTool: "get-theme-files",
+      nextArgsTemplate: {
+        ...explicitThemeTarget,
+        keys: nextReadKeys,
+        includeContent: true,
+      },
+      requiresReadBeforeWrite: true,
+    };
+  }
+
+  const writeTool = typeof result?.shouldUse === "string" ? result.shouldUse : undefined;
+  return {
+    nextAction: writeTool ? "write_theme_change" : undefined,
+    nextTool: writeTool,
+    nextArgsTemplate: buildPlanWriteArgsTemplate(input, result),
+    requiresReadBeforeWrite: false,
+  };
+};
+
 const planThemeEditTool = {
   name: "plan-theme-edit",
   title: "Plan Theme Edit",
   description:
-    "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Gebruik plan-theme-edit voor native blocks, placement-vragen en andere theme-aware flows. Geef bij voorkeur intent plus themeId of themeRole mee. De planner retourneert het aanbevolen volgende toolpad, compacte nextReadKeys, nextWriteKeys en voor nieuwe sections ook compacte theme-context, section-category metadata en parser/theme/media guardrails die retries helpen voorkomen.",
+    "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Gebruik plan-theme-edit voor native blocks, placement-vragen en andere theme-aware flows. Geef bij voorkeur intent plus themeId of themeRole mee. De planner retourneert nu de directe volgende stap: eerst lezen als nextReadKeys nodig zijn, pas daarna schrijven. Voor follow-up prompts op een net gemaakte section kan dezelfde target sticky blijven zolang de gebruiker niet expliciet van bestand wisselt.",
   docsDescription:
-    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole`. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: `patch-existing`, `multi-file-edit`, `create-section` of `template-placement`, plus de exacte volgende read/write keys. Langere `query`- of `description`-prompts zijn toegestaan; de planner compacteert die intern naar een korte query voor tokenzuinige planning. Voor native product-blocks analyseert de planner `templates/*.json` al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand `targetFile`. Voor nieuwe sections retourneert de planner nu naast `themeContext` ook een `sectionBlueprint` met category, required reads, relevante helpers, risky inherited classes, safe unit strategy, forbidden patterns, preflight checks en write-strategy hints.",
+    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole`. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: `patch-existing`, `multi-file-edit`, `create-section` of `template-placement`, plus de exacte volgende read/write keys. `nextTool` en `nextArgsTemplate` beschrijven nu de onmiddellijke volgende stap: meestal eerst `get-theme-file` of `get-theme-files` voor verplichte contextreads, en pas daarna de uiteindelijke write-tool via `writeTool` en `writeArgsTemplate`. Langere `query`- of `description`-prompts zijn toegestaan; de planner compacteert die intern naar een korte query voor tokenzuinige planning. Voor native product-blocks analyseert de planner `templates/*.json` al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand `targetFile`. Wanneer in dezelfde flow net een section is aangemaakt, kunnen vervolgprompts zoals 'optimaliseer hem' of 'maak V2' automatisch blijven wijzen naar datzelfde created target. Voor nieuwe sections retourneert de planner nu naast `themeContext` ook een `sectionBlueprint` met category, required reads, relevante helpers, risky inherited classes, safe unit strategy, forbidden patterns, preflight checks en write-strategy hints.",
   inputSchema: PlanThemeEditPublicObjectSchema,
   schema: PlanThemeEditInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -403,7 +572,11 @@ const planThemeEditTool = {
       });
     }
 
-    const input = normalizedParse.data;
+    const { input, stickyTarget } = applyStickyPlanContext(
+      normalizedParse.data,
+      rawInput,
+      context
+    );
     const normalizedArgs = summarizeNormalizedPlanInput(input);
     const errors = [];
 
@@ -466,13 +639,34 @@ const planThemeEditTool = {
 
     const shopifyClient = requireShopifyClient(context);
     const result = await planThemeEdit(shopifyClient, API_VERSION, input);
-    const nextTool = typeof result?.shouldUse === "string" ? result.shouldUse : undefined;
-    const nextArgsTemplate = buildPlanNextArgsTemplate(input, result);
+    const writeTool = typeof result?.shouldUse === "string" ? result.shouldUse : undefined;
+    const writeArgsTemplate = buildPlanWriteArgsTemplate(input, result);
+    const immediateStep = buildPlanImmediateNextStep(input, result);
+    rememberThemePlan(context, {
+      themeId: input.themeId,
+      themeRole: input.themeRole,
+      intent: input.intent,
+      template: input.template,
+      targetFile: input.targetFile,
+      nextReadKeys: result?.nextReadKeys || [],
+      nextWriteKeys: result?.nextWriteKeys || [],
+      immediateNextTool: immediateStep.nextTool || null,
+      writeTool,
+    });
     return {
       success: true,
       normalizedArgs,
-      ...(nextTool ? { nextTool } : {}),
-      ...(nextArgsTemplate ? { nextArgsTemplate } : {}),
+      ...(immediateStep.nextAction ? { nextAction: immediateStep.nextAction } : {}),
+      ...(immediateStep.nextTool ? { nextTool: immediateStep.nextTool } : {}),
+      ...(immediateStep.nextArgsTemplate
+        ? { nextArgsTemplate: immediateStep.nextArgsTemplate }
+        : {}),
+      ...(writeTool ? { writeTool } : {}),
+      ...(writeArgsTemplate ? { writeArgsTemplate } : {}),
+      ...(typeof immediateStep.requiresReadBeforeWrite === "boolean"
+        ? { requiresReadBeforeWrite: immediateStep.requiresReadBeforeWrite }
+        : {}),
+      ...(stickyTarget ? { stickyTarget } : {}),
       ...result,
     };
   },

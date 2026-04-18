@@ -212,13 +212,17 @@ const planThemeEditOutputSchema = z
     nextAction: z.string().optional(),
     nextTool: z.string().optional(),
     nextArgsTemplate: passthroughObject().optional(),
+    writeTool: z.string().optional(),
+    writeArgsTemplate: passthroughObject().optional(),
+    requiresReadBeforeWrite: z.boolean().optional(),
+    stickyTarget: passthroughObject().optional(),
     retryMode: z.string().optional(),
     theme: themeSummarySchema.optional(),
     intent: z.string().optional(),
     template: z
       .object({
-        requested: z.string(),
-        resolved: z.string(),
+        requested: z.string().nullable(),
+        resolved: z.string().nullable(),
         primary: passthroughObject().nullable(),
         alternates: z.array(passthroughObject()),
       })

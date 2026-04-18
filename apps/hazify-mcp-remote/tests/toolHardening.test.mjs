@@ -15,6 +15,7 @@ import { createThemeSectionTool } from "../src/tools/createThemeSection.js";
 import { patchThemeFileTool } from "../src/tools/patchThemeFile.js";
 import { planThemeEditTool } from "../src/tools/planThemeEdit.js";
 import { SearchThemeFilesInputSchema } from "../src/tools/searchThemeFiles.js";
+import { clearThemeEditMemory } from "../src/lib/themeEditMemory.js";
 import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
 const originalLookup = dns.lookup;
@@ -234,6 +235,23 @@ try {
     },
   });
   assert.equal(patchThemeFilePayload.success, true, "patch-theme-file should accept a single-file literal patch");
+
+  clearThemeEditMemory();
+  const patchThemeFileRequiresReadResult = await patchThemeFileTool.execute(
+    patchThemeFileTool.schema.parse({
+      themeRole: "main",
+      key: "snippets/product-info.liquid",
+      patch: {
+        searchString: "{%- when 'title' -%}",
+        replaceString: "{%- when 'title' -%}\n  <span>Badge</span>",
+      },
+    }),
+    { shopifyClient: mockShopifyClient, tokenHash: "patch-theme-read-hardening" }
+  );
+  assert.equal(patchThemeFileRequiresReadResult.success, false);
+  assert.equal(patchThemeFileRequiresReadResult.errorCode, "patch_requires_read_context");
+  assert.equal(patchThemeFileRequiresReadResult.nextTool, "get-theme-file");
+  assert.equal(patchThemeFileRequiresReadResult.retryMode, "switch_tool_after_fix");
 
   const planThemeEditPayload = planThemeEditTool.schema.safeParse({
     themeRole: "main",

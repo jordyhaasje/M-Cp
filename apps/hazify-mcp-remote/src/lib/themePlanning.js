@@ -718,6 +718,9 @@ export const planThemeEdit = async (
   } = {}
 ) => {
   const templateSurface = normalizeTemplateSurface(template, intent);
+  const explicitTemplateSurface = normalizeText(template)
+    ? normalizeTemplateSurface(template, intent)
+    : null;
 
   if (targetFile && intent === "existing_edit") {
     const readback = await getThemeFiles(shopifyClient, apiVersion, {
@@ -736,8 +739,8 @@ export const planThemeEdit = async (
       },
       intent,
       template: {
-        requested: templateSurface,
-        resolved: templateSurface,
+        requested: explicitTemplateSurface,
+        resolved: explicitTemplateSurface,
         primary: null,
         alternates: [],
       },
