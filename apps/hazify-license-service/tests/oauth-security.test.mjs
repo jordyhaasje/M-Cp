@@ -453,6 +453,38 @@ try {
     "authorize form action should preserve the original query parameters for proxied clients"
   );
 
+  const equivalentScopeAuthorizePage = await fetch(
+    `${baseUrl}/oauth/authorize?client_id=${encodeURIComponent(client.client_id)}&redirect_uri=${encodeURIComponent(
+      client.redirect_uris[0]
+    )}&response_type=code&state=equivalent-scope-render&code_challenge=${encodeURIComponent(
+      getDecisionChallenge
+    )}&code_challenge_method=S256&scope=${encodeURIComponent(
+      "mcp:tools:write mcp:tools:read offline_access"
+    )}&resource=${encodeURIComponent(`${baseUrl}/mcp`)}`,
+    {
+      method: "GET",
+      headers: {
+        Cookie: `hz_user_session=${sessionToken}`,
+      },
+    }
+  );
+  assert.equal(
+    equivalentScopeAuthorizePage.status,
+    200,
+    "authorize page should render when scope ordering and auxiliary scopes need normalization"
+  );
+  const equivalentScopeAuthorizeHtml = await equivalentScopeAuthorizePage.text();
+  assert.match(
+    equivalentScopeAuthorizeHtml,
+    /name="scope" value="mcp:tools:read mcp:tools:write offline_access"/,
+    "authorize page should echo scope in canonical order while preserving offline_access"
+  );
+  assert.match(
+    equivalentScopeAuthorizeHtml,
+    /action="\/oauth\/authorize\?client_id=[^"]+&amp;redirect_uri=[^"]+&amp;response_type=code[^"]*&amp;scope=mcp%3Atools%3Aread\+mcp%3Atools%3Awrite\+offline_access[^"]*&amp;resource=/,
+    "authorize form action should round-trip the canonicalized scope"
+  );
+
   const queryBackedAuthorize = await fetch(
     `${baseUrl}/oauth/authorize?client_id=${encodeURIComponent(client.client_id)}&redirect_uri=${encodeURIComponent(
       client.redirect_uris[0]
@@ -480,6 +512,70 @@ try {
     "query-backed-post",
     "query-preserved authorize should keep the original state"
   );
+
+  const equivalentScopeVerifier =
+    "pkce-verifier-equivalent-scope-1234567890-pkce-verifier-equivalent-scope-1234567890";
+  const equivalentScopeChallenge = pkceChallenge(equivalentScopeVerifier);
+  const equivalentScopeAuthorize = await fetch(
+    `${baseUrl}/oauth/authorize?client_id=${encodeURIComponent(client.client_id)}&redirect_uri=${encodeURIComponent(
+      client.redirect_uris[0]
+    )}&response_type=code&state=equivalent-scope-post&code_challenge=${encodeURIComponent(
+      equivalentScopeChallenge
+    )}&code_challenge_method=S256&scope=${encodeURIComponent(
+      "mcp:tools:write mcp:tools:read offline_access"
+    )}&resource=${encodeURIComponent(`${baseUrl}/mcp`)}`,
+    {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        "content-type": "application/json",
+        Cookie: `hz_user_session=${sessionToken}`,
+      },
+      body: JSON.stringify({
+        client_id: client.client_id,
+        redirect_uri: client.redirect_uris[0],
+        response_type: "code",
+        state: "equivalent-scope-post",
+        decision: "allow",
+        shopDomain: "unit-test-shop.myshopify.com",
+        code_challenge: equivalentScopeChallenge,
+        code_challenge_method: "S256",
+        scope: "mcp:tools:read mcp:tools:write offline_access",
+        resource: `${baseUrl}/mcp`,
+      }),
+    }
+  );
+  assert.equal(
+    equivalentScopeAuthorize.status,
+    302,
+    "authorize POST should accept semantically equal scope values from query and body"
+  );
+  const equivalentScopeLocation = equivalentScopeAuthorize.headers.get("location") || "";
+  const equivalentScopeCode = new URL(equivalentScopeLocation).searchParams.get("code");
+  assert.ok(equivalentScopeCode, "equivalent scope authorize flow should issue an auth code");
+
+  const equivalentScopeToken = await fetch(`${baseUrl}/oauth/token`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "authorization_code",
+      code: equivalentScopeCode,
+      redirect_uri: client.redirect_uris[0],
+      code_verifier: equivalentScopeVerifier,
+      client_id: client.client_id,
+      client_secret: client.client_secret,
+      scope: "mcp:tools",
+      resource: `${baseUrl}/mcp`,
+    }),
+  });
+  assert.equal(
+    equivalentScopeToken.status,
+    200,
+    "token exchange should accept semantically equivalent MCP scopes"
+  );
+  const equivalentScopeTokenBody = await equivalentScopeToken.json();
+  assert.equal(typeof equivalentScopeTokenBody.access_token, "string");
+  assert.equal(typeof equivalentScopeTokenBody.refresh_token, "string");
 
   const mismatchedQueryAuthorize = await fetch(
     `${baseUrl}/oauth/authorize?client_id=${encodeURIComponent(client.client_id)}&redirect_uri=${encodeURIComponent(

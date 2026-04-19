@@ -211,6 +211,69 @@ export function createOAuthHandlers({
     return normalizeMcpScopeString(tokens.join(" "), fallback);
   }
 
+  function normalizeAuthorizeRequestScope(rawScope, fallback = MCP_SCOPE_TOOLS) {
+    const rawTokens = parseSpaceSeparatedScopes(rawScope || "", [fallback]);
+    const normalizedScope = assertSupportedOauthScope(rawTokens.join(" "), fallback);
+    const normalizedTokens = parseSpaceSeparatedScopes(normalizedScope, [fallback]).filter(Boolean);
+    const auxiliaryTokens = rawTokens.filter((token) => allowedAuxiliaryScopes.has(token));
+    return Array.from(new Set([...normalizedTokens, ...auxiliaryTokens])).join(" ");
+  }
+
+  function haveEquivalentOauthScopeAccess(leftScope, rightScope, fallback = MCP_SCOPE_TOOLS) {
+    const leftCapabilities = getMcpScopeCapabilities(assertSupportedOauthScope(leftScope, fallback));
+    const rightCapabilities = getMcpScopeCapabilities(assertSupportedOauthScope(rightScope, fallback));
+    return (
+      leftCapabilities.read === rightCapabilities.read &&
+      leftCapabilities.write === rightCapabilities.write
+    );
+  }
+
+  function buildAuthorizeAction(
+    pathname = "/oauth/authorize",
+    {
+      clientId = "",
+      redirectUri = "",
+      state = "",
+      responseType = "code",
+      codeChallenge = "",
+      codeChallengeMethod = "S256",
+      scope = "",
+      resource = "",
+      shopDomain = "",
+    } = {}
+  ) {
+    const params = new URLSearchParams();
+    if (clientId) {
+      params.set("client_id", clientId);
+    }
+    if (redirectUri) {
+      params.set("redirect_uri", redirectUri);
+    }
+    if (responseType) {
+      params.set("response_type", responseType);
+    }
+    if (state) {
+      params.set("state", state);
+    }
+    if (codeChallenge) {
+      params.set("code_challenge", codeChallenge);
+    }
+    if (codeChallengeMethod) {
+      params.set("code_challenge_method", codeChallengeMethod);
+    }
+    if (scope) {
+      params.set("scope", scope);
+    }
+    if (resource) {
+      params.set("resource", resource);
+    }
+    if (shopDomain) {
+      params.set("shopDomain", shopDomain);
+    }
+    const query = params.toString();
+    return query ? `${pathname}?${query}` : pathname;
+  }
+
   function assertSupportedOauthScope(rawScope, fallback = MCP_SCOPE_TOOLS) {
     const rawTokens = parseSpaceSeparatedScopes(rawScope || "", [fallback]);
     const normalizedScope = normalizeOauthScope(rawTokens.join(" "), fallback);
@@ -393,6 +456,7 @@ export function createOAuthHandlers({
     codeChallenge,
     codeChallengeMethod,
     scope,
+    renderScope = scope,
     decision,
     licenseKey,
     shopDomain = "",
@@ -425,7 +489,7 @@ export function createOAuthHandlers({
           responseType,
           codeChallenge,
           codeChallengeMethod,
-          scope,
+          scope: renderScope,
           shopOptions: getTenantsByLicenseKey(licenseKey)
             .map((tenant) => tenant?.shopify?.domain)
             .filter(Boolean),
@@ -449,7 +513,7 @@ export function createOAuthHandlers({
           responseType,
           codeChallenge,
           codeChallengeMethod,
-          scope,
+          scope: renderScope,
           shopOptions: getTenantsByLicenseKey(licenseKey)
             .map((tenant) => tenant?.shopify?.domain)
             .filter(Boolean),
@@ -474,7 +538,7 @@ export function createOAuthHandlers({
           responseType,
           codeChallenge,
           codeChallengeMethod,
-          scope,
+          scope: renderScope,
           shopDomain,
           shopOptions: getTenantsByLicenseKey(licenseKey)
             .map((entry) => entry?.shopify?.domain)
@@ -510,6 +574,7 @@ export function createOAuthHandlers({
   }
 
   async function handleOAuthAuthorizeGet(req, res, url) {
+    const authorizePath = url.pathname || "/oauth/authorize";
     const clientId = url.searchParams.get("client_id") || "";
     const redirectUri = url.searchParams.get("redirect_uri") || "";
     const state = url.searchParams.get("state") || "";
@@ -528,7 +593,6 @@ export function createOAuthHandlers({
       typeof url.searchParams.get("shopDomain") === "string"
         ? String(url.searchParams.get("shopDomain")).trim()
         : "";
-    const authorizeAction = `${url.pathname || "/oauth/authorize"}${url.search || ""}`;
 
     const client = getOAuthClient(clientId);
     if (!client) {
@@ -546,8 +610,11 @@ export function createOAuthHandlers({
       return;
     }
     let scope = resolveOAuthClientScope(client);
+    let authorizeScope = normalizeAuthorizeRequestScope(requestedScope || scope, scope);
+    let normalizedResource = "";
     try {
       scope = resolveRequestedOAuthScope(client, requestedScope);
+      authorizeScope = normalizeAuthorizeRequestScope(requestedScope || scope, scope);
       assertOAuthClientRedirectUri(client, redirectUri);
       if (responseType !== "code") {
         redirectWithOAuthResult(res, redirectUri, {
@@ -581,7 +648,7 @@ export function createOAuthHandlers({
         });
         return;
       }
-      const normalizedResource = assertSupportedOauthResource(req, resource);
+      normalizedResource = assertSupportedOauthResource(req, resource);
       if (resource && !normalizedResource) {
         redirectWithOAuthResult(res, redirectUri, {
           error: "invalid_target",
@@ -591,6 +658,17 @@ export function createOAuthHandlers({
         return;
       }
     } catch (error) {
+      const authorizeAction = buildAuthorizeAction(authorizePath, {
+        clientId,
+        redirectUri,
+        state,
+        responseType,
+        codeChallenge,
+        codeChallengeMethod,
+        scope: authorizeScope,
+        resource,
+        shopDomain: requestedShopDomain,
+      });
       if (error instanceof Error && error.message === "Unsupported resource for this authorization server") {
         redirectWithOAuthResult(res, redirectUri, {
           error: "invalid_target",
@@ -611,16 +689,27 @@ export function createOAuthHandlers({
           responseType,
           codeChallenge,
           codeChallengeMethod,
-          scope,
+          scope: authorizeScope,
           resource,
         })
       );
       return;
     }
 
+    const authorizeAction = buildAuthorizeAction(authorizePath, {
+      clientId,
+      redirectUri,
+      state,
+      responseType,
+      codeChallenge,
+      codeChallengeMethod,
+      scope: authorizeScope,
+      resource: normalizedResource || resource,
+      shopDomain: requestedShopDomain,
+    });
     const accountSession = resolveAccountSession(req);
     if (!accountSession.account) {
-      const next = safeRedirectPath(`${url.pathname}${url.search}`, "/onboarding");
+      const next = safeRedirectPath(authorizeAction, "/onboarding");
       return redirectTo(res, `/login?next=${encodeURIComponent(next)}`);
     }
 
@@ -639,8 +728,8 @@ export function createOAuthHandlers({
         responseType,
         codeChallenge,
         codeChallengeMethod,
-        scope,
-        resource,
+        scope: authorizeScope,
+        resource: normalizedResource || resource,
         shopDomain: requestedShopDomain,
         shopOptions,
       })
@@ -682,7 +771,8 @@ export function createOAuthHandlers({
         readRequestParam("response_type", "code", { enforceMatch: true }) || "code";
       const codeChallenge = readRequestParam("code_challenge", "", { enforceMatch: true });
       const codeChallengeMethod = readRequestParam("code_challenge_method", "S256", { enforceMatch: true }) || "S256";
-      const requestedScope = readRequestParam("scope", "", { enforceMatch: true });
+      const requestedScopeBody = readBodyParam("scope");
+      const requestedScopeQuery = readQueryParam("scope");
       const resource = readRequestParam("resource", "", { enforceMatch: true });
       const decision =
         typeof payload.decision === "string" && payload.decision.trim()
@@ -691,7 +781,6 @@ export function createOAuthHandlers({
           ? queryParams.get("decision").trim()
           : "deny";
       const authorizePath = requestUrl.pathname || "/oauth/authorize";
-      const authorizeAction = `${authorizePath}${requestUrl.search || ""}`;
       const requestedShopDomain = readRequestParam("shopDomain");
 
       const client = getOAuthClient(clientId);
@@ -709,7 +798,19 @@ export function createOAuthHandlers({
         );
         return;
       }
+      const clientScope = resolveOAuthClientScope(client);
+      const normalizedBodyScope = requestedScopeBody
+        ? normalizeAuthorizeRequestScope(requestedScopeBody, clientScope)
+        : "";
+      const normalizedQueryScope = requestedScopeQuery
+        ? normalizeAuthorizeRequestScope(requestedScopeQuery, clientScope)
+        : "";
+      if (normalizedBodyScope && normalizedQueryScope && normalizedBodyScope !== normalizedQueryScope) {
+        throw new Error("scope mismatch between authorize query and form body");
+      }
+      const requestedScope = normalizedBodyScope || normalizedQueryScope || "";
       const scope = resolveRequestedOAuthScope(client, requestedScope);
+      const authorizeScope = normalizeAuthorizeRequestScope(requestedScope || scope, clientScope);
       assertOAuthClientRedirectUri(client, redirectUri);
       if (responseType !== "code") {
         redirectWithOAuthResult(res, redirectUri, {
@@ -752,6 +853,17 @@ export function createOAuthHandlers({
         });
         return;
       }
+      const authorizeAction = buildAuthorizeAction(authorizePath, {
+        clientId,
+        redirectUri,
+        state,
+        responseType,
+        codeChallenge,
+        codeChallengeMethod,
+        scope: authorizeScope,
+        resource: normalizedResource || resource,
+        shopDomain: requestedShopDomain,
+      });
 
       const accountSession = resolveAccountSession(req);
       if (!accountSession.account) {
@@ -762,9 +874,9 @@ export function createOAuthHandlers({
         nextParams.set("response_type", responseType);
         nextParams.set("code_challenge", codeChallenge);
         nextParams.set("code_challenge_method", codeChallengeMethod);
-        nextParams.set("scope", scope);
+        nextParams.set("scope", authorizeScope);
         if (resource) {
-          nextParams.set("resource", resource);
+          nextParams.set("resource", normalizedResource || resource);
         }
         if (requestedShopDomain) {
           nextParams.set("shopDomain", requestedShopDomain);
@@ -787,6 +899,7 @@ export function createOAuthHandlers({
         codeChallenge,
         codeChallengeMethod,
         scope,
+        renderScope: authorizeScope,
         decision,
         licenseKey,
         shopDomain: requestedShopDomain,
@@ -927,7 +1040,7 @@ export function createOAuthHandlers({
               ? assertSupportedOauthScope(payload.scope, codeRecord.scope || resolveOAuthClientScope(client))
               : null;
           const effectiveScope = codeRecord.scope || resolveOAuthClientScope(client);
-          if (requestedScope && requestedScope !== effectiveScope) {
+          if (requestedScope && !haveEquivalentOauthScopeAccess(requestedScope, effectiveScope, effectiveScope)) {
             logOAuthTokenFailure("invalid_scope", {
               grantType,
               clientId: client.clientId,
@@ -1088,7 +1201,7 @@ export function createOAuthHandlers({
           typeof payload.scope === "string" && payload.scope.trim()
             ? assertSupportedOauthScope(payload.scope, effectiveScope)
             : null;
-        if (requestedScope && requestedScope !== effectiveScope) {
+        if (requestedScope && !haveEquivalentOauthScopeAccess(requestedScope, effectiveScope, effectiveScope)) {
           logOAuthTokenFailure("invalid_scope", {
             grantType,
             clientId: client.clientId,

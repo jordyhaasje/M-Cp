@@ -14,6 +14,9 @@ Vanaf 2026 ondersteunt Hazify native OAuth 2.0 PKCE.
 2. **Authorize flow:** `GET /oauth/authorize` levert de login pagina; `POST /oauth/authorize` handelt toestemming of weigering af.
 3. **Token:** `/oauth/token` wisselt de autorisatiecode in voor access tokens.
 
+Belangrijk voor compat-clients:
+- De authorize-roundtrip canonicaliseert semantisch gelijke MCP scopes (`mcp:tools` versus `mcp:tools:read mcp:tools:write`) en bewaart toegestane auxiliary scopes zoals `offline_access`. Daardoor falen clients niet meer op pure scope-volgorde of query/form echo-verschillen.
+
 Fallback: dashboard-tokens blijven bruikbaar voor pure API of legacy connectors.
 
 ## 3. Remote MCP Request Lifecycle (`/mcp`)

@@ -32,6 +32,9 @@ HAZIFY_SERVICE_MODE=license npm start
 - `GET /v1/admin/readiness`
 - `POST /v1/admin/storage/export`
 
+OAuth-notitie:
+- `GET|POST /oauth/authorize` canonicaliseert nu semantisch gelijke MCP scopes tijdens de form roundtrip, zodat clients zoals Codex niet stuklopen op andere volgorde van `scope`-tokens of een extra `offline_access` echo in query versus form body.
+
 ## Shopify auth modes
 - `shopAccessToken`
 - `shopClientId` + `shopClientSecret`
