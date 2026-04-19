@@ -101,6 +101,12 @@ const normalizeReadFiles = (files = []) =>
   (Array.isArray(files) ? files : []).map((file) => ({
     key: trimToNull(file?.key),
     checksumMd5: trimToNull(file?.checksumMd5 || file?.checksum),
+    found:
+      file?.found === false || file?.missing === true
+        ? false
+        : file?.found === true
+          ? true
+          : null,
     hasContent:
       file?.hasContent === true ||
       typeof file?.value === "string" ||
@@ -171,7 +177,7 @@ const rememberThemeRead = (
     const nextReadFiles = { ...(state.readFiles || {}) };
 
     for (const file of normalizeReadFiles(files)) {
-      if (!file.key || !file.hasContent) {
+      if (!file.key || !file.hasContent || file.found === false) {
         continue;
       }
       nextReadFiles[file.key] = {

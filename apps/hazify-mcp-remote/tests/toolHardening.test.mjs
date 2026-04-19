@@ -141,6 +141,20 @@ try {
   assert.equal(metadataBatchReadPayload.data.includeContent, undefined, "get-theme-files should not force includeContent at schema level");
   assert.equal(metadataBatchReadPayload.data.themeRole, undefined, "get-theme-files should not silently inject main at schema level");
 
+  const publicMetadataBatchReadAliasPayload = getThemeFilesTool.inputSchema.safeParse({
+    role: "main",
+    filenames: ["sections/test.liquid", "snippets/button.liquid"],
+  });
+  assert.equal(
+    publicMetadataBatchReadAliasPayload.success,
+    true,
+    "get-theme-files should expose safe role/filenames aliases in its public MCP schema"
+  );
+  assert.deepEqual(publicMetadataBatchReadAliasPayload.data.filenames, [
+    "sections/test.liquid",
+    "snippets/button.liquid",
+  ]);
+
   const metadataBatchReadAliasPayload = getThemeFilesTool.schema.safeParse({
     role: "main",
     filenames: ["sections/test.liquid", "snippets/button.liquid"],

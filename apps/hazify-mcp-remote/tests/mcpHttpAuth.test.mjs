@@ -495,6 +495,19 @@ try {
     "create-theme-section should expose content as a compat alias in emitted JSON schema"
   );
 
+  const getThemeFilesDefinition = tools.find((tool) => tool?.name === "get-theme-files");
+  assert.ok(getThemeFilesDefinition, "tools/list should expose get-theme-files");
+  assert.equal(
+    Boolean(getThemeFilesDefinition.inputSchema?.properties?.role),
+    true,
+    "get-theme-files should expose role as a compat alias in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(getThemeFilesDefinition.inputSchema?.properties?.filenames),
+    true,
+    "get-theme-files should expose filenames as a compat alias in emitted JSON schema"
+  );
+
   console.log("mcpHttpAuth.test.mjs passed");
 } finally {
   if (mcpServer && mcpServer.listening) {

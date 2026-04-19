@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import { createThemeSectionTool } from "../src/tools/createThemeSection.js";
+import { getThemeFileTool } from "../src/tools/getThemeFile.js";
 import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import { planThemeEditTool } from "../src/tools/planThemeEdit.js";
 import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
@@ -67,7 +68,11 @@ function createGraphqlFetch(files) {
       );
     }
 
-    if (query.includes("ThemeFilesByIdWithContent") || query.includes("ThemeFilesByIdMetadata")) {
+    if (
+      query.includes("ThemeFilesByIdWithContent") ||
+      query.includes("ThemeFilesByIdMetadata") ||
+      query.includes("ThemeFileById")
+    ) {
       const filenames = Array.isArray(variables.filenames) ? variables.filenames : [];
       const first = Number(variables.first || filenames.length || 50);
       const matched = Object.entries(files)
@@ -382,6 +387,19 @@ test("createThemeSection - blocks overwriting an existing section key", async ()
     return { success: true, status: "preview_ready" };
   };
 
+  const requestContext = { shopifyClient, tokenHash: "create-theme-existing" };
+  const planResult = await planThemeEditTool.execute(
+    {
+      themeId: 123,
+      intent: "new_section",
+      template: "homepage",
+      query: "Maak deze Trustpilot review slider exact na van de screenshot",
+    },
+    requestContext
+  );
+
+  await getThemeFilesTool.execute(planResult.nextArgsTemplate, requestContext);
+
   const result = await createThemeSectionTool.execute(
     {
       themeId: 123,
@@ -393,12 +411,26 @@ test("createThemeSection - blocks overwriting an existing section key", async ()
 {% endschema %}
 `,
     },
-    { shopifyClient, tokenHash: "create-theme-existing" }
+    requestContext
   );
 
   assert.equal(result.success, false);
   assert.equal(result.errorCode, "existing_section_key_conflict");
+  assert.equal(result.nextAction, "choose_edit_or_alternate_key");
   assert.equal(result.nextTool, "plan-theme-edit");
+  assert.equal(
+    result.nextArgsTemplate?.query,
+    "Maak deze Trustpilot review slider exact na van de screenshot",
+    "the edit fallback should preserve the original planning query instead of reducing it to just the filename"
+  );
+  assert.ok(
+    result.newFileSuggestions?.includes("sections/existing-section-v2.liquid"),
+    "the create repair response should suggest a safe alternate file key"
+  );
+  assert.equal(
+    result.alternativeNextArgsTemplates?.createAlternateSection?.key,
+    "sections/existing-section-v2.liquid"
+  );
   assert.equal(draftExecuteCalls, 0);
 });
 
@@ -442,6 +474,69 @@ test("createThemeSection - requires planner reads before writing a new section",
     result.nextArgsTemplate?.keys?.includes("sections/testimonials.liquid"),
     "the repair response should point back to the required representative section read"
   );
+});
+
+test("createThemeSection - accepts required planner reads gathered via multiple exact get-theme-file calls", async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let draftExecuteCalls = 0;
+  draftThemeArtifact.execute = async () => {
+    draftExecuteCalls += 1;
+    return { success: true, status: "preview_ready", warnings: [] };
+  };
+
+  const requestContext = { shopifyClient, tokenHash: "create-theme-single-read-loop" };
+  const planResult = await planThemeEditTool.execute(
+    {
+      themeId: 123,
+      intent: "new_section",
+      template: "homepage",
+      query: "Maak deze review slider exact na van de screenshot",
+    },
+    requestContext
+  );
+
+  for (const key of planResult.nextReadKeys || []) {
+    await getThemeFileTool.execute(
+      {
+        themeId: 123,
+        key,
+        includeContent: true,
+      },
+      requestContext
+    );
+  }
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/review-replica.liquid",
+      liquid: `
+<style>
+  #shopify-section-{{ section.id }} .review-replica {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<section class="review-replica page-width">
+  <div class="rte">{{ section.settings.heading }}</div>
+</section>
+{% schema %}
+{
+  "name": "Review replica",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Great reviews" }
+  ],
+  "presets": [{ "name": "Review replica" }]
+}
+{% endschema %}
+`,
+    },
+    requestContext
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(draftExecuteCalls, 1);
 });
 
 test("planThemeEdit - keeps the last created section as sticky follow-up target", async () => {

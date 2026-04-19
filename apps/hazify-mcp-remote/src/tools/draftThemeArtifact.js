@@ -985,6 +985,26 @@ function normalizeDraftFile(file) {
   };
 }
 
+function buildAlternateThemeFileSuggestions(key) {
+  const normalized = String(key || "").trim();
+  if (!normalized || !normalized.includes("/")) {
+    return [];
+  }
+  const lastSlashIndex = normalized.lastIndexOf("/");
+  const directory = normalized.slice(0, lastSlashIndex + 1);
+  const filename = normalized.slice(lastSlashIndex + 1);
+  const dotIndex = filename.lastIndexOf(".");
+  const basename = dotIndex >= 0 ? filename.slice(0, dotIndex) : filename;
+  const extension = dotIndex >= 0 ? filename.slice(dotIndex) : "";
+  return Array.from(
+    new Set(
+      [`${directory}${basename}-v2${extension}`, `${directory}${basename}-alt${extension}`].filter(
+        (candidate) => candidate !== normalized
+      )
+    )
+  );
+}
+
 function getDraftFileModeCount(file) {
   const hasValue = file.value !== undefined;
   const hasPatches = Array.isArray(file.patches) && file.patches.length > 0;
@@ -2051,6 +2071,8 @@ function buildFailureResponse({
   preferSelectFor = [],
   themeContext,
   sectionBlueprint,
+  newFileSuggestions,
+  alternativeNextArgsTemplates,
 }) {
   return {
     success: false,
@@ -2068,6 +2090,10 @@ function buildFailureResponse({
     ...(nextAction ? { nextAction } : {}),
     ...(nextTool ? { nextTool } : {}),
     ...(nextArgsTemplate ? { nextArgsTemplate } : {}),
+    ...(Array.isArray(newFileSuggestions) && newFileSuggestions.length > 0
+      ? { newFileSuggestions }
+      : {}),
+    ...(alternativeNextArgsTemplates ? { alternativeNextArgsTemplates } : {}),
     ...(retryMode ? { retryMode } : {}),
     ...(normalizedArgs ? { normalizedArgs } : {}),
     ...(themeContext ? { themeContext } : {}),
@@ -2897,6 +2923,77 @@ export const draftThemeArtifact = {
 
     files = files.map(normalizeDraftFile);
 
+    if (mode === "create" && !shouldProbeExistingFiles) {
+      try {
+        const existingCreateTargets = await getThemeFiles(shopifyClient, process.env.SHOPIFY_API_VERSION || "2026-01", {
+          themeId,
+          themeRole,
+          keys: files.map((file) => file.key),
+          includeContent: false,
+        });
+        const conflictingKeys = (existingCreateTargets.files || [])
+          .filter((file) => file && !file.missing && file.found !== false)
+          .map((file) => String(file.key || "").trim())
+          .filter(Boolean);
+
+        if (conflictingKeys.length > 0) {
+          const primaryConflict = conflictingKeys[0];
+          const alternateKeySuggestions = buildAlternateThemeFileSuggestions(primaryConflict);
+          return buildFailureResponse({
+            status: "inspection_failed",
+            message:
+              conflictingKeys.length === 1
+                ? `Create mode is geblokkeerd: '${primaryConflict}' bestaat al in het doeltheme. Gebruik edit mode voor bestaande files of kies een nieuwe bestandsnaam.`
+                : `Create mode is geblokkeerd: ${conflictingKeys.length} doelbestanden bestaan al in het doeltheme (${conflictingKeys.join(", ")}). Gebruik edit mode of kies nieuwe bestandsnamen.`,
+            errorCode: "existing_create_key_conflict",
+            retryable: true,
+            suggestedFixes: [
+              "Gebruik mode='edit' als je bestaande theme files wilt wijzigen.",
+              "Of kies voor create mode volledig nieuwe keys die nog niet in het doeltheme bestaan.",
+              ...(alternateKeySuggestions.length > 0
+                ? [`Voor '${primaryConflict}' kun je bijvoorbeeld '${alternateKeySuggestions[0]}' gebruiken als aparte nieuwe file.`]
+                : []),
+            ],
+            shouldNarrowScope: false,
+            nextAction: "choose_edit_or_new_key",
+            retryMode: "same_request_after_fix",
+            normalizedArgs: getNormalizedArgs(),
+            errors: conflictingKeys.map((key) =>
+              buildDraftInputError({
+                path: ["files", files.findIndex((file) => file.key === key), "key"],
+                problem: `Create mode mag bestaand bestand '${key}' niet overschrijven.`,
+                fixSuggestion:
+                  key === primaryConflict && alternateKeySuggestions.length > 0
+                    ? `Gebruik mode='edit' voor '${key}', of kies een nieuwe key zoals '${alternateKeySuggestions[0]}'.`
+                    : "Gebruik mode='edit' voor bestaande bestanden of kies een nieuwe file key.",
+                issueCode: "existing_create_key_conflict",
+                ...(key === primaryConflict && alternateKeySuggestions.length > 0
+                  ? { suggestedReplacement: alternateKeySuggestions[0] }
+                  : {}),
+              })
+            ),
+            ...(alternateKeySuggestions.length > 0
+              ? {
+                  newFileSuggestions: alternateKeySuggestions,
+                  nextArgsTemplate: {
+                    ...getNormalizedArgs(),
+                    files: files.map((file) =>
+                      file.key === primaryConflict
+                        ? { ...file, key: alternateKeySuggestions[0] }
+                        : file
+                    ),
+                  },
+                }
+              : {}),
+          });
+        }
+      } catch (error) {
+        warnings.push(
+          `Kon niet vooraf controleren of create-targets al bestaan in het doeltheme: ${error.message}`
+        );
+      }
+    }
+
     const themeEditState = getThemeEditMemory(context);
     const plannedReadKeys = Array.isArray(themeEditState?.lastPlan?.nextReadKeys)
       ? themeEditState.lastPlan.nextReadKeys.filter(Boolean)
@@ -3379,6 +3476,7 @@ export const draftThemeArtifact = {
       ? classifyLintErrors(lintErrors, files)
       : null;
     const preflightWarnings = uniqueStrings([
+      ...warnings,
       ...localInspection.warnings,
       ...lintSupportWarnings,
     ]);

@@ -208,6 +208,8 @@ const buildCreateSectionRepairResponse = ({
   warnings = [],
   themeContext,
   sectionBlueprint,
+  newFileSuggestions,
+  alternativeNextArgsTemplates,
 }) => ({
   success: false,
   status,
@@ -225,6 +227,12 @@ const buildCreateSectionRepairResponse = ({
   ...(sectionBlueprint?.completionPolicy
     ? { completionPolicy: sectionBlueprint.completionPolicy }
     : {}),
+  ...(Array.isArray(newFileSuggestions) && newFileSuggestions.length > 0
+    ? { newFileSuggestions }
+    : {}),
+  ...(alternativeNextArgsTemplates
+    ? { alternativeNextArgsTemplates }
+    : {}),
   ...(nextArgsTemplate ? { nextArgsTemplate } : {}),
 });
 
@@ -236,6 +244,21 @@ const buildCreateSectionArgsTemplate = (input = {}) => ({
     "<complete Shopify Liquid section with the final requested styling and valid {% schema %}; do not send a rough baseline>",
   ...(input.isStandalone ? { isStandalone: true } : {}),
 });
+
+const buildAlternateSectionKeySuggestions = (key) => {
+  const normalized = String(key || "").trim();
+  if (!SECTION_KEY_PATTERN.test(normalized)) {
+    return [];
+  }
+  const handle = normalized.replace(/^sections\//, "").replace(/\.liquid$/, "");
+  return Array.from(
+    new Set(
+      [`sections/${handle}-v2.liquid`, `sections/${handle}-alt.liquid`].filter(
+        (candidate) => candidate !== normalized
+      )
+    )
+  );
+};
 
 const createThemeSectionTool = {
   name: "create-theme-section",
@@ -389,30 +412,49 @@ const createThemeSectionTool = {
       });
       const existingFile = existingResult.files?.find((file) => file.key === input.key);
       if (existingFile && !existingFile.missing && existingFile.found !== false) {
+        const alternateKeySuggestions = buildAlternateSectionKeySuggestions(input.key);
         return buildCreateSectionRepairResponse({
           status: "inspection_failed",
           message:
             `Nieuwe section-create geblokkeerd: '${input.key}' bestaat al in het doeltheme. Gebruik een edit/patch-flow in plaats van create.`,
           errorCode: "existing_section_key_conflict",
           normalizedArgs,
-          nextAction: "switch_to_edit_flow",
+          nextAction: "choose_edit_or_alternate_key",
           retryMode: "switch_tool_after_fix",
           nextTool: "plan-theme-edit",
           nextArgsTemplate: {
             ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
             ...(input.themeRole ? { themeRole: input.themeRole } : {}),
             intent: "existing_edit",
-            template: inferTemplateSurfaceFromSectionLiquid(input.liquid),
+            template:
+              recentPlan?.template || inferTemplateSurfaceFromSectionLiquid(input.liquid),
             targetFile: input.key,
-            query: input.key,
+            query: planningQuery,
           },
+          newFileSuggestions: alternateKeySuggestions,
+          alternativeNextArgsTemplates:
+            alternateKeySuggestions.length > 0
+              ? {
+                  createAlternateSection: {
+                    ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
+                    ...(input.themeRole ? { themeRole: input.themeRole } : {}),
+                    key: alternateKeySuggestions[0],
+                    liquid: input.liquid,
+                    ...(input.isStandalone ? { isStandalone: true } : {}),
+                  },
+                }
+              : undefined,
           errors: [
             buildCreateSectionError({
               path: ["key"],
               problem:
                 `Bestand '${input.key}' bestaat al. create-theme-section mag geen bestaande section overschrijven.`,
               fixSuggestion:
-                "Gebruik plan-theme-edit met intent='existing_edit' en schrijf daarna via patch-theme-file of draft-theme-artifact mode='edit'.",
+                alternateKeySuggestions.length > 0
+                  ? `Gebruik plan-theme-edit met intent='existing_edit' om het bestaande bestand te wijzigen, of kies een nieuw bestand zoals '${alternateKeySuggestions[0]}' als je toch een aparte nieuwe section wilt.`
+                  : "Gebruik plan-theme-edit met intent='existing_edit' en schrijf daarna via patch-theme-file of draft-theme-artifact mode='edit'.",
+              suggestedReplacement:
+                alternateKeySuggestions.length > 0 ? alternateKeySuggestions[0] : undefined,
             }),
           ],
         });

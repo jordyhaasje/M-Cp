@@ -205,6 +205,19 @@ global.fetch = async (url, options = {}) => {
     }
 
     if (query.includes("query ThemeFilesByIdMetadata")) {
+      const requested = Array.isArray(payload.variables?.filenames)
+        ? payload.variables.filenames.map((entry) => String(entry))
+        : [];
+      const existingNodes = requested
+        .filter((filename) => filename === "sections/demo.liquid")
+        .map((filename) => ({
+          filename,
+          checksumMd5: "checksum",
+          contentType: "text/plain",
+          createdAt: "2026-03-15T12:00:00Z",
+          updatedAt: "2026-03-15T12:00:00Z",
+          size: validSectionLiquid.length,
+        }));
       return new Response(
         JSON.stringify({
           data: {
@@ -216,24 +229,7 @@ global.fetch = async (url, options = {}) => {
               createdAt: "2026-03-15T12:00:00Z",
               updatedAt: "2026-03-15T12:00:00Z",
               files: {
-                nodes: [
-                  {
-                    filename: "sections/one.liquid",
-                    checksumMd5: "checksum",
-                    contentType: "text/plain",
-                    createdAt: "2026-03-15T12:00:00Z",
-                    updatedAt: "2026-03-15T12:00:00Z",
-                    size: validSectionLiquid.length,
-                  },
-                  {
-                    filename: "sections/two.liquid",
-                    checksumMd5: "checksum",
-                    contentType: "text/plain",
-                    createdAt: "2026-03-15T12:00:00Z",
-                    updatedAt: "2026-03-15T12:00:00Z",
-                    size: validSectionLiquid.length,
-                  },
-                ],
+                nodes: existingNodes,
                 userErrors: [],
               },
             },

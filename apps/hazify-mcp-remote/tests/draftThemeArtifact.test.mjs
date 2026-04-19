@@ -3,6 +3,7 @@ import assert from "node:assert";
 import crypto from "node:crypto";
 import { applyThemeDraft } from "../src/tools/applyThemeDraft.js";
 import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
+import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import {
   clearThemeEditMemory,
   rememberThemePlan,
@@ -96,12 +97,27 @@ function createThemeFileFetchMock({
   key = "sections/main-product.liquid",
   initialValue,
   themeIdFallback = 111,
+  existing = true,
 }) {
   let storedValue = initialValue;
 
   return {
     getValue: () => storedValue,
     handler: async (_url, options = {}) => {
+      const stringUrl = String(_url || "");
+      const restThemeMatch = stringUrl.match(/\/themes\/(\d+)\.json$/);
+      if (restThemeMatch) {
+        const numericThemeId = Number(restThemeMatch[1] || themeIdFallback);
+        const restPayload = {
+          theme: {
+            id: numericThemeId,
+            name: "Dev Theme",
+            role: "development",
+          },
+        };
+        return jsonGraphqlResponse(restPayload);
+      }
+
       const payload = options.body ? JSON.parse(String(options.body)) : {};
       const query = String(payload.query || "");
       const themeId = String(payload.variables?.themeId || "");
@@ -135,7 +151,7 @@ function createThemeFileFetchMock({
             theme: {
               ...theme,
               files: {
-                nodes: [fileNode(true)],
+                nodes: existing ? [fileNode(true)] : [],
                 userErrors: [],
               },
             },
@@ -149,7 +165,7 @@ function createThemeFileFetchMock({
             theme: {
               ...theme,
               files: {
-                nodes: [fileNode(false)],
+                nodes: existing ? [fileNode(false)] : [],
                 userErrors: [],
               },
             },
@@ -322,6 +338,55 @@ test("draftThemeArtifact - rejects sections without presets", async () => {
   assert.equal(result.success, false);
   assert.equal(result.errorCode, "inspection_failed_schema");
   assert.ok(result.suggestedFixes.some((entry) => entry.includes("preset")));
+});
+
+test("draftThemeArtifact - blocks create mode when the target key already exists and suggests alternates", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/existing-section.liquid",
+    initialValue: goodSectionLiquid,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        files: [
+          {
+            key: "sections/existing-section.liquid",
+            value: goodSectionLiquid.replace("Test section", "Replacement section"),
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.equal(result.errorCode, "existing_create_key_conflict");
+    assert.equal(result.nextAction, "choose_edit_or_new_key");
+    assert.ok(
+      result.newFileSuggestions?.includes("sections/existing-section-v2.liquid"),
+      "create conflicts should suggest an alternate file key"
+    );
+    assert.equal(
+      result.nextArgsTemplate?.files?.[0]?.key,
+      "sections/existing-section-v2.liquid"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
 });
 
 test("draftThemeArtifact - aggregates multiple local create validation issues in one response", async () => {
@@ -788,6 +853,7 @@ test("draftThemeArtifact - keeps hero-sized hero sections as warnings instead of
   const fetchMock = createThemeFileFetchMock({
     key: "sections/hero-video.liquid",
     initialValue: goodSectionLiquid,
+    existing: false,
   });
   global.fetch = fetchMock.handler;
   t.after(() => {
@@ -1944,15 +2010,6 @@ test("draftThemeArtifact - infers edit mode and accepts a single patch", async (
 });
 
 test("draftThemeArtifact - infers edit mode for value-only writes when the target file already exists", async () => {
-  const mockShopifyClient = {
-    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
-    requestConfig: {
-      headers: new Headers({ "x-shopify-access-token": "fake-token" })
-    },
-    session: { shop: "unit-test.myshopify.com" },
-    request: async () => {}
-  };
-
   const originalSection = `
 <div class="demo">{{ section.settings.heading }}</div>
 
@@ -1981,12 +2038,182 @@ test("draftThemeArtifact - infers edit mode for value-only writes when the targe
 {% endschema %}
 `;
 
-  const themeMock = createThemeFileFetchMock({
-    key: "sections/main-product.liquid",
-    initialValue: originalSection,
-  });
+  let storedValue = originalSection;
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async (query, variables = {}) => {
+      const queryText = String(query || "");
+      const themeId = String(variables?.themeId || "");
+      const numericThemeId = Number(themeId.match(/\/(\d+)$/)?.[1] || 111);
+      const theme = {
+        id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+        name: "Dev Theme",
+        role: "DEVELOPMENT",
+        processing: false,
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+      };
+
+      if (queryText.includes("ThemeById")) {
+        return { theme };
+      }
+
+      if (queryText.includes("ThemeFilesByIdWithContent") || queryText.includes("ThemeFileById")) {
+        return {
+          theme: {
+            ...theme,
+            files: {
+              nodes: [
+                {
+                  filename: "sections/main-product.liquid",
+                  checksumMd5: checksumMd5Base64(storedValue),
+                  contentType: "application/x-liquid",
+                  createdAt: "2026-04-02T00:00:00Z",
+                  updatedAt: "2026-04-02T00:00:00Z",
+                  size: Buffer.byteLength(storedValue, "utf8"),
+                  body: { content: storedValue },
+                },
+              ],
+              userErrors: [],
+            },
+          },
+        };
+      }
+
+      if (queryText.includes("ThemeFilesByIdMetadata")) {
+        return {
+          theme: {
+            ...theme,
+            files: {
+              nodes: [
+                {
+                  filename: "sections/main-product.liquid",
+                  checksumMd5: checksumMd5Base64(storedValue),
+                  contentType: "application/x-liquid",
+                  createdAt: "2026-04-02T00:00:00Z",
+                  updatedAt: "2026-04-02T00:00:00Z",
+                  size: Buffer.byteLength(storedValue, "utf8"),
+                },
+              ],
+              userErrors: [],
+            },
+          },
+        };
+      }
+
+      if (queryText.includes("ThemeFilesUpsert")) {
+        storedValue = variables?.files?.[0]?.body?.value || storedValue;
+        return {
+          themeFilesUpsert: {
+            upsertedThemeFiles: [{ filename: "sections/main-product.liquid" }],
+            job: { id: "gid://shopify/Job/1" },
+            userErrors: [],
+          },
+        };
+      }
+
+      throw new Error(`Unexpected GraphQL query in value-only edit inference test: ${queryText}`);
+    }
+  };
   const previousFetch = global.fetch;
-  global.fetch = themeMock.handler;
+  global.fetch = async (url, options = {}) => {
+    const stringUrl = String(url || "");
+    const restThemeMatch = stringUrl.match(/\/themes\/(\d+)\.json$/);
+    if (restThemeMatch) {
+      return jsonGraphqlResponse({
+        theme: {
+          id: Number(restThemeMatch[1]),
+          name: "Dev Theme",
+          role: "development",
+        },
+      });
+    }
+
+    if (stringUrl.endsWith("/graphql.json")) {
+      const payload = options.body ? JSON.parse(String(options.body)) : {};
+      const query = String(payload.query || "");
+      const themeId = String(payload.variables?.themeId || "");
+      const numericThemeId = Number(themeId.match(/\/(\d+)$/)?.[1] || 111);
+      const theme = {
+        id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+        name: "Dev Theme",
+        role: "DEVELOPMENT",
+        processing: false,
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+      };
+
+      if (query.includes("ThemeById")) {
+        return jsonGraphqlResponse({ data: { theme } });
+      }
+
+      if (query.includes("ThemeFilesByIdWithContent") || query.includes("ThemeFileById")) {
+        return jsonGraphqlResponse({
+          data: {
+            theme: {
+              ...theme,
+              files: {
+                nodes: [
+                  {
+                    filename: "sections/main-product.liquid",
+                    checksumMd5: checksumMd5Base64(storedValue),
+                    contentType: "application/x-liquid",
+                    createdAt: "2026-04-02T00:00:00Z",
+                    updatedAt: "2026-04-02T00:00:00Z",
+                    size: Buffer.byteLength(storedValue, "utf8"),
+                    body: { content: storedValue },
+                  },
+                ],
+                userErrors: [],
+              },
+            },
+          },
+        });
+      }
+
+      if (query.includes("ThemeFilesByIdMetadata")) {
+        return jsonGraphqlResponse({
+          data: {
+            theme: {
+              ...theme,
+              files: {
+                nodes: [
+                  {
+                    filename: "sections/main-product.liquid",
+                    checksumMd5: checksumMd5Base64(storedValue),
+                    contentType: "application/x-liquid",
+                    createdAt: "2026-04-02T00:00:00Z",
+                    updatedAt: "2026-04-02T00:00:00Z",
+                    size: Buffer.byteLength(storedValue, "utf8"),
+                  },
+                ],
+                userErrors: [],
+              },
+            },
+          },
+        });
+      }
+
+      if (query.includes("ThemeFilesUpsert")) {
+        storedValue = payload.variables?.files?.[0]?.body?.value || storedValue;
+        return jsonGraphqlResponse({
+          data: {
+            themeFilesUpsert: {
+              upsertedThemeFiles: [{ filename: "sections/main-product.liquid" }],
+              job: { id: "gid://shopify/Job/1" },
+              userErrors: [],
+            },
+          },
+        });
+      }
+    }
+
+    throw new Error(`Unexpected fetch in value-only edit inference test: ${stringUrl}`);
+  };
 
   try {
     const result = await execute(
@@ -2004,7 +2231,7 @@ test("draftThemeArtifact - infers edit mode for value-only writes when the targe
 
     assert.equal(result.success, true);
     assert.equal(result.status, "preview_ready");
-    assert.match(themeMock.getValue(), /demo--updated/);
+    assert.match(storedValue, /demo--updated/);
     assert.ok(
       result.warnings.some((entry) => entry.includes("alle doelbestanden al bestaan")),
       "value-only requests without mode should explain the inferred edit mode when the target already exists"
@@ -2224,6 +2451,223 @@ test("draftThemeArtifact - requires planner reads before an edit write continues
   assert.equal(result.errorCode, "missing_theme_context_reads");
   assert.equal(result.nextTool, "get-theme-files");
   assert.equal(result.retryMode, "switch_tool_after_fix");
+});
+
+test("draftThemeArtifact - missing batch-read files do not satisfy required read context", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async (query, variables = {}) => {
+      const queryText = String(query || "");
+      const themeId = String(variables?.themeId || "");
+      const numericThemeId = Number(themeId.match(/\/(\d+)$/)?.[1] || 111);
+      const theme = {
+        id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+        name: "Dev Theme",
+        role: "DEVELOPMENT",
+        processing: false,
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+      };
+
+      if (queryText.includes("ThemeById")) {
+        return { theme };
+      }
+
+      if (queryText.includes("ThemeFilesByIdWithContent")) {
+        return {
+          theme: {
+            ...theme,
+            files: {
+              nodes: [
+                {
+                  filename: "sections/main-product.liquid",
+                  checksumMd5: checksumMd5Base64(goodSectionLiquid),
+                  contentType: "application/x-liquid",
+                  createdAt: "2026-04-02T00:00:00Z",
+                  updatedAt: "2026-04-02T00:00:00Z",
+                  size: Buffer.byteLength(goodSectionLiquid, "utf8"),
+                  body: { content: goodSectionLiquid },
+                },
+              ],
+              userErrors: [],
+            },
+          },
+        };
+      }
+
+      if (queryText.includes("ThemeFilesByIdMetadata")) {
+        return {
+          theme: {
+            ...theme,
+            files: {
+              nodes: [
+                {
+                  filename: "sections/main-product.liquid",
+                  checksumMd5: checksumMd5Base64(goodSectionLiquid),
+                  contentType: "application/x-liquid",
+                  createdAt: "2026-04-02T00:00:00Z",
+                  updatedAt: "2026-04-02T00:00:00Z",
+                  size: Buffer.byteLength(goodSectionLiquid, "utf8"),
+                },
+              ],
+              userErrors: [],
+            },
+          },
+        };
+      }
+
+      if (queryText.includes("ThemeFilesUpsert")) {
+        throw new Error("ThemeFilesUpsert should not run when required planner reads are still missing");
+      }
+
+      throw new Error(`Unexpected GraphQL query in missing batch-read context test: ${queryText}`);
+    }
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = async (_url, options = {}) => {
+    const stringUrl = String(_url || "");
+    const restThemeMatch = stringUrl.match(/\/themes\/(\d+)\.json$/);
+    if (restThemeMatch) {
+      return jsonGraphqlResponse({
+        theme: {
+          id: Number(restThemeMatch[1]),
+          name: "Dev Theme",
+          role: "development",
+        },
+      });
+    }
+
+    if (stringUrl.endsWith("/graphql.json")) {
+      const payload = options.body ? JSON.parse(String(options.body)) : {};
+      const query = String(payload.query || "");
+      const themeId = String(payload.variables?.themeId || "");
+      const numericThemeId = Number(themeId.match(/\/(\d+)$/)?.[1] || 111);
+      const theme = {
+        id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+        name: "Dev Theme",
+        role: "DEVELOPMENT",
+        processing: false,
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+      };
+
+      if (query.includes("ThemeById")) {
+        return jsonGraphqlResponse({ data: { theme } });
+      }
+
+      if (query.includes("ThemeFilesByIdWithContent")) {
+        return jsonGraphqlResponse({
+          data: {
+            theme: {
+              ...theme,
+              files: {
+                nodes: [
+                  {
+                    filename: "sections/main-product.liquid",
+                    checksumMd5: checksumMd5Base64(goodSectionLiquid),
+                    contentType: "application/x-liquid",
+                    createdAt: "2026-04-02T00:00:00Z",
+                    updatedAt: "2026-04-02T00:00:00Z",
+                    size: Buffer.byteLength(goodSectionLiquid, "utf8"),
+                    body: { content: goodSectionLiquid },
+                  },
+                ],
+                userErrors: [],
+              },
+            },
+          },
+        });
+      }
+
+      if (query.includes("ThemeFilesByIdMetadata")) {
+        return jsonGraphqlResponse({
+          data: {
+            theme: {
+              ...theme,
+              files: {
+                nodes: [
+                  {
+                    filename: "sections/main-product.liquid",
+                    checksumMd5: checksumMd5Base64(goodSectionLiquid),
+                    contentType: "application/x-liquid",
+                    createdAt: "2026-04-02T00:00:00Z",
+                    updatedAt: "2026-04-02T00:00:00Z",
+                    size: Buffer.byteLength(goodSectionLiquid, "utf8"),
+                  },
+                ],
+                userErrors: [],
+              },
+            },
+          },
+        });
+      }
+    }
+
+    throw new Error(`Unexpected fetch in missing batch-read context test: ${stringUrl}`);
+  };
+
+  const context = {
+    shopifyClient: mockShopifyClient,
+    tokenHash: "draft-missing-batch-context",
+  };
+
+  rememberThemePlan(context, {
+    themeId: 111,
+    intent: "native_block",
+    template: "product",
+    nextReadKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+    nextWriteKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+    immediateNextTool: "get-theme-files",
+    writeTool: "draft-theme-artifact",
+  });
+
+  try {
+    const readResult = await getThemeFilesTool.execute(
+      {
+        themeId: 111,
+        keys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+        includeContent: true,
+      },
+      context
+    );
+
+    assert.ok(
+      readResult.missingKeys?.includes("snippets/product-info.liquid"),
+      "the batch read should surface missing keys back to the client"
+    );
+
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        files: [
+          {
+            key: "sections/main-product.liquid",
+            value: goodSectionLiquid,
+          },
+          {
+            key: "snippets/product-info.liquid",
+            value: "{% doc %}{% enddoc %}<div>Review block</div>",
+          },
+        ],
+      }),
+      context
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, "missing_theme_context_reads");
+    assert.ok(
+      result.nextArgsTemplate?.keys?.includes("snippets/product-info.liquid"),
+      "missing files from a batch read should not count as completed planner context"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
 });
 
 test("draftThemeArtifact - flags nested Liquid delimiters inside a single output tag", async () => {
@@ -2889,7 +3333,26 @@ test("draftThemeArtifact - success when linter passes (pushes directly to chosen
   };
 
   const originalFetch = global.fetch;
+  let storedValue = null;
   global.fetch = async (url, options = {}) => {
+    const stringUrl = String(url || "");
+    const restThemeMatch = stringUrl.match(/\/themes\/(\d+)\.json$/);
+    if (restThemeMatch) {
+      const numericThemeId = Number(restThemeMatch[1] || 111);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          theme: {
+            id: numericThemeId,
+            name: numericThemeId === 111 ? "Dev Theme" : "Applied Theme",
+            role: numericThemeId === 111 ? "development" : "main",
+          },
+        }),
+        text: async () => "{}",
+      };
+    }
+
     const payload = options.body ? JSON.parse(String(options.body)) : {};
     const query = String(payload.query || "");
     const themeId = String(payload.variables?.themeId || "");
@@ -2917,6 +3380,7 @@ test("draftThemeArtifact - success when linter passes (pushes directly to chosen
     }
 
     if (query.includes("ThemeFilesUpsert")) {
+      storedValue = payload.variables?.files?.[0]?.body?.value || goodSectionLiquid;
       const resPayload = {
         data: {
           themeFilesUpsert: {
@@ -2935,7 +3399,7 @@ test("draftThemeArtifact - success when linter passes (pushes directly to chosen
     }
 
     if (query.includes("ThemeFilesByIdMetadata")) {
-      const value = goodSectionLiquid;
+      const value = storedValue;
       const resPayload = {
         data: {
           theme: {
@@ -2946,16 +3410,18 @@ test("draftThemeArtifact - success when linter passes (pushes directly to chosen
             createdAt: "2026-04-02T00:00:00Z",
             updatedAt: "2026-04-02T00:00:00Z",
             files: {
-              nodes: [
-                {
-                  filename: "sections/good-file.liquid",
-                  checksumMd5: checksumMd5Base64(value),
-                  contentType: "text/plain",
-                  createdAt: "2026-04-02T00:00:00Z",
-                  updatedAt: "2026-04-02T00:00:00Z",
-                  size: Buffer.byteLength(value, "utf8")
-                }
-              ],
+              nodes: value
+                ? [
+                    {
+                      filename: "sections/good-file.liquid",
+                      checksumMd5: checksumMd5Base64(value),
+                      contentType: "text/plain",
+                      createdAt: "2026-04-02T00:00:00Z",
+                      updatedAt: "2026-04-02T00:00:00Z",
+                      size: Buffer.byteLength(value, "utf8")
+                    }
+                  ]
+                : [],
               userErrors: []
             }
           }
@@ -3028,6 +3494,7 @@ test("draftThemeArtifact - warns when a valid create payload is likely still a m
 }
 {% endschema %}
 `,
+    existing: false,
   });
   global.fetch = themeFileMock.handler;
 
@@ -3079,7 +3546,26 @@ test("applyThemeDraft - applies an existing draft to an explicit target theme", 
   };
 
   const originalFetch = global.fetch;
+  const storedValues = new Map();
   global.fetch = async (_url, options = {}) => {
+    const stringUrl = String(_url || "");
+    const restThemeMatch = stringUrl.match(/\/themes\/(\d+)\.json$/);
+    if (restThemeMatch) {
+      const numericThemeId = Number(restThemeMatch[1] || 111);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          theme: {
+            id: numericThemeId,
+            name: numericThemeId === 222 ? "Main Theme" : "Dev Theme",
+            role: numericThemeId === 222 ? "main" : "development",
+          },
+        }),
+        text: async () => "{}",
+      };
+    }
+
     const payload = options.body ? JSON.parse(String(options.body)) : {};
     const query = String(payload.query || "");
     const themeId = String(payload.variables?.themeId || "");
@@ -3107,6 +3593,8 @@ test("applyThemeDraft - applies an existing draft to an explicit target theme", 
     }
 
     if (query.includes("ThemeFilesUpsert")) {
+      const nextValue = payload.variables?.files?.[0]?.body?.value || goodSectionLiquid;
+      storedValues.set(numericThemeId, nextValue);
       const resPayload = {
         data: {
           themeFilesUpsert: {
@@ -3125,7 +3613,7 @@ test("applyThemeDraft - applies an existing draft to an explicit target theme", 
     }
 
     if (query.includes("ThemeFilesByIdMetadata")) {
-      const value = goodSectionLiquid;
+      const value = storedValues.get(numericThemeId) || null;
       const resPayload = {
         data: {
           theme: {
@@ -3136,16 +3624,18 @@ test("applyThemeDraft - applies an existing draft to an explicit target theme", 
             createdAt: "2026-04-02T00:00:00Z",
             updatedAt: "2026-04-02T00:00:00Z",
             files: {
-              nodes: [
-                {
-                  filename: "sections/good-file.liquid",
-                  checksumMd5: checksumMd5Base64(value),
-                  contentType: "text/plain",
-                  createdAt: "2026-04-02T00:00:00Z",
-                  updatedAt: "2026-04-02T00:00:00Z",
-                  size: Buffer.byteLength(value, "utf8")
-                }
-              ],
+              nodes: value
+                ? [
+                    {
+                      filename: "sections/good-file.liquid",
+                      checksumMd5: checksumMd5Base64(value),
+                      contentType: "text/plain",
+                      createdAt: "2026-04-02T00:00:00Z",
+                      updatedAt: "2026-04-02T00:00:00Z",
+                      size: Buffer.byteLength(value, "utf8")
+                    }
+                  ]
+                : [],
               userErrors: []
             }
           }
@@ -3228,7 +3718,26 @@ test("applyThemeDraft - returns a structured failure when Shopify apply does not
   };
 
   const originalFetch = global.fetch;
+  const storedValues = new Map();
   global.fetch = async (_url, options = {}) => {
+    const stringUrl = String(_url || "");
+    const restThemeMatch = stringUrl.match(/\/themes\/(\d+)\.json$/);
+    if (restThemeMatch) {
+      const numericThemeId = Number(restThemeMatch[1] || 111);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          theme: {
+            id: numericThemeId,
+            name: numericThemeId === 222 ? "Main Theme" : "Dev Theme",
+            role: numericThemeId === 222 ? "main" : "development",
+          },
+        }),
+        text: async () => "{}",
+      };
+    }
+
     const payload = options.body ? JSON.parse(String(options.body)) : {};
     const query = String(payload.query || "");
     const themeId = String(payload.variables?.themeId || "");
@@ -3256,6 +3765,10 @@ test("applyThemeDraft - returns a structured failure when Shopify apply does not
     }
 
     if (query.includes("ThemeFilesUpsert")) {
+      if (numericThemeId !== 222) {
+        const nextValue = payload.variables?.files?.[0]?.body?.value || goodSectionLiquid;
+        storedValues.set(numericThemeId, nextValue);
+      }
       const resPayload = {
         data: {
           themeFilesUpsert: {
@@ -3280,7 +3793,7 @@ test("applyThemeDraft - returns a structured failure when Shopify apply does not
     }
 
     if (query.includes("ThemeFilesByIdMetadata")) {
-      const value = goodSectionLiquid;
+      const value = storedValues.get(numericThemeId) || null;
       const resPayload = {
         data: {
           theme: {
@@ -3291,16 +3804,18 @@ test("applyThemeDraft - returns a structured failure when Shopify apply does not
             createdAt: "2026-04-02T00:00:00Z",
             updatedAt: "2026-04-02T00:00:00Z",
             files: {
-              nodes: [
-                {
-                  filename: "sections/good-file.liquid",
-                  checksumMd5: checksumMd5Base64(value),
-                  contentType: "text/plain",
-                  createdAt: "2026-04-02T00:00:00Z",
-                  updatedAt: "2026-04-02T00:00:00Z",
-                  size: Buffer.byteLength(value, "utf8")
-                }
-              ],
+              nodes: value
+                ? [
+                    {
+                      filename: "sections/good-file.liquid",
+                      checksumMd5: checksumMd5Base64(value),
+                      contentType: "text/plain",
+                      createdAt: "2026-04-02T00:00:00Z",
+                      updatedAt: "2026-04-02T00:00:00Z",
+                      size: Buffer.byteLength(value, "utf8")
+                    }
+                  ]
+                : [],
               userErrors: []
             }
           }
