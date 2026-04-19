@@ -34,6 +34,7 @@ HAZIFY_SERVICE_MODE=license npm start
 
 OAuth-notitie:
 - `GET|POST /oauth/authorize` canonicaliseert nu semantisch gelijke MCP scopes tijdens de form roundtrip, zodat clients zoals Codex niet stuklopen op andere volgorde van `scope`-tokens of een extra `offline_access` echo in query versus form body.
+- Productie-start van de License Service wacht bij rolling deploys nu kort op de Postgres single-writer lock in plaats van meteen te crashen terwijl de vorige writer nog netjes afbouwt.
 
 ## Shopify auth modes
 - `shopAccessToken`

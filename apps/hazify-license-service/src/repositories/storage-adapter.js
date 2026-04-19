@@ -15,6 +15,8 @@ export function createStorageAdapter(config) {
     encryptionKey: config.dataEncryptionKey,
     singleWriterEnforced: config.dbSingleWriterEnforced,
     singleWriterLockKey: config.dbSingleWriterLockKey,
+    singleWriterLockRetryMs: config.dbSingleWriterLockRetryMs,
+    singleWriterLockTimeoutMs: config.dbSingleWriterLockTimeoutMs,
     pool: testPoolOverride,
     testSchemaCompatibility: Boolean(testPoolOverride),
   });

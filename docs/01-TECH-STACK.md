@@ -18,6 +18,7 @@ Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazif
 ### License Service (Productievereisten)
 - `DATABASE_URL` en `DATA_ENCRYPTION_KEY` zijn verplicht.
 - `DB_SINGLE_WRITER_ENFORCED=true` (actief als enkele writer wegens lock/persistence model).
+- Rolling deploys gebruiken nu een begrensde startup-retry voor de single-writer advisory lock, zodat een nieuwe instance kort kan wachten tot de vorige writer is afgebouwd zonder de lockgarantie los te laten.
 - `HAZIFY_FREE_MODE=false`.
 - `ADMIN_API_KEY` en `MCP_API_KEY` (alias `HAZIFY_MCP_API_KEY`).
 - `PUBLIC_BASE_URL` en `MCP_PUBLIC_URL`.

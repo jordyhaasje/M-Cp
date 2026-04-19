@@ -111,6 +111,8 @@ export class PostgresStorage {
     encryptionKey,
     singleWriterEnforced = true,
     singleWriterLockKey = 19450603,
+    singleWriterLockRetryMs = 0,
+    singleWriterLockTimeoutMs = 0,
     pool = null,
     testSchemaCompatibility = false,
   }) {
@@ -125,6 +127,8 @@ export class PostgresStorage {
     this.crypto = createCryptoHelper(encryptionKey);
     this.singleWriterEnforced = Boolean(singleWriterEnforced);
     this.singleWriterLockKey = Number(singleWriterLockKey);
+    this.singleWriterLockRetryMs = Math.max(0, Number(singleWriterLockRetryMs || 0));
+    this.singleWriterLockTimeoutMs = Math.max(0, Number(singleWriterLockTimeoutMs || 0));
     this.writerLockClient = null;
     this.closed = false;
     this.testSchemaCompatibility = Boolean(testSchemaCompatibility);
@@ -148,21 +152,34 @@ export class PostgresStorage {
     if (this.writerLockClient) {
       return;
     }
-    const client = await this.pool.connect();
-    try {
-      const result = await client.query("SELECT pg_try_advisory_lock($1::bigint) AS acquired", [
-        String(this.singleWriterLockKey),
-      ]);
-      const acquired = Boolean(result.rows?.[0]?.acquired);
-      if (!acquired) {
+    const startedAt = Date.now();
+    while (true) {
+      const client = await this.pool.connect();
+      try {
+        const result = await client.query("SELECT pg_try_advisory_lock($1::bigint) AS acquired", [
+          String(this.singleWriterLockKey),
+        ]);
+        const acquired = Boolean(result.rows?.[0]?.acquired);
+        if (acquired) {
+          this.writerLockClient = client;
+          return;
+        }
+      } catch (error) {
+        client.release();
+        throw error;
+      }
+      client.release();
+      const elapsedMs = Date.now() - startedAt;
+      if (
+        this.singleWriterLockTimeoutMs <= 0 ||
+        elapsedMs >= this.singleWriterLockTimeoutMs ||
+        this.closed
+      ) {
         throw new Error(
           `Failed to acquire Postgres single-writer advisory lock (${this.singleWriterLockKey}). Another writer instance is active.`
         );
       }
-      this.writerLockClient = client;
-    } catch (error) {
-      client.release();
-      throw error;
+      await new Promise((resolve) => setTimeout(resolve, this.singleWriterLockRetryMs || 1000));
     }
   }
 

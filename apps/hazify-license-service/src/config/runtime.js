@@ -11,6 +11,7 @@ const ACCOUNT_SESSION_COOKIE = "hz_user_session";
 const SHOPIFY_CREDENTIAL_VALIDATION_TIMEOUT_MS = 10000;
 
 function resolveRuntimeConfig(env = process.env) {
+  const isProduction = String(env.NODE_ENV || "").trim().toLowerCase() === "production";
   return {
     port: Number(env.PORT || 8787),
     adminApiKey: env.ADMIN_API_KEY || "",
@@ -52,6 +53,8 @@ function resolveRuntimeConfig(env = process.env) {
     dbSingleWriterEnforced:
       String(env.DB_SINGLE_WRITER_ENFORCED || "true").trim().toLowerCase() !== "false",
     dbSingleWriterLockKey: Number(env.DB_SINGLE_WRITER_LOCK_KEY || 19450603),
+    dbSingleWriterLockRetryMs: Number(env.DB_SINGLE_WRITER_LOCK_RETRY_MS || (isProduction ? 2000 : 0)),
+    dbSingleWriterLockTimeoutMs: Number(env.DB_SINGLE_WRITER_LOCK_TIMEOUT_MS || (isProduction ? 120000 : 0)),
     autoActivateSignupLicenses:
       String(env.HAZIFY_AUTO_ACTIVATE_SIGNUP_LICENSES || "").trim().toLowerCase() === "true",
     backupExportKey: env.BACKUP_EXPORT_KEY || "",
@@ -63,6 +66,12 @@ function assertValidRuntimeConfig(nextConfig, env = process.env) {
 
   if (!Number.isSafeInteger(nextConfig.dbSingleWriterLockKey)) {
     throw new Error("DB_SINGLE_WRITER_LOCK_KEY moet een geldig integer lock-ID zijn.");
+  }
+  if (!Number.isFinite(nextConfig.dbSingleWriterLockRetryMs) || nextConfig.dbSingleWriterLockRetryMs < 0) {
+    throw new Error("DB_SINGLE_WRITER_LOCK_RETRY_MS moet een geldig getal >= 0 zijn.");
+  }
+  if (!Number.isFinite(nextConfig.dbSingleWriterLockTimeoutMs) || nextConfig.dbSingleWriterLockTimeoutMs < 0) {
+    throw new Error("DB_SINGLE_WRITER_LOCK_TIMEOUT_MS moet een geldig getal >= 0 zijn.");
   }
 
   if (!nextConfig.databaseUrl) {
