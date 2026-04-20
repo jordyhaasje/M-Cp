@@ -4043,25 +4043,61 @@ export const draftThemeArtifact = {
       }
     }
 
-    const plannedReadKeys = Array.isArray(themeEditState?.lastPlan?.nextReadKeys)
+    const plannerHandoffThemeTarget =
+      effectivePlannerHandoff?.themeTarget &&
+      typeof effectivePlannerHandoff.themeTarget === "object"
+        ? effectivePlannerHandoff.themeTarget
+        : null;
+    const plannerHandoffReadKeys = Array.isArray(effectivePlannerHandoff?.requiredReadKeys)
+      ? effectivePlannerHandoff.requiredReadKeys.filter(Boolean)
+      : [];
+    const plannerHandoffWriteKeys = Array.isArray(effectivePlannerHandoff?.nextWriteKeys)
+      ? effectivePlannerHandoff.nextWriteKeys.filter(Boolean)
+      : [];
+    const plannerHandoffIntent = String(effectivePlannerHandoff?.intent || "").trim();
+    const rememberedPlanReadKeys = Array.isArray(themeEditState?.lastPlan?.nextReadKeys)
       ? themeEditState.lastPlan.nextReadKeys.filter(Boolean)
       : [];
-    const plannedWriteKeys = Array.isArray(themeEditState?.lastPlan?.nextWriteKeys)
+    const rememberedPlanWriteKeys = Array.isArray(themeEditState?.lastPlan?.nextWriteKeys)
       ? themeEditState.lastPlan.nextWriteKeys.filter(Boolean)
       : [];
-    const planTargetCompatible = themeTargetsCompatible(themeEditState?.themeTarget, {
+    const rememberedPlanIntent = String(themeEditState?.lastPlan?.intent || "").trim();
+    const rememberedPlanTargetCompatible = themeTargetsCompatible(themeEditState?.themeTarget, {
       themeId,
       themeRole,
     });
+    const handoffTargetCompatible =
+      !plannerHandoffThemeTarget ||
+      themeTargetsCompatible(plannerHandoffThemeTarget, {
+        themeId,
+        themeRole,
+      });
+    const plannedReadKeys =
+      rememberedPlanTargetCompatible && rememberedPlanReadKeys.length > 0
+        ? rememberedPlanReadKeys
+        : handoffTargetCompatible
+          ? plannerHandoffReadKeys
+          : [];
+    const plannedWriteKeys =
+      rememberedPlanTargetCompatible && rememberedPlanWriteKeys.length > 0
+        ? rememberedPlanWriteKeys
+        : handoffTargetCompatible
+          ? plannerHandoffWriteKeys
+          : [];
+    const effectivePlanIntent =
+      rememberedPlanTargetCompatible && rememberedPlanIntent
+        ? rememberedPlanIntent
+        : handoffTargetCompatible
+          ? plannerHandoffIntent
+          : "";
     const shouldEnforcePlannedReads =
-      planTargetCompatible &&
       plannedReadKeys.length > 0 &&
       (
         (mode === "edit" &&
           plannedWriteKeys.length > 0 &&
           files.every((file) => plannedWriteKeys.includes(file.key))) ||
         (mode === "create" &&
-          themeEditState?.lastPlan?.intent === "new_section" &&
+          effectivePlanIntent === "new_section" &&
           files.every((file) => String(file.key || "").startsWith("sections/")))
       );
 

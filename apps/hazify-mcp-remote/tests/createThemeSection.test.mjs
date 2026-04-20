@@ -5,7 +5,10 @@ import { getThemeFileTool } from "../src/tools/getThemeFile.js";
 import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import { planThemeEditTool } from "../src/tools/planThemeEdit.js";
 import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
-import { clearThemeEditMemory } from "../src/lib/themeEditMemory.js";
+import {
+  clearThemeEditMemory,
+  rememberThemePlan,
+} from "../src/lib/themeEditMemory.js";
 
 const originalFetch = global.fetch;
 const originalDraftExecute = draftThemeArtifact.execute;
@@ -307,6 +310,8 @@ test("createThemeSection - reuses precision-first planner metadata for exact scr
   );
   assert.equal(planResult.plannerHandoff?.archetype, "review_slider");
   assert.equal(planResult.plannerHandoff?.qualityTarget, "exact_match");
+  assert.equal(planResult.plannerHandoff?.themeTarget?.themeId, 123);
+  assert.equal(planResult.plannerHandoff?.sectionBlueprint?.qualityTarget, "exact_match");
 });
 
 test("createThemeSection - keeps exact-match planner context even when a compat summary is present", async () => {
@@ -370,6 +375,114 @@ test("createThemeSection - keeps exact-match planner context even when a compat 
   assert.equal(capturedContext.sectionBlueprint?.qualityTarget, "exact_match");
   assert.equal(capturedContext.plannerHandoff?.brief, planResult.plannerHandoff?.brief);
   assert.equal(result.plannerHandoff?.qualityTarget, "exact_match");
+});
+
+test("createThemeSection - can continue from plannerHandoff alone when session memory is absent", async () => {
+  global.fetch = createGraphqlFetch({
+    "sections/custom-reference.liquid": makeTextAsset(`
+      <section class="custom-reference page-width">
+        <div class="rte">{{ section.settings.heading }}</div>
+      </section>
+      {% schema %}
+      {
+        "name": "Custom reference",
+        "settings": [
+          { "type": "text", "id": "heading", "label": "Heading", "default": "Reference" }
+        ],
+        "presets": [{ "name": "Custom reference" }]
+      }
+      {% endschema %}
+    `),
+    "snippets/custom-helper.liquid": makeTextAsset(`
+      <div class="custom-helper" data-section-id="{{ section.id }}"></div>
+    `),
+  });
+
+  let capturedContext = null;
+  draftThemeArtifact.execute = async (_input, context) => {
+    capturedContext = context;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const requestContext = { shopifyClient, tokenHash: "create-theme-handoff-only" };
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/handoff-review.liquid",
+      liquid: `
+<section class="handoff-review page-width">
+  <div class="rte">{{ section.settings.heading }}</div>
+</section>
+{% schema %}
+{
+  "name": "Handoff review",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Portable handoff" }
+  ],
+  "presets": [{ "name": "Handoff review" }]
+}
+{% endschema %}
+`,
+      plannerHandoff: {
+        brief: "Maak een review section die de bestaande helper en schaal volgt",
+        intent: "new_section",
+        themeTarget: {
+          themeId: 123,
+          themeRole: null,
+        },
+        themeContext: {
+          representativeSection: {
+            key: "sections/custom-reference.liquid",
+          },
+        },
+        sectionBlueprint: {
+          category: "static",
+          qualityTarget: "theme_consistent",
+          generationMode: "best_practice",
+          completionPolicy: {
+            deliveryExpectation: "complete_section",
+          },
+          requiredReads: [
+            { key: "sections/custom-reference.liquid" },
+            { key: "snippets/custom-helper.liquid" },
+          ],
+          relevantHelpers: [
+            { key: "snippets/custom-helper.liquid" },
+          ],
+          safeUnitStrategy: {
+            spacing: "mirror_reference_section",
+          },
+        },
+        requiredReadKeys: [
+          "sections/custom-reference.liquid",
+          "snippets/custom-helper.liquid",
+        ],
+        nextWriteKeys: [],
+      },
+    },
+    requestContext
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(
+    capturedContext.themeSectionContext?.representativeSection?.key,
+    "sections/custom-reference.liquid"
+  );
+  assert.ok(
+    capturedContext.sectionBlueprint?.requiredReads?.some(
+      (entry) => entry.key === "snippets/custom-helper.liquid"
+    )
+  );
+  assert.ok(
+    result.warnings?.some((warning) =>
+      warning.includes("Planner-required theme-context reads zijn automatisch opgehaald")
+    ),
+    "create-theme-section should hydrate required reads from plannerHandoff even without session memory"
+  );
 });
 
 test("createThemeSection - forwards media-oriented blueprint hints for hero/video sections", async () => {
@@ -689,4 +802,35 @@ test("planThemeEdit - keeps the last created section as sticky follow-up target"
   assert.equal(planResult.nextArgsTemplate?.key, "sections/hero-trustpilot.liquid");
   assert.equal(planResult.requiresReadBeforeWrite, true);
   assert.equal(planResult.writeTool, "draft-theme-artifact");
+});
+
+test("planThemeEdit - keeps the recent existing-edit target as sticky follow-up target", async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  const requestContext = { shopifyClient, tokenHash: "sticky-existing-edit-follow-up" };
+  rememberThemePlan(requestContext, {
+    themeId: 123,
+    intent: "existing_edit",
+    targetFile: "sections/testimonials.liquid",
+    nextReadKeys: ["sections/testimonials.liquid"],
+    nextWriteKeys: ["sections/testimonials.liquid"],
+    immediateNextTool: "get-theme-file",
+    writeTool: "draft-theme-artifact",
+  });
+
+  const planResult = await planThemeEditTool.execute(
+    {
+      themeId: 123,
+      description: "maak hem mobiel compacter en rustiger",
+    },
+    requestContext
+  );
+
+  assert.equal(planResult.success, true);
+  assert.equal(planResult.intent, "existing_edit");
+  assert.equal(planResult.stickyTarget?.source, "recent_plan_target");
+  assert.equal(planResult.stickyTarget?.targetFile, "sections/testimonials.liquid");
+  assert.equal(planResult.nextTool, "get-theme-file");
+  assert.equal(planResult.nextArgsTemplate?.key, "sections/testimonials.liquid");
+  assert.equal(planResult.requiresReadBeforeWrite, true);
 });

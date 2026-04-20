@@ -417,6 +417,16 @@ const createThemeSectionTool = {
       (recentPlan?.plannerHandoff && typeof recentPlan.plannerHandoff === "object"
         ? recentPlan.plannerHandoff
         : null);
+    const plannerHandoffThemeTarget =
+      plannerHandoff?.themeTarget && typeof plannerHandoff.themeTarget === "object"
+        ? plannerHandoff.themeTarget
+        : null;
+    const plannerHandoffTargetCompatible =
+      !plannerHandoffThemeTarget ||
+      themeTargetsCompatible(plannerHandoffThemeTarget, {
+        themeId: input.themeId,
+        themeRole: input.themeRole,
+      });
     const planningQuery =
       plannerHandoff?.brief ||
       summary ||
@@ -492,10 +502,18 @@ const createThemeSectionTool = {
       themeSectionContext =
         recentPlan?.themeContext && typeof recentPlan.themeContext === "object"
           ? recentPlan.themeContext
+          : plannerHandoffTargetCompatible &&
+              plannerHandoff?.themeContext &&
+              typeof plannerHandoff.themeContext === "object"
+            ? plannerHandoff.themeContext
           : null;
       sectionBlueprint =
         recentPlan?.sectionBlueprint && typeof recentPlan.sectionBlueprint === "object"
           ? recentPlan.sectionBlueprint
+          : plannerHandoffTargetCompatible &&
+              plannerHandoff?.sectionBlueprint &&
+              typeof plannerHandoff.sectionBlueprint === "object"
+            ? plannerHandoff.sectionBlueprint
           : null;
 
       if (!themeSectionContext || !sectionBlueprint) {

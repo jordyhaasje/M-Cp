@@ -362,15 +362,73 @@ const getFileScopeFromKey = (key) => {
   return undefined;
 };
 
+const STICKY_PLAN_INTENTS = new Set([
+  "existing_edit",
+  "native_block",
+  "template_placement",
+]);
+
+const deriveStickyTargetHandle = (memoryState, stickyTargetFile) => {
+  const createdHandle = String(memoryState?.lastCreatedSectionHandle || "").trim();
+  if (createdHandle) {
+    return createdHandle;
+  }
+
+  const normalizedTargetFile = String(stickyTargetFile || "").trim();
+  if (!normalizedTargetFile) {
+    return "";
+  }
+
+  return normalizedTargetFile
+    .split("/")
+    .pop()
+    ?.replace(/\.(liquid|json|css|js|svg)$/i, "") || "";
+};
+
+const getStickyPlanTarget = (memoryState) => {
+  if (!memoryState || typeof memoryState !== "object") {
+    return null;
+  }
+
+  const createdSectionFile = String(memoryState.lastCreatedSectionFile || "").trim();
+  if (createdSectionFile) {
+    return {
+      key: createdSectionFile,
+      source: "last_created_section",
+    };
+  }
+
+  const planIntent = String(memoryState.lastPlan?.intent || "").trim();
+  const planTargetFile = String(memoryState.lastPlan?.targetFile || "").trim();
+  if (planTargetFile && STICKY_PLAN_INTENTS.has(planIntent)) {
+    return {
+      key: planTargetFile,
+      source: "recent_plan_target",
+    };
+  }
+
+  const lastIntent = String(memoryState.lastIntent || "").trim();
+  const lastTargetFile = String(memoryState.lastTargetFile || "").trim();
+  if (lastTargetFile && STICKY_PLAN_INTENTS.has(lastIntent)) {
+    return {
+      key: lastTargetFile,
+      source: "recent_target_file",
+    };
+  }
+
+  return null;
+};
+
 const looksLikeStickySectionFollowUp = (text, memoryState) => {
   const normalized = String(text || "").trim();
-  if (!normalized || !memoryState?.lastCreatedSectionFile) {
+  const stickyPlanTarget = getStickyPlanTarget(memoryState);
+  if (!normalized || !stickyPlanTarget?.key) {
     return false;
   }
   if (inferSingleThemeFile(normalized)) {
     return false;
   }
-  const handle = String(memoryState.lastCreatedSectionHandle || "").trim();
+  const handle = deriveStickyTargetHandle(memoryState, stickyPlanTarget.key);
   if (handle && normalized.toLowerCase().includes(handle.toLowerCase())) {
     return true;
   }
@@ -394,10 +452,11 @@ const applyStickyPlanContext = (input, rawInput, context) => {
     return { input, stickyTarget: null };
   }
 
-  const stickyTargetFile = memoryState.lastCreatedSectionFile || memoryState.lastTargetFile;
-  if (!stickyTargetFile) {
+  const stickyPlanTarget = getStickyPlanTarget(memoryState);
+  if (!stickyPlanTarget?.key) {
     return { input, stickyTarget: null };
   }
+  const stickyTargetFile = stickyPlanTarget.key;
 
   const nextInput = {
     ...input,
@@ -415,7 +474,7 @@ const applyStickyPlanContext = (input, rawInput, context) => {
   return {
     input: nextInput,
     stickyTarget: {
-      source: "last_created_section",
+      source: stickyPlanTarget.source,
       targetFile: stickyTargetFile,
       themeId: nextInput.themeId ?? null,
       themeRole: nextInput.themeRole || null,
@@ -582,6 +641,14 @@ const buildPlannerHandoff = ({
   plannerQuery: String(input?.query || "").trim() || null,
   intent: input?.intent || result?.intent || null,
   template: input?.template || result?.template?.resolved || null,
+  themeTarget: {
+    themeId:
+      input?.themeId === undefined || input?.themeId === null
+        ? null
+        : Number(input.themeId),
+    themeRole: String(input?.themeRole || "").trim() || null,
+  },
+  targetFile: String(input?.targetFile || "").trim() || null,
   archetype: result?.sectionBlueprint?.archetype || null,
   qualityTarget: result?.qualityTarget || result?.sectionBlueprint?.qualityTarget || null,
   generationMode:
@@ -597,6 +664,7 @@ const buildPlannerHandoff = ({
     : [],
   referenceSignals: result?.sectionBlueprint?.referenceSignals || null,
   themeContext: result?.themeContext || null,
+  sectionBlueprint: result?.sectionBlueprint || null,
   readTool: immediateStep?.nextTool || null,
   writeTool,
   requiredToolNames: uniqueStrings([immediateStep?.nextTool, writeTool]),

@@ -5,7 +5,7 @@ Doelgroep: repo maintainers en coding agents.
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.
 
 ## Current Phase
-- Phase 7: second prompt-flow compatibility hardening implemented locally, commit/deploy pending
+- Phase 7: prompt-continuity hardening for sticky follow-ups and stateless planner handoff implemented locally and fully validated; next bottleneck is production observability / remaining theme-target edge cases
 
 ## Checklist Of Planned Work
 - [x] Read attached report and `tool_log.json`
@@ -67,6 +67,8 @@ Doelgroep: repo maintainers en coding agents.
 - Identified the next normal-prompt friction point: `patch-theme-file` still failed too early for vague but normal LLM tool payloads, especially when a repairable or remembered existing-edit target existed.
 - Hardened `patch-theme-file` so it now exposes `_tool_input_summary` in its public schema, returns a structured `plan-theme-edit` repair when no exact target file is known, and can safely reuse a recent exact existing-edit target from theme-edit memory for follow-up prompts.
 - Added regression coverage for the new `patch-theme-file` compat behavior in tool-schema introspection and hardening tests.
+- Committed the `patch-theme-file` prompt-compatibility hardening as `3226bcf` (`Harden patch-theme prompt compatibility`).
+- Deployed commit `3226bcf` to Railway production for `Hazify-MCP-Remote`.
 - Updated this tracker with the Railway drift conclusion and re-ran docs verification.
 - Re-ran docs verification after the latest tracker/support-matrix update.
 - Re-ran full verification:
@@ -75,6 +77,34 @@ Doelgroep: repo maintainers en coding agents.
   - `npm run build` -> pass
   - `npm run check:repo` -> pass
   - `npm test` -> pass
+- Re-consulted Shopify dev MCP for safe incremental section/block edits versus template placement and for preserving `block.shopify_attributes` / merchant settings during existing-section changes.
+- Re-consulted Context7 MCP SDK docs to confirm that stateless clients depend on real structured schema fields for safe multi-step continuation.
+- Spawned two explorer sub-agents:
+  - one to inspect the next plain-prompt orchestration bottleneck in planner/edit flows
+  - one to inspect production observability gaps for theme-write failures
+- Identified a prompt-memory gap in `plan-theme-edit`: sticky follow-up targeting only activated when `lastCreatedSectionFile` existed, even though theme edit memory already tracked recent `lastPlan.targetFile` / `lastTargetFile` for existing-edit and native-block flows.
+- Hardened `plan-theme-edit` so sticky follow-up prompts can now safely reuse recent existing-edit, native-block, and template-placement targets, not just newly created sections.
+- Added regression coverage for the new sticky follow-up behavior on a recent `existing_edit` target.
+- Re-ran verification after the sticky follow-up hardening:
+  - `npm run --workspace @hazify/mcp-remote test -- tests/createThemeSection.test.mjs` -> pass (`65/65`; current runner still executes the full mcp-remote suite)
+  - `npm run build` -> pass
+  - `npm run check:docs` -> pass
+  - `npm run check:repo` -> pass
+- Confirmed the next stateless-client bottleneck from sub-agent review: `plannerHandoff` was documented as portable, but `create-theme-section` and `draft-theme-artifact` still leaned too heavily on session memory when reconstructing required reads and blueprint/theme-context metadata.
+- Expanded `plan-theme-edit` handoff payloads so they now carry `themeTarget`, `targetFile`, and the full `sectionBlueprint` in addition to existing read/write guidance and theme context.
+- Hardened `create-theme-section` to trust compatible `plannerHandoff.themeContext` and `plannerHandoff.sectionBlueprint` when recent in-memory plan state is absent.
+- Hardened `draft-theme-artifact` to enforce and auto-hydrate exact planner-required reads from compatible `plannerHandoff` data even when there is no recent `lastPlan` memory.
+- Added regression coverage for:
+  - handoff-only `create-theme-section` continuation without session memory
+  - handoff-only `draft-theme-artifact` read hydration without session memory
+  - richer `plannerHandoff` metadata exposure from `plan-theme-edit`
+- Re-ran full verification after the stateless handoff hardening:
+  - `npm run --workspace @hazify/mcp-remote test -- tests/createThemeSection.test.mjs` -> pass (`67/67`; current runner still executes the full mcp-remote suite)
+  - `npm run --workspace @hazify/mcp-remote test -- tests/draftThemeArtifact.test.mjs` -> pass (`67/67`; current runner still executes the full mcp-remote suite)
+  - `npm run --workspace @hazify/mcp-remote test` -> pass (`67/67`)
+  - `npm run build` -> pass
+  - `npm run check:docs` -> pass
+  - `npm run check:repo` -> pass
 
 ## Decisions And Assumptions
 - Treat current code and runtime behavior as canonical over older docs/plans, per user request and `AGENTS.md`.
@@ -102,6 +132,11 @@ Doelgroep: repo maintainers en coding agents.
 - Additional coverage gap found during this session: `image_slider`, `logo_wall`, and explicit `template_placement` support existed in planner/runtime code but were not yet locked down with dedicated planner regression tests. Fixed in tests.
 - Usability conflict found during this session: the guarded pipeline was correct but still too brittle for ChatGPT/Claude/Perplexity-style prompt clients when exact required reads were trivially derivable by the server. Resolved by auto-hydrating only exact planner/target reads instead of weakening validation or allowing broad implicit scans.
 - Additional usability conflict found during this session: `patch-theme-file` still hard-failed too early for ordinary prompt clients because the public schema did not advertise summary compatibility and vague follow-up payloads could not return a structured repair path. Fixed locally by exposing summary fields publicly, normalizing compat shorthands, reusing recent exact existing-edit targets when safe, and steering unresolved calls back to `plan-theme-edit`.
+- Additional prompt-memory conflict found during this session: `plan-theme-edit` follow-up targeting only stuck to `lastCreatedSectionFile`, even though non-create flows already persisted recent exact target files. That made ordinary follow-up prompts like “maak hem mobiel compacter” lose their file context after existing-edit/native-block planning. Fixed locally in the planner + tests.
+- Sub-agent review found two remaining likely bottlenecks after the sticky fix:
+  - Railway/request-level observability for theme-write failures is still too sparse for fast production diagnosis
+- Additional stateless-flow conflict found during this session: `plannerHandoff` portability was weaker than the docs implied, because write-tool gating still leaned on session memory for required planner reads and blueprint reuse. Fixed locally in `plan-theme-edit`, `create-theme-section`, and `draft-theme-artifact` with handoff-only regressions.
+- Remaining edge-case conflict from sub-agent review: `themeTargetsCompatible` is still permissive when one flow uses `themeId` and the next uses `themeRole`, which may still deserve a stricter pass for cross-theme safety.
 
 ## Files Inspected
 - `/Users/jordy/Desktop/log/MCP_Hazify_Section_Replication_Report.docx`
@@ -122,6 +157,7 @@ Doelgroep: repo maintainers en coding agents.
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/patchThemeFile.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/registry.js`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/index.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/mcpHttpAuth.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
@@ -138,6 +174,7 @@ Doelgroep: repo maintainers en coding agents.
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/createThemeSection.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/patchThemeFile.js`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/planThemeEdit.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
@@ -174,6 +211,16 @@ Doelgroep: repo maintainers en coding agents.
 - `npm run check:docs` -> passed again after generated patch-theme-file docs/schema updates
 - `npm run check:repo` -> passed again after the patch-theme-file compat changes
 - `npm test` -> passed again after the patch-theme-file compat changes (exit code `0`)
+- `npm run --workspace @hazify/mcp-remote test -- tests/createThemeSection.test.mjs` -> passed (`65/65`; current runner still executes the full mcp-remote suite) after sticky follow-up hardening for existing-edit flows
+- `npm run build` -> passed again after sticky follow-up hardening
+- `npm run check:docs` -> passed again after sticky follow-up hardening
+- `npm run check:repo` -> passed again after sticky follow-up hardening
+- `npm run --workspace @hazify/mcp-remote test -- tests/createThemeSection.test.mjs` -> passed (`67/67`; current runner still executes the full mcp-remote suite) after stateless planner-handoff hardening
+- `npm run --workspace @hazify/mcp-remote test -- tests/draftThemeArtifact.test.mjs` -> passed (`67/67`; current runner still executes the full mcp-remote suite) after stateless planner-handoff hardening
+- `npm run --workspace @hazify/mcp-remote test` -> passed (`67/67`) after sticky follow-up + stateless handoff hardening
+- `npm run build` -> passed again after stateless planner-handoff hardening
+- `npm run check:docs` -> passed again after stateless planner-handoff hardening
+- `npm run check:repo` -> passed again after stateless planner-handoff hardening
 - Residual noise observed during tests/build, but non-failing:
   - Node `punycode` deprecation warning
   - expected test-path logs for rejected carriers / unauthorized requests
@@ -186,6 +233,7 @@ Doelgroep: repo maintainers en coding agents.
   - JSON template structure
   - `video` vs `video_url`
   - Theme Editor events
+  - incremental section/block edit safety versus template placement for existing-section changes
 
 ## Context7 Docs Consulted
 - Resolved and queried `/websites/shopify_dev_storefronts_themes`
@@ -194,6 +242,9 @@ Doelgroep: repo maintainers en coding agents.
   - Theme Editor JavaScript events
   - block rendering guidance including `block.shopify_attributes`
   - Theme Check workflow context from Shopify Themes docs
+- Queried `/modelcontextprotocol/typescript-sdk`
+  - tool registration with `inputSchema` / optional `outputSchema`
+  - guidance that structured optional return fields are exposed to clients and are appropriate for safe multi-step continuation
 
 ## Railway MCP Findings
 - Railway CLI authenticated and usable.
@@ -207,7 +258,8 @@ Doelgroep: repo maintainers en coding agents.
   - `apps/hazify-license-service` -> `Hazify-License-Service`
 - Deployment findings:
   - `Hazify-MCP-Remote` production latest success before the current local prompt-flow hardening: `2026-04-20T19:05:34Z`, deployment `9624c840-b0ac-430a-92c0-966b95efd7eb`, commit `fb458e8` (`Harden section planning coverage and docs`), Node `22.22.2`
-  - `Hazify-MCP-Remote` production current latest success: `2026-04-20T19:19:53Z`, deployment `5b4d873a-51d6-46ea-b299-6dc1bd7cd624`, commit `71674b0` (`Auto-hydrate exact theme reads for write flows`), Node `22.22.2`
+  - `Hazify-MCP-Remote` production success after exact-read auto-hydration hardening: `2026-04-20T19:19:53Z`, deployment `5b4d873a-51d6-46ea-b299-6dc1bd7cd624`, commit `71674b0` (`Auto-hydrate exact theme reads for write flows`), Node `22.22.2`
+  - `Hazify-MCP-Remote` production current latest success: `2026-04-20T19:30:28Z`, deployment `ab876e1b-2fe0-49cb-9c56-3a3167984813`, commit `3226bcf` (`Harden patch-theme prompt compatibility`), Node `22.22.2`
   - `Hazify-MCP-Remote` `cleanup-root-deploy` latest success: `2026-04-04T08:31:56Z`, Node `18.20.8`
   - `Hazify-License-Service` production latest success: `2026-04-19T07:44:40Z`, Node `22.22.2`
 - Safe config comparison:
@@ -218,6 +270,7 @@ Doelgroep: repo maintainers en coding agents.
   - No theme-write/runtime error trail surfaced in Railway deploy logs; current logs are mostly startup/build warnings.
   - Production deploy logs also confirm live traffic on April 20, 2026 for `plan-theme-edit`, `get-theme-file(s)`, `create-theme-section`, and `draft-theme-artifact`.
   - Latest deploy `5b4d873a-51d6-46ea-b299-6dc1bd7cd624` completed successfully and shows the expected build/start sequence for `@hazify/mcp-remote@1.1.0`.
+  - Latest deploy `ab876e1b-2fe0-49cb-9c56-3a3167984813` completed successfully and shows the expected build/start sequence for `@hazify/mcp-remote@1.1.0`.
   - Recent production responses include the expected hardened outcomes:
     - `existing_section_key_conflict`
     - `inspection_failed_truncated`
@@ -232,7 +285,9 @@ Doelgroep: repo maintainers en coding agents.
 - No failing tests or repo gates remain.
 - Railway cleanup environment still appears stale relative to production (`Node 18` image vs current `Node 22` baseline); no code change applied in this session.
 - Production Railway deploy logs remain sparse for theme-write/runtime behavior; they currently expose mostly startup/build warnings rather than request-level theme diagnostics.
-- The latest `patch-theme-file` prompt-compatibility hardening is still only local until the next commit + deploy in this session.
+- `themeTargetsCompatible` still deserves a stricter follow-up audit for mixed `themeId` / `themeRole` flows so sticky targets and recent-read reuse cannot drift across themes.
+- Production observability still deserves a central safe `failureSummary` / richer structured logging pass for theme-write failures.
+- Current local uncommitted changes now include the sticky follow-up hardening, the stateless planner-handoff hardening, their regression tests, and this tracker update. The latest deployed production runtime is still deployment `ab876e1b-2fe0-49cb-9c56-3a3167984813`; these newest changes are not deployed yet.
 
 ## Exact Next Step / Command
-- `git add apps/hazify-mcp-remote/src/tools/patchThemeFile.js apps/hazify-mcp-remote/tests/mcpHttpAuth.test.mjs apps/hazify-mcp-remote/tests/toolHardening.test.mjs AGENTS.md docs/02-SYSTEM-FLOW.md docs/codex-mcp-section-generation-tracker.md && git commit -m "Harden patch-theme prompt compatibility"` and deploy `apps/hazify-mcp-remote` to Railway production.
+- Inspect `themeTargetsCompatible` and adjacent memory reuse paths for mixed `themeId` / `themeRole` flows, or alternatively start the central observability/failure-summary hardening in `src/index.js` and related output schemas.

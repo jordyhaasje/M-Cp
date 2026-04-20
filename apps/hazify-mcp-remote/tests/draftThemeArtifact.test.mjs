@@ -605,7 +605,10 @@ test("draftThemeArtifact - accepts guarded optional block images with fallback i
           },
         ],
       }),
-      { shopifyClient: mockShopifyClient }
+      {
+        shopifyClient: mockShopifyClient,
+        tokenHash: "draft-handoff-only-read-enforcement",
+      }
     );
 
     assert.equal(result.success, true);
@@ -1847,7 +1850,10 @@ test("draftThemeArtifact - rejects invalid range schemas in edit mode before pre
           },
         ],
       }),
-      { shopifyClient: mockShopifyClient }
+      {
+        shopifyClient: mockShopifyClient,
+        tokenHash: "draft-handoff-only-read-enforcement",
+      }
     );
 
     assert.equal(result.success, false);
@@ -2136,7 +2142,10 @@ test("draftThemeArtifact - hydrates locale context before running theme-check on
           },
         ],
       }),
-      { shopifyClient: mockShopifyClient }
+      {
+        shopifyClient: mockShopifyClient,
+        tokenHash: "draft-handoff-only-read-enforcement",
+      }
     );
 
     assert.equal(result.success, true);
@@ -3148,6 +3157,75 @@ test("draftThemeArtifact - auto-hydrates planner reads before an edit write cont
         warning.includes("Planner-required theme-context reads zijn automatisch opgehaald")
       ),
       "draft-theme-artifact should auto-hydrate exact planner reads before continuing"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - auto-hydrates planner reads from plannerHandoff when session memory is absent", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFilesFetchMock({
+    files: {
+      "sections/main-product.liquid": goodSectionLiquid,
+      "snippets/product-info.liquid": "{% doc %}{% enddoc %}<div>Existing review block</div>",
+    },
+    themeIdFallback: 111,
+  });
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        plannerHandoff: {
+          brief: "Voeg een review block toe aan de bestaande product sectie",
+          intent: "native_block",
+          themeTarget: {
+            themeId: 111,
+            themeRole: null,
+          },
+          requiredReadKeys: [
+            "sections/main-product.liquid",
+            "snippets/product-info.liquid",
+          ],
+          nextWriteKeys: [
+            "sections/main-product.liquid",
+            "snippets/product-info.liquid",
+          ],
+        },
+        files: [
+          {
+            key: "sections/main-product.liquid",
+            value: goodSectionLiquid,
+          },
+          {
+            key: "snippets/product-info.liquid",
+            value: "{% doc %}{% enddoc %}<div>Review block</div>",
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        tokenHash: "draft-handoff-only-read-enforcement",
+      }
+    );
+
+    assert.equal(result.success, true);
+    assert.ok(
+      result.warnings?.some((warning) =>
+        warning.includes("Planner-required theme-context reads zijn automatisch opgehaald")
+      ),
+      "draft-theme-artifact should hydrate exact planner reads from plannerHandoff without relying on session memory"
     );
   } finally {
     global.fetch = previousFetch;
