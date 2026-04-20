@@ -2,6 +2,7 @@ import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { draftThemeArtifact } from "./draftThemeArtifact.js";
 import { getRecentThemeRead } from "../lib/themeEditMemory.js";
+import { hydrateExactThemeReads } from "../lib/themeReadHydration.js";
 import {
   extractThemeToolSummary,
   inferSingleThemeFile,
@@ -197,10 +198,10 @@ const validatePatchesAgainstRead = (patches, source) => {
 const patchThemeFileTool = {
   name: "patch-theme-file",
   description:
-    "Patch one existing theme file met één of meer letterlijke vervangingen. Gebruik dit alleen voor kleine single-file fixes nadat je eerst met `search-theme-files` en daarna `get-theme-file` de exacte anchor hebt bepaald. Deze tool vereist nu eerst een recente exact-read met includeContent=true op hetzelfde bestand, weigert generieke of niet-unieke anchors en blokkeert bredere CSS/JS/schema rewrites die eigenlijk via draft-theme-artifact mode='edit' horen te lopen.",
+    "Patch one existing theme file met één of meer letterlijke vervangingen. Gebruik dit alleen voor kleine single-file fixes nadat je eerst met `search-theme-files` en daarna `get-theme-file` de exacte anchor hebt bepaald. Wanneer exact hetzelfde bestand nog niet in deze flow is gelezen, probeert de tool nu eerst veilig zelf een exacte read met includeContent=true te hydrateren. Daarna weigert hij nog steeds generieke of niet-unieke anchors en blokkeert hij bredere CSS/JS/schema rewrites die eigenlijk via draft-theme-artifact mode='edit' horen te lopen.",
   schema: PatchThemeFileInputSchema,
   execute: async (input, context = {}) => {
-    requireShopifyClient(context);
+    const shopifyClient = requireShopifyClient(context);
     const normalizedArgs = {
       themeId: input.themeId ?? null,
       themeRole: input.themeRole || null,
@@ -208,7 +209,8 @@ const patchThemeFileTool = {
       patchCount: input.patch ? 1 : Array.isArray(input.patches) ? input.patches.length : 0,
       hasBaseChecksumMd5: Boolean(input.baseChecksumMd5),
     };
-    const recentRead = getRecentThemeRead(context, {
+    const warnings = [];
+    let recentRead = getRecentThemeRead(context, {
       key: input.key,
       themeId: input.themeId,
       themeRole: input.themeRole,
@@ -220,6 +222,31 @@ const patchThemeFileTool = {
       key: input.key,
       includeContent: true,
     };
+
+    if (!recentRead?.content) {
+      try {
+        const hydrationResult = await hydrateExactThemeReads(context, {
+          shopifyClient,
+          apiVersion: process.env.SHOPIFY_API_VERSION || "2026-01",
+          themeId: input.themeId,
+          themeRole: input.themeRole,
+          keys: [input.key],
+        });
+        if ((hydrationResult.hydratedKeys || []).length > 0) {
+          warnings.push(
+            `Exacte target-read is automatisch opgehaald voor patch-theme-file: ${hydrationResult.hydratedKeys.join(", ")}.`
+          );
+        }
+        recentRead = getRecentThemeRead(context, {
+          key: input.key,
+          themeId: input.themeId,
+          themeRole: input.themeRole,
+          requireContent: true,
+        });
+      } catch (_error) {
+        // Val terug op de bestaande repair response hieronder.
+      }
+    }
 
     if (!recentRead?.content) {
       return buildPatchThemeFailure({
@@ -326,7 +353,7 @@ const patchThemeFileTool = {
       });
     }
 
-    return draftThemeArtifact.execute(
+    const result = await draftThemeArtifact.execute(
       {
         themeId: input.themeId,
         themeRole: input.themeRole,
@@ -344,6 +371,15 @@ const patchThemeFileTool = {
       },
       context
     );
+
+    if (result && typeof result === "object" && warnings.length > 0) {
+      return {
+        ...result,
+        warnings: Array.from(new Set([...(result.warnings || []), ...warnings])),
+      };
+    }
+
+    return result;
   },
 };
 

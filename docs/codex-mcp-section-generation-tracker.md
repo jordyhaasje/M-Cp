@@ -5,7 +5,7 @@ Doelgroep: repo maintainers en coding agents.
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.
 
 ## Current Phase
-- Phase 7: production runtime verified, support-matrix regressions extended, ready for handoff
+- Phase 7: prompt-flow hardening for non-coding-agent clients implemented locally, commit/deploy pending
 
 ## Checklist Of Planned Work
 - [x] Read attached report and `tool_log.json`
@@ -58,6 +58,10 @@ Doelgroep: repo maintainers en coding agents.
 - Consulted Shopify dev MCP (`learn_shopify_api` + `search_docs_chunks`) and Context7.
 - Implemented planner classification and docs/example updates.
 - Added planner regression coverage for additional required support paths: `image_slider`, `logo_wall`, and explicit `template_placement`.
+- Committed and deployed the planner/docs/test hardening as commit `fb458e8` (`Harden section planning coverage and docs`) to Railway production.
+- Identified a remaining prompt-compatibility friction point for normal LLM clients: exact planner-required reads were still enforced even when the target files were safely and unambiguously derivable by the server.
+- Added safe exact-read auto-hydration for write flows so ordinary prompt-driven clients do not have to manually orchestrate every read step when the server can deterministically repair the missing context itself.
+- Extended hardening tests for `create-theme-section`, `draft-theme-artifact`, and `patch-theme-file` to lock down that exact-read auto-hydration behavior.
 - Updated this tracker with the Railway drift conclusion and re-ran docs verification.
 - Re-ran docs verification after the latest tracker/support-matrix update.
 - Re-ran full verification:
@@ -73,6 +77,7 @@ Doelgroep: repo maintainers en coding agents.
 - Use the attached report/log as regression evidence, not as authoritative implementation truth.
 - Use English for user-facing communication because the user wrote in English.
 - Treat recent commit history as likely part of the same hardening effort and validate claims by tests/runtime, not commit messages alone.
+- Prefer server-side repair over validator relaxation when a missing step is exact, deterministic, and theme-safe. This keeps normal prompt clients working while preserving the same guarded write semantics.
 
 ## Conflicts Found
 - The attached report describes failures that are now already covered in code and tests:
@@ -90,6 +95,7 @@ Doelgroep: repo maintainers en coding agents.
 - The user's hypothesis about the active Railway deploy was correct: production logs show today's live requests already exercising recent guardrails such as `existing_section_key_conflict`, `inspection_failed_truncated`, and `missing_theme_context_reads`.
 - Planner gap found during this session: broader archetypes like social strips, FAQ/collapsibles, comparison tables, before/after sliders and hero banners were safe but not explicitly classified. Fixed in source + tests.
 - Additional coverage gap found during this session: `image_slider`, `logo_wall`, and explicit `template_placement` support existed in planner/runtime code but were not yet locked down with dedicated planner regression tests. Fixed in tests.
+- Usability conflict found during this session: the guarded pipeline was correct but still too brittle for ChatGPT/Claude/Perplexity-style prompt clients when exact required reads were trivially derivable by the server. Resolved by auto-hydrating only exact planner/target reads instead of weakening validation or allowing broad implicit scans.
 
 ## Files Inspected
 - `/Users/jordy/Desktop/log/MCP_Hazify_Section_Replication_Report.docx`
@@ -104,6 +110,7 @@ Doelgroep: repo maintainers en coding agents.
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themeSectionContext.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themeFiles.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themeEditMemory.js`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themeReadHydration.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/planThemeEdit.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/createThemeSection.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
@@ -120,11 +127,20 @@ Doelgroep: repo maintainers en coding agents.
 ## Files Changed
 - `/Users/jordy/Desktop/Customer service/docs/codex-mcp-section-generation-tracker.md`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themeSectionContext.js`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themeReadHydration.js`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/createThemeSection.js`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/patchThemeFile.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/toolHardening.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/README.md`
 - `/Users/jordy/Desktop/Customer service/docs/README.md`
 - `/Users/jordy/Desktop/Customer service/docs/00-START-HERE.md`
 - `/Users/jordy/Desktop/Customer service/docs/03-THEME-SECTION-GENERATION.md`
+- `/Users/jordy/Desktop/Customer service/AGENTS.md`
+- `/Users/jordy/Desktop/Customer service/docs/02-SYSTEM-FLOW.md`
 
 ## Tests Added/Run + Results
 - `npm run --workspace @hazify/mcp-remote test` -> passed (`64/64`)
@@ -140,6 +156,11 @@ Doelgroep: repo maintainers en coding agents.
 - `npm run --workspace @hazify/mcp-remote test -- tests/themePlanning.test.mjs` -> passed (`64/64`; current runner still executes the full mcp-remote suite)
 - `npm run check:docs` -> passed again after the latest tracker/support-matrix update
 - `npm run check:docs` -> passed again after the final tracker-only update
+- `npm run --workspace @hazify/mcp-remote test` -> passed again after exact-read auto-hydration changes
+- `npm run build` -> passed again after exact-read auto-hydration changes
+- `npm run check:docs` -> passed again after generated tool docs updated
+- `npm run check:repo` -> passed again after exact-read auto-hydration changes
+- `npm test` -> passed again after exact-read auto-hydration changes
 - Residual noise observed during tests/build, but non-failing:
   - Node `punycode` deprecation warning
   - expected test-path logs for rejected carriers / unauthorized requests
@@ -172,7 +193,7 @@ Doelgroep: repo maintainers en coding agents.
   - repo root / `apps/hazify-mcp-remote` -> `Hazify-MCP-Remote`
   - `apps/hazify-license-service` -> `Hazify-License-Service`
 - Deployment findings:
-  - `Hazify-MCP-Remote` production latest success: `2026-04-20T16:20:09Z`, commit message metadata `Harden optional resource validation for theme drafts`, Node `22.22.2`
+  - `Hazify-MCP-Remote` production latest success before the current local prompt-flow hardening: `2026-04-20T19:05:34Z`, deployment `9624c840-b0ac-430a-92c0-966b95efd7eb`, commit `fb458e8` (`Harden section planning coverage and docs`), Node `22.22.2`
   - `Hazify-MCP-Remote` `cleanup-root-deploy` latest success: `2026-04-04T08:31:56Z`, Node `18.20.8`
   - `Hazify-License-Service` production latest success: `2026-04-19T07:44:40Z`, Node `22.22.2`
 - Safe config comparison:
@@ -196,6 +217,7 @@ Doelgroep: repo maintainers en coding agents.
 - No failing tests or repo gates remain.
 - Railway cleanup environment still appears stale relative to production (`Node 18` image vs current `Node 22` baseline); no code change applied in this session.
 - Production Railway deploy logs remain sparse for theme-write/runtime behavior; they currently expose mostly startup/build warnings rather than request-level theme diagnostics.
+- The exact-read auto-hydration hardening is still only local until the next commit + deploy in this session.
 
 ## Exact Next Step / Command
-- Optional next step outside this session: stage/commit the local planner/docs/test changes and deploy them to Railway production if these latest support-matrix additions should become live as well.
+- `git add docs/codex-mcp-section-generation-tracker.md apps/hazify-mcp-remote/src/lib/themeReadHydration.js apps/hazify-mcp-remote/src/tools/createThemeSection.js apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js apps/hazify-mcp-remote/src/tools/patchThemeFile.js apps/hazify-mcp-remote/tests/createThemeSection.test.mjs apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs apps/hazify-mcp-remote/tests/toolHardening.test.mjs AGENTS.md docs/02-SYSTEM-FLOW.md && git commit -m "Auto-hydrate exact theme reads for write flows"` and deploy `apps/hazify-mcp-remote` to Railway production.

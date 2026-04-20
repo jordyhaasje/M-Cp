@@ -254,21 +254,100 @@ try {
   assert.equal(patchThemeFilePayload.success, true, "patch-theme-file should accept a single-file literal patch");
 
   clearThemeEditMemory();
-  const patchThemeFileRequiresReadResult = await patchThemeFileTool.execute(
-    patchThemeFileTool.schema.parse({
-      themeRole: "main",
-      key: "snippets/product-info.liquid",
-      patch: {
-        searchString: "{%- when 'title' -%}",
-        replaceString: "{%- when 'title' -%}\n  <span>Badge</span>",
+  const previousFetch = global.fetch;
+  const originalDraftExecute = draftThemeArtifact.execute;
+  global.fetch = async (_url, options = {}) => {
+    const payload = options.body ? JSON.parse(String(options.body)) : {};
+    const query = String(payload.query || "");
+    const theme = {
+      id: "gid://shopify/OnlineStoreTheme/123",
+      name: "Main theme",
+      role: "MAIN",
+      processing: false,
+      createdAt: "2026-04-02T00:00:00Z",
+      updatedAt: "2026-04-02T00:00:00Z",
+    };
+
+    if (query.includes("ThemeById")) {
+      return new Response(JSON.stringify({ data: { theme } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (query.includes("ThemeFilesByIdWithContent")) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            theme: {
+              ...theme,
+              files: {
+                nodes: [
+                  {
+                    filename: "snippets/product-info.liquid",
+                    checksumMd5: "checksum",
+                    contentType: "TEXT",
+                    createdAt: "2026-04-02T00:00:00Z",
+                    updatedAt: "2026-04-02T00:00:00Z",
+                    size: 120,
+                    body: {
+                      content: "{%- when 'title' -%}\n  <h1>{{ product.title }}</h1>",
+                    },
+                  },
+                ],
+                userErrors: [],
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    throw new Error(`Unexpected fetch in patch-theme-file hardening test: ${query}`);
+  };
+
+  let capturedPatchDraftInput = null;
+  draftThemeArtifact.execute = async (input) => {
+    capturedPatchDraftInput = input;
+    return { success: true, status: "preview_ready", warnings: [] };
+  };
+  const themePatchClient = {
+    url: "https://unit-test-shop.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: {
+        "X-Shopify-Access-Token": "shpat_unit_test",
       },
-    }),
-    { shopifyClient: mockShopifyClient, tokenHash: "patch-theme-read-hardening" }
-  );
-  assert.equal(patchThemeFileRequiresReadResult.success, false);
-  assert.equal(patchThemeFileRequiresReadResult.errorCode, "patch_requires_read_context");
-  assert.equal(patchThemeFileRequiresReadResult.nextTool, "get-theme-file");
-  assert.equal(patchThemeFileRequiresReadResult.retryMode, "switch_tool_after_fix");
+    },
+    session: { shop: "unit-test-shop.myshopify.com" },
+    request: async () => {},
+  };
+
+  try {
+    const patchThemeFileRequiresReadResult = await patchThemeFileTool.execute(
+      patchThemeFileTool.schema.parse({
+        themeId: 123,
+        key: "snippets/product-info.liquid",
+        patch: {
+          searchString: "{%- when 'title' -%}",
+          replaceString: "{%- when 'title' -%}\n  <span>Badge</span>",
+        },
+      }),
+      { shopifyClient: themePatchClient, tokenHash: "patch-theme-read-hardening" }
+    );
+    assert.equal(patchThemeFileRequiresReadResult.success, true);
+    assert.equal(capturedPatchDraftInput.mode, "edit");
+    assert.equal(capturedPatchDraftInput.files[0].key, "snippets/product-info.liquid");
+    assert.ok(
+      patchThemeFileRequiresReadResult.warnings?.some((warning) =>
+        warning.includes("Exacte target-read is automatisch opgehaald")
+      ),
+      "patch-theme-file should auto-read the exact target file before validating the literal patch"
+    );
+  } finally {
+    global.fetch = previousFetch;
+    draftThemeArtifact.execute = originalDraftExecute;
+  }
 
   const planThemeEditPayload = planThemeEditTool.schema.safeParse({
     themeRole: "main",

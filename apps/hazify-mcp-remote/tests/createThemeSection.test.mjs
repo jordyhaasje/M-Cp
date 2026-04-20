@@ -507,13 +507,13 @@ test("createThemeSection - blocks overwriting an existing section key", async ()
   assert.equal(draftExecuteCalls, 0);
 });
 
-test("createThemeSection - requires planner reads before writing a new section", async () => {
+test("createThemeSection - auto-hydrates planner reads before writing a new section", async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 
   let draftExecuteCalls = 0;
   draftThemeArtifact.execute = async () => {
     draftExecuteCalls += 1;
-    return { success: true, status: "preview_ready" };
+    return { success: true, status: "preview_ready", warnings: [] };
   };
 
   const result = await createThemeSectionTool.execute(
@@ -538,14 +538,13 @@ test("createThemeSection - requires planner reads before writing a new section",
     { shopifyClient, tokenHash: "create-theme-missing-reads" }
   );
 
-  assert.equal(result.success, false);
-  assert.equal(result.errorCode, "missing_theme_context_reads");
-  assert.equal(result.nextTool, "get-theme-files");
-  assert.equal(result.retryMode, "switch_tool_after_fix");
-  assert.equal(draftExecuteCalls, 0);
+  assert.equal(result.success, true);
+  assert.equal(draftExecuteCalls, 1);
   assert.ok(
-    result.nextArgsTemplate?.keys?.includes("sections/testimonials.liquid"),
-    "the repair response should point back to the required representative section read"
+    result.warnings?.some((warning) =>
+      warning.includes("Planner-required theme-context reads zijn automatisch opgehaald")
+    ),
+    "create-theme-section should auto-hydrate exact planner reads when they are safely derivable"
   );
 });
 

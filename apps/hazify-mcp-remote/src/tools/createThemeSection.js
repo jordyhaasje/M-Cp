@@ -10,6 +10,7 @@ import {
   rememberThemeWrite,
   themeTargetsCompatible,
 } from "../lib/themeEditMemory.js";
+import { hydrateExactThemeReads } from "../lib/themeReadHydration.js";
 import {
   extractThemeToolSummary,
   inferSingleThemeFile,
@@ -274,9 +275,9 @@ const createThemeSectionTool = {
   name: "create-theme-section",
   title: "Create Theme Section",
   description:
-    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Do not use apply-theme-draft first. Required: explicit themeId or themeRole, one section file path or handle, and the complete Liquid file with a valid {% schema %}. After plan-theme-edit, read the exact nextReadKeys first; deze tool blokkeert nu bewust wanneer die verplichte theme-context reads nog ontbreken. Voor screenshot/design-replica requests: lever de finale styling in de eerste create-write, niet eerst een veilige baseline gevolgd door een vraag of het pixel-perfect moet worden gemaakt.",
+    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Do not use apply-theme-draft first. Required: explicit themeId or themeRole, one section file path or handle, and the complete Liquid file with a valid {% schema %}. After plan-theme-edit, the tool prefers the exact nextReadKeys first and now tries to auto-hydrate those exact planner reads when they are safely derivable; if required context still ontbreekt, the write stays blocked. For screenshot/design-replica requests: lever de finale styling in de eerste create-write, niet eerst een veilige baseline gevolgd door een vraag of het pixel-perfect moet worden gemaakt.",
   docsDescription:
-    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Vereist: expliciet `themeId` of `themeRole`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Lees na `plan-theme-edit` eerst de exacte `nextReadKeys` in; deze tool weigert nu create-writes zolang die verplichte theme-context reads nog niet met `includeContent=true` zijn gebeurd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Voor zulke replica-prompts verwacht deze tool directe finale styling in de eerste create-write; vraag dus niet eerst om extra toestemming om het daarna pixel-perfect te maken. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
+    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Vereist: expliciet `themeId` of `themeRole`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Lees na `plan-theme-edit` bij voorkeur eerst de exacte `nextReadKeys` in; wanneer die planner-reads veilig exact afleidbaar zijn probeert deze tool ze nu eerst automatisch met `includeContent=true` te hydrateren. Alleen wanneer vereiste theme-context daarna nog ontbreekt, blijft de create-write geblokkeerd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Voor zulke replica-prompts verwacht deze tool directe finale styling in de eerste create-write; vraag dus niet eerst om extra toestemming om het daarna pixel-perfect te maken. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
   inputSchema: CreateThemeSectionPublicObjectSchema,
   schema: CreateThemeSectionInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -559,26 +560,51 @@ const createThemeSectionTool = {
           )
         : [];
 
-      if (
-        requiredReadKeys.length > 0 &&
-        !haveRecentThemeReads(context, {
+      let missingRequiredReadKeys = [];
+      if (requiredReadKeys.length > 0) {
+        const alreadySatisfied = haveRecentThemeReads(context, {
           keys: requiredReadKeys,
           themeId: input.themeId,
           themeRole: input.themeRole,
-        })
-      ) {
+        });
+
+        if (!alreadySatisfied) {
+          try {
+            const hydrationResult = await hydrateExactThemeReads(context, {
+              shopifyClient,
+              apiVersion: API_VERSION,
+              themeId: input.themeId,
+              themeRole: input.themeRole,
+              keys: requiredReadKeys,
+            });
+            missingRequiredReadKeys = hydrationResult.missingKeys || [];
+            if ((hydrationResult.hydratedKeys || []).length > 0) {
+              internalWarnings.push(
+                `Planner-required theme-context reads zijn automatisch opgehaald: ${hydrationResult.hydratedKeys.join(", ")}.`
+              );
+            }
+          } catch (error) {
+            missingRequiredReadKeys = requiredReadKeys;
+            internalWarnings.push(
+              `Automatisch ophalen van planner-required theme-context reads mislukte: ${error.message}`
+            );
+          }
+        }
+      }
+
+      if (missingRequiredReadKeys.length > 0) {
         const nextReadArgs =
-          requiredReadKeys.length === 1
+          missingRequiredReadKeys.length === 1
             ? {
                 ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
                 ...(input.themeRole ? { themeRole: input.themeRole } : {}),
-                key: requiredReadKeys[0],
+                key: missingRequiredReadKeys[0],
                 includeContent: true,
               }
             : {
                 ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
                 ...(input.themeRole ? { themeRole: input.themeRole } : {}),
-                keys: requiredReadKeys,
+                keys: missingRequiredReadKeys,
                 includeContent: true,
               };
 
@@ -590,13 +616,15 @@ const createThemeSectionTool = {
           nextAction: "read_theme_context",
           retryMode: "switch_tool_after_fix",
           nextTool:
-            requiredReadKeys.length === 1 ? "get-theme-file" : "get-theme-files",
+            missingRequiredReadKeys.length === 1
+              ? "get-theme-file"
+              : "get-theme-files",
           normalizedArgs,
           nextArgsTemplate: nextReadArgs,
           warnings: internalWarnings,
           themeContext: themeSectionContext,
           sectionBlueprint,
-          errors: requiredReadKeys.map((key) =>
+          errors: missingRequiredReadKeys.map((key) =>
             buildCreateSectionError({
               path: ["key"],
               problem: `Vereiste theme-context file '${key}' is nog niet met includeContent=true gelezen in deze flow.`,

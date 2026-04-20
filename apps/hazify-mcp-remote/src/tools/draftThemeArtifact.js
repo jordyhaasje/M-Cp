@@ -16,6 +16,7 @@ import {
   rememberThemeWrite,
   themeTargetsCompatible,
 } from "../lib/themeEditMemory.js";
+import { hydrateExactThemeReads } from "../lib/themeReadHydration.js";
 import { getShopDomainFromClient, upsertThemeFiles, getThemeFiles, searchThemeFiles } from "../lib/themeFiles.js";
 import { requireShopifyClient } from "./_context.js";
 import {
@@ -43,7 +44,7 @@ Theme-aware section regels:
 - Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
 - Compatibele shorthand: voor één file mag een client ook top-level key + value/content/liquid of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Binnen files[] worden value/content/liquid nu ook veilig naar dezelfde canonieke value-write genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
-- Wanneer plan-theme-edit eerst exact nextReadKeys voorschrijft, verwacht deze tool nu dat die reads ook echt met includeContent=true zijn uitgevoerd voordat dezelfde write-flow doorgaat.
+- Wanneer plan-theme-edit eerst exact nextReadKeys voorschrijft, probeert deze tool die planner-reads nu eerst veilig exact te hydrateren. Alleen als vereiste reads daarna nog ontbreken, blijft dezelfde write-flow geblokkeerd en krijgt de client een expliciete read-repair terug.
 - Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting. Bij range-fouten geeft de tool exacte suggestedReplacement/default-hints terug.
 - Nieuwe sections/blocks én nieuwe edit-writes op bestaande sections/blocks moeten blank-safe resource rendering gebruiken. Optionele settings zoals image_picker, video en video_url mogen niet onbeschermd door image_url, video_tag of external_video_* lopen; gebruik eerst een if/unless-guard of een expliciete default/fallback. Bestaande legacy-markup elders in het bestand blijft bewerkbaar zolang de nieuwe write geen extra onveilige resource-chain introduceert.
 - Wanneer de create-flow compacte theme-context heeft afgeleid, controleert de pipeline ook op hero-achtige oversizing van typography, spacing, gaps en min-heights ten opzichte van representatieve content sections in het doeltheme.
@@ -4064,14 +4065,39 @@ export const draftThemeArtifact = {
           files.every((file) => String(file.key || "").startsWith("sections/")))
       );
 
-    if (
-      shouldEnforcePlannedReads &&
-      !haveRecentThemeReads(context, {
+    let missingPlannedReadKeys = [];
+    if (shouldEnforcePlannedReads) {
+      const alreadySatisfied = haveRecentThemeReads(context, {
         keys: plannedReadKeys,
         themeId,
         themeRole,
-      })
-    ) {
+      });
+
+      if (!alreadySatisfied) {
+        try {
+          const hydrationResult = await hydrateExactThemeReads(context, {
+            shopifyClient,
+            apiVersion: process.env.SHOPIFY_API_VERSION || "2026-01",
+            themeId,
+            themeRole,
+            keys: plannedReadKeys,
+          });
+          missingPlannedReadKeys = hydrationResult.missingKeys || [];
+          if ((hydrationResult.hydratedKeys || []).length > 0) {
+            warnings.push(
+              `Planner-required theme-context reads zijn automatisch opgehaald: ${hydrationResult.hydratedKeys.join(", ")}.`
+            );
+          }
+        } catch (error) {
+          missingPlannedReadKeys = plannedReadKeys;
+          warnings.push(
+            `Automatisch ophalen van planner-required theme-context reads mislukte: ${error.message}`
+          );
+        }
+      }
+    }
+
+    if (missingPlannedReadKeys.length > 0) {
       return buildFailureResponse({
         status: "inspection_failed",
         message:
@@ -4085,24 +4111,26 @@ export const draftThemeArtifact = {
         shouldNarrowScope: false,
         nextAction: "read_theme_context",
         nextTool:
-          plannedReadKeys.length === 1 ? "get-theme-file" : "get-theme-files",
+          missingPlannedReadKeys.length === 1
+            ? "get-theme-file"
+            : "get-theme-files",
         nextArgsTemplate:
-          plannedReadKeys.length === 1
+          missingPlannedReadKeys.length === 1
             ? {
                 ...(themeId !== undefined ? { themeId } : {}),
                 ...(themeRole ? { themeRole } : {}),
-                key: plannedReadKeys[0],
+                key: missingPlannedReadKeys[0],
                 includeContent: true,
               }
             : {
                 ...(themeId !== undefined ? { themeId } : {}),
                 ...(themeRole ? { themeRole } : {}),
-                keys: plannedReadKeys,
+                keys: missingPlannedReadKeys,
                 includeContent: true,
               },
         retryMode: "switch_tool_after_fix",
         normalizedArgs: getNormalizedArgs(),
-        errors: plannedReadKeys.map((key) =>
+        errors: missingPlannedReadKeys.map((key) =>
           buildDraftInputError({
             path: ["files"],
             problem: `Vereiste planner-read '${key}' ontbreekt nog in deze flow.`,

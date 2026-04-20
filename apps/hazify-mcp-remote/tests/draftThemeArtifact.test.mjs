@@ -191,6 +191,116 @@ function createThemeFileFetchMock({
   };
 }
 
+function createThemeFilesFetchMock({
+  files = {},
+  themeIdFallback = 111,
+} = {}) {
+  const storedFiles = new Map(
+    Object.entries(files).map(([key, value]) => [key, value])
+  );
+
+  const buildNodes = (filenames, includeContent) =>
+    filenames
+      .filter((filename) => storedFiles.has(filename))
+      .map((filename) => {
+        const value = storedFiles.get(filename);
+        return {
+          filename,
+          checksumMd5: checksumMd5Base64(value),
+          contentType: "application/x-liquid",
+          createdAt: "2026-04-02T00:00:00Z",
+          updatedAt: "2026-04-02T00:00:00Z",
+          size: Buffer.byteLength(value, "utf8"),
+          ...(includeContent ? { body: { content: value } } : {}),
+        };
+      });
+
+  return async (_url, options = {}) => {
+    const stringUrl = String(_url || "");
+    const restThemeMatch = stringUrl.match(/\/themes\/(\d+)\.json$/);
+    if (restThemeMatch) {
+      const numericThemeId = Number(restThemeMatch[1] || themeIdFallback);
+      return jsonGraphqlResponse({
+        theme: {
+          id: numericThemeId,
+          name: "Dev Theme",
+          role: "development",
+        },
+      });
+    }
+
+    const payload = options.body ? JSON.parse(String(options.body)) : {};
+    const query = String(payload.query || "");
+    const themeId = String(payload.variables?.themeId || "");
+    const numericThemeId = Number(themeId.match(/\/(\d+)$/)?.[1] || themeIdFallback);
+    const theme = {
+      id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+      name: "Dev Theme",
+      role: "DEVELOPMENT",
+      processing: false,
+      createdAt: "2026-04-02T00:00:00Z",
+      updatedAt: "2026-04-02T00:00:00Z",
+    };
+    const filenames = Array.isArray(payload.variables?.filenames)
+      ? payload.variables.filenames
+      : [];
+
+    if (query.includes("ThemeById")) {
+      return jsonGraphqlResponse({ data: { theme } });
+    }
+
+    if (query.includes("ThemeFilesByIdWithContent") || query.includes("ThemeFileById")) {
+      return jsonGraphqlResponse({
+        data: {
+          theme: {
+            ...theme,
+            files: {
+              nodes: buildNodes(filenames, true),
+              userErrors: [],
+            },
+          },
+        },
+      });
+    }
+
+    if (query.includes("ThemeFilesByIdMetadata")) {
+      return jsonGraphqlResponse({
+        data: {
+          theme: {
+            ...theme,
+            files: {
+              nodes: buildNodes(filenames, false),
+              userErrors: [],
+            },
+          },
+        },
+      });
+    }
+
+    if (query.includes("ThemeFilesUpsert")) {
+      const upsertedFiles = Array.isArray(payload.variables?.files)
+        ? payload.variables.files
+        : [];
+      for (const file of upsertedFiles) {
+        storedFiles.set(file.filename, file.body?.value || "");
+      }
+      return jsonGraphqlResponse({
+        data: {
+          themeFilesUpsert: {
+            upsertedThemeFiles: upsertedFiles.map((file) => ({
+              filename: file.filename,
+            })),
+            job: { id: "gid://shopify/Job/1" },
+            userErrors: [],
+          },
+        },
+      });
+    }
+
+    throw new Error(`Unexpected GraphQL query in theme files fetch mock: ${query}`);
+  };
+}
+
 test("draftThemeArtifact - fails when linter finds issues", async (t) => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -2979,7 +3089,7 @@ test("draftThemeArtifact - rejects ambiguous patch anchors before replacing mult
   }
 });
 
-test("draftThemeArtifact - requires planner reads before an edit write continues", async () => {
+test("draftThemeArtifact - auto-hydrates planner reads before an edit write continues", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
     requestConfig: {
@@ -3004,31 +3114,47 @@ test("draftThemeArtifact - requires planner reads before an edit write continues
     writeTool: "draft-theme-artifact",
   });
 
-  const result = await execute(
-    draftThemeArtifact.schema.parse({
-      themeId: 111,
-      mode: "edit",
-      files: [
-        {
-          key: "sections/main-product.liquid",
-          value: goodSectionLiquid,
-        },
-        {
-          key: "snippets/product-info.liquid",
-          value: "{% doc %}{% enddoc %}<div>Review block</div>",
-        },
-      ],
-    }),
-    context
-  );
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFilesFetchMock({
+    files: {
+      "sections/main-product.liquid": goodSectionLiquid,
+      "snippets/product-info.liquid": "{% doc %}{% enddoc %}<div>Existing review block</div>",
+    },
+    themeIdFallback: 111,
+  });
 
-  assert.equal(result.success, false);
-  assert.equal(result.errorCode, "missing_theme_context_reads");
-  assert.equal(result.nextTool, "get-theme-files");
-  assert.equal(result.retryMode, "switch_tool_after_fix");
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        files: [
+          {
+            key: "sections/main-product.liquid",
+            value: goodSectionLiquid,
+          },
+          {
+            key: "snippets/product-info.liquid",
+            value: "{% doc %}{% enddoc %}<div>Review block</div>",
+          },
+        ],
+      }),
+      context
+    );
+
+    assert.equal(result.success, true);
+    assert.ok(
+      result.warnings?.some((warning) =>
+        warning.includes("Planner-required theme-context reads zijn automatisch opgehaald")
+      ),
+      "draft-theme-artifact should auto-hydrate exact planner reads before continuing"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
 });
 
-test("draftThemeArtifact - requires planner reads before a create write continues when a new-section plan exists", async () => {
+test("draftThemeArtifact - auto-hydrates planner reads before a create write continues when a new-section plan exists", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
     requestConfig: {
@@ -3057,24 +3183,40 @@ test("draftThemeArtifact - requires planner reads before a create write continue
     },
   });
 
-  const result = await execute(
-    draftThemeArtifact.schema.parse({
-      themeId: 111,
-      mode: "create",
-      files: [
-        {
-          key: "sections/review-slider.liquid",
-          value: goodSectionLiquid,
-        },
-      ],
-    }),
-    context
-  );
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFilesFetchMock({
+    files: {
+      "sections/testimonials.liquid": goodSectionLiquid,
+      "snippets/section-properties.liquid": `<div data-section-id="{{ section.id }}"></div>`,
+    },
+    themeIdFallback: 111,
+  });
 
-  assert.equal(result.success, false);
-  assert.equal(result.errorCode, "missing_theme_context_reads");
-  assert.equal(result.nextTool, "get-theme-files");
-  assert.equal(result.retryMode, "switch_tool_after_fix");
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        files: [
+          {
+            key: "sections/review-slider.liquid",
+            value: goodSectionLiquid,
+          },
+        ],
+      }),
+      context
+    );
+
+    assert.equal(result.success, true);
+    assert.ok(
+      result.warnings?.some((warning) =>
+        warning.includes("Planner-required theme-context reads zijn automatisch opgehaald")
+      ),
+      "draft-theme-artifact create mode should auto-hydrate exact planner reads before continuing"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
 });
 
 test("draftThemeArtifact - missing batch-read files do not satisfy required read context", async () => {
@@ -3286,7 +3428,8 @@ test("draftThemeArtifact - missing batch-read files do not satisfy required read
     assert.equal(result.success, false);
     assert.equal(result.errorCode, "missing_theme_context_reads");
     assert.ok(
-      result.nextArgsTemplate?.keys?.includes("snippets/product-info.liquid"),
+      result.nextArgsTemplate?.key === "snippets/product-info.liquid" ||
+        result.nextArgsTemplate?.keys?.includes("snippets/product-info.liquid"),
       "missing files from a batch read should not count as completed planner context"
     );
   } finally {
