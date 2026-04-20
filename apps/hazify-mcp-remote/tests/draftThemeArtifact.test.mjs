@@ -287,6 +287,73 @@ test("draftThemeArtifact - rejects raw img tags without reliable dimensions befo
   );
 });
 
+test("draftThemeArtifact - rejects placeholder media in exact-match replica creates", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/collections-slider.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .collections-slider {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<section class="collections-slider page-width">
+  <div class="collections-slider__card">
+    {{ 'collection-1' | placeholder_svg_tag }}
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Collections slider",
+  "settings": [
+    { "type": "image_picker", "id": "image", "label": "Image" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Ontdek onze" },
+    { "type": "text", "id": "heading_accent", "label": "Accent", "default": "collecties" }
+  ],
+  "presets": [{ "name": "Collections slider" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    {
+      shopifyClient: mockShopifyClient,
+      sectionBlueprint: {
+        qualityTarget: "exact_match",
+        referenceSignals: {
+          exactReplicaRequested: true,
+          requiresRenderablePreviewMedia: true,
+          requiresTitleAccent: false,
+          requiresNavButtons: false,
+          requiresThemeEditorLifecycleHooks: false,
+          requiresThemeWrapperMirror: true,
+        },
+      },
+      themeSectionContext: {
+        usesPageWidth: true,
+      },
+    }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "exact_match_placeholder_media");
+});
+
 test("draftThemeArtifact - rejects sections without presets", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -2441,6 +2508,55 @@ test("draftThemeArtifact - requires planner reads before an edit write continues
         {
           key: "snippets/product-info.liquid",
           value: "{% doc %}{% enddoc %}<div>Review block</div>",
+        },
+      ],
+    }),
+    context
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "missing_theme_context_reads");
+  assert.equal(result.nextTool, "get-theme-files");
+  assert.equal(result.retryMode, "switch_tool_after_fix");
+});
+
+test("draftThemeArtifact - requires planner reads before a create write continues when a new-section plan exists", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const context = {
+    shopifyClient: mockShopifyClient,
+    tokenHash: "draft-create-read-enforcement",
+  };
+
+  rememberThemePlan(context, {
+    themeId: 111,
+    intent: "new_section",
+    template: "homepage",
+    nextReadKeys: ["sections/testimonials.liquid", "snippets/section-properties.liquid"],
+    nextWriteKeys: [],
+    immediateNextTool: "get-theme-files",
+    writeTool: "create-theme-section",
+    plannerHandoff: {
+      brief: "Maak een review slider exact na van de screenshot",
+      qualityTarget: "exact_match",
+    },
+  });
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      themeId: 111,
+      mode: "create",
+      files: [
+        {
+          key: "sections/review-slider.liquid",
+          value: goodSectionLiquid,
         },
       ],
     }),

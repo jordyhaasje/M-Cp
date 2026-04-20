@@ -6,6 +6,7 @@ import { check } from "@shopify/theme-check-node";
 import { createThemeDraftRecord, updateThemeDraftRecord } from "../lib/db.js";
 import { parseJsonLike } from "../lib/jsonLike.js";
 import {
+  analyzeSectionScale,
   classifySectionGeneration,
   inspectSectionScaleAgainstTheme,
 } from "../lib/themeSectionContext.js";
@@ -62,6 +63,7 @@ Do not place Liquid inside {% stylesheet %} or {% javascript %}
 Use <style> or markup-level CSS variables for section.id scoping`;
 
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
+const PlannerHandoffSchema = z.object({}).passthrough();
 
 const ThemeDraftPatchSchema = z.object({
   searchString: z.string().min(1).describe("De te vervangen string in het originele bestand. Gebruik een unieke literal anchor die exact één keer voorkomt in het doelbestand."),
@@ -213,6 +215,9 @@ const DraftThemeArtifactPublicObjectSchema = z
         "'create' = nieuw sectionbestand met volledige inspectie. 'edit' = bestaand bestand fixen met lichtere checks. Zet mode altijd op het TOP-LEVEL request, nooit in files[]. Als mode ontbreekt en je patch/patches gebruikt, behandelt de pipeline dit automatisch als edit; value-only writes worden dan eerst tegen het doeltheme geprobed om create/edit veilig af te leiden."
       ),
     isStandalone: z.boolean().optional().describe("Mark as standalone workflow"),
+    plannerHandoff: PlannerHandoffSchema.optional().describe(
+      "Optionele planner-handoff uit plan-theme-edit met volledige brief, reference signals en required reads. Gebruik dit om de write-flow semantisch aan het plannerresultaat te binden."
+    ),
   })
   .strict();
 
@@ -238,6 +243,7 @@ const NormalizedThemeDraftArtifactShape = z
     themeRole: ThemeRoleSchema.optional(),
     mode: z.enum(["create", "edit"]).optional(),
     isStandalone: z.boolean().optional(),
+    plannerHandoff: PlannerHandoffSchema.optional(),
   })
   .strict()
   .superRefine((data, ctx) => {
@@ -307,6 +313,7 @@ const normalizeDraftThemeArtifactInput = (rawInput) => {
     themeRole: rawInput.themeRole,
     mode: rawInput.mode,
     isStandalone: rawInput.isStandalone,
+    plannerHandoff: rawInput.plannerHandoff,
   };
 
   if (summary) {
@@ -1319,6 +1326,142 @@ function collectMediaSectionSafety(value, fileKey, settingTypes) {
   };
 }
 
+function collectExactMatchReferenceSafety(
+  value,
+  fileKey,
+  { sectionBlueprint = null, themeContext = null } = {}
+) {
+  const referenceSignals = sectionBlueprint?.referenceSignals || null;
+  if (!referenceSignals?.exactReplicaRequested) {
+    return {
+      issues: [],
+      warnings: [],
+      suggestedFixes: [],
+    };
+  }
+
+  const source = String(value || "");
+  const issues = [];
+  const warnings = [];
+  const suggestedFixes = [];
+  const scaleAnalysis = analyzeSectionScale(source, { key: fileKey });
+
+  if (
+    referenceSignals.requiresRenderablePreviewMedia &&
+    /placeholder_svg_tag\b/i.test(source)
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Exacte referentie-sections mogen in de eerste preview geen placeholder_svg_tag of lege placeholder-cards als hoofdmedia tonen.",
+        fixSuggestion:
+          "Zorg voor direct renderbare preview-media in de eerste write, bijvoorbeeld via collection/product fallbacks of andere echte media-bronnen. Vertrouw niet alleen op image_picker placeholders voor een screenshot-replica.",
+        issueCode: "exact_match_placeholder_media",
+      })
+    );
+    suggestedFixes.push(
+      "Gebruik voor screenshot-replica's direct renderbare preview-media in plaats van placeholder_svg_tag.",
+      "Gebruik image_picker alleen als merchant-editable override; voeg daarnaast een echte fallback render-path toe voor de eerste preview."
+    );
+  }
+
+  if (
+    referenceSignals.requiresTitleAccent &&
+    !/<em\b|<i\b|font-style\s*:\s*italic/i.test(source)
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "De referentie vraagt om een expliciete accent- of cursief-typografie in de titel, maar de section bevat geen herkenbare italic/emphasis markup of styling.",
+        fixSuggestion:
+          "Splits het accentwoord of accentdeel uit en geef het expliciet <em>, <i> of font-style: italic mee.",
+        issueCode: "exact_match_missing_title_accent",
+      })
+    );
+    suggestedFixes.push(
+      "Gebruik expliciete italic/emphasis markup of styling voor het accentwoord in de titel."
+    );
+  }
+
+  if (referenceSignals.requiresNavButtons && !/<button\b/i.test(source)) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "De referentie vraagt om zichtbare navigatie-controls, maar de section bevat geen semantische <button>-controls voor prev/next of vergelijkbare acties.",
+        fixSuggestion:
+          "Gebruik echte <button type=\"button\"> controls met aria-label voor slider- of carousel-navigatie.",
+        issueCode: "exact_match_missing_nav_buttons",
+      })
+    );
+    suggestedFixes.push(
+      "Gebruik semantische <button type=\"button\"> controls voor prev/next navigatie."
+    );
+  }
+
+  if (
+    referenceSignals.requiresThemeEditorLifecycleHooks &&
+    /<script\b/i.test(source) &&
+    !/shopify:section:load|shopify:section:select|shopify:block:select|Shopify\.designMode/i.test(
+      source
+    )
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Een precision-first interactieve replica mist Shopify Theme Editor lifecycle hooks. Daardoor kan de eerste versie in de customizer onbetrouwbaar re-initialiseren.",
+        fixSuggestion:
+          "Ondersteun shopify:section:load, shopify:section:select of een vergelijkbare veilige re-init per section-root in de eerste write.",
+        issueCode: "exact_match_missing_theme_editor_hooks",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg Shopify Theme Editor lifecycle hooks toe aan slider- of carousel-JS in de eerste write."
+    );
+  }
+
+  if (
+    referenceSignals.requiresThemeWrapperMirror &&
+    themeContext?.usesPageWidth &&
+    !scaleAnalysis.hasPageWidthClass
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "De referentie-flow verwacht dezelfde content-width wrapper als het doeltheme, maar deze section mist een herkenbare page-width/container wrapper.",
+        fixSuggestion:
+          "Spiegel de bestaande content-width wrapper van het doeltheme, zoals page-width of container, zodat typography en cardbreedtes beter aansluiten.",
+        issueCode: "exact_match_missing_theme_wrapper",
+      })
+    );
+    suggestedFixes.push(
+      "Gebruik dezelfde content-width wrapper als de representatieve theme section."
+    );
+  }
+
+  if (
+    referenceSignals.requiresOverlayTreatment &&
+    !/linear-gradient|radial-gradient|conic-gradient/i.test(source)
+  ) {
+    warnings.push(
+      "De referentie noemt een overlay of gradient, maar er is geen duidelijke gradient-behandeling in de section gedetecteerd."
+    );
+    suggestedFixes.push(
+      "Voeg een duidelijke gradient of overlay-behandeling toe wanneer de referentie daarom vraagt."
+    );
+  }
+
+  return {
+    issues,
+    warnings,
+    suggestedFixes,
+  };
+}
+
 function createInspectionIssue({
   path = [],
   problem,
@@ -1715,6 +1858,14 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
     suggestedFixes.push(...(mediaInspection.suggestedFixes || []));
   }
 
+  const exactMatchInspection = collectExactMatchReferenceSafety(value, file.key, {
+    sectionBlueprint,
+    themeContext,
+  });
+  issues.push(...(exactMatchInspection.issues || []));
+  warnings.push(...(exactMatchInspection.warnings || []));
+  suggestedFixes.push(...(exactMatchInspection.suggestedFixes || []));
+
   if (settingTypes.has("color_scheme_group")) {
     issues.push(
       createInspectionIssue({
@@ -2071,6 +2222,7 @@ function buildFailureResponse({
   preferSelectFor = [],
   themeContext,
   sectionBlueprint,
+  plannerHandoff,
   newFileSuggestions,
   alternativeNextArgsTemplates,
 }) {
@@ -2098,6 +2250,7 @@ function buildFailureResponse({
     ...(normalizedArgs ? { normalizedArgs } : {}),
     ...(themeContext ? { themeContext } : {}),
     ...(sectionBlueprint ? { sectionBlueprint } : {}),
+    ...(plannerHandoff ? { plannerHandoff } : {}),
     ...(suggestedSchemaRewrites.length > 0
       ? { suggestedSchemaRewrites }
       : {}),
@@ -2121,6 +2274,7 @@ function buildAggregatedInspectionFailure({
   nextAction = "fix_local_validation",
   themeContext = null,
   sectionBlueprint = null,
+  plannerHandoff = null,
 }) {
   const normalizedIssues = (issues || []).filter(Boolean);
   const primaryIssue = normalizedIssues[0];
@@ -2153,6 +2307,7 @@ function buildAggregatedInspectionFailure({
     normalizedArgs,
     themeContext,
     sectionBlueprint,
+    plannerHandoff,
     suggestedSchemaRewrites,
     preferSelectFor,
   });
@@ -2882,6 +3037,16 @@ export const draftThemeArtifact = {
     const resolvedMode = resolveDraftMode(requestedMode, files);
     const shouldProbeExistingFiles = resolvedMode.probeExistingFiles;
     mode = resolvedMode.mode;
+    const themeEditState = getThemeEditMemory(context);
+    const effectivePlannerHandoff =
+      input.plannerHandoff && typeof input.plannerHandoff === "object"
+        ? input.plannerHandoff
+        : context?.plannerHandoff && typeof context.plannerHandoff === "object"
+          ? context.plannerHandoff
+          : themeEditState?.lastPlan?.plannerHandoff &&
+              typeof themeEditState.lastPlan.plannerHandoff === "object"
+            ? themeEditState.lastPlan.plannerHandoff
+            : null;
 
     if (resolvedMode.warning) {
       warnings.push(resolvedMode.warning);
@@ -2994,7 +3159,6 @@ export const draftThemeArtifact = {
       }
     }
 
-    const themeEditState = getThemeEditMemory(context);
     const plannedReadKeys = Array.isArray(themeEditState?.lastPlan?.nextReadKeys)
       ? themeEditState.lastPlan.nextReadKeys.filter(Boolean)
       : [];
@@ -3006,11 +3170,16 @@ export const draftThemeArtifact = {
       themeRole,
     });
     const shouldEnforcePlannedReads =
-      mode === "edit" &&
       planTargetCompatible &&
       plannedReadKeys.length > 0 &&
-      plannedWriteKeys.length > 0 &&
-      files.every((file) => plannedWriteKeys.includes(file.key));
+      (
+        (mode === "edit" &&
+          plannedWriteKeys.length > 0 &&
+          files.every((file) => plannedWriteKeys.includes(file.key))) ||
+        (mode === "create" &&
+          themeEditState?.lastPlan?.intent === "new_section" &&
+          files.every((file) => String(file.key || "").startsWith("sections/")))
+      );
 
     if (
       shouldEnforcePlannedReads &&
@@ -3061,6 +3230,7 @@ export const draftThemeArtifact = {
         ),
         themeContext: context?.themeSectionContext || null,
         sectionBlueprint: context?.sectionBlueprint || null,
+        ...(effectivePlannerHandoff ? { plannerHandoff: effectivePlannerHandoff } : {}),
       });
     }
 
@@ -3496,6 +3666,7 @@ export const draftThemeArtifact = {
         preferSelectFor: localInspection.preferSelectFor,
         themeContext: context?.themeSectionContext || null,
         sectionBlueprint: context?.sectionBlueprint || null,
+        plannerHandoff: effectivePlannerHandoff,
         shouldNarrowScope:
           localInspection.shouldNarrowScope ||
           Boolean(classifiedLint?.shouldNarrowScope),
@@ -3551,6 +3722,7 @@ export const draftThemeArtifact = {
         normalizedArgs: getNormalizedArgs(),
         themeContext: context?.themeSectionContext || null,
         sectionBlueprint: context?.sectionBlueprint || null,
+        plannerHandoff: effectivePlannerHandoff,
       });
     }
 
@@ -3605,6 +3777,7 @@ export const draftThemeArtifact = {
           normalizedArgs: getNormalizedArgs(),
           themeContext: context?.themeSectionContext || null,
           sectionBlueprint: context?.sectionBlueprint || null,
+          plannerHandoff: effectivePlannerHandoff,
         });
       }
 
@@ -3674,6 +3847,7 @@ export const draftThemeArtifact = {
         ...(context?.sectionBlueprint
           ? { sectionBlueprint: context.sectionBlueprint }
           : {}),
+        ...(effectivePlannerHandoff ? { plannerHandoff: effectivePlannerHandoff } : {}),
         suggestedFixes: uniqueStrings(suggestedFixes),
       };
     } catch (error) {
@@ -3698,6 +3872,7 @@ export const draftThemeArtifact = {
         normalizedArgs: getNormalizedArgs(),
         themeContext: context?.themeSectionContext || null,
         sectionBlueprint: context?.sectionBlueprint || null,
+        plannerHandoff: effectivePlannerHandoff,
       });
     }
   },

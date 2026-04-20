@@ -129,6 +129,7 @@ const rememberThemePlan = (
     writeTool = null,
     themeContext = null,
     sectionBlueprint = null,
+    plannerHandoff = null,
   } = {}
 ) =>
   withThemeEditMemoryState(context, (state) => {
@@ -156,6 +157,10 @@ const rememberThemePlan = (
         sectionBlueprint:
           sectionBlueprint && typeof sectionBlueprint === "object"
             ? sectionBlueprint
+            : null,
+        plannerHandoff:
+          plannerHandoff && typeof plannerHandoff === "object"
+            ? plannerHandoff
             : null,
       },
     };

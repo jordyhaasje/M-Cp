@@ -14,6 +14,8 @@ const KNOWN_TEMPLATE_SURFACES = new Set([
 
 const PREFERRED_THEME_CLASSES = [
   "page-width",
+  "container",
+  "container--full",
   "rte",
   "button",
   "button--primary",
@@ -178,6 +180,22 @@ const EXACT_MATCH_PATTERNS = [
   /\bzoals op (?:de )?(?:afbeelding|screenshot|referentie)\b/i,
 ];
 
+const CONTENT_WIDTH_WRAPPER_CLASSES = [
+  "page-width",
+  "container",
+  "content-container",
+];
+
+const CARD_COUNT_PATTERN = /\b([2-6])\s+(?:kaarten|cards?|slides?|items?)\b/i;
+
+const hasContentWidthWrapperClass = (tokens = []) =>
+  (Array.isArray(tokens) ? tokens : []).some((token) =>
+    CONTENT_WIDTH_WRAPPER_CLASSES.includes(String(token || "").trim())
+  );
+
+const hasPreferredContentWidthWrapper = (preferredClasses = []) =>
+  hasContentWidthWrapperClass(preferredClasses);
+
 const uniqueStrings = (values) =>
   Array.from(new Set((values || []).filter(Boolean)));
 
@@ -319,6 +337,110 @@ const extractClassTokens = (value) => {
 
 const collectPreferredClasses = (tokens) =>
   PREFERRED_THEME_CLASSES.filter((className) => tokens.includes(className));
+
+const extractRequestedVisibleCardCount = (value) => {
+  const match = String(value || "").match(CARD_COUNT_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const inferSectionArchetype = ({
+  query = "",
+  sectionTypeHint = "",
+  category = "static",
+  categorySignals = [],
+} = {}) => {
+  const haystack = normalizeText(`${query} ${sectionTypeHint}`);
+  const effectiveSignals = Array.isArray(categorySignals) && categorySignals.length > 0
+    ? categorySignals
+    : [category].filter(Boolean);
+
+  if (/video/.test(haystack) && /(slider|carousel|slideshow)/.test(haystack)) {
+    return "video_slider";
+  }
+  if (
+    /(review|testimonial|trustpilot)/.test(haystack) &&
+    /(slider|carousel)/.test(haystack)
+  ) {
+    return "review_slider";
+  }
+  if (/(collection)/.test(haystack) && /(slider|carousel)/.test(haystack)) {
+    return "collection_slider";
+  }
+  if (/(logo)/.test(haystack) && /(slider|carousel)/.test(haystack)) {
+    return "logo_slider";
+  }
+  if (/(gallery|masonry)/.test(haystack)) {
+    return "media_gallery";
+  }
+  if (effectiveSignals.includes("interactive") && effectiveSignals.includes("media")) {
+    return "media_carousel";
+  }
+  if (effectiveSignals.includes("commerce") && /block/.test(haystack)) {
+    return "native_block";
+  }
+  if (effectiveSignals.includes("interactive")) {
+    return "interactive_section";
+  }
+  if (effectiveSignals.includes("media")) {
+    return "media_section";
+  }
+  if (effectiveSignals.includes("commerce")) {
+    return "commerce_section";
+  }
+  return "content_section";
+};
+
+const buildReferenceSignals = ({
+  query = "",
+  qualityTarget = "theme_consistent",
+  category = "static",
+  categorySignals = [],
+  heroLike = false,
+  themeContext = null,
+} = {}) => {
+  const haystack = normalizeText(query);
+  const effectiveSignals = Array.isArray(categorySignals) && categorySignals.length > 0
+    ? categorySignals
+    : [category].filter(Boolean);
+  const exactReplicaRequested = qualityTarget === "exact_match";
+  const interactiveLike =
+    effectiveSignals.includes("interactive") || effectiveSignals.includes("hybrid");
+  const mediaLike =
+    interactiveLike ||
+    effectiveSignals.includes("media") ||
+    effectiveSignals.includes("commerce");
+
+  return {
+    exactReplicaRequested,
+    requiresRenderablePreviewMedia:
+      exactReplicaRequested && mediaLike,
+    requiresThemeEditorLifecycleHooks:
+      exactReplicaRequested && interactiveLike,
+    requiresTitleAccent:
+      exactReplicaRequested &&
+      /\b(cursief|italic|italics|accent(?:woord| word)?|emphasis|emphasized)\b/i.test(
+        query
+      ),
+    requiresOverlayTreatment:
+      exactReplicaRequested &&
+      /\b(overlay|gradient|fade|verloop|schaduw)\b/i.test(query),
+    requiresNavButtons:
+      exactReplicaRequested &&
+      /\b(pijl|pijlen|arrow|arrows|prev|next|navigatie|navigation)\b/i.test(
+        query
+      ),
+    requiresThemeWrapperMirror:
+      exactReplicaRequested &&
+      !heroLike &&
+      Boolean(themeContext?.usesPageWidth),
+    requestedVisibleCardsDesktop: extractRequestedVisibleCardCount(query),
+  };
+};
 
 const convertUnitToPx = (value, unit) => {
   const numeric = Number(value);
@@ -799,14 +921,30 @@ const buildSectionGenerationBlueprint = ({
   const effectiveScaleGuide = themeContext?.scaleGuide || {};
   const effectiveSpacingSettings = themeContext?.spacingSettings || [];
   const completionPolicy = buildCompletionPolicy({ qualityTarget });
+  const referenceSignals = buildReferenceSignals({
+    query,
+    qualityTarget,
+    category: profile.category,
+    categorySignals: profile.categorySignals,
+    heroLike: profile.heroLike,
+    themeContext,
+  });
+  const archetype = inferSectionArchetype({
+    query,
+    sectionTypeHint,
+    category: profile.category,
+    categorySignals: profile.categorySignals,
+  });
 
   return {
+    archetype,
     category: profile.category,
     categorySignals: profile.categorySignals,
     qualityTarget,
     generationMode:
       qualityTarget === "exact_match" ? "precision_first" : "theme_aware_baseline",
     completionPolicy,
+    referenceSignals,
     requiredReads,
     optionalReads,
     relevantHelpers,
@@ -846,6 +984,16 @@ const buildSectionGenerationBlueprint = ({
             "Gebruik geen snelle baseline-first aanpak: besteed extra aandacht aan typography, spacing en compositie vóór de eerste write.",
             "Gebruik bij bredere visuele refinements na create liever één volledige rewrite dan een lange patch-batch.",
             "Vraag niet eerst of je de section daarna pixel-perfect moet maken; de referentieprompt vraagt al om de finale styling in de eerste write.",
+            ...(referenceSignals.requiresRenderablePreviewMedia
+              ? [
+                  "De eerste preview mag geen placeholder-media of lege card-slots als hoofdinhoud tonen; zorg voor direct renderbare demo/fallback media wanneer de referentie vooral beeldgedreven is.",
+                ]
+              : []),
+            ...(referenceSignals.requiresThemeEditorLifecycleHooks
+              ? [
+                  "Slider- of carousel-JS moet in de eerste write al Shopify Theme Editor lifecycle hooks ondersteunen.",
+                ]
+              : []),
           ]
         : []),
     ]),
@@ -870,9 +1018,9 @@ const buildGuardrails = ({
 }) => {
   const guardrails = [];
 
-  if (preferredClasses.includes("page-width")) {
+  if (hasPreferredContentWidthWrapper(preferredClasses)) {
     guardrails.push(
-      "Gebruik de page-width wrapper van het doeltheme voor gewone content sections."
+      "Gebruik de content-width wrapper van het doeltheme voor gewone content sections (bijvoorbeeld page-width of container)."
     );
   }
 
@@ -925,7 +1073,7 @@ const analyzeSectionScale = (value, { key } = {}) => {
       (setting) => String(setting?.type || "") === "richtext"
     ),
     preferredClasses,
-    hasPageWidthClass: classTokens.includes("page-width"),
+    hasPageWidthClass: hasContentWidthWrapperClass(classTokens),
     hasRteClass: classTokens.includes("rte"),
     hasButtonClass: classTokens.includes("button"),
     maxFontSizePx: extractPropertyMaxPx(source, ["font-size"]),

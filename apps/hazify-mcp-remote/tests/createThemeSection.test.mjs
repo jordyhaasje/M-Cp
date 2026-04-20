@@ -279,6 +279,8 @@ test("createThemeSection - reuses precision-first planner metadata for exact scr
 
   assert.equal(capturedContext.sectionBlueprint?.qualityTarget, "exact_match");
   assert.equal(capturedContext.sectionBlueprint?.generationMode, "precision_first");
+  assert.equal(capturedContext.plannerHandoff?.qualityTarget, "exact_match");
+  assert.equal(capturedContext.plannerHandoff?.archetype, "review_slider");
   assert.equal(
     capturedContext.sectionBlueprint?.completionPolicy?.deliveryExpectation,
     "final_reference_match_in_first_write"
@@ -292,11 +294,82 @@ test("createThemeSection - reuses precision-first planner metadata for exact scr
     true
   );
   assert.equal(result.sectionBlueprint?.qualityTarget, "exact_match");
+  assert.equal(result.plannerHandoff?.qualityTarget, "exact_match");
   assert.equal(
     result.completionPolicy?.deliveryExpectation,
     "final_reference_match_in_first_write"
   );
   assert.equal(result.completionPolicy?.askBeforeVisualRefinement, false);
+  assert.ok(
+    Array.isArray(planResult.requiredToolNames) &&
+      planResult.requiredToolNames.includes("get-theme-files") &&
+      planResult.requiredToolNames.includes("create-theme-section")
+  );
+  assert.equal(planResult.plannerHandoff?.archetype, "review_slider");
+  assert.equal(planResult.plannerHandoff?.qualityTarget, "exact_match");
+});
+
+test("createThemeSection - keeps exact-match planner context even when a compat summary is present", async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let capturedContext = null;
+  draftThemeArtifact.execute = async (_input, context) => {
+    capturedContext = context;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const requestContext = { shopifyClient, tokenHash: "create-theme-summary-handoff" };
+  const planResult = await planThemeEditTool.execute(
+    {
+      themeId: 123,
+      intent: "new_section",
+      template: "homepage",
+      query:
+        "Maak een review slider exact na van de screenshot met cursieve titel en navigatiepijlen rechtsboven",
+    },
+    requestContext
+  );
+
+  await getThemeFilesTool.execute(planResult.nextArgsTemplate, requestContext);
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/review-slider.liquid",
+      liquid: `
+<style>
+  #shopify-section-{{ section.id }} .review-slider {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<section class="review-slider page-width">
+  <h2>{{ section.settings.heading }} <em>{{ section.settings.heading_accent }}</em></h2>
+</section>
+{% schema %}
+{
+  "name": "Review slider",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Loved by" },
+    { "type": "text", "id": "heading_accent", "label": "Accent", "default": "customers" }
+  ],
+  "presets": [{ "name": "Review slider" }]
+}
+{% endschema %}
+`,
+      _tool_input_summary:
+        "Maak een review slider exact na van de screenshot met cursieve titel en navigatiepijlen rechtsboven",
+    },
+    requestContext
+  );
+
+  assert.equal(capturedContext.sectionBlueprint?.qualityTarget, "exact_match");
+  assert.equal(capturedContext.plannerHandoff?.brief, planResult.plannerHandoff?.brief);
+  assert.equal(result.plannerHandoff?.qualityTarget, "exact_match");
 });
 
 test("createThemeSection - forwards media-oriented blueprint hints for hero/video sections", async () => {

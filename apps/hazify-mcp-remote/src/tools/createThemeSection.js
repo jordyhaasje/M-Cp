@@ -19,6 +19,7 @@ import {
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 const SummaryFieldSchema = z.string().max(4000).optional();
+const PlannerHandoffSchema = z.object({}).passthrough();
 const SECTION_KEY_PATTERN = /^sections\/[A-Za-z0-9._-]+\.liquid$/;
 const SECTION_HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
 
@@ -56,6 +57,7 @@ const normalizeCreateThemeSectionInput = (rawInput) => {
           ? rawInput.content
           : rawInput.liquid,
     isStandalone: rawInput.isStandalone,
+    plannerHandoff: rawInput.plannerHandoff,
   };
 
   if (summary) {
@@ -132,6 +134,9 @@ const CreateThemeSectionPublicObjectSchema = z
       .boolean()
       .optional()
       .describe("Optionele hint voor standalone section-workflows."),
+    plannerHandoff: PlannerHandoffSchema.optional().describe(
+      "Optionele planner-handoff uit plan-theme-edit met volledige brief, reference signals en required reads. Gebruik dit om write-context portable te houden over meerdere toolcalls."
+    ),
   })
   .strict();
 
@@ -153,6 +158,7 @@ const CreateThemeSectionNormalizedShape = z
     key: z.string().optional(),
     liquid: z.string().optional(),
     isStandalone: z.boolean().optional(),
+    plannerHandoff: PlannerHandoffSchema.optional(),
   })
   .strict()
   .superRefine((input, ctx) => {
@@ -181,6 +187,10 @@ const summarizeNormalizedCreateArgs = (input = {}) => ({
   key: input.key || null,
   isStandalone: Boolean(input.isStandalone),
   hasLiquid: typeof input.liquid === "string" && input.liquid.length > 0,
+  hasPlannerHandoff:
+    input.plannerHandoff &&
+    typeof input.plannerHandoff === "object" &&
+    Object.keys(input.plannerHandoff).length > 0,
 });
 
 const buildCreateSectionError = ({
@@ -388,8 +398,11 @@ const createThemeSectionTool = {
 
     const shopifyClient = requireShopifyClient(context);
     const memoryState = getThemeEditMemory(context);
+    const providedPlannerHandoff =
+      input.plannerHandoff && typeof input.plannerHandoff === "object"
+        ? input.plannerHandoff
+        : null;
     const recentPlan =
-      !summary &&
       memoryState?.lastPlan &&
       memoryState.lastPlan.intent === "new_section" &&
       themeTargetsCompatible(memoryState.themeTarget, {
@@ -398,7 +411,16 @@ const createThemeSectionTool = {
       })
         ? memoryState.lastPlan
         : null;
-    const planningQuery = summary || recentPlan?.query || input.key;
+    const plannerHandoff =
+      providedPlannerHandoff ||
+      (recentPlan?.plannerHandoff && typeof recentPlan.plannerHandoff === "object"
+        ? recentPlan.plannerHandoff
+        : null);
+    const planningQuery =
+      plannerHandoff?.brief ||
+      summary ||
+      recentPlan?.query ||
+      input.key;
     let themeSectionContext = null;
     let sectionBlueprint = null;
     const internalWarnings = [];
@@ -488,7 +510,40 @@ const createThemeSectionTool = {
         sectionBlueprint = planningResult?.sectionBlueprint || sectionBlueprint;
       }
 
+      const exactReplicaRequested =
+        sectionBlueprint?.completionPolicy?.treatReferenceImagesAsFinalTarget === true;
+
       if (!themeSectionContext) {
+        if (exactReplicaRequested) {
+          return buildCreateSectionRepairResponse({
+            status: "inspection_failed",
+            message:
+              "Deze exacte replica-create mist nog echte theme-context. Plan de section opnieuw en lees eerst representatieve theme files in voordat je schrijft.",
+            errorCode: "missing_precision_first_context",
+            nextAction: "plan_theme_edit",
+            retryMode: "switch_tool_after_fix",
+            nextTool: "plan-theme-edit",
+            normalizedArgs,
+            nextArgsTemplate: {
+              ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
+              ...(input.themeRole ? { themeRole: input.themeRole } : {}),
+              intent: "new_section",
+              template: inferTemplateSurfaceFromSectionLiquid(input.liquid),
+              query: planningQuery,
+            },
+            warnings: internalWarnings,
+            sectionBlueprint,
+            errors: [
+              buildCreateSectionError({
+                path: ["plannerHandoff"],
+                problem:
+                  "Voor een precision-first replica kon geen bruikbare themeContext worden afgeleid uit de planner-flow.",
+                fixSuggestion:
+                  "Voer eerst plan-theme-edit uit voor hetzelfde theme en lees daarna alle required reads met includeContent=true in.",
+              }),
+            ],
+          });
+        }
         internalWarnings.push(
           "Kon geen compacte theme-context afleiden vóór create-validatie; de write-flow valt terug op generieke section-validatie."
         );
@@ -551,6 +606,38 @@ const createThemeSectionTool = {
           ),
         });
       }
+
+      if (exactReplicaRequested && requiredReadKeys.length === 0) {
+        return buildCreateSectionRepairResponse({
+          status: "inspection_failed",
+          message:
+            "Deze exacte replica-create mist planner-required reads. Zonder representatieve theme reads wordt de output te generiek.",
+          errorCode: "missing_precision_first_context",
+          nextAction: "plan_theme_edit",
+          retryMode: "switch_tool_after_fix",
+          nextTool: "plan-theme-edit",
+          normalizedArgs,
+          nextArgsTemplate: {
+            ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
+            ...(input.themeRole ? { themeRole: input.themeRole } : {}),
+            intent: "new_section",
+            template: inferTemplateSurfaceFromSectionLiquid(input.liquid),
+            query: planningQuery,
+          },
+          warnings: internalWarnings,
+          themeContext: themeSectionContext,
+          sectionBlueprint,
+          errors: [
+            buildCreateSectionError({
+              path: ["plannerHandoff"],
+              problem:
+                "De planner leverde geen required reads op voor een exact-match section.",
+              fixSuggestion:
+                "Plan de section opnieuw met een volledige referentie-brief en lees daarna de geretourneerde theme files in voordat je schrijft.",
+            }),
+          ],
+        });
+      }
     } catch (error) {
       internalWarnings.push(
         `Kon geen compacte theme-context afleiden vóór create-validatie: ${error.message}`
@@ -574,6 +661,7 @@ const createThemeSectionTool = {
         ...context,
         themeSectionContext,
         sectionBlueprint,
+        plannerHandoff,
         themeContextWarnings: internalWarnings,
       }
     );
@@ -597,6 +685,7 @@ const createThemeSectionTool = {
         ...(sectionBlueprint && !result.sectionBlueprint
           ? { sectionBlueprint }
           : {}),
+        ...(plannerHandoff ? { plannerHandoff } : {}),
         nextTool: "create-theme-section",
         nextArgsTemplate,
       };
@@ -627,6 +716,7 @@ const createThemeSectionTool = {
         ...(sectionBlueprint && !result.sectionBlueprint
           ? { sectionBlueprint }
           : {}),
+        ...(plannerHandoff ? { plannerHandoff } : {}),
       };
     }
 
@@ -652,6 +742,7 @@ const createThemeSectionTool = {
         ...(sectionBlueprint && !result.sectionBlueprint
           ? { sectionBlueprint }
           : {}),
+        ...(plannerHandoff ? { plannerHandoff } : {}),
       };
     }
 

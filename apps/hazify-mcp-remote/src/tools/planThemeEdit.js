@@ -64,10 +64,34 @@ const FOLLOW_UP_SECTION_PATTERNS = [
   /\bthat section\b/i,
 ];
 
+const uniqueStrings = (values) =>
+  Array.from(new Set((values || []).filter(Boolean)));
+
 const compactPlanQuery = (value) =>
   typeof value === "string" && value.trim()
     ? value.trim().slice(0, PLAN_QUERY_INTERNAL_MAX_LENGTH)
     : undefined;
+
+const extractPlannerBrief = (rawInput = {}, normalizedInput = {}) => {
+  const summary = extractThemeToolSummary(rawInput);
+  if (typeof summary === "string" && summary.trim()) {
+    return summary.trim();
+  }
+
+  if (typeof rawInput?.query === "string" && rawInput.query.trim()) {
+    return rawInput.query.trim();
+  }
+
+  if (typeof rawInput?.description === "string" && rawInput.description.trim()) {
+    return rawInput.description.trim();
+  }
+
+  if (typeof normalizedInput?.query === "string" && normalizedInput.query.trim()) {
+    return normalizedInput.query.trim();
+  }
+
+  return normalizedInput?.targetFile || "";
+};
 
 const PlanThemeEditPublicObjectSchema = z
   .object({
@@ -547,13 +571,48 @@ const buildPlanImmediateNextStep = (input = {}, result = {}) => {
   };
 };
 
+const buildPlannerHandoff = ({
+  brief,
+  input = {},
+  result = {},
+  immediateStep = {},
+  writeTool = null,
+} = {}) => ({
+  brief: String(brief || "").trim() || null,
+  plannerQuery: String(input?.query || "").trim() || null,
+  intent: input?.intent || result?.intent || null,
+  template: input?.template || result?.template?.resolved || null,
+  archetype: result?.sectionBlueprint?.archetype || null,
+  qualityTarget: result?.qualityTarget || result?.sectionBlueprint?.qualityTarget || null,
+  generationMode:
+    result?.generationMode || result?.sectionBlueprint?.generationMode || null,
+  completionPolicy:
+    result?.completionPolicy || result?.sectionBlueprint?.completionPolicy || null,
+  requiredReadKeys: Array.isArray(result?.nextReadKeys) ? result.nextReadKeys : [],
+  requiredReads: Array.isArray(result?.sectionBlueprint?.requiredReads)
+    ? result.sectionBlueprint.requiredReads
+    : [],
+  relevantHelpers: Array.isArray(result?.sectionBlueprint?.relevantHelpers)
+    ? result.sectionBlueprint.relevantHelpers
+    : [],
+  referenceSignals: result?.sectionBlueprint?.referenceSignals || null,
+  themeContext: result?.themeContext || null,
+  readTool: immediateStep?.nextTool || null,
+  writeTool,
+  requiredToolNames: uniqueStrings([immediateStep?.nextTool, writeTool]),
+  nextWriteKeys: Array.isArray(result?.nextWriteKeys) ? result.nextWriteKeys : [],
+  newFileSuggestions: Array.isArray(result?.newFileSuggestions)
+    ? result.newFileSuggestions
+    : [],
+});
+
 const planThemeEditTool = {
   name: "plan-theme-edit",
   title: "Plan Theme Edit",
   description:
     "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Gebruik plan-theme-edit voor native blocks, placement-vragen en andere theme-aware flows. Geef bij voorkeur intent plus themeId of themeRole mee. De planner retourneert de directe volgende stap: eerst lezen als nextReadKeys nodig zijn, pas daarna schrijven. Bredere refinements van bestaande sections/snippets gaan expliciet richting draft-theme-artifact; patch-theme-file blijft alleen voor kleine, gerichte fixes. Voor exacte screenshot/design-replica sections stuurt de planner nu op één precieze create-write met de finale styling in de eerste pass, niet op een veilige baseline gevolgd door een toestemming-vraag.",
   docsDescription:
-    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole`. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: `patch-existing`, `multi-file-edit`, `create-section` of `template-placement`, plus de exacte volgende read/write keys. `nextTool` en `nextArgsTemplate` beschrijven nu de onmiddellijke volgende stap: meestal eerst `get-theme-file` of `get-theme-files` voor verplichte contextreads, en pas daarna de uiteindelijke write-tool via `writeTool` en `writeArgsTemplate`. Langere `query`- of `description`-prompts zijn toegestaan; de planner compacteert die intern naar een korte query voor tokenzuinige planning. Voor native product-blocks analyseert de planner `templates/*.json` al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand `targetFile`. Wanneer in dezelfde flow net een section is aangemaakt, kunnen vervolgprompts zoals 'optimaliseer hem' of 'maak V2' automatisch blijven wijzen naar datzelfde created target. Voor nieuwe sections retourneert de planner nu naast `themeContext` ook een `sectionBlueprint` met category, qualityTarget, generationMode, completionPolicy, required reads, relevante helpers, risky inherited classes, safe unit strategy, forbidden patterns, preflight checks en write-strategy hints. Exacte screenshot/design-replica prompts krijgen extra precision-first guardrails: liever één sterke create-write met de finale styling in de eerste pass en daarna hooguit een volledige rewrite-edit, niet een baseline gevolgd door grote patch-batches of een extra toestemming-vraag voor pixel-perfect styling.",
+    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole`. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: `patch-existing`, `multi-file-edit`, `create-section` of `template-placement`, plus de exacte volgende read/write keys. `nextTool` en `nextArgsTemplate` beschrijven nu de onmiddellijke volgende stap: meestal eerst `get-theme-file` of `get-theme-files` voor verplichte contextreads, en pas daarna de uiteindelijke write-tool via `writeTool` en `writeArgsTemplate`. Langere `query`- of `description`-prompts zijn toegestaan; de planner compacteert die intern naar een korte query voor tokenzuinige planning, maar retourneert daarnaast ook een `plannerHandoff` met de volledige brief, archetype, required reads, reference signals en requiredToolNames zodat write-tools en clients minder context verliezen. Voor native product-blocks analyseert de planner `templates/*.json` al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand `targetFile`. Wanneer in dezelfde flow net een section is aangemaakt, kunnen vervolgprompts zoals 'optimaliseer hem' of 'maak V2' automatisch blijven wijzen naar datzelfde created target. Voor nieuwe sections retourneert de planner nu naast `themeContext` ook een `sectionBlueprint` met category, qualityTarget, generationMode, completionPolicy, required reads, relevante helpers, risky inherited classes, safe unit strategy, forbidden patterns, preflight checks, reference signals en write-strategy hints. Exacte screenshot/design-replica prompts krijgen extra precision-first guardrails: liever één sterke create-write met de finale styling in de eerste pass en daarna hooguit een volledige rewrite-edit, niet een baseline gevolgd door grote patch-batches of een extra toestemming-vraag voor pixel-perfect styling.",
   inputSchema: PlanThemeEditPublicObjectSchema,
   schema: PlanThemeEditInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -652,6 +711,17 @@ const planThemeEditTool = {
     const writeTool = typeof result?.shouldUse === "string" ? result.shouldUse : undefined;
     const writeArgsTemplate = buildPlanWriteArgsTemplate(input, result);
     const immediateStep = buildPlanImmediateNextStep(input, result);
+    const plannerHandoff = buildPlannerHandoff({
+      brief: extractPlannerBrief(rawInput, input),
+      input,
+      result,
+      immediateStep,
+      writeTool,
+    });
+    const requiredToolNames = uniqueStrings([
+      immediateStep.nextTool,
+      writeTool,
+    ]);
     rememberThemePlan(context, {
       themeId: input.themeId,
       themeRole: input.themeRole,
@@ -665,6 +735,7 @@ const planThemeEditTool = {
       writeTool,
       themeContext: result?.themeContext || null,
       sectionBlueprint: result?.sectionBlueprint || null,
+      plannerHandoff,
     });
     return {
       success: true,
@@ -676,6 +747,8 @@ const planThemeEditTool = {
         : {}),
       ...(writeTool ? { writeTool } : {}),
       ...(writeArgsTemplate ? { writeArgsTemplate } : {}),
+      ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
+      plannerHandoff,
       ...(typeof immediateStep.requiresReadBeforeWrite === "boolean"
         ? { requiresReadBeforeWrite: immediateStep.requiresReadBeforeWrite }
         : {}),
