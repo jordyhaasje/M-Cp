@@ -61,6 +61,15 @@ npm run --workspace @hazify/mcp-remote start:remote
 - Voor native product-blocks hoef je `templates/*.json` na `plan-theme-edit` meestal niet opnieuw in te lezen; doe dat alleen als placement van het block expliciet gevraagd is.
 - Voor placement op homepage/producttemplate geldt: maak eerst de section, en patch daarna alleen bij expliciete gebruikersvraag het bijbehorende `templates/*.json` bestand op hetzelfde gekozen theme
 
+## Voorbeelden
+- Screenshot replica: `plan-theme-edit intent="new_section"` -> lees `nextReadKeys` -> `create-theme-section`
+- Text-only section: zelfde flow, maar standaard `theme_consistent` in plaats van `exact_match`
+- Bestaande section edit: `search-theme-files` -> `get-theme-file` -> `patch-theme-file` of `draft-theme-artifact mode="edit"`
+- Native product block: altijd eerst `plan-theme-edit intent="native_block"` zodat de planner de echte section/snippet-renderflow kan vinden
+- Expliciete placement: maak eerst de section en patch pas daarna `templates/*.json`
+
+Zie ook `docs/03-THEME-SECTION-GENERATION.md` voor archetype-notes, voorbeeldprompts en preview/live semantiek.
+
 ## Shopify-conforme file policy
 - Beperk writes tot de noodzakelijke theme-bestanden; voor section-wijzigingen is dat meestal `sections/<handle>.liquid`
 - Gebruik snippets/blocks/locales alleen als daar een concrete reden voor is

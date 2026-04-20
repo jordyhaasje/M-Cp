@@ -49,6 +49,10 @@ const SECTION_CATEGORY_PATTERNS = {
     /review/i,
     /testimonial/i,
     /quote/i,
+    /comparison/i,
+    /compare/i,
+    /\bvs\b/i,
+    /\btable\b/i,
     /rich[-_ ]?text/i,
     /logo[-_ ]?wall/i,
     /content/i,
@@ -59,6 +63,8 @@ const SECTION_CATEGORY_PATTERNS = {
     /carousel/i,
     /accordion/i,
     /collapsible/i,
+    /faq/i,
+    /frequently[-_ ]?asked[-_ ]?questions?/i,
     /tab/i,
     /marquee/i,
     /ticker/i,
@@ -72,6 +78,12 @@ const SECTION_CATEGORY_PATTERNS = {
     /video/i,
     /logo/i,
     /media/i,
+    /instagram/i,
+    /tiktok/i,
+    /ugc/i,
+    /feed/i,
+    /reels?/i,
+    /social[-_ ]?(?:strip|feed|slider|carousel|grid|gallery|posts?)/i,
     /banner/i,
     /hero/i,
     /slideshow/i,
@@ -359,8 +371,43 @@ const inferSectionArchetype = ({
     ? categorySignals
     : [category].filter(Boolean);
 
+  if (
+    /(instagram|tiktok|ugc|reels?|feed|social[-_ ]?(?:strip|feed|slider|carousel|grid|gallery|posts?))/.test(
+      haystack
+    )
+  ) {
+    if (/(slider|carousel|slideshow)/.test(haystack)) {
+      return "social_slider";
+    }
+    return "social_strip";
+  }
+  if (/(faq|frequently[-_ ]?asked[-_ ]?questions?|accordion|collapsible)/.test(haystack)) {
+    return "faq_collapsible";
+  }
+  if (/(before[-_ ]?after|before\/after)/.test(haystack)) {
+    return "before_after";
+  }
+  if (
+    /comparison[-_ ]?table/.test(haystack) ||
+    (/(comparison|compare|\bvs\b)/.test(haystack) && /(table|grid|chart)/.test(haystack))
+  ) {
+    return "comparison_table";
+  }
+  if (
+    /(logo[-_ ]?wall|brand[-_ ]?wall|logo[-_ ]?(?:grid|list)|logo showcase)/.test(
+      haystack
+    )
+  ) {
+    return "logo_wall";
+  }
+  if (/(image|gallery|photo)/.test(haystack) && /(slider|carousel|slideshow)/.test(haystack)) {
+    return "image_slider";
+  }
   if (/video/.test(haystack) && /(slider|carousel|slideshow)/.test(haystack)) {
     return "video_slider";
+  }
+  if (/video/.test(haystack)) {
+    return "video_section";
   }
   if (
     /(review|testimonial|trustpilot)/.test(haystack) &&
@@ -376,6 +423,12 @@ const inferSectionArchetype = ({
   }
   if (/(gallery|masonry)/.test(haystack)) {
     return "media_gallery";
+  }
+  if (
+    /(hero|banner|masthead|cover|split[-_ ]?hero)/.test(haystack) &&
+    !/(slider|carousel|slideshow)/.test(haystack)
+  ) {
+    return "hero_banner";
   }
   if (effectiveSignals.includes("interactive") && effectiveSignals.includes("media")) {
     return "media_carousel";

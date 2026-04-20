@@ -7,7 +7,9 @@ Dit is het startpunt voor de Hazify monorepo. Deze workspace bevat de productiec
 1. `docs/00-START-HERE.md` (Dit document)
 2. `docs/01-TECH-STACK.md` (Architectuur, env vars, deployment)
 3. `docs/02-SYSTEM-FLOW.md` (Auth, OAuth, runtime requests en theme editing)
-4. `AGENTS.md` (Root - interne maintainerregels voor AI-agents, mutaties en workflows)
+4. `docs/03-THEME-SECTION-GENERATION.md` (Canonical section/block generatieflows en voorbeelden)
+5. `docs/codex-mcp-section-generation-tracker.md` (Actuele audit-/hardeningtracker)
+6. `AGENTS.md` (Root - interne maintainerregels voor AI-agents, mutaties en workflows)
 
 **Gouden regel:** Als documentatie en code elkaar tegenspreken, is de code *altijd* leidend. Update de documentatie in dezelfde wijziging.
 
@@ -20,7 +22,10 @@ De monorepo is opgebouwd via npm workspaces. `src/` is de enige bron van waarhei
 - `packages/`: Gedeelde packages voor Shopify-logica en MCP utilities.
 - `scripts/`: Repo-brede checks, docgeneratie en operationele helper-scripts.
 
-## 3. Standaard Workflow & Runbook
+## 3. Actieve Onderhoudsdocs
+- `docs/03-THEME-SECTION-GENERATION.md`: praktijkgids voor screenshot/text-only section generation, native block flows en placement
+- `docs/codex-mcp-section-generation-tracker.md`: voortgangslog voor de lopende Codex hardening- en auditpass
+## 4. Standaard Workflow & Runbook
 Zorg dat je na wijzigingen altijd de repo verifieert met de verplichte checks:
 
 ```bash

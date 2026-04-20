@@ -435,6 +435,152 @@ try {
     ),
     "media plans should surface media-focused preflight checks"
   );
+  assert.equal(
+    mediaSectionPlan.sectionBlueprint?.archetype,
+    "video_slider",
+    "video-slider prompts should surface a specific archetype"
+  );
+
+  const socialStripPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query:
+      "Maak een Instagram social strip section met uploadbare posts, hover overlay en links",
+  });
+  assert.ok(
+    ["media", "hybrid"].includes(socialStripPlan.sectionBlueprint?.category),
+    "social-strip prompts should classify as media-oriented"
+  );
+  assert.equal(
+    socialStripPlan.sectionBlueprint?.archetype,
+    "social_strip",
+    "Instagram/social prompts without slider language should surface a social_strip archetype"
+  );
+
+  const imageSliderPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak een image slider section met drie promo beelden en navigatiepijlen",
+  });
+  assert.ok(
+    ["media", "hybrid"].includes(imageSliderPlan.sectionBlueprint?.category),
+    "image-slider prompts should classify as media-oriented"
+  );
+  assert.equal(
+    imageSliderPlan.sectionBlueprint?.archetype,
+    "image_slider",
+    "image-slider prompts should surface a dedicated image_slider archetype"
+  );
+
+  const logoWallPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak een logo wall section met partnerlogo's en korte intro",
+  });
+  assert.ok(
+    ["media", "hybrid", "static"].includes(logoWallPlan.sectionBlueprint?.category),
+    "logo-wall prompts should stay content/media-led instead of being treated as interactive"
+  );
+  assert.equal(
+    logoWallPlan.sectionBlueprint?.archetype,
+    "logo_wall",
+    "logo-wall prompts should surface a dedicated logo_wall archetype"
+  );
+
+  const faqPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak een FAQ collapsible section voor returns en verzending",
+  });
+  assert.ok(
+    ["interactive", "hybrid"].includes(faqPlan.sectionBlueprint?.category),
+    "FAQ/collapsible prompts should classify as interactive"
+  );
+  assert.equal(
+    faqPlan.sectionBlueprint?.archetype,
+    "faq_collapsible",
+    "FAQ prompts should surface a dedicated collapsible archetype"
+  );
+
+  const comparisonPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak een comparison table section voor product voordelen",
+  });
+  assert.ok(
+    ["static", "hybrid"].includes(comparisonPlan.sectionBlueprint?.category),
+    "comparison-table prompts should remain content-led even when product language introduces extra signals"
+  );
+  assert.equal(
+    comparisonPlan.sectionBlueprint?.archetype,
+    "comparison_table",
+    "comparison-table prompts should surface a dedicated archetype"
+  );
+
+  const beforeAfterPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak een before/after slider section voor resultaten",
+  });
+  assert.ok(
+    ["interactive", "hybrid"].includes(beforeAfterPlan.sectionBlueprint?.category),
+    "before/after prompts should classify as interactive"
+  );
+  assert.equal(
+    beforeAfterPlan.sectionBlueprint?.archetype,
+    "before_after",
+    "before/after prompts should surface a dedicated archetype"
+  );
+
+  const heroBannerPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak een hero banner section met headline, CTA en beeld",
+  });
+  assert.equal(
+    heroBannerPlan.sectionBlueprint?.archetype,
+    "hero_banner",
+    "hero-banner prompts should surface a dedicated archetype"
+  );
+
+  const templatePlacementPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "template_placement",
+    template: "homepage",
+    query: "Plaats de nieuwe section onder testimonials op de homepage",
+  });
+  assert.equal(
+    templatePlacementPlan.recommendedFlow,
+    "template-placement",
+    "explicit template-placement prompts should stay in the template-placement flow"
+  );
+  assert.equal(
+    templatePlacementPlan.shouldUse,
+    "draft-theme-artifact",
+    "template placement should route to draft-theme-artifact edit mode"
+  );
+  assert.equal(
+    templatePlacementPlan.architecture.templateFormat,
+    "json",
+    "homepage placement should target the JSON template when available"
+  );
+  assert.deepEqual(
+    templatePlacementPlan.nextReadKeys,
+    ["templates/index.json"],
+    "template placement should read only the explicit template file"
+  );
+  assert.deepEqual(
+    templatePlacementPlan.nextWriteKeys,
+    ["templates/index.json"],
+    "template placement should write only the explicit template file"
+  );
 
   const exactReplicaPlan = await planThemeEdit(shopifyClient, "2026-01", {
     themeId: 123,
