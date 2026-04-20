@@ -17,6 +17,7 @@ import { planThemeEditTool } from "../src/tools/planThemeEdit.js";
 import { SearchThemeFilesInputSchema } from "../src/tools/searchThemeFiles.js";
 import {
   clearThemeEditMemory,
+  rememberThemePlan,
   rememberThemeRead,
 } from "../src/lib/themeEditMemory.js";
 import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
@@ -521,13 +522,124 @@ try {
   });
   assert.equal(
     patchThemeFileVagueSummaryPayload.success,
-    false,
-    "patch-theme-file should keep requiring an explicit key when summary text does not contain one exact theme file path"
+    true,
+    "patch-theme-file should expose vague summary payloads publicly and repair them at execution time"
   );
+  const patchThemeFileVagueSummaryResult = await patchThemeFileTool.execute(
+    patchThemeFileVagueSummaryPayload.data,
+    { shopifyClient: mockShopifyClient }
+  );
+  assert.equal(patchThemeFileVagueSummaryResult.success, false);
+  assert.equal(patchThemeFileVagueSummaryResult.errorCode, "missing_patch_target_file");
+  assert.equal(patchThemeFileVagueSummaryResult.nextTool, "plan-theme-edit");
+  assert.equal(patchThemeFileVagueSummaryResult.nextArgsTemplate?.intent, "existing_edit");
+  assert.equal(patchThemeFileVagueSummaryResult.nextArgsTemplate?.themeRole, "main");
   assert.ok(
-    patchThemeFileVagueSummaryPayload.error.issues.some((issue) => issue.path.join(".") === "key"),
-    "vague summaries should fail on the missing key field instead of inventing a best-guess file path"
+    patchThemeFileVagueSummaryResult.errors.some((issue) => issue.path.join(".") === "key"),
+    "vague summaries should now fail with a structured repair response on the missing key field"
   );
+
+  clearThemeEditMemory();
+  rememberThemePlan(
+    { tokenHash: "patch-theme-summary-memory" },
+    {
+      themeRole: "main",
+      intent: "existing_edit",
+      targetFile: "snippets/product-info.liquid",
+      nextReadKeys: ["snippets/product-info.liquid"],
+      nextWriteKeys: ["snippets/product-info.liquid"],
+      immediateNextTool: "get-theme-file",
+      writeTool: "patch-theme-file",
+    }
+  );
+  const previousSummaryFetch = global.fetch;
+  const originalSummaryDraftExecute = draftThemeArtifact.execute;
+  const summaryThemeClient = {
+    url: "https://unit-test-shop.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: {
+        "X-Shopify-Access-Token": "shpat_unit_test",
+      },
+    },
+    session: { shop: "unit-test-shop.myshopify.com" },
+    request: async () => {},
+  };
+  global.fetch = async (_url, options = {}) => {
+    const payload = options.body ? JSON.parse(String(options.body)) : {};
+    const query = String(payload.query || "");
+    const theme = {
+      id: "gid://shopify/OnlineStoreTheme/123",
+      name: "Main theme",
+      role: "MAIN",
+      processing: false,
+      createdAt: "2026-04-02T00:00:00Z",
+      updatedAt: "2026-04-02T00:00:00Z",
+    };
+
+    if (query.includes("ThemeList")) {
+      return new Response(JSON.stringify({ data: { themes: { nodes: [theme] } } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (query.includes("ThemeFilesByIdWithContent")) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            theme: {
+              ...theme,
+              files: {
+                nodes: [
+                  {
+                    filename: "snippets/product-info.liquid",
+                    checksumMd5: "checksum-memory",
+                    contentType: "TEXT",
+                    createdAt: "2026-04-02T00:00:00Z",
+                    updatedAt: "2026-04-02T00:00:00Z",
+                    size: 120,
+                    body: {
+                      content: "{%- when 'title' -%}\n  <h1>{{ product.title }}</h1>",
+                    },
+                  },
+                ],
+                userErrors: [],
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    throw new Error(`Unexpected fetch in patch-theme-file summary-memory test: ${query}`);
+  };
+  let capturedSummaryPatchInput = null;
+  draftThemeArtifact.execute = async (input) => {
+    capturedSummaryPatchInput = input;
+    return { success: true, status: "preview_ready", warnings: [] };
+  };
+  try {
+    const patchThemeFileSummaryMemoryResult = await patchThemeFileTool.execute(
+      patchThemeFileTool.schema.parse({
+        _tool_input_summary: "Patch de product info snippet in het live theme",
+        searchString: "{%- when 'title' -%}",
+        replaceString: "{%- when 'title' -%}\n  <span>Badge</span>",
+      }),
+      { shopifyClient: summaryThemeClient, tokenHash: "patch-theme-summary-memory" }
+    );
+    assert.equal(patchThemeFileSummaryMemoryResult.success, true);
+    assert.equal(capturedSummaryPatchInput.files[0].key, "snippets/product-info.liquid");
+    assert.ok(
+      patchThemeFileSummaryMemoryResult.warnings?.some((warning) =>
+        warning.includes("Patch target is automatisch overgenomen uit de recente theme-flow")
+      ),
+      "patch-theme-file should reuse a recent existing_edit target for vague follow-up prompts"
+    );
+  } finally {
+    global.fetch = previousSummaryFetch;
+    draftThemeArtifact.execute = originalSummaryDraftExecute;
+  }
 
   const patchThemeFileReplacementsPayload = patchThemeFileTool.schema.safeParse({
     key: "sections/main-product.liquid",

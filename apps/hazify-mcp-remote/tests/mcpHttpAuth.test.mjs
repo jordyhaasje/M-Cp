@@ -495,6 +495,20 @@ try {
     "create-theme-section should expose content as a compat alias in emitted JSON schema"
   );
 
+  const patchThemeFileDefinition = tools.find((tool) => tool?.name === "patch-theme-file");
+  assert.ok(patchThemeFileDefinition, "tools/list should expose patch-theme-file");
+  assert.equal(
+    Boolean(patchThemeFileDefinition.inputSchema?.properties?._tool_input_summary),
+    true,
+    "patch-theme-file should expose _tool_input_summary in emitted JSON schema"
+  );
+  assert.equal(
+    Array.isArray(patchThemeFileDefinition.inputSchema?.required) &&
+      patchThemeFileDefinition.inputSchema.required.includes("key"),
+    false,
+    "patch-theme-file should not hard-require key in emitted JSON schema when a repairable compat flow is possible"
+  );
+
   const getThemeFilesDefinition = tools.find((tool) => tool?.name === "get-theme-files");
   assert.ok(getThemeFilesDefinition, "tools/list should expose get-theme-files");
   assert.equal(
