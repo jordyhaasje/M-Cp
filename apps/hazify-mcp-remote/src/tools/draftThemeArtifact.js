@@ -45,9 +45,11 @@ Theme-aware section regels:
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
 - Wanneer plan-theme-edit eerst exact nextReadKeys voorschrijft, verwacht deze tool nu dat die reads ook echt met includeContent=true zijn uitgevoerd voordat dezelfde write-flow doorgaat.
 - Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting. Bij range-fouten geeft de tool exacte suggestedReplacement/default-hints terug.
+- Nieuwe sections/blocks én nieuwe edit-writes op bestaande sections/blocks moeten blank-safe resource rendering gebruiken. Optionele settings zoals image_picker, video en video_url mogen niet onbeschermd door image_url, video_tag of external_video_* lopen; gebruik eerst een if/unless-guard of een expliciete default/fallback. Bestaande legacy-markup elders in het bestand blijft bewerkbaar zolang de nieuwe write geen extra onveilige resource-chain introduceert.
 - Wanneer de create-flow compacte theme-context heeft afgeleid, controleert de pipeline ook op hero-achtige oversizing van typography, spacing, gaps en min-heights ten opzichte van representatieve content sections in het doeltheme.
 - richtext defaults moeten Shopify-veilige HTML gebruiken. Gebruik top-level <p> of <ul>; tags zoals <mark> in richtext.default worden door Shopify afgewezen.
 - Nieuwe blocks/*.liquid files krijgen in create mode ook een basisinspectie op geldige schema JSON en block-veilige markup.
+- Presets moeten render-safe blijven: preset blocks zonder ingevulde merchant-media mogen geen Liquid runtime error veroorzaken.
 - Renderer-veilige Liquid blijft verplicht: geen geneste {{ ... }} of {% ... %} binnen dezelfde output-tag of filter-argumentstring; bouw zulke waarden eerst op via assign/capture en geef daarna de variabele door.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
@@ -763,6 +765,858 @@ function collectSchemaSettingTypes(schema) {
   return new Set(
     collectSchemaSettings(schema).map((setting) => String(setting?.type || ""))
   );
+}
+
+function collectSchemaSettingRefs(schema, { rootOwner = "section" } = {}) {
+  const refs = [];
+
+  for (const setting of Array.isArray(schema?.settings) ? schema.settings : []) {
+    const id = String(setting?.id || "").trim();
+    const type = String(setting?.type || "").trim();
+    if (!id || !type) {
+      continue;
+    }
+    refs.push({
+      owner: rootOwner,
+      blockType: rootOwner === "block" ? "__theme_block__" : null,
+      id,
+      type,
+      ref: `${rootOwner}.settings.${id}`,
+    });
+  }
+
+  for (const block of Array.isArray(schema?.blocks) ? schema.blocks : []) {
+    const blockType = String(block?.type || block?.name || "").trim() || null;
+    for (const setting of Array.isArray(block?.settings) ? block.settings : []) {
+      const id = String(setting?.id || "").trim();
+      const type = String(setting?.type || "").trim();
+      if (!id || !type) {
+        continue;
+      }
+      refs.push({
+        owner: "block",
+        blockType,
+        id,
+        type,
+        ref: `block.settings.${id}`,
+      });
+    }
+  }
+
+  return refs;
+}
+
+function collectLiquidOutputExpressions(source) {
+  return Array.from(
+    String(source || "").matchAll(/{{-?\s*([\s\S]*?)\s*-?}}/g),
+    (match) => ({
+      expression: String(match[1] || ""),
+      index: match.index ?? 0,
+      raw: String(match[0] || ""),
+    })
+  );
+}
+
+function collectLiquidAttributeExpressions(source) {
+  const attributes = [];
+  const attributeMatches = String(source || "").matchAll(
+    /\b(href|src|poster|action|formaction)\s*=\s*["']([\s\S]*?)["']/gi
+  );
+
+  for (const match of attributeMatches) {
+    const attrName = String(match[1] || "").toLowerCase();
+    const attrValue = String(match[2] || "");
+    const baseIndex = match.index ?? 0;
+    for (const outputMatch of attrValue.matchAll(/{{-?\s*([\s\S]*?)\s*-?}}/g)) {
+      attributes.push({
+        attrName,
+        expression: String(outputMatch[1] || ""),
+        index: baseIndex + (outputMatch.index ?? 0),
+        raw: String(outputMatch[0] || ""),
+      });
+    }
+  }
+
+  return attributes;
+}
+
+function normalizeInlineWhitespace(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function hasInlineDefaultFallback(expression) {
+  return /\|\s*default\s*:/.test(String(expression || ""));
+}
+
+function expandAliasesInLiquidExpression(expression, aliasMap = new Map()) {
+  let expanded = String(expression || "");
+  const aliasEntries = Array.from(aliasMap.entries()).sort(
+    (left, right) => right[0].length - left[0].length
+  );
+
+  for (const [alias, target] of aliasEntries) {
+    expanded = expanded.replace(
+      new RegExp(`\\b${escapeRegExp(alias)}\\b`, "g"),
+      target
+    );
+  }
+
+  return expanded;
+}
+
+function resolveSimpleLiquidReference(expression, aliasMap = new Map()) {
+  const expanded = expandAliasesInLiquidExpression(
+    String(expression || "").trim(),
+    aliasMap
+  );
+  return /^[A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)*$/.test(expanded)
+    ? expanded
+    : null;
+}
+
+function collectConditionGuardRefs(condition, refs, mode) {
+  const normalizedCondition = normalizeInlineWhitespace(condition);
+  const normalizedRefs = Array.isArray(refs)
+    ? Array.from(new Set(refs.map((ref) => String(ref || "").trim()).filter(Boolean)))
+    : [];
+
+  if (normalizedRefs.length === 0 || /\bor\b/i.test(normalizedCondition)) {
+    return new Set();
+  }
+
+  const guardedRefs = new Set();
+  for (const ref of normalizedRefs) {
+    const escapedRef = escapeRegExp(ref);
+    const explicitPresentPattern = new RegExp(
+      `\\b${escapedRef}\\s*!=\\s*(?:blank|nil)\\b`,
+      "i"
+    );
+    const explicitBlankPattern = new RegExp(
+      `\\b${escapedRef}\\s*==\\s*(?:blank|nil)\\b`,
+      "i"
+    );
+    const barePresencePattern = new RegExp(
+      `(^|[^\\w.-])${escapedRef}(?!\\s*(?:==|!=|contains|>|<))(?:\\s|$|\\)|\\])`,
+      "i"
+    );
+    const isMatch =
+      mode === "present"
+        ? explicitPresentPattern.test(normalizedCondition) ||
+          barePresencePattern.test(normalizedCondition)
+        : explicitBlankPattern.test(normalizedCondition);
+    if (isMatch) {
+      guardedRefs.add(ref);
+    }
+  }
+
+  return guardedRefs;
+}
+
+function classifyConditionalBranchSafety(tagName, condition, refs) {
+  const presentGuardRefs = collectConditionGuardRefs(condition, refs, "present");
+  const blankGuardRefs = collectConditionGuardRefs(condition, refs, "blank");
+
+  if (tagName === "unless") {
+    return {
+      mainSafeRefs: blankGuardRefs,
+      elseSafeRefs: presentGuardRefs,
+    };
+  }
+
+  return {
+    mainSafeRefs: presentGuardRefs,
+    elseSafeRefs: blankGuardRefs,
+  };
+}
+
+function collectRelevantLiquidTags(source) {
+  return Array.from(
+    String(source || "").matchAll(
+      /{%-?\s*(assign|if|unless|elsif|else|endif|endunless)\b([\s\S]*?)\s*-?%}/gi
+    ),
+    (match) => ({
+      name: String(match[1] || "").toLowerCase(),
+      body: String(match[2] || ""),
+      index: match.index ?? 0,
+    })
+  );
+}
+
+function collectActiveConditionalGuardRefs(conditionalStack) {
+  const activeRefs = new Set();
+  for (const entry of conditionalStack) {
+    for (const ref of entry.currentSafeRefs || []) {
+      activeRefs.add(ref);
+    }
+  }
+  return activeRefs;
+}
+
+function applyLiquidTagToState(tag, aliasMap, conditionalStack, refs) {
+  switch (tag.name) {
+    case "assign": {
+      const assignMatch = String(tag.body || "")
+        .trim()
+        .match(/^([A-Za-z_][\w-]*)\s*=\s*([\s\S]+)$/);
+      if (!assignMatch) {
+        return;
+      }
+      const [, aliasName, aliasExpression] = assignMatch;
+      const resolvedReference = resolveSimpleLiquidReference(aliasExpression, aliasMap);
+      if (resolvedReference) {
+        aliasMap.set(aliasName, resolvedReference);
+      } else {
+        aliasMap.delete(aliasName);
+      }
+      return;
+    }
+    case "if":
+    case "unless": {
+      const expandedCondition = expandAliasesInLiquidExpression(tag.body, aliasMap);
+      const branchSafety = classifyConditionalBranchSafety(
+        tag.name,
+        expandedCondition,
+        refs
+      );
+      conditionalStack.push({
+        currentSafeRefs: new Set(branchSafety.mainSafeRefs),
+        elseSafeRefs: new Set(branchSafety.elseSafeRefs),
+      });
+      return;
+    }
+    case "elsif": {
+      if (conditionalStack.length === 0) {
+        return;
+      }
+      const expandedCondition = expandAliasesInLiquidExpression(tag.body, aliasMap);
+      const branchSafety = classifyConditionalBranchSafety(
+        "if",
+        expandedCondition,
+        refs
+      );
+      const current = conditionalStack[conditionalStack.length - 1];
+      current.currentSafeRefs = new Set(branchSafety.mainSafeRefs);
+      current.elseSafeRefs = new Set();
+      return;
+    }
+    case "else": {
+      if (conditionalStack.length === 0) {
+        return;
+      }
+      const current = conditionalStack[conditionalStack.length - 1];
+      current.currentSafeRefs = new Set(current.elseSafeRefs || []);
+      current.elseSafeRefs = new Set();
+      return;
+    }
+    case "endif":
+    case "endunless":
+      if (conditionalStack.length > 0) {
+        conditionalStack.pop();
+      }
+      return;
+    default:
+      return;
+  }
+}
+
+function buildLiquidOccurrenceContexts(source, occurrences, refs) {
+  const contexts = new Map();
+  const normalizedRefs = Array.isArray(refs)
+    ? Array.from(new Set(refs.map((ref) => String(ref || "").trim()).filter(Boolean)))
+    : [];
+  const relevantOccurrences = Array.isArray(occurrences)
+    ? [...occurrences].sort((left, right) => (left.index ?? 0) - (right.index ?? 0))
+    : [];
+  const tags = collectRelevantLiquidTags(source);
+  const aliasMap = new Map();
+  const conditionalStack = [];
+  let tagIndex = 0;
+
+  for (const occurrence of relevantOccurrences) {
+    const occurrenceIndex = Number(occurrence?.index || 0);
+    while (tagIndex < tags.length && (tags[tagIndex].index ?? 0) < occurrenceIndex) {
+      applyLiquidTagToState(tags[tagIndex], aliasMap, conditionalStack, normalizedRefs);
+      tagIndex += 1;
+    }
+
+    const aliasSnapshot = new Map(aliasMap);
+    contexts.set(occurrence, {
+      expandedExpression: expandAliasesInLiquidExpression(
+        occurrence.expression,
+        aliasSnapshot
+      ),
+      activeGuardRefs: collectActiveConditionalGuardRefs(conditionalStack),
+    });
+  }
+
+  return contexts;
+}
+
+function expressionContainsLiquidRef(expression, ref) {
+  if (!expression || !ref) {
+    return false;
+  }
+  return new RegExp(
+    `(^|[^\\w.-])${escapeRegExp(ref)}(?![\\w.-])`
+  ).test(String(expression));
+}
+
+function buildOptionalResourceDetectionKey(
+  candidate,
+  occurrence,
+  source,
+  expandedExpression
+) {
+  const occurrenceIndex = Number(occurrence?.index || 0);
+  const rawLength = String(occurrence?.raw || occurrence?.expression || "").length;
+  const contextStart = Math.max(0, occurrenceIndex - 80);
+  const contextEnd = Math.min(
+    String(source || "").length,
+    occurrenceIndex + rawLength + 80
+  );
+  const contextExcerpt = normalizeInlineWhitespace(
+    String(source || "").slice(contextStart, contextEnd)
+  );
+  return [
+    candidate.riskKind,
+    candidate.ref,
+    occurrence?.attrName || "",
+    normalizeInlineWhitespace(expandedExpression || occurrence?.expression || ""),
+    contextExcerpt,
+  ].join("|");
+}
+
+function filterNewOptionalResourceDetections(
+  currentDetections = [],
+  baselineDetections = []
+) {
+  const baselineCounts = new Map();
+  for (const detection of baselineDetections || []) {
+    const key = String(detection?.key || "");
+    if (!key) {
+      continue;
+    }
+    baselineCounts.set(key, (baselineCounts.get(key) || 0) + 1);
+  }
+
+  const newDetections = [];
+  for (const detection of currentDetections || []) {
+    const key = String(detection?.key || "");
+    const remaining = baselineCounts.get(key) || 0;
+    if (remaining > 0) {
+      baselineCounts.set(key, remaining - 1);
+      continue;
+    }
+    newDetections.push(detection);
+  }
+
+  return newDetections;
+}
+
+function filterOptionalResourceInspectionAgainstBaseline(
+  currentInspection,
+  baselineInspection
+) {
+  if (!baselineInspection) {
+    return currentInspection;
+  }
+
+  const issueDetections = filterNewOptionalResourceDetections(
+    currentInspection?.issueDetections || [],
+    baselineInspection?.issueDetections || []
+  );
+  const warningDetections = filterNewOptionalResourceDetections(
+    currentInspection?.warningDetections || [],
+    baselineInspection?.warningDetections || []
+  );
+
+  return {
+    issues: issueDetections.map((detection) => detection.diagnostic).filter(Boolean),
+    warnings: warningDetections.map((detection) => detection.message).filter(Boolean),
+    suggestedFixes:
+      issueDetections.length > 0 || warningDetections.length > 0
+        ? currentInspection?.suggestedFixes || []
+        : [],
+    unsafeRefs: Array.from(
+      new Map(
+        issueDetections
+          .map((detection) => detection.candidate)
+          .filter(Boolean)
+          .map((candidate) => [
+            `${candidate.riskKind}:${candidate.ref}:${candidate.settingId}`,
+            candidate,
+          ])
+      ).values()
+    ),
+    issueDetections,
+    warningDetections,
+  };
+}
+
+function collectIncrementalOptionalResourceRuntimeSafety(
+  value,
+  fileKey,
+  schema,
+  {
+    rootOwner = "section",
+    originalValue = null,
+  } = {}
+) {
+  const currentInspection = collectOptionalResourceRuntimeSafety(value, fileKey, schema, {
+    rootOwner,
+  });
+
+  if (
+    typeof originalValue !== "string" ||
+    originalValue.length === 0 ||
+    !hasLiquidBlockTag(originalValue, "schema")
+  ) {
+    return currentInspection;
+  }
+
+  const { schema: originalSchema } = parseSectionSchema(originalValue);
+  if (!originalSchema) {
+    return currentInspection;
+  }
+
+  const baselineInspection = collectOptionalResourceRuntimeSafety(
+    originalValue,
+    fileKey,
+    originalSchema,
+    { rootOwner }
+  );
+
+  return filterOptionalResourceInspectionAgainstBaseline(
+    currentInspection,
+    baselineInspection
+  );
+}
+
+function buildOptionalResourceCandidates(entry) {
+  const base = {
+    settingId: entry.id,
+    owner: entry.owner,
+    blockType: entry.blockType || null,
+    settingType: entry.type,
+  };
+  const ref = entry.ref;
+
+  switch (entry.type) {
+    case "image_picker":
+      return [
+        {
+          ...base,
+          ref,
+          guardRefs: [ref],
+          riskKind: "image_filter",
+        },
+      ];
+    case "video":
+      return [
+        {
+          ...base,
+          ref,
+          guardRefs: [ref],
+          riskKind: "video_filter",
+        },
+      ];
+    case "video_url":
+      return [
+        {
+          ...base,
+          ref,
+          guardRefs: [ref],
+          riskKind: "external_video_filter",
+        },
+        {
+          ...base,
+          ref,
+          guardRefs: [ref],
+          riskKind: "url_attribute",
+        },
+      ];
+    case "url":
+      return [
+        {
+          ...base,
+          ref,
+          guardRefs: [ref],
+          riskKind: "url_attribute",
+        },
+      ];
+    case "collection":
+      return [
+        {
+          ...base,
+          ref,
+          guardRefs: [ref],
+          riskKind: "image_filter",
+        },
+        {
+          ...base,
+          ref: `${ref}.image`,
+          guardRefs: [ref, `${ref}.image`],
+          riskKind: "image_filter",
+        },
+        {
+          ...base,
+          ref: `${ref}.url`,
+          guardRefs: [ref, `${ref}.url`],
+          riskKind: "url_attribute",
+        },
+      ];
+    case "product":
+      return [
+        {
+          ...base,
+          ref,
+          guardRefs: [ref],
+          riskKind: "image_filter",
+        },
+        {
+          ...base,
+          ref: `${ref}.featured_image`,
+          guardRefs: [ref, `${ref}.featured_image`],
+          riskKind: "image_filter",
+        },
+        {
+          ...base,
+          ref: `${ref}.featured_media`,
+          guardRefs: [ref, `${ref}.featured_media`],
+          riskKind: "image_filter",
+        },
+        {
+          ...base,
+          ref: `${ref}.featured_media.preview_image`,
+          guardRefs: [ref, `${ref}.featured_media`, `${ref}.featured_media.preview_image`],
+          riskKind: "image_filter",
+        },
+        {
+          ...base,
+          ref: `${ref}.url`,
+          guardRefs: [ref, `${ref}.url`],
+          riskKind: "url_attribute",
+        },
+      ];
+    case "article":
+      return [
+        {
+          ...base,
+          ref,
+          guardRefs: [ref],
+          riskKind: "image_filter",
+        },
+        {
+          ...base,
+          ref: `${ref}.image`,
+          guardRefs: [ref, `${ref}.image`],
+          riskKind: "image_filter",
+        },
+        {
+          ...base,
+          ref: `${ref}.url`,
+          guardRefs: [ref, `${ref}.url`],
+          riskKind: "url_attribute",
+        },
+      ];
+    case "blog":
+    case "page":
+      return [
+        {
+          ...base,
+          ref: `${ref}.url`,
+          guardRefs: [ref, `${ref}.url`],
+          riskKind: "url_attribute",
+        },
+      ];
+    default:
+      return [];
+  }
+}
+
+function collectOptionalResourceRuntimeSafety(
+  value,
+  fileKey,
+  schema,
+  { rootOwner = "section" } = {}
+) {
+  const source = String(value || "");
+  const issues = [];
+  const warnings = [];
+  const suggestedFixes = [];
+  const unsafeRefs = [];
+  const issueDetections = [];
+  const warningDetections = [];
+  const outputExpressions = collectLiquidOutputExpressions(source);
+  const attributeExpressions = collectLiquidAttributeExpressions(source);
+  const seenIssueKeys = new Set();
+  const seenWarningKeys = new Set();
+
+  const candidates = collectSchemaSettingRefs(schema, { rootOwner }).flatMap(
+    (entry) => buildOptionalResourceCandidates(entry)
+  );
+  const guardRefs = Array.from(
+    new Set(
+      candidates
+        .flatMap((candidate) => candidate.guardRefs || [])
+        .map((ref) => String(ref || "").trim())
+        .filter(Boolean)
+    )
+  );
+  const occurrenceContexts = buildLiquidOccurrenceContexts(
+    source,
+    [...outputExpressions, ...attributeExpressions],
+    guardRefs
+  );
+
+  const maybeAddIssue = (
+    candidate,
+    occurrence,
+    expandedExpression,
+    problem,
+    fixSuggestion
+  ) => {
+    const dedupeKey = buildOptionalResourceDetectionKey(
+      candidate,
+      occurrence,
+      source,
+      expandedExpression
+    );
+    if (seenIssueKeys.has(dedupeKey)) {
+      return;
+    }
+    seenIssueKeys.add(dedupeKey);
+    const diagnostic = createInspectionIssue({
+      path: [fileKey],
+      problem,
+      fixSuggestion,
+      issueCode: "inspection_failed_unguarded_optional_resource",
+    });
+    issues.push(diagnostic);
+    issueDetections.push({
+      key: dedupeKey,
+      candidate,
+      occurrence,
+      expandedExpression,
+      diagnostic,
+    });
+    unsafeRefs.push(candidate);
+  };
+
+  const maybeAddWarning = (candidate, occurrence, expandedExpression, message) => {
+    const dedupeKey = buildOptionalResourceDetectionKey(
+      candidate,
+      occurrence,
+      source,
+      expandedExpression
+    );
+    if (seenWarningKeys.has(dedupeKey)) {
+      return;
+    }
+    seenWarningKeys.add(dedupeKey);
+    warnings.push(message);
+    warningDetections.push({
+      key: dedupeKey,
+      candidate,
+      occurrence,
+      expandedExpression,
+      message,
+    });
+  };
+
+  for (const candidate of candidates) {
+    if (candidate.riskKind === "image_filter") {
+      for (const occurrence of outputExpressions) {
+        const occurrenceContext =
+          occurrenceContexts.get(occurrence) || {};
+        const expandedExpression =
+          occurrenceContext.expandedExpression || occurrence.expression;
+        const activeGuardRefs = occurrenceContext.activeGuardRefs || new Set();
+        if (
+          !expressionContainsLiquidRef(expandedExpression, candidate.ref) ||
+          !/\|\s*image_url\b/i.test(expandedExpression) ||
+          hasInlineDefaultFallback(expandedExpression) ||
+          candidate.guardRefs.some((ref) => activeGuardRefs.has(ref))
+        ) {
+          continue;
+        }
+
+        maybeAddIssue(
+          candidate,
+          occurrence,
+          expandedExpression,
+          `${candidate.ref} wordt direct door image_url gehaald zonder blank guard of inline fallback. Shopify kan dan een runtime error geven zodra de merchant deze setting leeg laat.`,
+          `Wrap ${candidate.guardRefs[0]} in {% if ${candidate.guardRefs[0]} != blank %} ... {% else %} veilige fallback markup {% endif %}, of gebruik eerst assign/capture met een default image voordat je image_url aanroept.`
+        );
+      }
+
+      continue;
+    }
+
+    if (candidate.riskKind === "video_filter") {
+      for (const occurrence of outputExpressions) {
+        const occurrenceContext =
+          occurrenceContexts.get(occurrence) || {};
+        const expandedExpression =
+          occurrenceContext.expandedExpression || occurrence.expression;
+        const activeGuardRefs = occurrenceContext.activeGuardRefs || new Set();
+        if (
+          !expressionContainsLiquidRef(expandedExpression, candidate.ref) ||
+          !/\|\s*video_tag\b/i.test(expandedExpression) ||
+          hasInlineDefaultFallback(expandedExpression) ||
+          candidate.guardRefs.some((ref) => activeGuardRefs.has(ref))
+        ) {
+          continue;
+        }
+
+        maybeAddIssue(
+          candidate,
+          occurrence,
+          expandedExpression,
+          `${candidate.ref} wordt direct door video_tag gehaald zonder blank guard of inline fallback. Shopify kan dan breken zodra de merchant nog geen video heeft ingevuld.`,
+          `Guard ${candidate.guardRefs[0]} eerst op != blank en render anders een veilige fallback.`
+        );
+      }
+
+      continue;
+    }
+
+    if (candidate.riskKind === "external_video_filter") {
+      for (const occurrence of outputExpressions) {
+        const occurrenceContext =
+          occurrenceContexts.get(occurrence) || {};
+        const expandedExpression =
+          occurrenceContext.expandedExpression || occurrence.expression;
+        const activeGuardRefs = occurrenceContext.activeGuardRefs || new Set();
+        if (
+          !expressionContainsLiquidRef(expandedExpression, candidate.ref) ||
+          !/\|\s*(?:external_video_url|external_video_tag)\b/i.test(
+            expandedExpression
+          ) ||
+          hasInlineDefaultFallback(expandedExpression) ||
+          candidate.guardRefs.some((ref) => activeGuardRefs.has(ref))
+        ) {
+          continue;
+        }
+
+        maybeAddIssue(
+          candidate,
+          occurrence,
+          expandedExpression,
+          `${candidate.ref} wordt direct gebruikt voor een externe video-render zonder blank guard of inline fallback. Dat maakt de section fragiel zodra de video_url leeg is.`,
+          `Guard ${candidate.guardRefs[0]} eerst op != blank en render anders geen iframe/video-output of een veilige placeholder-state.`
+        );
+      }
+
+      continue;
+    }
+
+    if (candidate.riskKind === "url_attribute") {
+      for (const occurrence of attributeExpressions) {
+        const occurrenceContext =
+          occurrenceContexts.get(occurrence) || {};
+        const expandedExpression =
+          occurrenceContext.expandedExpression || occurrence.expression;
+        const activeGuardRefs = occurrenceContext.activeGuardRefs || new Set();
+        if (
+          !expressionContainsLiquidRef(expandedExpression, candidate.ref) ||
+          hasInlineDefaultFallback(expandedExpression) ||
+          candidate.guardRefs.some((ref) => activeGuardRefs.has(ref))
+        ) {
+          continue;
+        }
+
+        maybeAddWarning(
+          candidate,
+          occurrence,
+          expandedExpression,
+          `${candidate.ref} wordt direct gebruikt in ${occurrence.attrName} zonder blank guard of inline fallback. Voeg bij voorkeur een if-guard of default toe zodat lege merchant-settings geen fragiele links of embeds opleveren.`
+        );
+      }
+    }
+  }
+
+  if (unsafeRefs.length > 0) {
+    suggestedFixes.push(
+      "Gebruik voor optionele Shopify resource-settings altijd een blank-safe renderpad: eerst if/unless of assign met default, daarna pas image_url, video_tag of external_video_url.",
+      "Laat section- en block-markup foutloos renderen wanneer merchants net een nieuwe preset toevoegen en nog geen media hebben ingevuld."
+    );
+  }
+  if (warnings.length > 0) {
+    suggestedFixes.push(
+      "Guard optionele href/src/action/formaction waarden met if != blank of gebruik een veilige default, zodat lege settings geen fragiele URL-attributen opleveren."
+    );
+  }
+
+  return {
+    issues,
+    warnings,
+    suggestedFixes,
+    unsafeRefs,
+    issueDetections,
+    warningDetections,
+  };
+}
+
+function collectPresetRenderabilityIssues(fileKey, schema, unsafeRefs = []) {
+  const issues = [];
+  const suggestedFixes = [];
+  const presets = Array.isArray(schema?.presets) ? schema.presets : [];
+  const blockUnsafeRefs = (Array.isArray(unsafeRefs) ? unsafeRefs : []).filter(
+    (entry) => entry.owner === "block" && entry.blockType && entry.settingId
+  );
+
+  const seen = new Set();
+  for (const preset of presets) {
+    const presetName = String(preset?.name || "Preset").trim();
+    for (const presetBlock of Array.isArray(preset?.blocks) ? preset.blocks : []) {
+      const blockType = String(presetBlock?.type || "").trim();
+      if (!blockType) {
+        continue;
+      }
+
+      for (const unsafeRef of blockUnsafeRefs) {
+        if (unsafeRef.blockType !== blockType) {
+          continue;
+        }
+        const presetBlockSettings =
+          presetBlock?.settings && typeof presetBlock.settings === "object"
+            ? presetBlock.settings
+            : {};
+        if (presetBlockSettings[unsafeRef.settingId]) {
+          continue;
+        }
+
+        const dedupeKey = `${presetName}:${blockType}:${unsafeRef.settingId}`;
+        if (seen.has(dedupeKey)) {
+          continue;
+        }
+        seen.add(dedupeKey);
+
+        issues.push(
+          createInspectionIssue({
+            path: [fileKey, "schema", "presets"],
+            problem: `Preset '${presetName}' voegt een block van type '${blockType}' toe zonder renderbare '${unsafeRef.settingId}' waarde, terwijl de markup die setting onveilig als verplichte resource behandelt.`,
+            fixSuggestion:
+              "Maak de block-rendering blank-safe of geef de preset een echte renderbare fallback-route voordat de block resource-filters gebruikt.",
+            issueCode: "inspection_failed_unrenderable_preset",
+          })
+        );
+      }
+    }
+  }
+
+  if (issues.length > 0) {
+    suggestedFixes.push(
+      "Presets moeten ook foutloos renderen wanneer blocks nog geen merchant-media hebben. Voeg dus altijd een veilige fallback of guard toe rond block.settings resource-usage."
+    );
+  }
+
+  return {
+    issues,
+    warnings: [],
+    suggestedFixes,
+  };
 }
 
 function buildRangeIssueDiagnostic(issue) {
@@ -1831,6 +2685,25 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
   }
 
   const settingTypes = collectSchemaSettingTypes(schema);
+  const optionalResourceInspection = collectOptionalResourceRuntimeSafety(
+    value,
+    file.key,
+    schema,
+    { rootOwner: "section" }
+  );
+  issues.push(...(optionalResourceInspection.issues || []));
+  warnings.push(...(optionalResourceInspection.warnings || []));
+  suggestedFixes.push(...(optionalResourceInspection.suggestedFixes || []));
+
+  const presetRenderabilityInspection = collectPresetRenderabilityIssues(
+    file.key,
+    schema,
+    optionalResourceInspection.unsafeRefs
+  );
+  issues.push(...(presetRenderabilityInspection.issues || []));
+  warnings.push(...(presetRenderabilityInspection.warnings || []));
+  suggestedFixes.push(...(presetRenderabilityInspection.suggestedFixes || []));
+
   const isInteractiveSection =
     sectionProfile.category === "interactive" ||
     sectionProfile.category === "hybrid" ||
@@ -2037,6 +2910,16 @@ function inspectThemeBlockFile(file) {
   }
 
   const settingTypes = collectSchemaSettingTypes(schema);
+  const optionalResourceInspection = collectOptionalResourceRuntimeSafety(
+    value,
+    file.key,
+    schema,
+    { rootOwner: "block" }
+  );
+  issues.push(...(optionalResourceInspection.issues || []));
+  warnings.push(...(optionalResourceInspection.warnings || []));
+  suggestedFixes.push(...(optionalResourceInspection.suggestedFixes || []));
+
   if (settingTypes.has("video_url") && !settingTypes.has("video")) {
     warnings.push(
       "Schema gebruikt video_url. Dit ondersteunt externe YouTube/Vimeo URLs; gebruik type 'video' voor merchant-uploaded videobestanden."
@@ -3319,7 +4202,12 @@ export const draftThemeArtifact = {
                  shouldNarrowScope: false,
                });
             }
-            resolvedFiles.push({ key: file.key, value: file.value || "", checksum: file.baseChecksumMd5 });
+            resolvedFiles.push({
+              key: file.key,
+              value: file.value || "",
+              checksum: file.baseChecksumMd5,
+              originalValue: null,
+            });
             continue;
           }
 
@@ -3421,7 +4309,8 @@ export const draftThemeArtifact = {
           resolvedFiles.push({ 
             key: file.key, 
             value: newValue, 
-            checksum: file.baseChecksumMd5 || null 
+            checksum: file.baseChecksumMd5 || null,
+            originalValue,
           });
         }
       } catch (err) {
@@ -3437,7 +4326,12 @@ export const draftThemeArtifact = {
         });
       }
     } else {
-      resolvedFiles = files.map(f => ({ key: f.key, value: f.value || "", checksum: f.baseChecksumMd5 }));
+      resolvedFiles = files.map((f) => ({
+        key: f.key,
+        value: f.value || "",
+        checksum: f.baseChecksumMd5,
+        originalValue: null,
+      }));
     }
 
     files = resolvedFiles;
@@ -3565,6 +4459,30 @@ export const draftThemeArtifact = {
           );
           editPreferSelectFor.push(...(schemaInspection.preferSelectFor || []));
 
+          if (hasLiquidBlockTag(value, "schema")) {
+            const { schema } = parseSectionSchema(value);
+            if (schema) {
+              const optionalResourceInspection =
+                collectIncrementalOptionalResourceRuntimeSafety(
+                  value,
+                  file.key,
+                  schema,
+                  {
+                    rootOwner: "section",
+                    originalValue:
+                      typeof file.originalValue === "string"
+                        ? file.originalValue
+                        : null,
+                  }
+                );
+              editIssues.push(...(optionalResourceInspection.issues || []));
+              editWarnings.push(...(optionalResourceInspection.warnings || []));
+              editSuggestedFixes.push(
+                ...(optionalResourceInspection.suggestedFixes || [])
+              );
+            }
+          }
+
           inspection = buildInspectionResult({
             issues: editIssues,
             warnings: editWarnings,
@@ -3612,6 +4530,30 @@ export const draftThemeArtifact = {
             ...(schemaInspection.suggestedSchemaRewrites || [])
           );
           editPreferSelectFor.push(...(schemaInspection.preferSelectFor || []));
+
+          if (hasLiquidBlockTag(value, "schema")) {
+            const { schema } = parseSectionSchema(value);
+            if (schema) {
+              const optionalResourceInspection =
+                collectIncrementalOptionalResourceRuntimeSafety(
+                  value,
+                  file.key,
+                  schema,
+                  {
+                    rootOwner: "block",
+                    originalValue:
+                      typeof file.originalValue === "string"
+                        ? file.originalValue
+                        : null,
+                  }
+                );
+              editIssues.push(...(optionalResourceInspection.issues || []));
+              editWarnings.push(...(optionalResourceInspection.warnings || []));
+              editSuggestedFixes.push(
+                ...(optionalResourceInspection.suggestedFixes || [])
+              );
+            }
+          }
 
           inspection = buildInspectionResult({
             issues: editIssues,

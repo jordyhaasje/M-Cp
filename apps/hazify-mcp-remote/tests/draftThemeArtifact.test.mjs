@@ -354,6 +354,514 @@ test("draftThemeArtifact - rejects placeholder media in exact-match replica crea
   assert.equal(result.errorCode, "exact_match_placeholder_media");
 });
 
+test("draftThemeArtifact - rejects unguarded optional block images in create mode", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/unsafe-carousel.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .cards { display: grid; gap: 16px; }
+</style>
+<div class="cards">
+  {% for block in section.blocks %}
+    <article class="card" {{ block.shopify_attributes }}>
+      {{ block.settings.image | image_url: width: 900 | image_tag }}
+    </article>
+  {% endfor %}
+</div>
+{% schema %}
+{
+  "name": "Unsafe carousel",
+  "blocks": [
+    {
+      "type": "card",
+      "name": "Card",
+      "settings": [
+        { "type": "image_picker", "id": "image", "label": "Image" }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "Unsafe carousel",
+      "blocks": [
+        { "type": "card" }
+      ]
+    }
+  ]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some(
+      (issue) => issue.issueCode === "inspection_failed_unguarded_optional_resource"
+    )
+  );
+  assert.ok(
+    result.errors?.some(
+      (issue) => issue.issueCode === "inspection_failed_unrenderable_preset"
+    )
+  );
+});
+
+test("draftThemeArtifact - accepts guarded optional block images with fallback in create mode", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/safe-carousel.liquid",
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "create",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/safe-carousel.liquid",
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .cards {
+    display: grid;
+    gap: 16px;
+  }
+</style>
+<div class="cards">
+  {% for block in section.blocks %}
+    <article class="card" {{ block.shopify_attributes }}>
+      {% if block.settings.image != blank %}
+        {{ block.settings.image | image_url: width: 900 | image_tag }}
+      {% else %}
+        <div class="card__placeholder" aria-hidden="true"></div>
+      {% endif %}
+    </article>
+  {% endfor %}
+</div>
+{% schema %}
+{
+  "name": "Safe carousel",
+  "blocks": [
+    {
+      "type": "card",
+      "name": "Card",
+      "settings": [
+        { "type": "image_picker", "id": "image", "label": "Image" }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "Safe carousel",
+      "blocks": [
+        { "type": "card" }
+      ]
+    }
+  ]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - allows unrelated legacy patch edits when optional resource issues already existed", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const originalSection = `
+<section class="legacy-hero">
+  {{ section.settings.image | image_url: width: 1200 | image_tag }}
+  <h2>{{ section.settings.heading }}</h2>
+</section>
+
+{% schema %}
+{
+  "name": "Legacy hero",
+  "settings": [
+    { "type": "image_picker", "id": "image", "label": "Image" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Legacy hero" }]
+}
+{% endschema %}
+`;
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/legacy-hero.liquid",
+    initialValue: originalSection,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "edit",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/legacy-hero.liquid",
+            patch: {
+              searchString: "\"default\": \"Hello\"",
+              replaceString: "\"default\": \"Hallo\"",
+            },
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+    assert.match(themeMock.getValue(), /"default": "Hallo"/);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - accepts long guarded optional media branches in create mode", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const filler = "guarded branch copy ".repeat(90);
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/long-guard-carousel.liquid",
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "create",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/long-guard-carousel.liquid",
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .cards {
+    display: grid;
+    gap: 16px;
+  }
+</style>
+<div class="cards">
+  {% for block in section.blocks %}
+    <article class="card" {{ block.shopify_attributes }}>
+      {% if block.settings.image != blank %}
+        <div class="card__copy">${filler}</div>
+        {{ block.settings.image | image_url: width: 900 | image_tag }}
+      {% else %}
+        <div class="card__placeholder" aria-hidden="true"></div>
+      {% endif %}
+    </article>
+  {% endfor %}
+</div>
+{% schema %}
+{
+  "name": "Long guard carousel",
+  "blocks": [
+    {
+      "type": "card",
+      "name": "Card",
+      "settings": [
+        { "type": "image_picker", "id": "image", "label": "Image" }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "Long guard carousel",
+      "blocks": [{ "type": "card" }]
+    }
+  ]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects aliased optional section images without a guard", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/aliased-unsafe-image.liquid",
+          value: `
+<section class="hero">
+  {% assign hero_image = section.settings.image %}
+  {{ hero_image | image_url: width: 1200 | image_tag }}
+</section>
+{% schema %}
+{
+  "name": "Aliased unsafe image",
+  "settings": [
+    { "type": "image_picker", "id": "image", "label": "Image" }
+  ],
+  "presets": [{ "name": "Aliased unsafe image" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some(
+      (issue) => issue.issueCode === "inspection_failed_unguarded_optional_resource"
+    )
+  );
+});
+
+test("draftThemeArtifact - accepts aliased optional section images when guarded", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/aliased-safe-image.liquid",
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "create",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/aliased-safe-image.liquid",
+            value: `
+<section class="hero">
+  {% assign hero_image = section.settings.image %}
+  {% if hero_image != blank %}
+    {{ hero_image | image_url: width: 1200 | image_tag }}
+  {% else %}
+    <div class="hero__placeholder" aria-hidden="true"></div>
+  {% endif %}
+</section>
+{% schema %}
+{
+  "name": "Aliased safe image",
+  "settings": [
+    { "type": "image_picker", "id": "image", "label": "Image" }
+  ],
+  "presets": [{ "name": "Aliased safe image" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects unguarded optional section images in edit mode", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/hero.liquid",
+    initialValue: goodSectionLiquid,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "edit",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/hero.liquid",
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .hero {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<section class="hero">
+  {{ section.settings.image | image_url: width: 1200 | image_tag }}
+</section>
+{% schema %}
+{
+  "name": "Hero",
+  "settings": [
+    { "type": "image_picker", "id": "image", "label": "Image" }
+  ],
+  "presets": [{ "name": "Hero" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some(
+        (issue) => issue.issueCode === "inspection_failed_unguarded_optional_resource"
+      )
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects unguarded optional media in theme blocks", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "blocks/media-card.liquid",
+          value: `
+{% doc %}
+  @param {image} image
+{% enddoc %}
+<article class="media-card">
+  {{ block.settings.image | image_url: width: 900 | image_tag }}
+</article>
+{% schema %}
+{
+  "name": "Media card",
+  "settings": [
+    { "type": "image_picker", "id": "image", "label": "Image" }
+  ]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some(
+      (issue) => issue.issueCode === "inspection_failed_unguarded_optional_resource"
+    )
+  );
+});
+
 test("draftThemeArtifact - rejects sections without presets", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
