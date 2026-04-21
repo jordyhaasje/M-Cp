@@ -5,7 +5,7 @@ Doelgroep: repo maintainers en coding agents.
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.
 
 ## Current Phase
-- Phase 7 follow-up: screenshot-driven comparison-section fidelity hardening is deployed to Railway production; remaining work is one authenticated live-traffic verification of the newer request/failure log fields
+- Phase 7 follow-up: exact section-refinement continuity hardening is deployed to Railway production; remaining work is one authenticated live-traffic verification of the newer request/failure log fields plus optional block/snippet fidelity expansion
 
 ## Checklist Of Planned Work
 - [x] Read attached report and `tool_log.json`
@@ -165,6 +165,11 @@ Doelgroep: repo maintainers en coding agents.
   - `GET https://hazify-mcp-remote-production.up.railway.app/.well-known/oauth-authorization-server` -> `200`
   - `POST https://hazify-mcp-remote-production.up.railway.app/mcp` -> `401` without credentials, as expected
   - `Production smoke checks passed`
+- Analyzed whether the comparison-section fidelity fix generalizes beyond the single screenshot case:
+  - confirmed the new decorative-anchor checks are broader than one section file and apply to exact screenshot-replica section flows whenever planner signals require those anchors
+  - confirmed the new double-shell guard is intentionally narrower and currently keyed to comparison/shell-style section archetypes
+  - confirmed the exact-match fidelity checks currently live in the section inspection path, not in the standalone `blocks/*.liquid` inspection path and not in generic snippet inspection
+  - conclusion: the root cause is largely fixed for screenshot-driven section recreation, and partially for native blocks when they are rendered inside section files, but a similar fidelity gap can still exist for standalone theme blocks or snippet-heavy native block render paths
 - Confirmed git remote drift after deploy:
   - local `main` was `8` commits ahead of `origin/main`
   - Railway production was already running commit `198e1fa`, so production and git remote were temporarily out of sync
@@ -175,6 +180,61 @@ Doelgroep: repo maintainers en coding agents.
   - `git fetch origin main && git rev-list --left-right --count origin/main...HEAD` -> `0 0`
   - `origin/main` now matches local `HEAD`
 - Re-ran `npm run check:docs` after the source-doc alignment -> pass.
+- Read `/Users/jordy/Desktop/tool_call_debug_log.json` and confirmed the repeated user failure pattern:
+  - first `create-theme-section` succeeded on `sections/feature-comparison-women.liquid`
+  - a normal follow-up prompt then incorrectly reused `create-theme-section` on the same key
+  - the MCP correctly returned `existing_section_key_conflict`, but the next broad `draft-theme-artifact mode="edit"` attempt could still be blocked upstream in the chat client
+- Re-checked the repeated comparison screenshot outcome against `/Users/jordy/Desktop/nagemaakt.png` and confirmed two remaining gaps:
+  - exact comparison-replica validation still allowed generic rating/check-icon fallbacks too easily
+  - normal stateless chat clients could still get stuck re-calling `create-theme-section` for same-file refinements
+- Re-consulted Shopify dev MCP for:
+  - section/block schema expectations
+  - `block.shopify_attributes` behavior in Theme Editor flows
+  - `image_url` / `image_tag` guidance for merchant-editable media rendering
+- Re-consulted Context7 MCP TypeScript SDK docs for:
+  - structured tool outputs
+  - `isError` versus protocol exceptions
+  - machine-readable repair data for stateless clients
+- Re-checked Railway production logs for the failing user flow and confirmed:
+  - the first `plan-theme-edit` + `create-theme-section` path succeeded
+  - the repeated `create-theme-section` retry on the same file hit `existing_section_key_conflict`
+  - no server-side `draft-theme-artifact` log followed, which matches an upstream client-side/tool-gateway block after the repair step
+- Hardened `create-theme-section` so same-file follow-up refinements from ordinary stateless chat clients can now auto-switch server-side into `draft-theme-artifact mode="edit"` when all of these stay proven:
+  - the target file matches the just-created section
+  - the recent file context/read still matches
+  - the explicit theme target remains compatible
+- Extended the exact-match screenshot fidelity signals and validator so comparison/shell replicas now also guard against:
+  - missing real rating-strip/star iconography
+  - missing real comparison iconography such as check/x/thumb markers
+  - continued over-reliance on generic baseline shapes for those anchors
+- Updated maintainer/client docs so repo truth now explicitly says:
+  - normal clients should still route existing-file refinements through `existing_edit`
+  - the new create->edit auto-switch is a narrow safe server-side recovery path, not a general overwrite rule
+  - comparison/shell exact replicas must preserve rating-strip and comparison-icon anchors
+- Re-ran focused regression suites after the new hardening:
+  - `createThemeSection.test.mjs`
+  - `draftThemeArtifact.test.mjs`
+  - `themePlanning.test.mjs`
+- Fixed one stale assertion in an older comparison-regression test so it no longer expected missing comparison iconography from a fixture that already used `✔/✖`.
+- Re-ran full verification after the new refinement-continuity + fidelity hardening:
+  - `npm run check:docs` -> pass
+  - `npm run check:repo` -> pass
+  - `npm run build` -> pass
+  - `npm run --workspace @hazify/mcp-remote test` -> pass (`75/75`)
+  - `npm test` -> pass
+- Committed the runtime/docs/test hardening as `2f858ba` (`Harden exact section refinement continuity`).
+- Deployed `Hazify-MCP-Remote` production again on Railway from the linked app workspace:
+  - deployment `eff195b1-4c86-474b-a40c-9bec6ed2a01a`
+  - status `SUCCESS`
+  - created `2026-04-21T16:11:07.986Z`
+  - Node `22.22.2`
+- Re-ran production smoke checks after the deploy:
+  - `GET https://hazify-license-service-production.up.railway.app/health` -> `200`
+  - `GET https://hazify-license-service-production.up.railway.app/v1/session/bootstrap` -> `200`
+  - `GET https://hazify-mcp-remote-production.up.railway.app/.well-known/oauth-protected-resource` -> `200`
+  - `GET https://hazify-mcp-remote-production.up.railway.app/.well-known/oauth-authorization-server` -> `200`
+  - `POST https://hazify-mcp-remote-production.up.railway.app/mcp` -> `401` without credentials, as expected
+  - `Production smoke checks passed`
 - Committed the mixed-theme-target safety hardening as `255e59b` (`Harden theme target continuity across prompt flows`).
 - Deployed `Hazify-MCP-Remote` production again on Railway; latest production deployment is now `af86f32e-ff85-470c-8314-983d572696c4` (`SUCCESS`, `2026-04-21T09:37:19.521Z`, Node `22.22.2`).
 - Verified the new Railway production deploy logs show the expected startup/build sequence for `@hazify/mcp-remote@1.1.0`.
@@ -524,9 +584,20 @@ Doelgroep: repo maintainers en coding agents.
 - `npm run --workspace @hazify/mcp-remote test` -> passed after the same hardening
 - `npm run build` -> passed after the same hardening
 - `npm test` -> passed after the same hardening
+- `npm run --workspace @hazify/mcp-remote test -- tests/createThemeSection.test.mjs` -> passed (`75/75`; current runner still executes the full mcp-remote suite) after create->edit auto-switch hardening for same-file refinements
+- `npm run --workspace @hazify/mcp-remote test -- tests/draftThemeArtifact.test.mjs` -> passed (`75/75`; current runner still executes the full mcp-remote suite) after rating-strip/comparison-icon fidelity regressions
+- `npm run --workspace @hazify/mcp-remote test -- tests/themePlanning.test.mjs` -> passed (`75/75`; current runner still executes the full mcp-remote suite) after planner reference-signal regressions
+- `npm run check:docs` -> passed after docs drift alignment for safe refinement continuity
+- `npm run check:repo` -> passed after the same hardening
+- `npm run build` -> passed after generated tool docs re-synced `AGENTS.md` and `docs/02-SYSTEM-FLOW.md`
+- `npm run --workspace @hazify/mcp-remote test` -> passed (`75/75`) after exact refinement-continuity hardening
+- `npm test` -> passed after exact refinement-continuity hardening
+- `railway up --ci --verbose -m "Harden exact section refinement continuity"` -> production deploy `eff195b1-4c86-474b-a40c-9bec6ed2a01a` succeeded
+- `npm run smoke:prod` -> passed after deploy
 
 ## Shopify Dev MCP Docs Consulted
 - `learn_shopify_api(api: "liquid", model: "none")`
+- `learn_shopify_api(api: "liquid", model: "none")` -> conversation `e5fb23de-0c4a-4632-a3d8-b960366b35ee` for the latest refinement-continuity pass
 - `learn_shopify_api(api: "admin", conversationId: "3c938616-2617-4060-a8c7-d944dfe0b488", model: "none")`
 - `search_docs_chunks` for:
   - sections/blocks schema and `block.shopify_attributes`
@@ -539,6 +610,7 @@ Doelgroep: repo maintainers en coding agents.
   - Theme Editor behavior for existing-section updates versus newly added sections, to keep existing-edit guidance aligned with Shopify section/block expectations
   - responsive image rendering via `image_url` / `image_tag`
   - section/block wrapper guidance relevant to exact screenshot replicas that include blocks or media anchors
+  - latest refinement-continuity pass: section schema requirements, `block.shopify_attributes`, and renderable media guidance for exact comparison-style sections
 
 ## Context7 Docs Consulted
 - Resolved and queried `/websites/shopify_dev_storefronts_themes`
@@ -553,6 +625,9 @@ Doelgroep: repo maintainers en coding agents.
   - request handler context / request-level logging and distinction between tool-level failures vs protocol exceptions
   - conservative request-context correlation patterns when explicit resource identifiers differ from cached state
   - structured repair-response design for stateless clients that need machine-readable next steps after a tool-level domain failure
+- Resolved `/modelcontextprotocol/typescript-sdk` again during the latest refinement-continuity pass and re-confirmed:
+  - structured tool outputs are the right place for machine-readable repair hints
+  - `isError` tool results let stateless LLM clients self-correct more safely than protocol-level failures
 - Attempted again to resolve/query Context7 for MCP SDK structured tool-response guidance during the screenshot-fidelity pass, but `resolve-library-id` timed out after 120s and returned no new material.
 
 ## Railway MCP Findings
@@ -591,6 +666,11 @@ Doelgroep: repo maintainers en coding agents.
   - On April 21, 2026 the live Railway production runtime now includes the planner-contract + observability hardening from commit `3b57903` and the mixed-theme-target continuity hardening from commit `255e59b`.
   - The latest deploy-log check after `255e59b` still only showed startup/build lines, so real post-deploy request traffic is still needed for one follow-up verification pass on `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary`.
 - The screenshot-fidelity hardening is now live on Railway production via deployment/build `a0fbcd05-2a64-4209-9b81-d09da96767ac`.
+- The exact refinement-continuity hardening is now live on Railway production via deployment/build `eff195b1-4c86-474b-a40c-9bec6ed2a01a`, corresponding to runtime commit `2f858ba`.
+  - Railway production logs for the analyzed user flow showed:
+    - successful `plan-theme-edit` + `create-theme-section`
+    - a later `existing_section_key_conflict` when the client retried `create-theme-section` on the same file
+    - no subsequent server-side `draft-theme-artifact` event, which is consistent with an upstream client/tool-gateway block after the repair handoff
   - Production/deploy warnings observed:
     - repeated `npm warn config production Use --omit=dev instead`
     - `punycode` deprecation warning during build/start
@@ -601,9 +681,12 @@ Doelgroep: repo maintainers en coding agents.
 - Railway cleanup environment still appears stale relative to production (`Node 18` image vs current `Node 22` baseline); no code change applied in this session.
 - Production Railway logs still need one more verification pass after a real authenticated tool call on the new deploy, because current smoke only exercised public discovery endpoints and the expected unauthenticated `401` on `/mcp`.
 - `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh` appears unused by the repo, but removal still needs human confirmation.
-- The latest deployed production runtime is now the comparison-fidelity deploy/build `a0fbcd05-2a64-4209-9b81-d09da96767ac`, corresponding to runtime commit `d289e6f`.
-- Git-vs-deploy parity still needs one last recheck after pushing the post-deploy tracker sync commit.
+- The latest deployed production runtime is now deployment/build `eff195b1-4c86-474b-a40c-9bec6ed2a01a`, corresponding to runtime commit `2f858ba`.
+- Git-vs-deploy parity still needs one last recheck after pushing the upcoming post-deploy tracker sync commit.
+- Structural follow-up opportunity:
+  - `inspectBlockFile` and `inspectSnippetFile` still lack the richer exact-replica fidelity checks that now exist for section files
+  - if users start asking for screenshot-driven standalone theme blocks or snippet-backed native block replicas, a related decorative-anchor / shell-fidelity miss could still slip through
 
 ## Exact Next Step / Command
-- Push the local post-deploy tracker sync to GitHub and then, when real authenticated traffic is available, confirm the newer `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary` fields in Railway production logs.
-- Exact command: `railway logs --latest --lines 100 --filter "requestId OR mcp_http_tool_call_domain_failed OR failureSummary"`
+- Push the runtime commit and tracker sync, then run one real authenticated screenshot-refinement flow against production and confirm the new create->edit recovery path appears in Railway request logs.
+- Exact command: `git push origin main && railway logs --service Hazify-MCP-Remote --environment production --lines 200 | rg -n "create-theme-section|draft-theme-artifact|existing_section_key_conflict|requestId|failureSummary"`
