@@ -5,7 +5,7 @@ Doelgroep: repo maintainers en coding agents.
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.
 
 ## Current Phase
-- Phase 7 follow-up: screenshot-only exact-replica hardening, early schema-required-field preflight, and docs anti-drift are implemented and locally verified; remaining follow-up is production deploy/live-traffic confirmation plus final repo cleanup analysis
+- Phase 7 follow-up: screenshot-only exact-replica hardening, early schema-required-field preflight, docs anti-drift, Railway production deploy, and stale-plan cleanup are complete; remaining follow-up is one authenticated live-traffic observability check plus possible cleanup of unused manual scripts
 
 ## Checklist Of Planned Work
 - [x] Read attached report and `tool_log.json`
@@ -149,6 +149,26 @@ Doelgroep: repo maintainers en coding agents.
   - `npm run check:repo` -> pass
   - `npm run build` -> pass
   - `npm test` -> pass
+- Committed the screenshot-only exact-replica + schema-preflight hardening as `198e1fa` (`Harden screenshot replicas and schema preflight`).
+- Deployed `Hazify-MCP-Remote` production again on Railway from the linked app workspace:
+  - deployment `8fb1def7-1745-4a0d-bd94-0b4b3df479e1`
+  - status `SUCCESS`
+  - build completed in ~38.55s on Node `22.22.2`
+- Verified post-deploy startup/deployment logs show the expected runtime:
+  - `@hazify/mcp-remote@1.1.0 prestart`
+  - `node scripts/copy-src-to-dist.mjs ./src ./dist`
+  - `Hazify MCP HTTP server listening on 0.0.0.0:8080 (session mode: stateless)`
+- Ran production smoke checks after deploy:
+  - `GET https://hazify-license-service-production.up.railway.app/health` -> `200`
+  - `GET https://hazify-license-service-production.up.railway.app/v1/session/bootstrap` -> `200`
+  - `GET https://hazify-mcp-remote-production.up.railway.app/.well-known/oauth-protected-resource` -> `200`
+  - `GET https://hazify-mcp-remote-production.up.railway.app/.well-known/oauth-authorization-server` -> `200`
+  - `POST https://hazify-mcp-remote-production.up.railway.app/mcp` -> `401` without credentials, as expected
+  - `Production smoke checks passed`
+- Confirmed git remote drift after deploy:
+  - local `main` was `8` commits ahead of `origin/main`
+  - Railway production was already running commit `198e1fa`, so production and git remote were temporarily out of sync
+- Deleted stale root document `/Users/jordy/Desktop/Customer service/Fix plan.md` after confirming it is not referenced by active docs or scripts.
 - Re-ran `npm run check:docs` after the source-doc alignment -> pass.
 - Committed the mixed-theme-target safety hardening as `255e59b` (`Harden theme target continuity across prompt flows`).
 - Deployed `Hazify-MCP-Remote` production again on Railway; latest production deployment is now `af86f32e-ff85-470c-8314-983d572696c4` (`SUCCESS`, `2026-04-21T09:37:19.521Z`, Node `22.22.2`).
@@ -256,6 +276,9 @@ Doelgroep: repo maintainers en coding agents.
 - New screenshot-replica conflict found from the ChatGPT debug report:
   - the old exact-match placeholder-media rule was too absolute for screenshot-only, non-technical prompts without explicit source assets
   - fixed locally by keeping the strict route for explicit source media, but allowing screenshot-only best-effort demo media / stylized shells with warnings
+- Git/ops conflict found after the Railway deploy:
+  - production had already been updated, but `origin/main` had not been pushed yet
+  - this is being resolved in the current cleanup step so git remote and Railway production can converge again
 
 ## Files Inspected
 - `/Users/jordy/Desktop/mcp_debug_report_codex.docx`
@@ -290,11 +313,13 @@ Doelgroep: repo maintainers en coding agents.
 - `/Users/jordy/Desktop/Customer service/docs/03-THEME-SECTION-GENERATION.md`
 - `/Users/jordy/Desktop/Customer service/Fix plan.md`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh`
+- Railway deployment `8fb1def7-1745-4a0d-bd94-0b4b3df479e1`
 - `/Users/jordy/Desktop/Customer service/output/`
 
 ## Files Changed
 - `/Users/jordy/Desktop/Customer service/docs/codex-mcp-section-generation-tracker.md`
 - `/Users/jordy/Desktop/Customer service/AGENTS.md`
+- `/Users/jordy/Desktop/Customer service/Fix plan.md` (deleted)
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themeSectionContext.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themeReadHydration.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/createThemeSection.js`
@@ -366,10 +391,14 @@ Doelgroep: repo maintainers en coding agents.
 - `npm run check:repo` -> passed again after the same hardening
 - `npm run build` -> passed again after generated tool docs updated
 - `npm test` -> passed again after screenshot/media + schema-preflight hardening
+- `railway up --ci --verbose -m "Harden screenshot replicas and schema preflight"` -> production deploy `8fb1def7-1745-4a0d-bd94-0b4b3df479e1` succeeded
+- `npm run smoke:prod` -> passed after deploy
+- `npm run check:docs` -> passed again after tracker/deploy notes + stale plan cleanup
 - Residual noise observed during tests/build, but non-failing:
   - Node `punycode` deprecation warning
   - expected test-path logs for rejected carriers / unauthorized requests
   - expected runtime test log for a simulated `get-theme-file` crash used to verify `mcp_http_tool_call_failed`
+  - Railway startup warning about binding `0.0.0.0` without DNS rebinding protection
 
 ## Shopify Dev MCP Docs Consulted
 - `learn_shopify_api(api: "liquid", model: "none")`
@@ -438,12 +467,10 @@ Doelgroep: repo maintainers en coding agents.
 ## Open Issues
 - No failing tests or repo gates remain.
 - Railway cleanup environment still appears stale relative to production (`Node 18` image vs current `Node 22` baseline); no code change applied in this session.
-- Production Railway logs still need one more verification pass after real post-deploy tool traffic, because the latest filtered log search only found startup lines and no new request events yet.
-- `Fix plan.md` is a safe cleanup candidate, but has not been removed in this session.
+- Production Railway logs still need one more verification pass after a real authenticated tool call on the new deploy, because current smoke only exercised public discovery endpoints and the expected unauthenticated `401` on `/mcp`.
 - `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh` appears unused by the repo, but removal still needs human confirmation.
-- The latest deployed production runtime is now deployment `af86f32e-ff85-470c-8314-983d572696c4`.
-- The latest screenshot-only exact-replica and schema-preflight hardening from this session is still local and not yet deployed to Railway production.
+- The latest deployed production runtime is now deployment `8fb1def7-1745-4a0d-bd94-0b4b3df479e1`.
 
 ## Exact Next Step / Command
-- Decide whether to deploy the new screenshot-only exact-replica + schema-preflight hardening to Railway now, then verify one live request path in production logs.
-- Exact command: `git diff --stat && npm run check:docs && npm run --workspace @hazify/mcp-remote test && npm run check:repo && npm run build && npm test`
+- Push the current `main` branch so `origin/main` catches up with the already-live Railway production deployment, then confirm the branch is no longer ahead.
+- Exact command: `git push origin main && git rev-list --left-right --count origin/main...HEAD`
