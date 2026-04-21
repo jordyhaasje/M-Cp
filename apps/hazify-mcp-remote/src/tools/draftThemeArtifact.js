@@ -53,6 +53,7 @@ Theme-aware section regels:
 - Nieuwe blocks/*.liquid files krijgen in create mode ook een basisinspectie op geldige schema JSON en block-veilige markup.
 - Presets moeten render-safe blijven: preset blocks zonder ingevulde merchant-media mogen geen Liquid runtime error veroorzaken.
 - Exacte screenshot-replica's met expliciete bronmedia blijven streng: placeholder_svg_tag als hoofdmedia blokkeert dan nog steeds de eerste preview-write. Screenshot-only replica's zonder losse bron-assets mogen nu wel door met een waarschuwing en een suggested fix richting renderbare demo-media of een gestileerde media shell.
+- Exact-match comparison/shell replica's worden nu ook expliciet gecontroleerd op onderscheidende decoratieve anchors uit de referentie, zoals floating productmedia of badges/seals, plus op dubbele background-shells wanneer theme wrappers zoals section-properties al een outer surface impliceren.
 - Renderer-veilige Liquid blijft verplicht: geen geneste {{ ... }} of {% ... %} binnen dezelfde output-tag of filter-argumentstring; bouw zulke waarden eerst op via assign/capture en geef daarna de variabele door.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
@@ -2377,10 +2378,60 @@ function collectExactMatchReferenceSafety(
   }
 
   const source = String(value || "");
+  const schema = parseSectionSchema(source).schema;
+  const schemaSettings = collectSchemaSettings(schema);
   const issues = [];
   const warnings = [];
   const suggestedFixes = [];
   const scaleAnalysis = analyzeSectionScale(source, { key: fileKey });
+  const requestedDecorativeMediaAnchors = Array.isArray(
+    referenceSignals.requestedDecorativeMediaAnchors
+  )
+    ? referenceSignals.requestedDecorativeMediaAnchors
+    : [];
+  const requestedDecorativeBadgeAnchors = Array.isArray(
+    referenceSignals.requestedDecorativeBadgeAnchors
+  )
+    ? referenceSignals.requestedDecorativeBadgeAnchors
+    : [];
+  const hasMerchantEditableImageSetting = schemaSettings.some(
+    (setting) => String(setting?.type || "").trim() === "image_picker"
+  );
+  const hasMerchantEditableBadgeSetting = schemaSettings.some((setting) =>
+    /\b(badge|seal|sticker)\b/i.test(
+      `${String(setting?.id || "")} ${String(setting?.label || "")}`
+    )
+  );
+  const hasMediaMarkup =
+    /image_tag\b|image_url\b|<img\b|<picture\b|placeholder_svg_tag\b|video_tag\b|<video\b|<iframe\b/i.test(
+      source
+    );
+  const hasDecorativeBadgeMarkup =
+    /\b(badge|seal|sticker|eyebrow|gluten[-_ ]?free)\b/i.test(source) ||
+    /border-radius\s*:\s*999(?:px|rem|em)?/i.test(source);
+  const hasResponsiveViewportHandling =
+    /@media\b|@container\b|clamp\(|repeat\(\s*auto-fit|repeat\(\s*auto-fill|minmax\(/i.test(
+      source
+    );
+  const usesSectionPropertiesBackground =
+    /render\s+['"]section-properties['"][^%]*\bbackground\s*:/i.test(source);
+  const rootSectionMatch = source.match(
+    /<(?:section|div)\b[^>]*class\s*=\s*["']([^"']+)["']/i
+  );
+  const rootClassTokens = Array.from(
+    new Set(
+      String(rootSectionMatch?.[1] || "")
+        .split(/\s+/)
+        .map((token) => token.trim())
+        .filter((token) => token && /^[A-Za-z0-9_-]+$/.test(token))
+    )
+  );
+  const hasRootBackgroundShell = rootClassTokens.some((className) =>
+    new RegExp(
+      `\\.${escapeRegExp(className)}\\b[^{}]*\\{[^}]*background(?:-color)?\\s*:`,
+      "i"
+    ).test(source)
+  );
 
   if (
     referenceSignals.requiresRenderablePreviewMedia &&
@@ -2429,6 +2480,73 @@ function collectExactMatchReferenceSafety(
     );
     suggestedFixes.push(
       "Gebruik expliciete italic/emphasis markup of styling voor het accentwoord in de titel."
+    );
+  }
+
+  if (
+    referenceSignals.requiresDecorativeMediaAnchors &&
+    !hasMerchantEditableImageSetting &&
+    !hasMediaMarkup
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "De exacte referentie bevat onderscheidende decoratieve media-anchors, maar de section bevat geen merchant-editable image setting of renderbare media-markup om die compositie te benaderen.",
+        fixSuggestion:
+          "Voeg minstens één image_picker setting en een renderbare decoratieve media-anchor toe, bijvoorbeeld een floating product-afbeelding of mockupbeeld met betrouwbare aspect-ratio en positioning.",
+        issueCode: "exact_match_missing_reference_media_anchor",
+        suggestedReplacement: {
+          requestedDecorativeMediaAnchors,
+        },
+      })
+    );
+    suggestedFixes.push(
+      "Voeg een merchant-editable image_picker toe voor het onderscheidende decoratieve referentiebeeld.",
+      "Render een zichtbare decoratieve media-anchor in de eerste write in plaats van alleen een generieke tabel- of tekstlayout."
+    );
+  }
+
+  if (
+    referenceSignals.requiresDecorativeBadgeAnchors &&
+    !hasMerchantEditableBadgeSetting &&
+    !hasDecorativeBadgeMarkup
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "De exacte referentie bevat badge- of seal-achtige compositie-elementen, maar de section bevat geen herkenbare badge-setting of badge-markup.",
+        fixSuggestion:
+          "Voeg een badge/seal-achtige anchor toe in de eerste write, bijvoorbeeld via een image_picker of tekstsetting met bijpassende badge-markup en positioning.",
+        issueCode: "exact_match_missing_reference_badge_anchor",
+        suggestedReplacement: {
+          requestedDecorativeBadgeAnchors,
+        },
+      })
+    );
+    suggestedFixes.push(
+      "Voeg een badge- of seal-anchor toe die merchants later kunnen aanpassen.",
+      "Laat onderscheidende badge-elementen uit de referentie niet weg als de flow om een exacte match vraagt."
+    );
+  }
+
+  if (
+    referenceSignals.requiresResponsiveViewportParity &&
+    !hasResponsiveViewportHandling
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "De exacte referentie noemt expliciet desktop en mobile, maar de section bevat geen duidelijke responsive breakpoint- of viewportlogica.",
+        fixSuggestion:
+          "Voeg expliciete responsive viewportlogica toe, bijvoorbeeld via @media of container-query gedrag dat de mobile compositie zichtbaar afwijkt van desktop.",
+        issueCode: "exact_match_missing_viewport_parity",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg expliciete desktop/mobile breakpointlogica toe in plaats van alleen een generieke schaalbare layout."
     );
   }
 
@@ -2487,6 +2605,27 @@ function collectExactMatchReferenceSafety(
     );
     suggestedFixes.push(
       "Gebruik dezelfde content-width wrapper als de representatieve theme section."
+    );
+  }
+
+  if (
+    referenceSignals.avoidDoubleSectionShell &&
+    usesSectionPropertiesBackground &&
+    hasRootBackgroundShell
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "De section combineert een eigen root background-shell met een section-properties background-helper. Dat geeft snel een dubbele outer shell en laat de sectie groter of losser ogen dan de referentie.",
+        fixSuggestion:
+          "Kies precies één outer surface-strategie: laat ofwel de theme wrapper/helper de outer achtergrond dragen, of houd de helper neutraal en plaats de decoratieve shell op een bounded inner container.",
+        issueCode: "exact_match_double_background_shell",
+      })
+    );
+    suggestedFixes.push(
+      "Vermijd een dubbele outer shell wanneer section-properties al een background-helper krijgt.",
+      "Plaats de decoratieve reference-shell op een bounded inner container of maak de root background transparant."
     );
   }
 

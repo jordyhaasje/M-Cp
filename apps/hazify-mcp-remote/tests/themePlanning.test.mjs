@@ -522,6 +522,50 @@ try {
     "comparison-table prompts should surface a dedicated archetype"
   );
 
+  const exactComparisonReplicaPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query:
+      "Create a new Shopify section in the live theme based on the provided desktop and mobile reference images. It should replicate the comparison layout: left headline and supporting copy, review/rating row, right comparison table card with 'Our Brand' vs 'Others', 5 comparison rows, optional floating sachet image and gluten free badge style elements. Needs responsive desktop and mobile behavior matching the references.",
+  });
+  assert.equal(
+    exactComparisonReplicaPlan.sectionBlueprint?.archetype,
+    "comparison_table"
+  );
+  assert.equal(
+    exactComparisonReplicaPlan.sectionBlueprint?.referenceSignals?.hasDesktopMobileReferences,
+    true
+  );
+  assert.equal(
+    exactComparisonReplicaPlan.sectionBlueprint?.referenceSignals?.requiresResponsiveViewportParity,
+    true
+  );
+  assert.equal(
+    exactComparisonReplicaPlan.sectionBlueprint?.referenceSignals?.requiresDecorativeMediaAnchors,
+    true
+  );
+  assert.equal(
+    exactComparisonReplicaPlan.sectionBlueprint?.referenceSignals?.requiresDecorativeBadgeAnchors,
+    true
+  );
+  assert.equal(
+    exactComparisonReplicaPlan.sectionBlueprint?.referenceSignals?.avoidDoubleSectionShell,
+    true
+  );
+  assert.equal(
+    exactComparisonReplicaPlan.sectionBlueprint?.referenceSignals?.requiresThemeEditorLifecycleHooks,
+    false,
+    "comparison-table exact replicas should not demand Theme Editor lifecycle hooks when the archetype is non-interactive"
+  );
+  assert.ok(
+    exactComparisonReplicaPlan.warnings.some((warning) =>
+      warning.toLowerCase().includes("badge") ||
+      warning.toLowerCase().includes("double")
+    ),
+    "exact comparison replica plans should warn about decorative anchors and shell strategy"
+  );
+
   const beforeAfterPlan = await planThemeEdit(shopifyClient, "2026-01", {
     themeId: 123,
     intent: "new_section",

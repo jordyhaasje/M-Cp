@@ -202,6 +202,49 @@ const SCREENSHOT_REFERENCE_PATTERNS = [
   /\bvoorbeeld image\b/i,
 ];
 
+const DESKTOP_MOBILE_REFERENCE_PATTERNS = [
+  /\bdesktop\b.*\bmobile\b/i,
+  /\bmobile\b.*\bdesktop\b/i,
+  /\bdesktop versie\b/i,
+  /\bmobiele? versie\b/i,
+  /\bdesktop and mobile\b/i,
+  /\bdesktop en mobile\b/i,
+  /\bboth desktop and mobile\b/i,
+];
+
+const DECORATIVE_MEDIA_REFERENCE_PATTERNS = [
+  {
+    tag: "floating_product_media",
+    pattern:
+      /\b(floating|zwevend|hovering|overlapping)\b.*\b(sachet|pouch|pack(?:aging)?|product|bottle|jar|mockup|image)\b/i,
+  },
+  {
+    tag: "product_media_anchor",
+    pattern:
+      /\b(sachet|pouch|pack(?:aging)?|product image|product shot|bottle|jar|mockup)\b/i,
+  },
+  {
+    tag: "device_mockup",
+    pattern:
+      /\b(phone|iphone|mobile mockup|device mockup|device frame|telefoon(?:mockup)?)\b/i,
+  },
+];
+
+const DECORATIVE_BADGE_REFERENCE_PATTERNS = [
+  {
+    tag: "badge",
+    pattern: /\b(badge|seal|sticker)\b/i,
+  },
+  {
+    tag: "gluten_free_badge",
+    pattern: /\bgluten[- ]?free\b/i,
+  },
+  {
+    tag: "rating_badge",
+    pattern: /\b(trustpilot|verified|rating badge)\b/i,
+  },
+];
+
 const EXPLICIT_MEDIA_SOURCE_PATTERNS = [
   /shopify:\/\//i,
   /cdn\.shopify/i,
@@ -380,6 +423,12 @@ const extractRequestedVisibleCardCount = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const extractReferenceAnchorTags = (query, definitions = []) =>
+  definitions
+    .filter((entry) => entry?.pattern?.test(query))
+    .map((entry) => entry.tag)
+    .filter(Boolean);
+
 const inferSectionArchetype = ({
   query = "",
   sectionTypeHint = "",
@@ -473,6 +522,7 @@ const buildReferenceSignals = ({
   qualityTarget = "theme_consistent",
   category = "static",
   categorySignals = [],
+  archetype = "content_section",
   heroLike = false,
   themeContext = null,
 } = {}) => {
@@ -490,9 +540,30 @@ const buildReferenceSignals = ({
   const hasScreenshotLikeReference = SCREENSHOT_REFERENCE_PATTERNS.some((pattern) =>
     pattern.test(query)
   );
+  const hasDesktopMobileReferences = DESKTOP_MOBILE_REFERENCE_PATTERNS.some((pattern) =>
+    pattern.test(query)
+  );
   const hasExplicitMediaSources = EXPLICIT_MEDIA_SOURCE_PATTERNS.some((pattern) =>
     pattern.test(query)
   );
+  const requestedDecorativeMediaAnchors = uniqueStrings(
+    extractReferenceAnchorTags(query, DECORATIVE_MEDIA_REFERENCE_PATTERNS)
+  );
+  const requestedDecorativeBadgeAnchors = uniqueStrings(
+    extractReferenceAnchorTags(query, DECORATIVE_BADGE_REFERENCE_PATTERNS)
+  );
+  const interactiveReplicaArchetypes = new Set([
+    "social_slider",
+    "image_slider",
+    "video_slider",
+    "review_slider",
+    "collection_slider",
+    "logo_slider",
+    "media_carousel",
+    "interactive_section",
+    "before_after",
+    "faq_collapsible",
+  ]);
   const previewMediaPolicy = !exactReplicaRequested || !mediaLike
     ? "not_media_driven"
     : hasExplicitMediaSources
@@ -503,7 +574,10 @@ const buildReferenceSignals = ({
     exactReplicaRequested,
     previewMediaPolicy,
     hasScreenshotLikeReference,
+    hasDesktopMobileReferences,
     hasExplicitMediaSources,
+    requestedDecorativeMediaAnchors,
+    requestedDecorativeBadgeAnchors,
     prefersRenderablePreviewMedia:
       exactReplicaRequested && mediaLike,
     requiresRenderablePreviewMedia:
@@ -515,7 +589,13 @@ const buildReferenceSignals = ({
       mediaLike &&
       !hasExplicitMediaSources,
     requiresThemeEditorLifecycleHooks:
-      exactReplicaRequested && interactiveLike,
+      exactReplicaRequested && interactiveReplicaArchetypes.has(archetype),
+    requiresResponsiveViewportParity:
+      exactReplicaRequested && hasDesktopMobileReferences,
+    requiresDecorativeMediaAnchors:
+      exactReplicaRequested && requestedDecorativeMediaAnchors.length > 0,
+    requiresDecorativeBadgeAnchors:
+      exactReplicaRequested && requestedDecorativeBadgeAnchors.length > 0,
     requiresTitleAccent:
       exactReplicaRequested &&
       /\b(cursief|italic|italics|accent(?:woord| word)?|emphasis|emphasized)\b/i.test(
@@ -532,6 +612,14 @@ const buildReferenceSignals = ({
     requiresThemeWrapperMirror:
       exactReplicaRequested &&
       !heroLike &&
+      Boolean(themeContext?.usesPageWidth),
+    requiresTwoSurfaceComposition:
+      exactReplicaRequested && archetype === "comparison_table",
+    requiresDedicatedInnerCard:
+      exactReplicaRequested && archetype === "comparison_table",
+    avoidDoubleSectionShell:
+      exactReplicaRequested &&
+      archetype === "comparison_table" &&
       Boolean(themeContext?.usesPageWidth),
     requestedVisibleCardsDesktop: extractRequestedVisibleCardCount(query),
   };
@@ -834,7 +922,12 @@ const buildWriteStrategy = ({ category, qualityTarget = "theme_consistent" } = {
   };
 };
 
-const buildCategoryGuardrails = ({ category, themeContext = null }) => {
+const buildCategoryGuardrails = ({
+  category,
+  archetype = "content_section",
+  themeContext = null,
+  referenceSignals = null,
+}) => {
   const guardrails = [...(themeContext?.guardrails || [])];
 
   if (category === "interactive" || category === "hybrid") {
@@ -854,6 +947,19 @@ const buildCategoryGuardrails = ({ category, themeContext = null }) => {
   if (category === "commerce" || category === "hybrid") {
     guardrails.push(
       "Spiegel bestaande product/button/price helpers in plaats van eigen commerce-markup te introduceren."
+    );
+  }
+
+  if (archetype === "comparison_table" && referenceSignals?.exactReplicaRequested) {
+    guardrails.push(
+      "Behoud bij comparison screenshot-replica's de bounded shell plus inner comparison card compositie uit de referentie, niet alleen een generieke tabel-layout.",
+      "Als de referentie decoratieve anchors zoals een floating product-afbeelding of badge/seal toont, laat die niet weg in de eerste write; maak ze merchant-editable wanneer mogelijk."
+    );
+  }
+
+  if (referenceSignals?.avoidDoubleSectionShell) {
+    guardrails.push(
+      "Gebruik geen dubbele achtergrond-shell. Combineer een theme wrapper helper met een eigen decoratieve shell alleen wanneer duidelijk is welke laag spacing en welke laag de visuele surface beheert."
     );
   }
 
@@ -1016,19 +1122,20 @@ const buildSectionGenerationBlueprint = ({
   const effectiveScaleGuide = themeContext?.scaleGuide || {};
   const effectiveSpacingSettings = themeContext?.spacingSettings || [];
   const completionPolicy = buildCompletionPolicy({ qualityTarget });
-  const referenceSignals = buildReferenceSignals({
-    query,
-    qualityTarget,
-    category: profile.category,
-    categorySignals: profile.categorySignals,
-    heroLike: profile.heroLike,
-    themeContext,
-  });
   const archetype = inferSectionArchetype({
     query,
     sectionTypeHint,
     category: profile.category,
     categorySignals: profile.categorySignals,
+  });
+  const referenceSignals = buildReferenceSignals({
+    query,
+    qualityTarget,
+    category: profile.category,
+    categorySignals: profile.categorySignals,
+    archetype,
+    heroLike: profile.heroLike,
+    themeContext,
   });
 
   return {
@@ -1053,7 +1160,9 @@ const buildSectionGenerationBlueprint = ({
     scaleGuide: effectiveScaleGuide,
     guardrails: buildCategoryGuardrails({
       category: profile.category,
+      archetype,
       themeContext,
+      referenceSignals,
     }),
     forbiddenPatterns: uniqueStrings([
       ...CATEGORY_FORBIDDEN_PATTERNS.universal,
@@ -1087,6 +1196,26 @@ const buildSectionGenerationBlueprint = ({
             ...(referenceSignals.allowStylizedPreviewFallbacks
               ? [
                   "Als de referentie alleen uit een screenshot of mockup bestaat en losse bronmedia ontbreken, maak dan wel de exacte layout/styling af in de eerste write maar gebruik renderbare demo-media of gestileerde media shells in plaats van placeholder_svg_tag.",
+                ]
+              : []),
+            ...(referenceSignals.requiresResponsiveViewportParity
+              ? [
+                  "De referentie bevat expliciet desktop- en mobile-composities. Lever beide breakpoint-varianten in de eerste write in plaats van alleen een desktop-layout die toevallig schaalt.",
+                ]
+              : []),
+            ...(referenceSignals.requiresDecorativeMediaAnchors
+              ? [
+                  "Behoud onderscheidende decoratieve media-anchors uit de referentie, zoals floating productmedia of een mockupbeeld, en maak ze merchant-editable als losse bron-assets ontbreken.",
+                ]
+              : []),
+            ...(referenceSignals.requiresDecorativeBadgeAnchors
+              ? [
+                  "Behoud badge- of seal-achtige reference-elementen uit de referentie in de eerste write en maak ze zo nodig merchant-editable.",
+                ]
+              : []),
+            ...(referenceSignals.avoidDoubleSectionShell
+              ? [
+                  "Gebruik geen dubbele achtergrond-shell wanneer het doeltheme al een section-properties of vergelijkbare wrapper-helper gebruikt. Kies bewust welke laag de decoratieve background draagt.",
                 ]
               : []),
             ...(referenceSignals.requiresThemeEditorLifecycleHooks

@@ -5,7 +5,7 @@ Doelgroep: repo maintainers en coding agents.
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.
 
 ## Current Phase
-- Phase 7 follow-up: bon-hero debugflow hardening is deployed to Railway production; remaining follow-up is one authenticated live-traffic log verification plus any optional repo cleanup
+- Phase 7 follow-up: screenshot-driven comparison-section fidelity hardening is implemented locally; remaining work is final tracker sync, commit, Railway deploy, and one post-deploy live-traffic verification
 
 ## Checklist Of Planned Work
 - [x] Read attached report and `tool_log.json`
@@ -273,6 +273,38 @@ Doelgroep: repo maintainers en coding agents.
 - Pushed `main` to GitHub after the runtime deploy:
   - `git push origin main` -> success
   - remote now contains runtime commit `779b2e1`
+- Read `/Users/jordy/Desktop/log.json` and mapped the actual `plan-theme-edit` -> `get-theme-files` -> `create-theme-section` flow against the visual output.
+- Compared the user reference screenshots (`goed1.png`, `goed2.png`) against the generated result screenshots (`section-nagemaakt.png`, `sectie-wit.png`) and confirmed the main regression was fidelity, not tool ordering.
+- Confirmed the visual regression pattern:
+  - decorative fidelity anchors from the reference were dropped in the generated section, especially the floating product media and orange badge/seal
+  - the generated section combined a theme-level background helper with its own outer background shell, which made the section feel oversized and visually looser
+  - switching the section background to white visually improved the result because it removed the apparent double-shell effect rather than fixing the underlying composition problem
+- Re-consulted Shopify dev MCP for:
+  - `image_url` / `image_tag` responsive image behavior
+  - `block.shopify_attributes`
+  - section object behavior relevant to responsive image loading and section placement
+- Attempted to re-consult Context7 for MCP SDK structured-response guidance, but `resolve-library-id` timed out again after 120s; retained the previously confirmed guidance already recorded in this tracker.
+- Hardened exact-replica planner/reference analysis for screenshot-driven comparison/shell sections:
+  - detect desktop+mobile parity requests
+  - detect decorative media anchors
+  - detect decorative badge/seal anchors
+  - detect when a two-surface composition with a dedicated inner card is expected
+  - detect when a double background shell should be avoided
+- Tightened exact-replica validator checks so generic comparison outputs are now rejected when they:
+  - drop required decorative media anchors
+  - drop required decorative badge/seal anchors
+  - miss responsive desktop/mobile parity signals
+  - build a competing outer background shell on top of theme background helpers
+- Narrowed Theme Editor lifecycle requirements so non-interactive exact comparison replicas are no longer over-classified as needing lifecycle hooks just because they are screenshot-driven.
+- Added regression coverage for:
+  - planner classification/warnings on screenshot-driven comparison replicas
+  - validator rejection of generic comparison markup that omits decorative anchors or creates a double shell
+- Re-synced generated docs and human docs so the new exact comparison/shell replica behavior is documented in source docs, generated docs, and maintainer docs.
+- Re-ran verification after the comparison fidelity hardening:
+  - `npm run check:docs` -> pass
+  - `npm run --workspace @hazify/mcp-remote test` -> pass
+  - `npm run build` -> pass
+  - `npm test` -> pass
 
 ## Decisions And Assumptions
 - Treat current code and runtime behavior as canonical over older docs/plans, per user request and `AGENTS.md`.
@@ -329,12 +361,22 @@ Doelgroep: repo maintainers en coding agents.
 - New bon-hero edit classification gap found during this session:
   - `draft-theme-artifact` treated context-placeholders like `REWRITE_ALREADY_APPLIED_IN_CONTEXT` as generic truncation
   - fixed locally with `inspection_failed_context_placeholder` plus full-rewrite and literal-patch retry templates
+- New screenshot-fidelity conflict found during this session from the supplied comparison-section screenshots and `log.json`:
+  - the tool order was correct, but the create flow still accepted a generic comparison-table result for an exact screenshot replica
+  - the generated section dropped key decorative anchors from the reference, which made the result look far less exact than older successful MCP recreations
+  - the generated section also layered an outer local background shell on top of theme-level section background helpers, producing the size/spacing distortion the user noticed
+  - fixed locally by surfacing stronger reference signals in the planner and rejecting exact-replica drafts that omit those anchors or create a double shell
 
 ## Files Inspected
 - `/Users/jordy/Desktop/mcp_debug_report_codex.docx`
 - `/Users/jordy/Downloads/bon-hero-debugdocument-codex.docx`
 - `/Users/jordy/Desktop/log/MCP_Hazify_Section_Replication_Report.docx`
 - `/Users/jordy/Desktop/tool_log.json`
+- `/Users/jordy/Desktop/log.json`
+- `/Users/jordy/Desktop/goed1.png`
+- `/Users/jordy/Desktop/goed2.png`
+- `/Users/jordy/Desktop/section-nagemaakt.png`
+- `/Users/jordy/Desktop/sectie-wit.png`
 - `/Users/jordy/Desktop/Customer service/docs/00-START-HERE.md`
 - `/Users/jordy/Desktop/Customer service/docs/01-TECH-STACK.md`
 - `/Users/jordy/Desktop/Customer service/docs/02-SYSTEM-FLOW.md`
@@ -372,6 +414,7 @@ Doelgroep: repo maintainers en coding agents.
 - `/Users/jordy/Desktop/Customer service/AGENTS.md`
 - `/Users/jordy/Desktop/Customer service/Fix plan.md` (deleted)
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themeSectionContext.js`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themePlanning.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themeReadHydration.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/createThemeSection.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
@@ -380,6 +423,7 @@ Doelgroep: repo maintainers en coding agents.
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/mcpHttpAuth.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/toolHardening.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/runtimeExecutionBehavior.test.mjs`
@@ -388,6 +432,7 @@ Doelgroep: repo maintainers en coding agents.
 - `/Users/jordy/Desktop/Customer service/docs/README.md`
 - `/Users/jordy/Desktop/Customer service/docs/00-START-HERE.md`
 - `/Users/jordy/Desktop/Customer service/docs/03-THEME-SECTION-GENERATION.md`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/README.md`
 - `/Users/jordy/Desktop/Customer service/AGENTS.md`
 - `/Users/jordy/Desktop/Customer service/docs/02-SYSTEM-FLOW.md`
 
@@ -461,6 +506,12 @@ Doelgroep: repo maintainers en coding agents.
 - `railway up --ci --verbose -m "Harden stateless existing-section edit repairs"` -> production deploy `e6e3dc27-1e4e-43a7-af8a-0928b698bd1d` succeeded
 - `npm run smoke:prod` -> passed after deploy
 - `git push origin main` -> passed after deploy
+- `npm run check:docs` -> passed after exact comparison/shell fidelity docs alignment
+- `npm run --workspace @hazify/mcp-remote test -- tests/themePlanning.test.mjs` -> passed after exact comparison/shell planner regressions
+- `npm run --workspace @hazify/mcp-remote test -- tests/draftThemeArtifact.test.mjs` -> passed after exact comparison/shell validator regressions
+- `npm run --workspace @hazify/mcp-remote test` -> passed after the same hardening
+- `npm run build` -> passed after the same hardening
+- `npm test` -> passed after the same hardening
 
 ## Shopify Dev MCP Docs Consulted
 - `learn_shopify_api(api: "liquid", model: "none")`
@@ -474,6 +525,8 @@ Doelgroep: repo maintainers en coding agents.
   - incremental section/block edit safety versus template placement for existing-section changes
   - theme role versus theme ID semantics and the uniqueness of `MAIN`
   - Theme Editor behavior for existing-section updates versus newly added sections, to keep existing-edit guidance aligned with Shopify section/block expectations
+  - responsive image rendering via `image_url` / `image_tag`
+  - section/block wrapper guidance relevant to exact screenshot replicas that include blocks or media anchors
 
 ## Context7 Docs Consulted
 - Resolved and queried `/websites/shopify_dev_storefronts_themes`
@@ -488,6 +541,7 @@ Doelgroep: repo maintainers en coding agents.
   - request handler context / request-level logging and distinction between tool-level failures vs protocol exceptions
   - conservative request-context correlation patterns when explicit resource identifiers differ from cached state
   - structured repair-response design for stateless clients that need machine-readable next steps after a tool-level domain failure
+- Attempted again to resolve/query Context7 for MCP SDK structured tool-response guidance during the screenshot-fidelity pass, but `resolve-library-id` timed out after 120s and returned no new material.
 
 ## Railway MCP Findings
 - Railway CLI authenticated and usable.
@@ -524,6 +578,7 @@ Doelgroep: repo maintainers en coding agents.
     - successful `preview_ready` drafts after the required planner/read steps
   - On April 21, 2026 the live Railway production runtime now includes the planner-contract + observability hardening from commit `3b57903` and the mixed-theme-target continuity hardening from commit `255e59b`.
   - The latest deploy-log check after `255e59b` still only showed startup/build lines, so real post-deploy request traffic is still needed for one follow-up verification pass on `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary`.
+  - The screenshot-fidelity hardening is still local at this point in the tracker; no new Railway deploy has been executed for it yet.
   - Production/deploy warnings observed:
     - repeated `npm warn config production Use --omit=dev instead`
     - `punycode` deprecation warning during build/start
@@ -531,12 +586,13 @@ Doelgroep: repo maintainers en coding agents.
 
 ## Open Issues
 - No failing tests or repo gates remain.
+- The new screenshot-driven comparison fidelity hardening still needs commit + Railway deploy + parity verification.
 - Railway cleanup environment still appears stale relative to production (`Node 18` image vs current `Node 22` baseline); no code change applied in this session.
 - Production Railway logs still need one more verification pass after a real authenticated tool call on the new deploy, because current smoke only exercised public discovery endpoints and the expected unauthenticated `401` on `/mcp`.
 - `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh` appears unused by the repo, but removal still needs human confirmation.
-- The latest deployed production runtime is now deployment `e6e3dc27-1e4e-43a7-af8a-0928b698bd1d`.
-- After the tracker sync commit, git-vs-deploy parity should be rechecked again if strict commit-to-deploy parity matters; the runtime-affecting deploy commit is `779b2e1`.
+- The latest deployed production runtime is still deployment `e6e3dc27-1e4e-43a7-af8a-0928b698bd1d` until this comparison-fidelity patchset is deployed.
+- After the new screenshot-fidelity runtime deploy, git-vs-deploy parity should be rechecked again if strict commit-to-deploy parity matters.
 
 ## Exact Next Step / Command
-- Trigger or observe one authenticated production `plan-theme-edit` / `create-theme-section` / `draft-theme-artifact` request on the new deploy and confirm the new domain-failure/requestId data in Railway logs.
-- Exact command: `railway logs --latest --lines 100 --filter "requestId OR mcp_http_tool_call_domain_failed OR failureSummary"`
+- Commit and deploy the screenshot-driven comparison fidelity hardening, then run Railway smoke checks and recheck production deployment parity.
+- Exact command: `railway up --ci --verbose -m "Harden exact comparison section replica fidelity"`

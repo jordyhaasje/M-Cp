@@ -590,6 +590,7 @@ const buildPlanFromAnalysis = ({
     const precisionFirst =
       sectionBlueprint?.qualityTarget === "exact_match" ||
       sectionBlueprint?.generationMode === "precision_first";
+    const referenceSignals = sectionBlueprint?.referenceSignals || null;
     recommendedFlow = "create-section";
     shouldUse = "create-theme-section";
     likelyNeedsMultiFileEdit = false;
@@ -619,6 +620,26 @@ const buildPlanFromAnalysis = ({
       warnings.push(
         "Vraag de gebruiker niet eerst of de section daarna pixel-perfect moet worden gemaakt; ga uit van de gevraagde finale styling in de eerste write en stel alleen vervolgvragen bij echte blockers."
       );
+      if (referenceSignals?.requiresResponsiveViewportParity) {
+        warnings.push(
+          "De referentie noemt expliciet desktop en mobiel. Lever beide composities in de eerste write in plaats van alleen een desktop-layout die schaalt."
+        );
+      }
+      if (referenceSignals?.requiresDecorativeMediaAnchors) {
+        warnings.push(
+          "De referentie bevat decoratieve media-anchors zoals floating productmedia of een mockup. Laat die niet weg in de eerste write; maak ze merchant-editable als losse assets ontbreken."
+        );
+      }
+      if (referenceSignals?.requiresDecorativeBadgeAnchors) {
+        warnings.push(
+          "De referentie bevat badge- of seal-achtige elementen. Behandel die als onderdeel van de compositie, niet als optionele versiering."
+        );
+      }
+      if (referenceSignals?.avoidDoubleSectionShell) {
+        warnings.push(
+          "Gebruik geen dubbele achtergrond-shell. Als je een theme wrapper helper zoals section-properties spiegelt, kies dan bewust welke laag de decoratieve background en spacing draagt."
+        );
+      }
     }
     if (Array.isArray(sectionBlueprint?.requiredReads) && sectionBlueprint.requiredReads.length > 0) {
       nextReadKeys = uniqueStrings(

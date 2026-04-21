@@ -664,6 +664,158 @@ test("draftThemeArtifact - allows screenshot-only exact-match placeholders with 
   }
 });
 
+test("draftThemeArtifact - rejects generic comparison replicas that drop decorative anchors or build a double shell", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/comparison-why-us.liquid",
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "create",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/comparison-why-us.liquid",
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .why {
+    background: rgb(var(--bg));
+  }
+
+  #shopify-section-{{ section.id }} .why__grid {
+    display: grid;
+    gap: 40px;
+  }
+
+  #shopify-section-{{ section.id }} .why__table {
+    background: rgb(var(--card));
+    border-radius: 20px;
+  }
+
+  @media (min-width: 900px) {
+    #shopify-section-{{ section.id }} .why__grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+</style>
+
+<section class="why">
+  <div {% render 'section-properties', background: section.settings.background %}>
+    <div class="page-width why__grid">
+      <div class="why__left">
+        <h2>{{ section.settings.heading }}</h2>
+        <div class="why__text rte">{{ section.settings.text }}</div>
+      </div>
+
+      <div class="why__table">
+        <div class="why__row why__head">
+          <div></div>
+          <div>{{ section.settings.col_1 }}</div>
+          <div>{{ section.settings.col_2 }}</div>
+        </div>
+        {% for block in section.blocks %}
+          <div class="why__row" {{ block.shopify_attributes }}>
+            <div>{{ block.settings.label }}</div>
+            <div class="check ok">✔</div>
+            <div class="check no">✖</div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Why us comparison",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "This is what sets us apart." },
+    { "type": "richtext", "id": "text", "label": "Text", "default": "<p>Few supplements cater to women.</p>" },
+    { "type": "text", "id": "col_1", "label": "Column 1", "default": "Our Brand" },
+    { "type": "text", "id": "col_2", "label": "Column 2", "default": "Others" },
+    { "type": "color", "id": "background", "label": "Background", "default": "#E6D8AA" },
+    { "type": "color", "id": "card_background", "label": "Card background", "default": "#FFFFFF" }
+  ],
+  "blocks": [
+    {
+      "type": "row",
+      "name": "Row",
+      "settings": [
+        { "type": "text", "id": "label", "label": "Label", "default": "Formulated for Women" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Why us comparison" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        sectionBlueprint: {
+          qualityTarget: "exact_match",
+          archetype: "comparison_table",
+          referenceSignals: {
+            exactReplicaRequested: true,
+            previewMediaPolicy: "best_effort_demo_media",
+            hasScreenshotLikeReference: true,
+            hasDesktopMobileReferences: true,
+            hasExplicitMediaSources: false,
+            prefersRenderablePreviewMedia: true,
+            requiresRenderablePreviewMedia: false,
+            allowStylizedPreviewFallbacks: true,
+            requiresResponsiveViewportParity: true,
+            requiresDecorativeMediaAnchors: true,
+            requiresDecorativeBadgeAnchors: true,
+            requestedDecorativeMediaAnchors: ["floating_product_media"],
+            requestedDecorativeBadgeAnchors: ["gluten_free_badge"],
+            requiresTitleAccent: false,
+            requiresNavButtons: false,
+            requiresThemeEditorLifecycleHooks: false,
+            requiresThemeWrapperMirror: true,
+            requiresTwoSurfaceComposition: true,
+            requiresDedicatedInnerCard: true,
+            avoidDoubleSectionShell: true,
+          },
+        },
+        themeSectionContext: {
+          usesPageWidth: true,
+        },
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "exact_match_missing_reference_media_anchor")
+    );
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "exact_match_missing_reference_badge_anchor")
+    );
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "exact_match_double_background_shell")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("draftThemeArtifact - flags missing schema labels during local inspection before relying only on theme-check", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
