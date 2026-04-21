@@ -5,7 +5,7 @@ Doelgroep: repo maintainers en coding agents.
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.
 
 ## Current Phase
-- Phase 8: tool-argument normalization and create/edit preflight hardening are verified locally; remaining work is the production redeploy plus one authenticated post-deploy log verification of the new wrapper/preflight behavior
+- Phase 8 follow-up: tool-argument normalization and create/edit preflight hardening are now deployed to Railway production; remaining work is one authenticated post-deploy verification of the new wrapper/preflight behavior on real tool traffic, plus optional block/snippet fidelity expansion
 
 ## Checklist Of Planned Work
 - [x] Read attached report and `tool_log.json`
@@ -406,6 +406,20 @@ Doelgroep: repo maintainers en coding agents.
   - `npm run check:repo` -> pass
   - `npm run build` -> pass
   - `npm test` -> pass (`EXIT:0`)
+- Deployed `Hazify-MCP-Remote` production again on Railway from `apps/hazify-mcp-remote`:
+  - deployment/build `1b3c61ac-a0df-4f1f-9b8c-16b2890fbfc2`
+  - status `SUCCESS`
+  - created `2026-04-21T17:20:36.973Z`
+  - CLI message `Harden theme tool argument normalization and preflight`
+  - Railpack `0.23.0`, Node `22.22.2`
+- Re-ran production smoke checks after the deploy:
+  - `GET https://hazify-license-service-production.up.railway.app/health` -> `200`
+  - `GET https://hazify-license-service-production.up.railway.app/v1/session/bootstrap` -> `200`
+  - `GET https://hazify-mcp-remote-production.up.railway.app/.well-known/oauth-protected-resource` -> `200`
+  - `GET https://hazify-mcp-remote-production.up.railway.app/.well-known/oauth-authorization-server` -> `200`
+  - `POST https://hazify-mcp-remote-production.up.railway.app/mcp` -> `401` without credentials, as expected
+  - `Production smoke checks passed`
+- Checked fresh Railway production logs after the deploy and confirmed the expected startup/runtime sequence for `@hazify/mcp-remote@1.1.0` plus the smoke-driven unauthenticated `/mcp` rejection on the new container.
 
 ## Decisions And Assumptions
 - Treat current code and runtime behavior as canonical over older docs/plans, per user request and `AGENTS.md`.
@@ -631,6 +645,8 @@ Doelgroep: repo maintainers en coding agents.
 - `npm run check:repo` -> passed after the same hardening
 - `npm run build` -> passed after the same hardening
 - `npm test` -> passed (`EXIT:0`) after the same hardening
+- `railway up --ci --verbose -m "Harden theme tool argument normalization and preflight"` -> production deploy `1b3c61ac-a0df-4f1f-9b8c-16b2890fbfc2` succeeded
+- `npm run smoke:prod` -> passed after the deploy
 
 ## Shopify Dev MCP Docs Consulted
 - `learn_shopify_api(api: "liquid", model: "none")`
@@ -704,6 +720,12 @@ Doelgroep: repo maintainers en coding agents.
   - The latest deploy-log check after `255e59b` still only showed startup/build lines, so real post-deploy request traffic is still needed for one follow-up verification pass on `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary`.
 - The screenshot-fidelity hardening is now live on Railway production via deployment/build `a0fbcd05-2a64-4209-9b81-d09da96767ac`.
 - The exact refinement-continuity hardening is now live on Railway production via deployment/build `eff195b1-4c86-474b-a40c-9bec6ed2a01a`, corresponding to runtime commit `2f858ba`.
+- The wrapper argument-normalization + local Liquid/schema preflight hardening is now live on Railway production via deployment/build `1b3c61ac-a0df-4f1f-9b8c-16b2890fbfc2`, corresponding to runtime commit `6d272ec`.
+  - Fresh post-deploy logs showed:
+    - expected build/start sequence for `@hazify/mcp-remote@1.1.0`
+    - the usual `npm warn config production Use --omit=dev instead`
+    - the usual `punycode` deprecation warning
+    - an expected unauthenticated `/mcp` rejection from the smoke check on the new runtime
   - Railway production logs for the analyzed user flow showed:
     - successful `plan-theme-edit` + `create-theme-section`
     - a later `existing_section_key_conflict` when the client retried `create-theme-section` on the same file
@@ -718,12 +740,12 @@ Doelgroep: repo maintainers en coding agents.
 - Railway cleanup environment still appears stale relative to production (`Node 18` image vs current `Node 22` baseline); no code change applied in this session.
 - Production Railway logs still need one more verification pass after a real authenticated tool call on the new deploy, because current smoke only exercised public discovery endpoints and the expected unauthenticated `401` on `/mcp`.
 - `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh` appears unused by the repo, but removal still needs human confirmation.
-- The latest deployed production runtime is now deployment/build `eff195b1-4c86-474b-a40c-9bec6ed2a01a`, corresponding to runtime commit `2f858ba`.
-- Git-vs-deploy parity still needs one last recheck after pushing the upcoming post-deploy tracker sync commit.
+- The latest deployed production runtime is now deployment/build `1b3c61ac-a0df-4f1f-9b8c-16b2890fbfc2`, corresponding to runtime commit `6d272ec`.
+- Git-vs-deploy parity still needs one last recheck after pushing the post-deploy tracker sync commit.
 - Structural follow-up opportunity:
   - `inspectBlockFile` and `inspectSnippetFile` still lack the richer exact-replica fidelity checks that now exist for section files
   - if users start asking for screenshot-driven standalone theme blocks or snippet-backed native block replicas, a related decorative-anchor / shell-fidelity miss could still slip through
 
 ## Exact Next Step / Command
-- Push the runtime commit and tracker sync, then run one real authenticated screenshot-refinement flow against production and confirm the new create->edit recovery path appears in Railway request logs.
-- Exact command: `git push origin main && railway logs --service Hazify-MCP-Remote --environment production --lines 200 | rg -n "create-theme-section|draft-theme-artifact|existing_section_key_conflict|requestId|failureSummary"`
+- Push the runtime commit plus tracker sync, then run one real authenticated screenshot-refinement flow against production and confirm the new runtime-normalized read/write path appears in Railway request logs.
+- Exact command: `git push origin main && railway logs --service Hazify-MCP-Remote --environment production --lines 200 | rg -n "get-theme-file|get-theme-files|search-theme-files|create-theme-section|draft-theme-artifact|missing_section_liquid|inspection_failed_liquid_delimiter_balance|requestId|failureSummary"`
