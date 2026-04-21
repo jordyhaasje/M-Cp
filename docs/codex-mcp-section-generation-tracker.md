@@ -5,7 +5,7 @@ Doelgroep: repo maintainers en coding agents.
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.
 
 ## Current Phase
-- Phase 7 follow-up: screenshot-only exact-replica hardening, early schema-required-field preflight, docs anti-drift, Railway production deploy, and stale-plan cleanup are complete; remaining follow-up is one authenticated live-traffic observability check plus possible cleanup of unused manual scripts
+- Phase 7 follow-up: bon-hero debugflow hardening for stateless existing-file edits is implemented locally with regressions and docs updates; full repo verification plus Railway redeploy are the current next steps
 
 ## Checklist Of Planned Work
 - [x] Read attached report and `tool_log.json`
@@ -234,6 +234,23 @@ Doelgroep: repo maintainers en coding agents.
   - thrown tool exceptions still logging as `mcp_http_tool_call_failed`
   - `requestId` parity between HTTP response headers and runtime log events
 - Updated operations docs to document the new request/log behavior and the difference between git parity and Railway deploy parity.
+- Read `/Users/jordy/Downloads/bon-hero-debugdocument-codex.docx` via `textutil` and mapped the recorded `bon-hero.liquid` follow-up failures against the current MCP runtime.
+- Confirmed the `bon-hero` report exposes two real stateless-client gaps:
+  - create-conflicts on existing files were safe, but not explicit enough about the correct edit-only continuation
+  - `draft-theme-artifact` still classified context-placeholders like `REWRITE_ALREADY_APPLIED_IN_CONTEXT` as generic truncation
+- Hardened `create-theme-section` existing-key conflicts so the response now includes:
+  - `writeTool = "draft-theme-artifact"`
+  - a full-rewrite `writeArgsTemplate`
+  - an `existing_edit`-locked `plannerHandoff`
+  - `requiredToolNames`
+  - a concrete `repairSequence`
+- Hardened `draft-theme-artifact` edit validation so context-placeholders now fail with `inspection_failed_context_placeholder` plus explicit retry templates for either a full rewrite or a literal patch.
+- Tightened the tool-facing docs and human docs so they now state explicitly:
+  - never call `create-theme-section` again once the file already exists
+  - `draft-theme-artifact mode="edit"` full rewrites must send the full rewritten file content, not a context-placeholder or summary
+- Re-ran targeted regressions after the bon-hero hardening:
+  - `npm run --workspace @hazify/mcp-remote test -- tests/createThemeSection.test.mjs` -> pass (`72/72`; current runner still executes the full mcp-remote suite)
+  - `npm run --workspace @hazify/mcp-remote test -- tests/draftThemeArtifact.test.mjs` -> pass (`72/72`; current runner still executes the full mcp-remote suite)
 
 ## Decisions And Assumptions
 - Treat current code and runtime behavior as canonical over older docs/plans, per user request and `AGENTS.md`.
@@ -284,9 +301,16 @@ Doelgroep: repo maintainers en coding agents.
 - Git/ops conflict found after the Railway deploy:
   - production had already been updated, but `origin/main` had not been pushed yet
   - this is being resolved in the current cleanup step so git remote and Railway production can converge again
+- New bon-hero debugflow conflict found during this session:
+  - `create-theme-section` already blocked existing-file overwrites safely, but the repair payload still left too much follow-up orchestration implicit for stateless clients
+  - fixed locally by returning `writeTool`, `writeArgsTemplate`, `plannerHandoff`, `requiredToolNames`, and a concrete `repairSequence`
+- New bon-hero edit classification gap found during this session:
+  - `draft-theme-artifact` treated context-placeholders like `REWRITE_ALREADY_APPLIED_IN_CONTEXT` as generic truncation
+  - fixed locally with `inspection_failed_context_placeholder` plus full-rewrite and literal-patch retry templates
 
 ## Files Inspected
 - `/Users/jordy/Desktop/mcp_debug_report_codex.docx`
+- `/Users/jordy/Downloads/bon-hero-debugdocument-codex.docx`
 - `/Users/jordy/Desktop/log/MCP_Hazify_Section_Replication_Report.docx`
 - `/Users/jordy/Desktop/tool_log.json`
 - `/Users/jordy/Desktop/Customer service/docs/00-START-HERE.md`
@@ -405,6 +429,8 @@ Doelgroep: repo maintainers en coding agents.
   - expected test-path logs for rejected carriers / unauthorized requests
   - expected runtime test log for a simulated `get-theme-file` crash used to verify `mcp_http_tool_call_failed`
   - Railway startup warning about binding `0.0.0.0` without DNS rebinding protection
+- `npm run --workspace @hazify/mcp-remote test -- tests/createThemeSection.test.mjs` -> passed (`72/72`; current runner still executes the full mcp-remote suite) after existing-file create-conflict repair-sequence hardening
+- `npm run --workspace @hazify/mcp-remote test -- tests/draftThemeArtifact.test.mjs` -> passed (`72/72`; current runner still executes the full mcp-remote suite) after context-placeholder edit-failure hardening
 
 ## Shopify Dev MCP Docs Consulted
 - `learn_shopify_api(api: "liquid", model: "none")`
@@ -417,6 +443,7 @@ Doelgroep: repo maintainers en coding agents.
   - Theme Editor events
   - incremental section/block edit safety versus template placement for existing-section changes
   - theme role versus theme ID semantics and the uniqueness of `MAIN`
+  - Theme Editor behavior for existing-section updates versus newly added sections, to keep existing-edit guidance aligned with Shopify section/block expectations
 
 ## Context7 Docs Consulted
 - Resolved and queried `/websites/shopify_dev_storefronts_themes`
@@ -430,6 +457,7 @@ Doelgroep: repo maintainers en coding agents.
   - guidance that structured optional return fields are exposed to clients and are appropriate for safe multi-step continuation
   - request handler context / request-level logging and distinction between tool-level failures vs protocol exceptions
   - conservative request-context correlation patterns when explicit resource identifiers differ from cached state
+  - structured repair-response design for stateless clients that need machine-readable next steps after a tool-level domain failure
 
 ## Railway MCP Findings
 - Railway CLI authenticated and usable.
@@ -475,9 +503,9 @@ Doelgroep: repo maintainers en coding agents.
 - Railway cleanup environment still appears stale relative to production (`Node 18` image vs current `Node 22` baseline); no code change applied in this session.
 - Production Railway logs still need one more verification pass after a real authenticated tool call on the new deploy, because current smoke only exercised public discovery endpoints and the expected unauthenticated `401` on `/mcp`.
 - `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh` appears unused by the repo, but removal still needs human confirmation.
-- The latest deployed production runtime is now deployment `8fb1def7-1745-4a0d-bd94-0b4b3df479e1`.
-- GitHub `origin/main` is now ahead of Railway only by the non-runtime cleanup commit `656b553` (tracker + stale plan deletion). The latest runtime-affecting deployed commit remains `198e1fa`.
+- The latest deployed production runtime is still deployment `8fb1def7-1745-4a0d-bd94-0b4b3df479e1`; the new bon-hero stateless-edit hardening is local only until the next deploy.
+- GitHub parity must be rechecked after the next commit because this session adds new runtime changes.
 
 ## Exact Next Step / Command
-- Trigger or observe one authenticated production `plan-theme-edit` / `create-theme-section` / `draft-theme-artifact` request on the new deploy and confirm `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary` behavior in Railway logs.
-- Exact command: `railway logs --latest --lines 100 --filter "requestId OR mcp_http_tool_call_domain_failed OR failureSummary"`
+- Run the full repo checks, then commit and redeploy the bon-hero stateless-edit hardening to Railway production.
+- Exact command: `npm run --workspace @hazify/mcp-remote test && npm run check:docs && npm run check:repo && npm run build && npm test`

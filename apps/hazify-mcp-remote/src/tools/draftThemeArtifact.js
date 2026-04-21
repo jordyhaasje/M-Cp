@@ -27,7 +27,7 @@ import {
 
 export const toolName = "draft-theme-artifact";
 export const title = "Write Theme Files";
-export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, or broader theme changes. For a brand-new section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. For broad visual refinements of an existing section, prefer mode='edit' with a full rewrite over long patch arrays. Do not use apply-theme-draft for the first write.`;
+export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, or broader theme changes. For a brand-new section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. For broad visual refinements of an existing section, prefer mode='edit' with a full rewrite over long patch arrays. In mode='edit', files[].value must contain the full rewritten file content, not a placeholder like REWRITE_ALREADY_APPLIED_IN_CONTEXT. Do not use apply-theme-draft for the first write.`;
 export const docsDescription = `Draft and validate Shopify theme files through the guarded pipeline.
 
 Modes:
@@ -43,6 +43,7 @@ Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als
 Theme-aware section regels:
 - Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
 - Compatibele shorthand: voor één file mag een client ook top-level key + value/content/liquid of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Binnen files[] worden value/content/liquid nu ook veilig naar dezelfde canonieke value-write genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
+- Gebruik in mode="edit" voor full rewrites altijd de volledige nieuwe bestandsinhoud in files[].value. Context-placeholders of samenvattingen zoals REWRITE_ALREADY_APPLIED_IN_CONTEXT zijn ongeldig; gebruik anders een letterlijke patch/patches.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
 - Wanneer plan-theme-edit eerst exact nextReadKeys voorschrijft, probeert deze tool die planner-reads nu eerst veilig exact te hydrateren. Alleen als vereiste reads daarna nog ontbreken, blijft dezelfde write-flow geblokkeerd en krijgt de client een expliciete read-repair terug.
 - Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder verplichte velden zoals setting/block labels, types, ids, names en content waar relevant, plus geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting. Bij range-fouten geeft de tool exacte suggestedReplacement/default-hints terug.
@@ -87,7 +88,7 @@ const ThemeDraftFilePublicSchema = z
       .string()
       .optional()
       .describe(
-        "De volledige inhoud / broncode. Payloads falen als ze niet Shopify OS 2.0 proof zijn: geldige schema settings en een presets-array zijn verplicht."
+        "De volledige inhoud / broncode. Voor mode='edit' full rewrites moet dit de complete nieuwe bestandsinhoud zijn, niet een context-placeholder of verkorte samenvatting. Payloads falen als ze niet Shopify OS 2.0 proof zijn: geldige schema settings en een presets-array zijn verplicht."
       ),
     content: z
       .string()
@@ -3300,6 +3301,61 @@ function summarizeNormalizedDraftArgs(input = {}) {
   };
 }
 
+const CONTEXT_PLACEHOLDER_WRITE_PATTERN =
+  /^(?:[A-Z0-9]+(?:_[A-Z0-9]+)*)_ALREADY_APPLIED_IN_CONTEXT$/;
+
+function isContextPlaceholderWrite(value) {
+  const normalized = String(value || "").trim();
+  return Boolean(normalized) && CONTEXT_PLACEHOLDER_WRITE_PATTERN.test(normalized);
+}
+
+function buildFullRewriteRetryArgsTemplate({
+  themeId,
+  themeRole,
+  key,
+  plannerHandoff,
+} = {}) {
+  return {
+    ...(themeId !== undefined && themeId !== null ? { themeId } : {}),
+    ...(themeRole ? { themeRole } : {}),
+    mode: "edit",
+    files: [
+      {
+        key: key || "<theme-file>",
+        value: "<full rewritten file content>",
+      },
+    ],
+    ...(plannerHandoff && typeof plannerHandoff === "object"
+      ? { plannerHandoff }
+      : {}),
+  };
+}
+
+function buildLiteralPatchRetryArgsTemplate({
+  themeId,
+  themeRole,
+  key,
+  plannerHandoff,
+} = {}) {
+  return {
+    ...(themeId !== undefined && themeId !== null ? { themeId } : {}),
+    ...(themeRole ? { themeRole } : {}),
+    mode: "edit",
+    files: [
+      {
+        key: key || "<theme-file>",
+        patch: {
+          searchString: "<exact literal anchor from the current file>",
+          replaceString: "<updated markup/liquid>",
+        },
+      },
+    ],
+    ...(plannerHandoff && typeof plannerHandoff === "object"
+      ? { plannerHandoff }
+      : {}),
+  };
+}
+
 function buildFailureResponse({
   status,
   message,
@@ -4570,15 +4626,76 @@ export const draftThemeArtifact = {
           }
 
           if (mode === "edit" && file.patches.length === 0 && newValue) {
+             if (isContextPlaceholderWrite(newValue)) {
+                const placeholderValue = String(newValue || "").trim();
+                return buildFailureResponse({
+                  status: "inspection_failed",
+                  message: `Existing section edit voor '${file.key}' bevat geen echte bestandsinhoud maar de context-placeholder '${placeholderValue}'. draft-theme-artifact kan eerdere chatcontext niet als file body reconstrueren.`,
+                  errorCode: "inspection_failed_context_placeholder",
+                  retryable: true,
+                  suggestedFixes: [
+                    "Stuur voor een full rewrite het VOLLEDIGE herschreven bestand in files[].value mee.",
+                    "Of gebruik files[].patch / files[].patches met een letterlijke unieke anchor als je maar een gerichte wijziging nodig hebt.",
+                    `Gebruik create-theme-section niet opnieuw voor '${file.key}' nu dit bestand al bestaat.`,
+                  ],
+                  shouldNarrowScope: false,
+                  nextAction: "replace_context_placeholder_with_full_rewrite_or_patch",
+                  nextArgsTemplate: buildFullRewriteRetryArgsTemplate({
+                    themeId,
+                    themeRole,
+                    key: file.key,
+                    plannerHandoff: effectivePlannerHandoff,
+                  }),
+                  alternativeNextArgsTemplates: {
+                    patchExisting: buildLiteralPatchRetryArgsTemplate({
+                      themeId,
+                      themeRole,
+                      key: file.key,
+                      plannerHandoff: effectivePlannerHandoff,
+                    }),
+                  },
+                  retryMode: "same_request_with_full_rewrite_or_patch",
+                  normalizedArgs: getNormalizedArgs(),
+                  plannerHandoff: effectivePlannerHandoff,
+                  errors: [
+                    buildDraftInputError({
+                      path: ["files", files.indexOf(file), "value"],
+                      problem:
+                        `files[].value voor '${file.key}' bevat alleen de context-placeholder '${placeholderValue}' in plaats van volledige Liquid-inhoud.`,
+                      fixSuggestion:
+                        "Stuur het volledige herschreven bestand terug of gebruik een letterlijke patch/patches op het bestaande bestand.",
+                      issueCode: "inspection_failed_context_placeholder",
+                    }),
+                  ],
+                });
+             }
+
              if (newValue.length < originalValue.length * 0.5) {
                 return buildFailureResponse({
                   status: "inspection_failed",
                   message: `Existing section edit appears incomplete. De nieuwe content van '${file.key}' is minder dan 50% van het origineel. Dit duidt mogelijk op truncation.`,
                   errorCode: "inspection_failed_truncated",
                   retryable: true,
-                  suggestedFixes: ["Stuur het VOLLEDIGE bestand terug, of gebruik het nieuwe 'patch' argument om een specifieke regel aan te passen."],
+                  suggestedFixes: [
+                    "Stuur het VOLLEDIGE bestand terug, of gebruik het nieuwe 'patch' argument om een specifieke regel aan te passen.",
+                    "Gebruik geen context-placeholders of samenvattingen als files[].value; deze tool verwacht echte bestandsinhoud.",
+                  ],
                   shouldNarrowScope: false,
                   nextAction: "send_complete_file_or_patch",
+                  nextArgsTemplate: buildFullRewriteRetryArgsTemplate({
+                    themeId,
+                    themeRole,
+                    key: file.key,
+                    plannerHandoff: effectivePlannerHandoff,
+                  }),
+                  alternativeNextArgsTemplates: {
+                    patchExisting: buildLiteralPatchRetryArgsTemplate({
+                      themeId,
+                      themeRole,
+                      key: file.key,
+                      plannerHandoff: effectivePlannerHandoff,
+                    }),
+                  },
                   retryMode: "same_request_after_fix",
                   normalizedArgs: getNormalizedArgs(),
                 });

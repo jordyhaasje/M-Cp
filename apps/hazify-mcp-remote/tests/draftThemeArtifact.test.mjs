@@ -301,6 +301,113 @@ function createThemeFilesFetchMock({
   };
 }
 
+test("draftThemeArtifact - rejects context placeholders for existing full rewrites with explicit repair hints", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/bon-hero.liquid",
+    initialValue: goodSectionLiquid,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const plannerHandoff = {
+      brief: "Maak de bestaande bon-hero section compacter en behoud dezelfde compositie.",
+      intent: "existing_edit",
+      targetFile: "sections/bon-hero.liquid",
+      themeTarget: { themeId: 111, themeRole: null },
+    };
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "edit",
+        themeId: 111,
+        plannerHandoff,
+        files: [
+          {
+            key: "sections/bon-hero.liquid",
+            value: "REWRITE_ALREADY_APPLIED_IN_CONTEXT",
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.equal(result.errorCode, "inspection_failed_context_placeholder");
+    assert.equal(
+      result.nextArgsTemplate?.files?.[0]?.value,
+      "<full rewritten file content>"
+    );
+    assert.equal(
+      result.alternativeNextArgsTemplates?.patchExisting?.files?.[0]?.patch?.searchString,
+      "<exact literal anchor from the current file>"
+    );
+    assert.equal(result.plannerHandoff?.targetFile, "sections/bon-hero.liquid");
+    assert.ok(
+      result.suggestedFixes?.some((entry) =>
+        entry.includes("create-theme-section niet opnieuw")
+      ),
+      "the placeholder failure should steer the client away from create-theme-section for existing files"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - keeps generic truncation guard for short real rewrites", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/bon-hero.liquid",
+    initialValue: goodSectionLiquid,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "edit",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/bon-hero.liquid",
+            value: "<div>Te kort</div>",
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.equal(result.errorCode, "inspection_failed_truncated");
+    assert.equal(result.nextArgsTemplate?.mode, "edit");
+    assert.equal(
+      result.alternativeNextArgsTemplates?.patchExisting?.files?.[0]?.patch?.replaceString,
+      "<updated markup/liquid>"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("draftThemeArtifact - fails when linter finds issues", async (t) => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",

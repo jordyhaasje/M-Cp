@@ -604,6 +604,22 @@ test("createThemeSection - blocks overwriting an existing section key", async ()
   assert.equal(result.errorCode, "existing_section_key_conflict");
   assert.equal(result.nextAction, "choose_edit_or_alternate_key");
   assert.equal(result.nextTool, "plan-theme-edit");
+  assert.equal(result.writeTool, "draft-theme-artifact");
+  assert.equal(result.writeArgsTemplate?.mode, "edit");
+  assert.equal(
+    result.writeArgsTemplate?.files?.[0]?.value,
+    "<full rewritten file content>"
+  );
+  assert.equal(result.plannerHandoff?.intent, "existing_edit");
+  assert.equal(result.plannerHandoff?.targetFile, "sections/existing-section.liquid");
+  assert.ok(
+    result.requiredToolNames?.includes("draft-theme-artifact"),
+    "existing-file create conflicts should advertise the correct edit write tool"
+  );
+  assert.ok(
+    Array.isArray(result.repairSequence) && result.repairSequence.length >= 3,
+    "create conflict repairs should include an explicit multi-step sequence for stateless clients"
+  );
   assert.equal(
     result.nextArgsTemplate?.query,
     "Maak deze Trustpilot review slider exact na van de screenshot",

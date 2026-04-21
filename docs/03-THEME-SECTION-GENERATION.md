@@ -79,8 +79,10 @@ Gebruik wanneer het doelbestand al bestaat of wanneer de gebruiker expliciet bes
 4. `draft-theme-artifact mode="edit"` voor volledige rewrites of multi-file edits
 
 Belangrijk:
+- Zodra het doelbestand al bestaat, gebruik je nooit opnieuw `create-theme-section`
 - Broad rewrites op bestaande grote files blijven beschermd door truncation checks
 - Gebruik `value` alleen als het volledige bestand bewust is ingelezen en vervangen moet worden
+- Gebruik in `files[].value` altijd echte volledige bestandsinhoud; context-placeholders of samenvattingen zoals `REWRITE_ALREADY_APPLIED_IN_CONTEXT` zijn ongeldig
 
 Voorbeeldprompt:
 ```text
@@ -140,6 +142,11 @@ Maak een hero-video section en plaats hem daarna ook op de homepage van theme 12
 - `draft-theme-artifact` kan `status="preview_ready"` teruggeven terwijl het doeltheme het live `main` theme is
 - Dit is geen impliciete publish-flow; het betekent dat de preview write naar het expliciet gekozen target succesvol was
 - De remote moet live-target risico expliciet blijven waarschuwen
+
+## Stateless Client Notes
+- Gewone chatclients zoals ChatGPT, Claude en Perplexity missen soms server-side sessiecontext tussen toolcalls
+- Daarom retourneren create-conflicts nu expliciet een repair-sequence: `plan-theme-edit intent="existing_edit"` -> exacte read(s) -> `draft-theme-artifact mode="edit"`
+- Full rewrites op bestaande bestanden moeten altijd het volledige nieuwe bestand meesturen; de MCP kan een placeholder-string nooit terugvertalen naar echte Liquid
 
 ## Read Semantics
 - `get-theme-files` of `read-theme-files` zetten `includeContent` niet blind automatisch aan.

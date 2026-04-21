@@ -194,6 +194,9 @@ const summarizeNormalizedCreateArgs = (input = {}) => ({
     Object.keys(input.plannerHandoff).length > 0,
 });
 
+const uniqueStrings = (values) =>
+  Array.from(new Set((values || []).filter(Boolean)));
+
 const buildCreateSectionError = ({
   path,
   problem,
@@ -221,6 +224,11 @@ const buildCreateSectionRepairResponse = ({
   sectionBlueprint,
   newFileSuggestions,
   alternativeNextArgsTemplates,
+  writeTool,
+  writeArgsTemplate,
+  plannerHandoff,
+  requiredToolNames,
+  repairSequence,
 }) => ({
   success: false,
   status,
@@ -243,6 +251,15 @@ const buildCreateSectionRepairResponse = ({
     : {}),
   ...(alternativeNextArgsTemplates
     ? { alternativeNextArgsTemplates }
+    : {}),
+  ...(writeTool ? { writeTool } : {}),
+  ...(writeArgsTemplate ? { writeArgsTemplate } : {}),
+  ...(plannerHandoff ? { plannerHandoff } : {}),
+  ...(Array.isArray(requiredToolNames) && requiredToolNames.length > 0
+    ? { requiredToolNames }
+    : {}),
+  ...(Array.isArray(repairSequence) && repairSequence.length > 0
+    ? { repairSequence }
     : {}),
   ...(nextArgsTemplate ? { nextArgsTemplate } : {}),
 });
@@ -275,9 +292,9 @@ const createThemeSectionTool = {
   name: "create-theme-section",
   title: "Create Theme Section",
   description:
-    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Do not use apply-theme-draft first. Required: explicit themeId or themeRole, one section file path or handle, and the complete Liquid file with a valid {% schema %}. After plan-theme-edit, the tool prefers the exact nextReadKeys first and now tries to auto-hydrate those exact planner reads when they are safely derivable; if required context still ontbreekt, the write stays blocked. For screenshot/design-replica requests: lever de finale styling in de eerste create-write, niet eerst een veilige baseline gevolgd door een vraag of het pixel-perfect moet worden gemaakt. Screenshot-only replica's zonder losse bron-assets mogen nu wel renderbare demo-media of gestileerde media shells gebruiken zolang de layout, styling en merchant settings exact blijven gericht op de referentie.",
+    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Never use this tool to modify a section file that already exists, even if that file was just created earlier in the same conversation. Do not use apply-theme-draft first. Required: explicit themeId or themeRole, one section file path or handle, and the complete Liquid file with a valid {% schema %}. After plan-theme-edit, the tool prefers the exact nextReadKeys first and now tries to auto-hydrate those exact planner reads when they are safely derivable; if required context still ontbreekt, the write stays blocked. For screenshot/design-replica requests: lever de finale styling in de eerste create-write, niet eerst een veilige baseline gevolgd door een vraag of het pixel-perfect moet worden gemaakt. Screenshot-only replica's zonder losse bron-assets mogen nu wel renderbare demo-media of gestileerde media shells gebruiken zolang de layout, styling en merchant settings exact blijven gericht op de referentie.",
   docsDescription:
-    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Vereist: expliciet `themeId` of `themeRole`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Lees na `plan-theme-edit` bij voorkeur eerst de exacte `nextReadKeys` in; wanneer die planner-reads veilig exact afleidbaar zijn probeert deze tool ze nu eerst automatisch met `includeContent=true` te hydrateren. Alleen wanneer vereiste theme-context daarna nog ontbreekt, blijft de create-write geblokkeerd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Voor zulke replica-prompts verwacht deze tool directe finale styling in de eerste create-write; vraag dus niet eerst om extra toestemming om het daarna pixel-perfect te maken. Als de referentie alleen screenshot-gedreven is en er geen losse bron-assets zijn, mag de eerste write nu wel renderbare demo-media of een gestileerde media shell gebruiken zolang de compositie, styling en merchant-editable settings trouw aan de referentie blijven. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
+    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Gebruik deze tool nooit om een bestaand section-bestand te wijzigen, ook niet als dat bestand net in dezelfde sessie is aangemaakt. Zodra de target-key al bestaat moet de flow omschakelen naar `plan-theme-edit intent='existing_edit'` en daarna naar `draft-theme-artifact mode=\"edit\"` of `patch-theme-file`. Vereist: expliciet `themeId` of `themeRole`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Lees na `plan-theme-edit` bij voorkeur eerst de exacte `nextReadKeys` in; wanneer die planner-reads veilig exact afleidbaar zijn probeert deze tool ze nu eerst automatisch met `includeContent=true` te hydrateren. Alleen wanneer vereiste theme-context daarna nog ontbreekt, blijft de create-write geblokkeerd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Voor zulke replica-prompts verwacht deze tool directe finale styling in de eerste create-write; vraag dus niet eerst om extra toestemming om het daarna pixel-perfect te maken. Als de referentie alleen screenshot-gedreven is en er geen losse bron-assets zijn, mag de eerste write nu wel renderbare demo-media of een gestileerde media shell gebruiken zolang de compositie, styling en merchant-editable settings trouw aan de referentie blijven. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
   inputSchema: CreateThemeSectionPublicObjectSchema,
   schema: CreateThemeSectionInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -446,6 +463,72 @@ const createThemeSectionTool = {
       const existingFile = existingResult.files?.find((file) => file.key === input.key);
       if (existingFile && !existingFile.missing && existingFile.found !== false) {
         const alternateKeySuggestions = buildAlternateSectionKeySuggestions(input.key);
+        const explicitThemeTarget = {
+          ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
+          ...(input.themeRole ? { themeRole: input.themeRole } : {}),
+        };
+        const fallbackTemplate =
+          recentPlan?.template ||
+          plannerHandoff?.template ||
+          inferTemplateSurfaceFromSectionLiquid(input.liquid);
+        const editPlanArgsTemplate = {
+          ...explicitThemeTarget,
+          intent: "existing_edit",
+          ...(fallbackTemplate ? { template: fallbackTemplate } : {}),
+          targetFile: input.key,
+          query: planningQuery,
+        };
+        const editWriteArgsTemplate = {
+          ...explicitThemeTarget,
+          mode: "edit",
+          files: [
+            {
+              key: input.key,
+              value: "<full rewritten file content>",
+            },
+          ],
+        };
+        const editPlannerHandoff = {
+          brief: planningQuery,
+          plannerQuery: planningQuery,
+          intent: "existing_edit",
+          template: fallbackTemplate || null,
+          themeTarget: {
+            themeId:
+              input.themeId === undefined || input.themeId === null
+                ? null
+                : Number(input.themeId),
+            themeRole: String(input.themeRole || "").trim() || null,
+          },
+          targetFile: input.key,
+          themeContext:
+            recentPlan?.themeContext && typeof recentPlan.themeContext === "object"
+              ? recentPlan.themeContext
+              : plannerHandoffTargetCompatible &&
+                  plannerHandoff?.themeContext &&
+                  typeof plannerHandoff.themeContext === "object"
+                ? plannerHandoff.themeContext
+                : null,
+          sectionBlueprint:
+            recentPlan?.sectionBlueprint && typeof recentPlan.sectionBlueprint === "object"
+              ? recentPlan.sectionBlueprint
+              : plannerHandoffTargetCompatible &&
+                  plannerHandoff?.sectionBlueprint &&
+                  typeof plannerHandoff.sectionBlueprint === "object"
+                ? plannerHandoff.sectionBlueprint
+                : null,
+          requiredReadKeys: [input.key],
+          readTool: "plan-theme-edit",
+          writeTool: "draft-theme-artifact",
+          requiredToolNames: [
+            "plan-theme-edit",
+            "get-theme-file",
+            "get-theme-files",
+            "draft-theme-artifact",
+          ],
+          nextWriteKeys: [input.key],
+          newFileSuggestions: alternateKeySuggestions,
+        };
         return buildCreateSectionRepairResponse({
           status: "inspection_failed",
           message:
@@ -456,27 +539,57 @@ const createThemeSectionTool = {
           retryMode: "switch_tool_after_fix",
           nextTool: "plan-theme-edit",
           nextArgsTemplate: {
-            ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
-            ...(input.themeRole ? { themeRole: input.themeRole } : {}),
-            intent: "existing_edit",
-            template:
-              recentPlan?.template || inferTemplateSurfaceFromSectionLiquid(input.liquid),
-            targetFile: input.key,
-            query: planningQuery,
+            ...editPlanArgsTemplate,
           },
+          writeTool: "draft-theme-artifact",
+          writeArgsTemplate: editWriteArgsTemplate,
+          plannerHandoff: editPlannerHandoff,
+          requiredToolNames: uniqueStrings([
+            "plan-theme-edit",
+            "get-theme-file",
+            "get-theme-files",
+            "draft-theme-artifact",
+          ]),
           newFileSuggestions: alternateKeySuggestions,
           alternativeNextArgsTemplates:
-            alternateKeySuggestions.length > 0
-              ? {
+            {
+              editExistingFullRewrite: editWriteArgsTemplate,
+              ...(alternateKeySuggestions.length > 0
+                ? {
                   createAlternateSection: {
-                    ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
-                    ...(input.themeRole ? { themeRole: input.themeRole } : {}),
+                    ...explicitThemeTarget,
                     key: alternateKeySuggestions[0],
                     liquid: input.liquid,
                     ...(input.isStandalone ? { isStandalone: true } : {}),
                   },
                 }
-              : undefined,
+                : {}),
+            },
+          repairSequence: [
+            {
+              tool: "plan-theme-edit",
+              purpose: "switch_to_existing_edit",
+              argsTemplate: editPlanArgsTemplate,
+            },
+            {
+              tool: "get-theme-file",
+              purpose: "read_exact_target_or_follow_planner_reads",
+              argsTemplate: {
+                ...explicitThemeTarget,
+                key: input.key,
+                includeContent: true,
+              },
+              note:
+                "Als plan-theme-edit meerdere nextReadKeys teruggeeft, gebruik dan get-theme-files met exact die keys.",
+            },
+            {
+              tool: "draft-theme-artifact",
+              purpose: "rewrite_existing_file",
+              argsTemplate: editWriteArgsTemplate,
+              note:
+                "Stuur het volledige herschreven bestand of gebruik een letterlijke patch/patches. Gebruik create-theme-section niet opnieuw zodra de key al bestaat.",
+            },
+          ],
           errors: [
             buildCreateSectionError({
               path: ["key"],
