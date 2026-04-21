@@ -802,6 +802,16 @@ test("planThemeEdit - keeps the last created section as sticky follow-up target"
   assert.equal(planResult.nextArgsTemplate?.key, "sections/hero-trustpilot.liquid");
   assert.equal(planResult.requiresReadBeforeWrite, true);
   assert.equal(planResult.writeTool, "draft-theme-artifact");
+  assert.equal(
+    planResult.writeArgsTemplate?.mode,
+    "edit",
+    "rewrite-existing follow-up prompts should produce an edit-mode draft template for existing files"
+  );
+  assert.equal(
+    planResult.writeArgsTemplate?.files?.[0]?.key,
+    "sections/hero-trustpilot.liquid",
+    "rewrite-existing follow-up prompts should keep the existing section as the draft target"
+  );
 });
 
 test("planThemeEdit - keeps the recent existing-edit target as sticky follow-up target", async () => {
@@ -833,4 +843,15 @@ test("planThemeEdit - keeps the recent existing-edit target as sticky follow-up 
   assert.equal(planResult.nextTool, "get-theme-file");
   assert.equal(planResult.nextArgsTemplate?.key, "sections/testimonials.liquid");
   assert.equal(planResult.requiresReadBeforeWrite, true);
+  assert.equal(planResult.writeTool, "draft-theme-artifact");
+  assert.equal(
+    planResult.writeArgsTemplate?.mode,
+    "edit",
+    "sticky existing-edit refinements should hand off to draft-theme-artifact edit mode, not create mode"
+  );
+  assert.equal(
+    planResult.writeArgsTemplate?.files?.[0]?.key,
+    "sections/testimonials.liquid",
+    "sticky existing-edit refinements should preserve the exact existing file in the write template"
+  );
 });

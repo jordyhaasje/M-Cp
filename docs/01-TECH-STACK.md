@@ -30,6 +30,14 @@ Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazif
 - `MCP_SESSION_MODE` is standaard **`stateless`**. Stateful deployment is alleen aanbevolen met sticky sessions (`MCP_STATEFUL_DEPLOYMENT_SAFE=true`).
 - In-memory context cache `HAZIFY_MCP_CONTEXT_TTL_MS` (standaard 120.000 ms over HTTP).
 
+### Remote MCP observability
+- De remote MCP logt request-level JSON events naar stdout; Railway is daarmee de primaire bron voor runtime-diagnose.
+- `mcp_http_tool_call_finished` betekent een succesvolle tool-call.
+- `mcp_http_tool_call_domain_failed` betekent dat de tool zelf gecontroleerd heeft gefaald, bijvoorbeeld door theme inspectie, `theme-check`, create/edit guardrails of read-repair blokkades.
+- `mcp_http_tool_call_failed` blijft gereserveerd voor echte exceptions/protocolfouten.
+- Elke request krijgt een `requestId`; dezelfde waarde gaat mee in `X-Request-Id` en in de JSON logs.
+- `scripts/check-git-sync.mjs` controleert alleen repo parity tegen `origin/main`. Railway deploy parity moet apart bevestigd worden via deploy metadata of logs.
+
 ## 3. Persistence
 - Zowel de License Service als de Remote MCP draaien op PostgreSQL-backed persistence. Er is geen JSON-file opslag of runtime in-memory fallback meer buiten tests.
 - Postgres writes via `createStorageAdapter` (`src/repositories/storage-adapter.js`) zijn transactioneel (upsert/delete). Geen destructieve `TRUNCATE + full reinsert`.

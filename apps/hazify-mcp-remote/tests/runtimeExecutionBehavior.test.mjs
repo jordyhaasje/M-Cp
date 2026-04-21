@@ -60,6 +60,7 @@ const mcpBaseUrl = `http://127.0.0.1:${mcpPort}`;
 const themeDraftDb = createThemeDraftDbHarness();
 
 const originalFetch = global.fetch;
+const originalConsoleLog = console.log;
 const counters = {
   introspectCalls: 0,
   exchangeCalls: 0,
@@ -68,6 +69,7 @@ const counters = {
   activeMutatingCalls: 0,
   maxMutatingCalls: 0,
 };
+const capturedHttpEvents = [];
 
 const validSectionLiquid = `
 <style>
@@ -167,6 +169,12 @@ global.fetch = async (url, options = {}) => {
     }
 
     if (query.includes("query ThemeFileById")) {
+      const requested = Array.isArray(payload.variables?.filenames)
+        ? payload.variables.filenames.map((entry) => String(entry))
+        : [];
+      if (requested.includes("sections/throw.liquid")) {
+        throw new Error("Simulated read crash");
+      }
       counters.activeReadCalls += 1;
       counters.maxReadCalls = Math.max(counters.maxReadCalls, counters.activeReadCalls);
       await delay(120);
@@ -298,6 +306,21 @@ process.env.HAZIFY_MCP_API_KEY = "mcp-test-key";
 process.env.HAZIFY_MCP_PUBLIC_URL = mcpBaseUrl;
 process.env.MCP_SESSION_MODE = "stateless";
 delete process.env.HAZIFY_MCP_CONTEXT_TTL_MS;
+
+console.log = (...args) => {
+  const [firstArg] = args;
+  if (typeof firstArg === "string") {
+    try {
+      const parsed = JSON.parse(firstArg);
+      if (parsed?.event && String(parsed.event).startsWith("mcp_http_")) {
+        capturedHttpEvents.push(parsed);
+      }
+    } catch {
+      // ignore non-JSON logs
+    }
+  }
+  return originalConsoleLog(...args);
+};
 
 const mcpModuleUrl = `${pathToFileURL(path.resolve(testDir, "../src/index.js")).href}?test=${Date.now()}`;
 const mcpModule = await import(mcpModuleUrl);
@@ -454,6 +477,67 @@ try {
 
   assert.equal(counters.maxMutatingCalls, 1, "mutating tools should stay serialized per tenant");
 
+  const domainFailureStart = capturedHttpEvents.length;
+  const domainFailureResponse = await postMcpRaw({
+    jsonrpc: "2.0",
+    id: 24,
+    method: "tools/call",
+    params: {
+      name: "draft-theme-artifact",
+      arguments: {
+        themeId: 123,
+        mode: "create",
+        files: [{ key: "sections/demo.liquid", value: validSectionLiquid }],
+      },
+    },
+  });
+  const domainFailureBody = await domainFailureResponse.json();
+  assert.equal(domainFailureResponse.status, 200, "tool-level failures should still return a normal MCP response");
+  assert.equal(domainFailureBody?.error, undefined, "tool-level failures should not become JSON-RPC exceptions");
+  const domainFailureEvent = capturedHttpEvents
+    .slice(domainFailureStart)
+    .find((entry) => entry?.event === "mcp_http_tool_call_domain_failed");
+  assert.ok(domainFailureEvent, "tool-level theme failures should emit a dedicated domain-failed log event");
+  assert.equal(domainFailureEvent.toolName, "draft-theme-artifact");
+  assert.equal(domainFailureEvent.errorCode, "existing_create_key_conflict");
+  assert.equal(
+    domainFailureEvent.requestId,
+    domainFailureResponse.headers.get("x-request-id"),
+    "domain-failure logs should correlate with the HTTP request id"
+  );
+  assert.equal(
+    domainFailureEvent.failureSummary?.primaryIssueCode,
+    "existing_create_key_conflict",
+    "domain-failure logs should include a compact failure summary"
+  );
+
+  const thrownFailureStart = capturedHttpEvents.length;
+  const thrownFailureResponse = await postMcpRaw({
+    jsonrpc: "2.0",
+    id: 25,
+    method: "tools/call",
+    params: {
+      name: "get-theme-file",
+      arguments: { themeId: 123, key: "sections/throw.liquid", includeContent: true },
+    },
+  });
+  const thrownFailureBody = await thrownFailureResponse.json();
+  assert.ok(
+    thrownFailureBody?.error || thrownFailureBody?.result?.isError,
+    "thrown tool exceptions should still surface as request-level MCP failures"
+  );
+  const thrownFailureEvent = capturedHttpEvents
+    .slice(thrownFailureStart)
+    .find((entry) => entry?.event === "mcp_http_tool_call_failed");
+  assert.ok(thrownFailureEvent, "protocol/runtime exceptions should keep using the failed log event");
+  assert.equal(thrownFailureEvent.toolName, "get-theme-file");
+  assert.match(thrownFailureEvent.error || "", /Simulated read crash/);
+  assert.equal(
+    thrownFailureEvent.requestId,
+    thrownFailureResponse.headers.get("x-request-id"),
+    "thrown failures should also carry the same request id as the HTTP response"
+  );
+
   console.log("runtimeExecutionBehavior.test.mjs passed");
 } finally {
   if (mcpServer && mcpServer.listening) {
@@ -461,6 +545,7 @@ try {
   }
 
   global.fetch = originalFetch;
+  console.log = originalConsoleLog;
   await themeDraftDb.cleanup();
 
   for (const [key, value] of Object.entries(previousEnv)) {

@@ -141,6 +141,7 @@ const freezeExecutionContext = (context) => {
     return Object.freeze({
         mcpToken: context?.mcpToken || null,
         tokenHash: context?.tokenHash || null,
+        requestId: context?.requestId || null,
         tokenId: context?.tokenId || null,
         tenantId: String(context?.tenantId || "unknown"),
         licenseKey: context?.licenseKey || null,
@@ -373,6 +374,7 @@ const runSerializedByKey = async (key, work) => {
 const buildToolExecutionContext = (context = null) => freezeExecutionContext({
     tenantId: String(context?.tenantId || "unknown"),
     tokenHash: context?.tokenHash || null,
+    requestId: context?.requestId || null,
     tokenId: context?.tokenId || null,
     licenseKey: context?.licenseKey || null,
     license: context?.license || {},
@@ -457,6 +459,7 @@ async function runLicensedTool(tool, args) {
         const startedAt = Date.now();
         logHttpEvent("mcp_http_tool_call_started", {
             toolName,
+            requestId: context.requestId || null,
             tenantId: context.tenantId || null,
             tokenId: context.tokenId || null,
             shopifyDomain: context.shopifyDomain || null,
@@ -472,19 +475,25 @@ async function runLicensedTool(tool, args) {
                 throw new Error("Missing Shopify client in request execution context");
             }
             const result = await tool.execute(args, executionContext);
-            logHttpEvent("mcp_http_tool_call_finished", {
+            const resultSummary = summarizeToolResultForLog(result);
+            const logEvent = resultSummary.success === false
+                ? "mcp_http_tool_call_domain_failed"
+                : "mcp_http_tool_call_finished";
+            logHttpEvent(logEvent, {
                 toolName,
+                requestId: context.requestId || null,
                 tenantId: context.tenantId || null,
                 tokenId: context.tokenId || null,
                 shopifyDomain: context.shopifyDomain || null,
                 durationMs: Date.now() - startedAt,
-                ...summarizeToolResultForLog(result),
+                ...resultSummary,
             });
             return toMcpResponse(result);
         }
         catch (error) {
             logHttpEvent("mcp_http_tool_call_failed", {
                 toolName,
+                requestId: context.requestId || null,
                 tenantId: context.tenantId || null,
                 tokenId: context.tokenId || null,
                 shopifyDomain: context.shopifyDomain || null,
@@ -599,21 +608,80 @@ const logHttpEvent = (event, details = {}) => {
         // Logging should never break MCP responses.
     }
 };
-const summarizeToolResultForLog = (result) => ({
-    success: typeof result?.success === "boolean" ? result.success : true,
-    status: typeof result?.status === "string" ? result.status : null,
-    errorCode: typeof result?.errorCode === "string" ? result.errorCode : null,
-    retryable: typeof result?.retryable === "boolean" ? result.retryable : null,
-    draftId: typeof result?.draftId === "string" ? result.draftId : null,
-    themeId: result?.themeId ?? null,
-    analysisId: typeof result?.analysisId === "string" ? result.analysisId : null,
-    nextTool: typeof result?.nextTool === "string"
-        ? result.nextTool
-        : typeof result?.nextAction?.tool === "string"
-            ? result.nextAction.tool
-            : null,
-});
+const uniqueLogStrings = (values, limit = 5) => Array.from(new Set((Array.isArray(values) ? values : [])
+    .filter((value) => typeof value === "string" && value.trim())
+    .map((value) => value.trim()))).slice(0, limit);
+const summarizeLogPath = (value) => {
+    if (Array.isArray(value)) {
+        const normalized = value
+            .map((entry) => String(entry ?? "").trim())
+            .filter(Boolean);
+        return normalized.length > 0 ? normalized.join(".") : null;
+    }
+    if (typeof value === "string" && value.trim()) {
+        return value.trim();
+    }
+    return null;
+};
+const summarizeToolFailureForLog = (result) => {
+    const errors = Array.isArray(result?.errors)
+        ? result.errors.filter((entry) => entry && typeof entry === "object")
+        : [];
+    const lintIssues = Array.isArray(result?.lintIssues)
+        ? result.lintIssues.filter((entry) => entry && typeof entry === "object")
+        : [];
+    const warnings = Array.isArray(result?.warnings) ? result.warnings.filter(Boolean) : [];
+    const suggestedFixes = Array.isArray(result?.suggestedFixes)
+        ? result.suggestedFixes.filter(Boolean)
+        : [];
+    const primaryError = errors[0] || null;
+    const primaryLintIssue = lintIssues[0] || null;
+    return {
+        primaryIssueCode: typeof primaryError?.code === "string"
+            ? primaryError.code
+            : typeof primaryLintIssue?.code === "string"
+                ? primaryLintIssue.code
+                : typeof primaryLintIssue?.check === "string"
+                    ? primaryLintIssue.check
+                    : typeof result?.errorCode === "string"
+                        ? result.errorCode
+                        : null,
+        primaryPath: summarizeLogPath(primaryError?.path ?? primaryLintIssue?.path),
+        primaryCheck: typeof primaryLintIssue?.check === "string" ? primaryLintIssue.check : null,
+        primaryLine: Number.isInteger(primaryLintIssue?.line) ? primaryLintIssue.line : null,
+        primaryColumn: Number.isInteger(primaryLintIssue?.column) ? primaryLintIssue.column : null,
+        errorCount: errors.length,
+        lintIssueCount: lintIssues.length,
+        lintChecks: uniqueLogStrings(lintIssues.map((entry) => entry?.check)),
+        warningCount: warnings.length,
+        suggestedFixCount: suggestedFixes.length,
+        failedKeys: uniqueLogStrings(result?.failedKeys),
+    };
+};
+const summarizeToolResultForLog = (result) => {
+    const summary = {
+        success: typeof result?.success === "boolean" ? result.success : true,
+        status: typeof result?.status === "string" ? result.status : null,
+        errorCode: typeof result?.errorCode === "string" ? result.errorCode : null,
+        retryable: typeof result?.retryable === "boolean" ? result.retryable : null,
+        draftId: typeof result?.draftId === "string" ? result.draftId : null,
+        themeId: result?.themeId ?? null,
+        themeRole: typeof result?.themeRole === "string" ? result.themeRole : null,
+        analysisId: typeof result?.analysisId === "string" ? result.analysisId : null,
+        nextTool: typeof result?.nextTool === "string"
+            ? result.nextTool
+            : typeof result?.nextAction?.tool === "string"
+                ? result.nextAction.tool
+                : null,
+        warningCount: Array.isArray(result?.warnings) ? result.warnings.filter(Boolean).length : 0,
+    };
+    if (summary.success === false) {
+        summary.failureSummary = summarizeToolFailureForLog(result);
+    }
+    return summary;
+};
 const requestLogContext = (req) => ({
+    requestId: typeof req?.hazifyRequestId === "string" ? req.hazifyRequestId : null,
     method: req.method || null,
     path: req.originalUrl || req.url || null,
     origin: typeof req.headers.origin === "string" ? req.headers.origin : null,
@@ -709,6 +777,11 @@ const isRequestOriginAllowed = (req) => {
 {
     const app = createMcpExpressApp({ host: HTTP_HOST });
     app.use((req, res, next) => {
+        const forwardedRequestId = typeof req.headers["x-request-id"] === "string" && req.headers["x-request-id"].trim()
+            ? req.headers["x-request-id"].trim().slice(0, 200)
+            : null;
+        req.hazifyRequestId = forwardedRequestId || crypto.randomUUID();
+        res.setHeader("X-Request-Id", req.hazifyRequestId);
         res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("Referrer-Policy", "no-referrer");
         res.setHeader("X-Frame-Options", "DENY");
@@ -818,7 +891,11 @@ const isRequestOriginAllowed = (req) => {
             return null;
         }
         try {
-            return await resolveRemoteContext(token);
+            const resolvedContext = await resolveRemoteContext(token);
+            return freezeExecutionContext({
+                ...resolvedContext,
+                requestId: typeof req?.hazifyRequestId === "string" ? req.hazifyRequestId : null,
+            });
         }
         catch (error) {
             respondUnauthorized(req, res, error instanceof Error ? error.message : String(error));

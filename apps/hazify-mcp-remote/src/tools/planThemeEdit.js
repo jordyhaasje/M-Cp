@@ -549,13 +549,13 @@ const buildPlanWriteArgsTemplate = (input = {}, result = {}) => {
     const preferFullRewrite =
       result?.recommendedFlow === "rewrite-existing" ||
       result?.sectionBlueprint?.writeStrategy?.preferFullRewriteAfterCreate === true;
+    const isEditModeFlow =
+      result?.recommendedFlow === "rewrite-existing" ||
+      result?.recommendedFlow === "template-placement" ||
+      result?.recommendedFlow === "multi-file-edit";
     return {
       ...explicitThemeTarget,
-      mode:
-        result?.recommendedFlow === "template-placement" ||
-        result?.recommendedFlow === "multi-file-edit"
-          ? "edit"
-          : "create",
+      mode: isEditModeFlow ? "edit" : "create",
       files: [
         {
           key:

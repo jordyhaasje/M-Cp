@@ -28,6 +28,16 @@ npm run --workspace @hazify/mcp-remote start:remote
 - **Linter Resilience**: `theme-check` fouten zoals MissingSnippet zijn gedegradeerd naar warnings om onnodige blokkades bij deel-edits te voorkomen
 - Shopify credentials worden niet via introspection gedeeld; de remote haalt per token een interne Shopify access token op via `/v1/mcp/token/exchange`
 
+## Operations & Observability
+- Elke HTTP-response zet nu `X-Request-Id`; dezelfde `requestId` komt ook terug in de JSON logs van de remote MCP.
+- Gebruik in Railway vooral deze events:
+  - `mcp_http_tool_call_finished`: de tool-call was succesvol afgerond.
+  - `mcp_http_tool_call_domain_failed`: de tool draaide wel, maar gaf een gestructureerde applicatie-fout terug zoals inspectie-, lint- of guarded write-failures. Deze events bevatten nu ook een compacte `failureSummary`.
+  - `mcp_http_tool_call_failed`: echte runtime/protocol exceptions tijdens de tool-call.
+- `failureSummary` is bewust compact en veilig: denk aan `primaryIssueCode`, `primaryPath`, `lintChecks`, `warningCount` en beperkte `failedKeys`, zonder file content of secrets te loggen.
+- `npm run check:git-sync` bevestigt alleen lokale git parity tegen `origin/main`; het controleert niet welke Railway deploy live draait.
+- Bevestig local-vs-remote parity daarom altijd apart via Railway deploy metadata/logs, zeker voordat je een fix als “live” beschouwt.
+
 ## Theme edit flow
 - Canonical agent flow: `get-themes` -> `plan-theme-edit` -> compacte read/preflight -> `create-theme-section` voor nieuwe sections -> optioneel aparte `mode="edit"` of `patch-theme-file` voor vervolgfixes.
 - `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact` blijft de standaardflow voor bestaande single-file theme edits.

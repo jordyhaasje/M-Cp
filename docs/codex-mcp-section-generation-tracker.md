@@ -5,7 +5,7 @@ Doelgroep: repo maintainers en coding agents.
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.
 
 ## Current Phase
-- Phase 7: prompt-continuity hardening for sticky follow-ups and stateless planner handoff implemented locally and fully validated; next bottleneck is production observability / remaining theme-target edge cases
+- Phase 7: existing-edit planner contract hardening and request-level observability hardening implemented locally and fully validated; next bottleneck is deploy parity / remaining theme-target edge cases
 
 ## Checklist Of Planned Work
 - [x] Read attached report and `tool_log.json`
@@ -105,6 +105,26 @@ Doelgroep: repo maintainers en coding agents.
   - `npm run build` -> pass
   - `npm run check:docs` -> pass
   - `npm run check:repo` -> pass
+- Re-checked local-vs-remote parity on April 21, 2026:
+  - local `HEAD`: `7ff37df2912d33814efa54d0677cb8ab99bc482d`
+  - `origin/main`: `6554e3c4cc1f58735f45b677aceffc09543e9942`
+  - latest Railway production deploy for `Hazify-MCP-Remote`: `ab876e1b-2fe0-49cb-9c56-3a3167984813` from `2026-04-20T19:30:28Z`
+  - conclusion: local git, remote git, and live Railway runtime do not currently match
+- Re-consulted Shopify dev MCP for incremental existing-section edits, preserving merchant settings / `block.shopify_attributes`, and keeping standalone section creation separate from explicit JSON template placement.
+- Re-consulted Context7 MCP TypeScript SDK docs to confirm the runtime distinction between tool-level failures and protocol exceptions and to validate request-level logging/correlation patterns.
+- Fixed a concrete planner contract bug in `plan-theme-edit`: `rewrite-existing` flows were still emitting `draft-theme-artifact` write templates with `mode: "create"` instead of `mode: "edit"`, which could steer ordinary LLM clients into wrong create-mode validations/conflicts for existing files.
+- Added regression coverage so sticky follow-up `rewrite-existing` flows now assert `writeArgsTemplate.mode === "edit"` and preserve the exact existing file target.
+- Implemented a central remote observability pass in `apps/hazify-mcp-remote/src/index.js`:
+  - every request now gets an `X-Request-Id`
+  - request-level logs now include `requestId`
+  - tool-level structured failures now emit `mcp_http_tool_call_domain_failed`
+  - domain failures now include a compact safe `failureSummary`
+  - thrown runtime/protocol exceptions still emit `mcp_http_tool_call_failed`
+- Added runtime regression coverage for:
+  - tool-level domain failures logging as `mcp_http_tool_call_domain_failed` with `failureSummary`
+  - thrown tool exceptions still logging as `mcp_http_tool_call_failed`
+  - `requestId` parity between HTTP response headers and runtime log events
+- Updated operations docs to document the new request/log behavior and the difference between git parity and Railway deploy parity.
 
 ## Decisions And Assumptions
 - Treat current code and runtime behavior as canonical over older docs/plans, per user request and `AGENTS.md`.
@@ -137,6 +157,8 @@ Doelgroep: repo maintainers en coding agents.
   - Railway/request-level observability for theme-write failures is still too sparse for fast production diagnosis
 - Additional stateless-flow conflict found during this session: `plannerHandoff` portability was weaker than the docs implied, because write-tool gating still leaned on session memory for required planner reads and blueprint reuse. Fixed locally in `plan-theme-edit`, `create-theme-section`, and `draft-theme-artifact` with handoff-only regressions.
 - Remaining edge-case conflict from sub-agent review: `themeTargetsCompatible` is still permissive when one flow uses `themeId` and the next uses `themeRole`, which may still deserve a stricter pass for cross-theme safety.
+- New concrete conflict found during this session: `plan-theme-edit` already classified many broader existing-section refinements as `rewrite-existing`, but its `writeArgsTemplate` still emitted `draft-theme-artifact mode="create"` for that branch. That mismatch could produce avoidable create-only conflicts and wrong inspection paths for normal LLM clients on existing files. Fixed locally in source + tests.
+- New observability conflict found during this session: Railway logs could not cleanly distinguish tool-level guarded failures from thrown exceptions, and request-to-log correlation was weak. Fixed locally in `src/index.js` + runtime regressions, but not yet deployed.
 
 ## Files Inspected
 - `/Users/jordy/Desktop/log/MCP_Hazify_Section_Replication_Report.docx`
@@ -163,7 +185,9 @@ Doelgroep: repo maintainers en coding agents.
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/toolHardening.test.mjs`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/runtimeExecutionBehavior.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/README.md`
+- `/Users/jordy/Desktop/Customer service/docs/01-TECH-STACK.md`
 - `/Users/jordy/Desktop/Customer service/docs/README.md`
 - `/Users/jordy/Desktop/Customer service/docs/03-THEME-SECTION-GENERATION.md`
 
@@ -180,7 +204,9 @@ Doelgroep: repo maintainers en coding agents.
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/mcpHttpAuth.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/toolHardening.test.mjs`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/runtimeExecutionBehavior.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/README.md`
+- `/Users/jordy/Desktop/Customer service/docs/01-TECH-STACK.md`
 - `/Users/jordy/Desktop/Customer service/docs/README.md`
 - `/Users/jordy/Desktop/Customer service/docs/00-START-HERE.md`
 - `/Users/jordy/Desktop/Customer service/docs/03-THEME-SECTION-GENERATION.md`
@@ -221,9 +247,17 @@ Doelgroep: repo maintainers en coding agents.
 - `npm run build` -> passed again after stateless planner-handoff hardening
 - `npm run check:docs` -> passed again after stateless planner-handoff hardening
 - `npm run check:repo` -> passed again after stateless planner-handoff hardening
+- `npm run --workspace @hazify/mcp-remote test -- tests/createThemeSection.test.mjs` -> passed (`67/67`; current runner still executes the full mcp-remote suite) after fixing `rewrite-existing` -> `draft-theme-artifact mode="edit"` planner templates
+- `npm run --workspace @hazify/mcp-remote test -- tests/runtimeExecutionBehavior.test.mjs` -> passed (`67/67`; current runner still executes the full mcp-remote suite) after adding request-level domain-failure/requestId logging regressions
+- `npm run --workspace @hazify/mcp-remote test` -> passed (`67/67`) after planner contract + observability hardening
+- `npm run build` -> passed again after planner contract + observability hardening
+- `npm run check:docs` -> passed again after README / tech-stack observability updates
+- `npm run check:repo` -> passed again after planner contract + observability hardening
+- `npm test` -> passed again after planner contract + observability hardening (rerun captured to `/tmp/hazify-npm-test.log`)
 - Residual noise observed during tests/build, but non-failing:
   - Node `punycode` deprecation warning
   - expected test-path logs for rejected carriers / unauthorized requests
+  - expected runtime test log for a simulated `get-theme-file` crash used to verify `mcp_http_tool_call_failed`
 
 ## Shopify Dev MCP Docs Consulted
 - `learn_shopify_api(api: "liquid", model: "none")`
@@ -245,6 +279,7 @@ Doelgroep: repo maintainers en coding agents.
 - Queried `/modelcontextprotocol/typescript-sdk`
   - tool registration with `inputSchema` / optional `outputSchema`
   - guidance that structured optional return fields are exposed to clients and are appropriate for safe multi-step continuation
+  - request handler context / request-level logging and distinction between tool-level failures vs protocol exceptions
 
 ## Railway MCP Findings
 - Railway CLI authenticated and usable.
@@ -276,6 +311,7 @@ Doelgroep: repo maintainers en coding agents.
     - `inspection_failed_truncated`
     - `missing_theme_context_reads`
     - successful `preview_ready` drafts after the required planner/read steps
+  - On April 21, 2026 the live Railway production runtime still predates the local planner-contract and observability changes from this session, so request-level `mcp_http_tool_call_domain_failed` / `failureSummary` logging is not live yet.
   - Production/deploy warnings observed:
     - repeated `npm warn config production Use --omit=dev instead`
     - `punycode` deprecation warning during build/start
@@ -284,10 +320,16 @@ Doelgroep: repo maintainers en coding agents.
 ## Open Issues
 - No failing tests or repo gates remain.
 - Railway cleanup environment still appears stale relative to production (`Node 18` image vs current `Node 22` baseline); no code change applied in this session.
-- Production Railway deploy logs remain sparse for theme-write/runtime behavior; they currently expose mostly startup/build warnings rather than request-level theme diagnostics.
+- Production Railway deploy logs remain sparse for theme-write/runtime behavior until the current local `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary` hardening is pushed and deployed.
 - `themeTargetsCompatible` still deserves a stricter follow-up audit for mixed `themeId` / `themeRole` flows so sticky targets and recent-read reuse cannot drift across themes.
-- Production observability still deserves a central safe `failureSummary` / richer structured logging pass for theme-write failures.
-- Current local uncommitted changes now include the sticky follow-up hardening, the stateless planner-handoff hardening, their regression tests, and this tracker update. The latest deployed production runtime is still deployment `ab876e1b-2fe0-49cb-9c56-3a3167984813`; these newest changes are not deployed yet.
+- Current local uncommitted changes now include:
+  - sticky follow-up hardening
+  - stateless planner-handoff hardening
+  - `rewrite-existing` -> `draft-theme-artifact mode="edit"` planner contract fix
+  - request-level `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary` observability hardening
+  - related regression tests and docs/tracker updates
+- The latest deployed production runtime is still deployment `ab876e1b-2fe0-49cb-9c56-3a3167984813`; these newest local changes are not deployed yet.
 
 ## Exact Next Step / Command
-- Inspect `themeTargetsCompatible` and adjacent memory reuse paths for mixed `themeId` / `themeRole` flows, or alternatively start the central observability/failure-summary hardening in `src/index.js` and related output schemas.
+- Review the local diff, commit it, deploy `apps/hazify-mcp-remote` to Railway production, and then verify that live logs now show `requestId`, `mcp_http_tool_call_domain_failed`, and compact `failureSummary` fields for guarded theme failures.
+- Exact command: `git diff -- apps/hazify-mcp-remote/src/index.js apps/hazify-mcp-remote/src/tools/planThemeEdit.js apps/hazify-mcp-remote/tests/runtimeExecutionBehavior.test.mjs apps/hazify-mcp-remote/tests/createThemeSection.test.mjs apps/hazify-mcp-remote/README.md docs/01-TECH-STACK.md`
