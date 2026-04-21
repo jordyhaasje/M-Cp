@@ -617,6 +617,19 @@ try {
     exactReplicaPlan.sectionBlueprint?.writeStrategy?.disallowPatchBatchRefine,
     true
   );
+  assert.equal(
+    exactReplicaPlan.sectionBlueprint?.referenceSignals?.previewMediaPolicy,
+    "best_effort_demo_media",
+    "screenshot-only exact replicas should prefer best-effort demo media when no explicit source assets are provided"
+  );
+  assert.equal(
+    exactReplicaPlan.sectionBlueprint?.referenceSignals?.allowStylizedPreviewFallbacks,
+    true
+  );
+  assert.equal(
+    exactReplicaPlan.sectionBlueprint?.referenceSignals?.requiresRenderablePreviewMedia,
+    false
+  );
   assert.ok(
     exactReplicaPlan.warnings.some((warning) =>
       warning.toLowerCase().includes("replica") ||
@@ -624,6 +637,27 @@ try {
       warning.toLowerCase().includes("pixel-perfect")
     ),
     "exact-match plans should surface precision-first warnings"
+  );
+
+  const exactReplicaWithExplicitMediaPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query:
+      "Maak deze review slider exact na van de screenshot en gebruik de meegeleverde images review-1.jpg review-2.jpg als bronmedia",
+  });
+  assert.equal(
+    exactReplicaWithExplicitMediaPlan.sectionBlueprint?.referenceSignals?.previewMediaPolicy,
+    "strict_renderable_media"
+  );
+  assert.equal(
+    exactReplicaWithExplicitMediaPlan.sectionBlueprint?.referenceSignals?.hasExplicitMediaSources,
+    true
+  );
+  assert.equal(
+    exactReplicaWithExplicitMediaPlan.sectionBlueprint?.referenceSignals?.requiresRenderablePreviewMedia,
+    true,
+    "exact replicas with explicit source media should still require renderable preview media in the first write"
   );
 
   global.fetch = createGraphqlFetch(productThemeBlockFiles);

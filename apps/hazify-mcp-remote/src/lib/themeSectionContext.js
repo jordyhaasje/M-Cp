@@ -192,6 +192,26 @@ const EXACT_MATCH_PATTERNS = [
   /\bzoals op (?:de )?(?:afbeelding|screenshot|referentie)\b/i,
 ];
 
+const SCREENSHOT_REFERENCE_PATTERNS = [
+  /\bscreenshot\b/i,
+  /\breference\b/i,
+  /\breferentie\b/i,
+  /\bafbeelding\b/i,
+  /\bmockup\b/i,
+  /\bvoorbeeldbeeld\b/i,
+  /\bvoorbeeld image\b/i,
+];
+
+const EXPLICIT_MEDIA_SOURCE_PATTERNS = [
+  /shopify:\/\//i,
+  /cdn\.shopify/i,
+  /\bhttps?:\/\/\S+\.(?:png|jpe?g|webp|gif|svg|mp4|mov|webm)\b/i,
+  /\b\S+\.(?:png|jpe?g|webp|gif|svg|mp4|mov|webm)\b/i,
+  /\b(?:use|gebruik)\s+(?:the\s+|de\s+)?(?:meegeleverde|bijgevoegde|uploaded|attached|supplied)\s+(?:images?|afbeeldingen|assets?|videos?)\b/i,
+  /\b(?:zelfde|same)\s+(?:images?|afbeeldingen|assets?|video(?:'s)?)\b/i,
+  /\b(?:product|collection|shop)\s+(?:images?|media|video(?:'s)?)\b/i,
+];
+
 const CONTENT_WIDTH_WRAPPER_CLASSES = [
   "page-width",
   "container",
@@ -467,11 +487,33 @@ const buildReferenceSignals = ({
     interactiveLike ||
     effectiveSignals.includes("media") ||
     effectiveSignals.includes("commerce");
+  const hasScreenshotLikeReference = SCREENSHOT_REFERENCE_PATTERNS.some((pattern) =>
+    pattern.test(query)
+  );
+  const hasExplicitMediaSources = EXPLICIT_MEDIA_SOURCE_PATTERNS.some((pattern) =>
+    pattern.test(query)
+  );
+  const previewMediaPolicy = !exactReplicaRequested || !mediaLike
+    ? "not_media_driven"
+    : hasExplicitMediaSources
+      ? "strict_renderable_media"
+      : "best_effort_demo_media";
 
   return {
     exactReplicaRequested,
-    requiresRenderablePreviewMedia:
+    previewMediaPolicy,
+    hasScreenshotLikeReference,
+    hasExplicitMediaSources,
+    prefersRenderablePreviewMedia:
       exactReplicaRequested && mediaLike,
+    requiresRenderablePreviewMedia:
+      exactReplicaRequested &&
+      mediaLike &&
+      hasExplicitMediaSources,
+    allowStylizedPreviewFallbacks:
+      exactReplicaRequested &&
+      mediaLike &&
+      !hasExplicitMediaSources,
     requiresThemeEditorLifecycleHooks:
       exactReplicaRequested && interactiveLike,
     requiresTitleAccent:
@@ -1040,6 +1082,11 @@ const buildSectionGenerationBlueprint = ({
             ...(referenceSignals.requiresRenderablePreviewMedia
               ? [
                   "De eerste preview mag geen placeholder-media of lege card-slots als hoofdinhoud tonen; zorg voor direct renderbare demo/fallback media wanneer de referentie vooral beeldgedreven is.",
+                ]
+              : []),
+            ...(referenceSignals.allowStylizedPreviewFallbacks
+              ? [
+                  "Als de referentie alleen uit een screenshot of mockup bestaat en losse bronmedia ontbreken, maak dan wel de exacte layout/styling af in de eerste write maar gebruik renderbare demo-media of gestileerde media shells in plaats van placeholder_svg_tag.",
                 ]
               : []),
             ...(referenceSignals.requiresThemeEditorLifecycleHooks

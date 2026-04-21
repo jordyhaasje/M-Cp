@@ -45,19 +45,20 @@ Theme-aware section regels:
 - Compatibele shorthand: voor één file mag een client ook top-level key + value/content/liquid of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Binnen files[] worden value/content/liquid nu ook veilig naar dezelfde canonieke value-write genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
 - Wanneer plan-theme-edit eerst exact nextReadKeys voorschrijft, probeert deze tool die planner-reads nu eerst veilig exact te hydrateren. Alleen als vereiste reads daarna nog ontbreken, blijft dezelfde write-flow geblokkeerd en krijgt de client een expliciete read-repair terug.
-- Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting. Bij range-fouten geeft de tool exacte suggestedReplacement/default-hints terug.
+- Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder verplichte velden zoals setting/block labels, types, ids, names en content waar relevant, plus geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting. Bij range-fouten geeft de tool exacte suggestedReplacement/default-hints terug.
 - Nieuwe sections/blocks én nieuwe edit-writes op bestaande sections/blocks moeten blank-safe resource rendering gebruiken. Optionele settings zoals image_picker, video en video_url mogen niet onbeschermd door image_url, video_tag of external_video_* lopen; gebruik eerst een if/unless-guard of een expliciete default/fallback. Bestaande legacy-markup elders in het bestand blijft bewerkbaar zolang de nieuwe write geen extra onveilige resource-chain introduceert.
 - Wanneer de create-flow compacte theme-context heeft afgeleid, controleert de pipeline ook op hero-achtige oversizing van typography, spacing, gaps en min-heights ten opzichte van representatieve content sections in het doeltheme.
 - richtext defaults moeten Shopify-veilige HTML gebruiken. Gebruik top-level <p> of <ul>; tags zoals <mark> in richtext.default worden door Shopify afgewezen.
 - Nieuwe blocks/*.liquid files krijgen in create mode ook een basisinspectie op geldige schema JSON en block-veilige markup.
 - Presets moeten render-safe blijven: preset blocks zonder ingevulde merchant-media mogen geen Liquid runtime error veroorzaken.
+- Exacte screenshot-replica's met expliciete bronmedia blijven streng: placeholder_svg_tag als hoofdmedia blokkeert dan nog steeds de eerste preview-write. Screenshot-only replica's zonder losse bron-assets mogen nu wel door met een waarschuwing en een suggested fix richting renderbare demo-media of een gestileerde media shell.
 - Renderer-veilige Liquid blijft verplicht: geen geneste {{ ... }} of {% ... %} binnen dezelfde output-tag of filter-argumentstring; bouw zulke waarden eerst op via assign/capture en geef daarna de variabele door.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
 - Voor native blocks binnen een bestaande section (bijv. product-info of main-product): gebruik mode="edit" en patch de bestaande schema.blocks plus de render markup/snippet. Dit is geen los blocks/*.liquid bestand.
 - Als de gebruiker een nieuwe section ook op een homepage/productpagina geplaatst wil hebben, maak eerst sections/<handle>.liquid in mode="create" en doe daarna alleen bij expliciete placement-vraag een aparte mode="edit" call voor templates/*.json op hetzelfde expliciet gekozen thema. Gebruik config/settings_data.json alleen als uitzonderingsroute.
 - Gebruik voor nieuwe sections bij voorkeur enabled_on/disabled_on in de schema in plaats van legacy "templates" wanneer je beschikbaarheid per template wilt sturen.
-- Lokale inspectie en theme-check lint worden waar mogelijk samen als lokale preflight teruggegeven, zodat een retry meerdere deterministische fouten tegelijk kan repareren.
+- Lokale inspectie en theme-check lint worden waar mogelijk samen als lokale preflight teruggegeven, zodat een retry meerdere deterministische fouten tegelijk kan repareren. Wanneer plannerHandoff aanwezig is, gebruikt deze tool nu ook de planner-afgeleide theme-context en sectionBlueprint zodat stateless clients minder context verliezen.
 
 Rules for valid Shopify Liquid:
 
@@ -455,6 +456,185 @@ function collectSchemaSettings(schema) {
       )
     : [];
   return [...sectionSettings, ...blockSettings].filter(Boolean);
+}
+
+const SETTING_TYPES_WITH_CONTENT_ONLY = new Set(["header", "paragraph"]);
+
+function humanizeSchemaFieldLabel(value, fallback = "Setting") {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+  if (!normalized) {
+    return fallback;
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function settingRequiresLabel(setting) {
+  const type = String(setting?.type || "").trim();
+  if (!type) {
+    return false;
+  }
+  return !SETTING_TYPES_WITH_CONTENT_ONLY.has(type);
+}
+
+function buildSchemaPathSegment(setting, index) {
+  return String(setting?.id || setting?.type || `index_${index}`);
+}
+
+function collectSchemaRequiredFieldIssues(schema, fileKey, { rootOwner = "section" } = {}) {
+  const issues = [];
+
+  const pushIssue = ({
+    path,
+    problem,
+    fixSuggestion,
+    suggestedReplacement,
+  }) => {
+    issues.push(
+      createInspectionIssue({
+        path,
+        problem,
+        fixSuggestion,
+        suggestedReplacement,
+        issueCode: "inspection_failed_schema",
+      })
+    );
+  };
+
+  const sectionSettings = Array.isArray(schema?.settings) ? schema.settings : [];
+  sectionSettings.forEach((setting, index) => {
+    const type = String(setting?.type || "").trim();
+    const id = String(setting?.id || "").trim();
+    const label = String(setting?.label || "").trim();
+    const content = String(setting?.content || "").trim();
+    const pathSegment = buildSchemaPathSegment(setting, index);
+    const settingLabel = humanizeSchemaFieldLabel(id || type, "Section setting");
+
+    if (!type) {
+      pushIssue({
+        path: [fileKey, "schema", "settings", pathSegment, "type"],
+        problem: `Section schema setting '${pathSegment}' mist verplichte property 'type'.`,
+        fixSuggestion:
+          "Voeg een geldig Shopify setting type toe, bijvoorbeeld text, image_picker, color of range.",
+      });
+      return;
+    }
+
+    if (settingRequiresLabel(setting)) {
+      if (!id) {
+        pushIssue({
+          path: [fileKey, "schema", "settings", pathSegment, "id"],
+          problem: `Section schema setting van type '${type}' mist verplichte property 'id'.`,
+          fixSuggestion:
+            "Voeg een stabiele setting-id toe, bijvoorbeeld heading, image of background_color.",
+        });
+      }
+
+      if (!label) {
+        pushIssue({
+          path: [fileKey, "schema", "settings", pathSegment, "label"],
+          problem: `Section schema setting '${id || type}' mist verplichte property 'label'. Shopify Theme Editor en theme-check verwachten hier een label.`,
+          fixSuggestion: `Voeg een label toe, bijvoorbeeld '${settingLabel}'.`,
+          suggestedReplacement: {
+            label: settingLabel,
+          },
+        });
+      }
+      return;
+    }
+
+    if (!content) {
+      pushIssue({
+        path: [fileKey, "schema", "settings", pathSegment, "content"],
+        problem: `Section schema setting '${id || type}' van type '${type}' mist verplichte property 'content'.`,
+        fixSuggestion:
+          "Gebruik voor header- of paragraph-settings een content property met de zichtbare editor-tekst.",
+      });
+    }
+  });
+
+  const blocks = Array.isArray(schema?.blocks) ? schema.blocks : [];
+  blocks.forEach((block, blockIndex) => {
+    const blockType = String(block?.type || "").trim();
+    const blockName = String(block?.name || "").trim();
+    const blockPathSegment = blockType || `block_${blockIndex}`;
+    const blockSettings = Array.isArray(block?.settings) ? block.settings : [];
+
+    if (rootOwner === "section") {
+      if (!blockType) {
+        pushIssue({
+          path: [fileKey, "schema", "blocks", blockPathSegment, "type"],
+          problem: `Section block definitie op positie ${blockIndex + 1} mist verplichte property 'type'.`,
+          fixSuggestion:
+            "Voeg een stabiele block type string toe, bijvoorbeeld testimonial, slide of item.",
+        });
+      }
+
+      if (!blockName) {
+        pushIssue({
+          path: [fileKey, "schema", "blocks", blockPathSegment, "name"],
+          problem: `Section block '${blockType || `block_${blockIndex + 1}`}' mist verplichte property 'name'.`,
+          fixSuggestion:
+            "Voeg een merchant-zichtbare block name toe, bijvoorbeeld 'Testimonial' of 'Slide'.",
+        });
+      }
+    }
+
+    blockSettings.forEach((setting, settingIndex) => {
+      const type = String(setting?.type || "").trim();
+      const id = String(setting?.id || "").trim();
+      const label = String(setting?.label || "").trim();
+      const content = String(setting?.content || "").trim();
+      const settingPathSegment = buildSchemaPathSegment(setting, settingIndex);
+      const settingLabel = humanizeSchemaFieldLabel(id || type, "Block setting");
+
+      if (!type) {
+        pushIssue({
+          path: [fileKey, "schema", "blocks", blockPathSegment, "settings", settingPathSegment, "type"],
+          problem: `Block setting '${settingPathSegment}' in '${blockType || blockPathSegment}' mist verplichte property 'type'.`,
+          fixSuggestion:
+            "Voeg een geldig Shopify setting type toe, bijvoorbeeld text, image_picker, color of range.",
+        });
+        return;
+      }
+
+      if (settingRequiresLabel(setting)) {
+        if (!id) {
+          pushIssue({
+            path: [fileKey, "schema", "blocks", blockPathSegment, "settings", settingPathSegment, "id"],
+            problem: `Block setting van type '${type}' in '${blockType || blockPathSegment}' mist verplichte property 'id'.`,
+            fixSuggestion:
+              "Voeg een stabiele block setting-id toe, bijvoorbeeld quote, image of author_name.",
+          });
+        }
+
+        if (!label) {
+          pushIssue({
+            path: [fileKey, "schema", "blocks", blockPathSegment, "settings", settingPathSegment, "label"],
+            problem: `Block setting '${id || type}' in '${blockType || blockPathSegment}' mist verplichte property 'label'. Shopify Theme Editor en theme-check verwachten hier een label.`,
+            fixSuggestion: `Voeg een label toe, bijvoorbeeld '${settingLabel}'.`,
+            suggestedReplacement: {
+              label: settingLabel,
+            },
+          });
+        }
+        return;
+      }
+
+      if (!content) {
+        pushIssue({
+          path: [fileKey, "schema", "blocks", blockPathSegment, "settings", settingPathSegment, "content"],
+          problem: `Block setting '${id || type}' van type '${type}' in '${blockType || blockPathSegment}' mist verplichte property 'content'.`,
+          fixSuggestion:
+            "Gebruik voor header- of paragraph-settings een content property met de zichtbare editor-tekst.",
+        });
+      }
+    });
+  });
+
+  return issues;
 }
 
 const RANGE_ALIGNMENT_EPSILON = 1e-9;
@@ -2219,6 +2399,17 @@ function collectExactMatchReferenceSafety(
       "Gebruik voor screenshot-replica's direct renderbare preview-media in plaats van placeholder_svg_tag.",
       "Gebruik image_picker alleen als merchant-editable override; voeg daarnaast een echte fallback render-path toe voor de eerste preview."
     );
+  } else if (
+    referenceSignals.allowStylizedPreviewFallbacks &&
+    /placeholder_svg_tag\b/i.test(source)
+  ) {
+    warnings.push(
+      "De exacte referentie lijkt alleen screenshot-gedreven te zijn zonder losse bronmedia. Placeholder_svg_tag blokkeert de create-write niet meer hard, maar een renderbare demo-media fallback of gestileerde media shell geeft een betrouwbaarder eerste resultaat."
+    );
+    suggestedFixes.push(
+      "Vervang placeholder_svg_tag bij screenshot-only replica's liever door een renderbare demo-media fallback of een gestileerde media shell met juiste aspect-ratio.",
+      "Behoud merchant-editable image_picker/video settings, maar laat de eerste write niet alleen op placeholders steunen als de compositie sterk media-gedreven is."
+    );
   }
 
   if (
@@ -2394,7 +2585,7 @@ function summarizeMinimalSectionQuality(value, schema) {
   return uniqueStrings(warnings);
 }
 
-function inspectEditableLiquidSchema(value, fileLabel) {
+function inspectEditableLiquidSchema(value, fileLabel, { fileKey = null, rootOwner = "section" } = {}) {
   if (!hasLiquidBlockTag(value, "schema")) {
     return buildInspectionResult({});
   }
@@ -2414,6 +2605,18 @@ function inspectEditableLiquidSchema(value, fileLabel) {
         "Controleer of de schema JSON parsebaar is.",
         "Behoud een geldig {% schema %} block in section- en block-bestanden.",
       ],
+    });
+  }
+
+  const requiredFieldIssues = collectSchemaRequiredFieldIssues(
+    schema,
+    fileKey || fileLabel,
+    { rootOwner }
+  );
+  if (requiredFieldIssues.length > 0) {
+    return buildInspectionResult({
+      issues: requiredFieldIssues,
+      suggestedFixes: requiredFieldIssues.map((issue) => issue.fixSuggestion).filter(Boolean),
     });
   }
 
@@ -2601,6 +2804,12 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
 
   const blocks = Array.isArray(schema.blocks) ? schema.blocks : [];
   const presets = Array.isArray(schema.presets) ? schema.presets : [];
+  const requiredFieldIssues = collectSchemaRequiredFieldIssues(schema, file.key, {
+    rootOwner: "section",
+  });
+  if (requiredFieldIssues.length > 0) {
+    issues.push(...requiredFieldIssues);
+  }
   const sectionProfile = classifySectionGeneration({
     fileKey: file.key,
     source: value,
@@ -2911,6 +3120,12 @@ function inspectThemeBlockFile(file) {
   }
 
   const settingTypes = collectSchemaSettingTypes(schema);
+  const requiredFieldIssues = collectSchemaRequiredFieldIssues(schema, file.key, {
+    rootOwner: "block",
+  });
+  if (requiredFieldIssues.length > 0) {
+    issues.push(...requiredFieldIssues);
+  }
   const optionalResourceInspection = collectOptionalResourceRuntimeSafety(
     value,
     file.key,
@@ -4090,6 +4305,24 @@ export const draftThemeArtifact = {
         : handoffTargetCompatible
           ? plannerHandoffIntent
           : "";
+    const effectiveThemeSectionContext =
+      context?.themeSectionContext &&
+      typeof context.themeSectionContext === "object"
+        ? context.themeSectionContext
+        : handoffTargetCompatible &&
+            effectivePlannerHandoff?.themeContext &&
+            typeof effectivePlannerHandoff.themeContext === "object"
+          ? effectivePlannerHandoff.themeContext
+          : null;
+    const effectiveSectionBlueprint =
+      context?.sectionBlueprint &&
+      typeof context.sectionBlueprint === "object"
+        ? context.sectionBlueprint
+        : handoffTargetCompatible &&
+            effectivePlannerHandoff?.sectionBlueprint &&
+            typeof effectivePlannerHandoff.sectionBlueprint === "object"
+          ? effectivePlannerHandoff.sectionBlueprint
+          : null;
     const shouldEnforcePlannedReads =
       plannedReadKeys.length > 0 &&
       (
@@ -4175,8 +4408,8 @@ export const draftThemeArtifact = {
             issueCode: "missing_theme_context_reads",
           })
         ),
-        themeContext: context?.themeSectionContext || null,
-        sectionBlueprint: context?.sectionBlueprint || null,
+        themeContext: effectiveThemeSectionContext,
+        sectionBlueprint: effectiveSectionBlueprint,
         ...(effectivePlannerHandoff ? { plannerHandoff: effectivePlannerHandoff } : {}),
       });
     }
@@ -4483,8 +4716,8 @@ export const draftThemeArtifact = {
       } else if (isSectionFile) {
         if (mode === "create") {
           inspection = inspectSectionFile(file, {
-            themeContext: context?.themeSectionContext || null,
-            sectionBlueprint: context?.sectionBlueprint || null,
+            themeContext: effectiveThemeSectionContext,
+            sectionBlueprint: effectiveSectionBlueprint,
           });
         } else {
           const value = String(file.value || "");
@@ -4510,7 +4743,10 @@ export const draftThemeArtifact = {
               "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten."
             );
           }
-          const schemaInspection = inspectEditableLiquidSchema(value, `Section '${file.key}'`);
+          const schemaInspection = inspectEditableLiquidSchema(value, `Section '${file.key}'`, {
+            fileKey: file.key,
+            rootOwner: "section",
+          });
           const rendererInspection = collectLiquidRendererSafety(value, file.key);
           editIssues.push(...(schemaInspection.issues || []));
           editIssues.push(...(rendererInspection.issues || []));
@@ -4582,7 +4818,10 @@ export const draftThemeArtifact = {
               "Laat {% stylesheet %} en {% javascript %} alleen statische CSS/JS bevatten."
             );
           }
-          const schemaInspection = inspectEditableLiquidSchema(value, `Block '${file.key}'`);
+          const schemaInspection = inspectEditableLiquidSchema(value, `Block '${file.key}'`, {
+            fileKey: file.key,
+            rootOwner: "block",
+          });
           const rendererInspection = collectLiquidRendererSafety(value, file.key);
           editIssues.push(...(schemaInspection.issues || []));
           editIssues.push(...(rendererInspection.issues || []));
@@ -4670,8 +4909,8 @@ export const draftThemeArtifact = {
         suggestedFixes: preflightSuggestedFixes,
         suggestedSchemaRewrites: localInspection.suggestedSchemaRewrites,
         preferSelectFor: localInspection.preferSelectFor,
-        themeContext: context?.themeSectionContext || null,
-        sectionBlueprint: context?.sectionBlueprint || null,
+        themeContext: effectiveThemeSectionContext,
+        sectionBlueprint: effectiveSectionBlueprint,
         plannerHandoff: effectivePlannerHandoff,
         shouldNarrowScope:
           localInspection.shouldNarrowScope ||
@@ -4726,8 +4965,8 @@ export const draftThemeArtifact = {
         nextAction: classifiedLint.nextAction,
         retryMode: "same_request_after_fix",
         normalizedArgs: getNormalizedArgs(),
-        themeContext: context?.themeSectionContext || null,
-        sectionBlueprint: context?.sectionBlueprint || null,
+        themeContext: effectiveThemeSectionContext,
+        sectionBlueprint: effectiveSectionBlueprint,
         plannerHandoff: effectivePlannerHandoff,
       });
     }
@@ -4781,8 +5020,8 @@ export const draftThemeArtifact = {
               ? "same_request_after_refresh"
               : "same_request_after_fix"),
           normalizedArgs: getNormalizedArgs(),
-          themeContext: context?.themeSectionContext || null,
-          sectionBlueprint: context?.sectionBlueprint || null,
+          themeContext: effectiveThemeSectionContext,
+          sectionBlueprint: effectiveSectionBlueprint,
           plannerHandoff: effectivePlannerHandoff,
         });
       }
@@ -4847,11 +5086,11 @@ export const draftThemeArtifact = {
           warnings,
         }),
         normalizedArgs: getNormalizedArgs(),
-        ...(context?.themeSectionContext
-          ? { themeContext: context.themeSectionContext }
+        ...(effectiveThemeSectionContext
+          ? { themeContext: effectiveThemeSectionContext }
           : {}),
-        ...(context?.sectionBlueprint
-          ? { sectionBlueprint: context.sectionBlueprint }
+        ...(effectiveSectionBlueprint
+          ? { sectionBlueprint: effectiveSectionBlueprint }
           : {}),
         ...(effectivePlannerHandoff ? { plannerHandoff: effectivePlannerHandoff } : {}),
         suggestedFixes: uniqueStrings(suggestedFixes),
@@ -4876,8 +5115,8 @@ export const draftThemeArtifact = {
         nextAction: classified.nextAction || "retry_preview_upload",
         retryMode: classified.retryMode || "same_request_after_fix",
         normalizedArgs: getNormalizedArgs(),
-        themeContext: context?.themeSectionContext || null,
-        sectionBlueprint: context?.sectionBlueprint || null,
+        themeContext: effectiveThemeSectionContext,
+        sectionBlueprint: effectiveSectionBlueprint,
         plannerHandoff: effectivePlannerHandoff,
       });
     }

@@ -397,7 +397,7 @@ test("draftThemeArtifact - rejects raw img tags without reliable dimensions befo
   );
 });
 
-test("draftThemeArtifact - rejects placeholder media in exact-match replica creates", async () => {
+test("draftThemeArtifact - rejects placeholder media when exact-match replica requires explicit renderable media", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
     requestConfig: {
@@ -447,7 +447,12 @@ test("draftThemeArtifact - rejects placeholder media in exact-match replica crea
         qualityTarget: "exact_match",
         referenceSignals: {
           exactReplicaRequested: true,
+          previewMediaPolicy: "strict_renderable_media",
+          hasScreenshotLikeReference: true,
+          hasExplicitMediaSources: true,
+          prefersRenderablePreviewMedia: true,
           requiresRenderablePreviewMedia: true,
+          allowStylizedPreviewFallbacks: false,
           requiresTitleAccent: false,
           requiresNavButtons: false,
           requiresThemeEditorLifecycleHooks: false,
@@ -462,6 +467,149 @@ test("draftThemeArtifact - rejects placeholder media in exact-match replica crea
 
   assert.equal(result.success, false);
   assert.equal(result.errorCode, "exact_match_placeholder_media");
+});
+
+test("draftThemeArtifact - allows screenshot-only exact-match placeholders with a best-effort warning", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/collections-slider.liquid",
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "create",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/collections-slider.liquid",
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .collections-slider {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<section class="collections-slider page-width">
+  <div class="collections-slider__card">
+    {{ 'collection-1' | placeholder_svg_tag }}
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Collections slider",
+  "settings": [
+    { "type": "image_picker", "id": "image", "label": "Image" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Ontdek onze" },
+    { "type": "text", "id": "heading_accent", "label": "Accent", "default": "collecties" }
+  ],
+  "presets": [{ "name": "Collections slider" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        sectionBlueprint: {
+          qualityTarget: "exact_match",
+          referenceSignals: {
+            exactReplicaRequested: true,
+            previewMediaPolicy: "best_effort_demo_media",
+            hasScreenshotLikeReference: true,
+            hasExplicitMediaSources: false,
+            prefersRenderablePreviewMedia: true,
+            requiresRenderablePreviewMedia: false,
+            allowStylizedPreviewFallbacks: true,
+            requiresTitleAccent: false,
+            requiresNavButtons: false,
+            requiresThemeEditorLifecycleHooks: false,
+            requiresThemeWrapperMirror: true,
+          },
+        },
+        themeSectionContext: {
+          usesPageWidth: true,
+        },
+      }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+    assert.ok(
+      result.warnings?.some((warning) => warning.includes("demo-media fallback") || warning.includes("screenshot-gedreven")),
+      "screenshot-only exact replicas should warn about best-effort preview media instead of hard failing"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - flags missing schema labels during local inspection before relying only on theme-check", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/missing-labels.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .card { display: grid; gap: 16px; }
+</style>
+<section class="card">{{ section.settings.heading }}</section>
+{% schema %}
+{
+  "name": "Missing labels",
+  "settings": [
+    { "type": "text", "id": "heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Missing labels" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some(
+      (issue) =>
+        issue.issueCode === "inspection_failed_schema" &&
+        Array.isArray(issue.path) &&
+        issue.path.includes("label")
+    ),
+    "missing labels should be surfaced by local inspection with a schema-focused path"
+  );
+  assert.ok(
+    result.suggestedFixes?.some((entry) => entry.includes("Voeg een label toe")),
+    "local inspection should provide an immediate label repair hint"
+  );
 });
 
 test("draftThemeArtifact - rejects unguarded optional block images in create mode", async () => {

@@ -5,7 +5,7 @@ Doelgroep: repo maintainers en coding agents.
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.
 
 ## Current Phase
-- Phase 7: final mixed `themeId` / `themeRole` safety pass is deployed to Railway; current follow-up work is docs anti-drift cleanup, repo cleanup analysis, and final production-readiness summary
+- Phase 7 follow-up: screenshot-only exact-replica hardening, early schema-required-field preflight, and docs anti-drift are implemented and locally verified; remaining follow-up is production deploy/live-traffic confirmation plus final repo cleanup analysis
 
 ## Checklist Of Planned Work
 - [x] Read attached report and `tool_log.json`
@@ -23,6 +23,14 @@ Doelgroep: repo maintainers en coding agents.
 - [x] Produce final issue -> fix -> test map
 
 ## Completed Steps
+- Read `/Users/jordy/Desktop/mcp_debug_report_codex.docx` via `textutil` and mapped the recorded ChatGPT prompt flow against the current MCP runtime.
+- Confirmed the reported first failure (`exact_match_placeholder_media`) still matches the current local validator in `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`.
+- Confirmed the reported Theme Editor warnings (`block.shopify_attributes`, missing lifecycle hooks) still match the current warning paths in `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`.
+- Confirmed the reported second failure (`ValidSchema` / missing `label`) comes from the downstream `theme-check` lint stage, not from the current local schema preflight.
+- Re-consulted Shopify dev MCP + Context7 for:
+  - section setting `label` expectations
+  - `block.shopify_attributes` behavior in section block loops
+  - Theme Editor lifecycle events such as `shopify:section:load` / `shopify:section:select` / `shopify:block:select`
 - Read `/Users/jordy/Desktop/log/MCP_Hazify_Section_Replication_Report.docx` via `textutil`.
 - Read `/Users/jordy/Desktop/tool_log.json`.
 - Captured initial git state:
@@ -110,6 +118,37 @@ Doelgroep: repo maintainers en coding agents.
   - `npm run check:repo` -> pass
   - `npm test` -> pass (confirmed again via `/tmp/hazify-root-test.log`, exit code `0`)
 - Aligned the `plan-theme-edit` source `docsDescription` with the new sticky-target safety rule so `generate:docs` keeps `AGENTS.md` and `docs/02-SYSTEM-FLOW.md` in sync on future runs.
+- Re-consulted Shopify dev MCP + Context7 specifically for the new screenshot-only exact-replica and schema-preflight follow-up:
+  - Shopify section setting requirements such as `label`
+  - `block.shopify_attributes`
+  - Theme Editor lifecycle events
+  - MCP SDK structured handoff / stateless continuation guidance
+- Refined `themeSectionContext` reference signals so screenshot-only exact replicas without explicit source assets no longer pretend decomposed media already exists:
+  - new signals include `previewMediaPolicy`, `hasExplicitMediaSources`, `allowStylizedPreviewFallbacks`, and `requiresRenderablePreviewMedia`
+  - screenshot-only exact replicas now keep `precision_first` while allowing best-effort renderable demo media or a stylized media shell in the first write
+  - prompts with explicit source assets still keep the stricter renderable-media requirement
+- Hardened `draft-theme-artifact` local schema inspection so common Shopify-required schema fields fail before the downstream lint phase:
+  - setting/block `label`
+  - setting/block `type`
+  - setting `id` where relevant
+  - block `name`
+  - header/paragraph `content`
+- Hardened `draft-theme-artifact` exact-replica validation so:
+  - explicit-source exact replicas still fail on `placeholder_svg_tag` as hoofdmedia
+  - screenshot-only exact replicas now degrade that case to a warning plus suggested fixes instead of a hard block
+- Threaded planner-derived `themeContext` and `sectionBlueprint` through `plannerHandoff` more consistently inside `draft-theme-artifact`, so stateless clients keep the same replica/safety intent even when session memory is missing.
+- Added regression coverage for:
+  - screenshot-only exact replica planner signals
+  - explicit-source exact replica planner signals
+  - screenshot-only placeholder fallback acceptance with warning
+  - early local failure on missing schema `label`
+- Updated source tool docs plus hand-maintained docs so `generate:docs` now keeps `AGENTS.md` and `docs/02-SYSTEM-FLOW.md` aligned with the new screenshot-only and schema-preflight behavior.
+- Re-ran verification after the screenshot/media + schema-preflight hardening:
+  - `npm run check:docs` -> pass
+  - `npm run --workspace @hazify/mcp-remote test` -> pass (`70/70`)
+  - `npm run check:repo` -> pass
+  - `npm run build` -> pass
+  - `npm test` -> pass
 - Re-ran `npm run check:docs` after the source-doc alignment -> pass.
 - Committed the mixed-theme-target safety hardening as `255e59b` (`Harden theme target continuity across prompt flows`).
 - Deployed `Hazify-MCP-Remote` production again on Railway; latest production deployment is now `af86f32e-ff85-470c-8314-983d572696c4` (`SUCCESS`, `2026-04-21T09:37:19.521Z`, Node `22.22.2`).
@@ -180,6 +219,11 @@ Doelgroep: repo maintainers en coding agents.
 - Prefer server-side repair over validator relaxation when a missing step is exact, deterministic, and theme-safe. This keeps normal prompt clients working while preserving the same guarded write semantics.
 
 ## Conflicts Found
+- New debug-report analysis found a real distinction between intended guardrails and orchestration weakness:
+  - the `exact_match_placeholder_media` rejection is intentional in the current precision-first screenshot flow for media-heavy exact replicas
+  - the later `ValidSchema` / missing `label` failure is not a special Hazify rule; it is a Shopify/theme-check schema failure that the current local preflight still does not surface early enough
+- New product-quality gap found during this debug analysis: local schema inspection currently validates parseability and range rules, but does not yet preflight common required setting keys like `label`. That forces some avoidable retries to fail later in the lint stage instead of in the compact inspection stage.
+- That schema-required-field gap is now fixed locally; missing `label` and related required fields fail in the compact preflight before the `theme-check` phase.
 - The attached report describes failures that are now already covered in code and tests:
   - exact-match / precision-first planner metadata
   - required-read enforcement before create/edit writes
@@ -209,8 +253,12 @@ Doelgroep: repo maintainers en coding agents.
   - some docs overstated when `get-theme-files` automatically forces `includeContent=true`
   - README scope text under-described the importance of `plan-theme-edit`, `search-theme-files`, `patch-theme-file`, and `apply-theme-draft` confirmation semantics
   - fixed locally in docs; no runtime mismatch remains from these specific statements
+- New screenshot-replica conflict found from the ChatGPT debug report:
+  - the old exact-match placeholder-media rule was too absolute for screenshot-only, non-technical prompts without explicit source assets
+  - fixed locally by keeping the strict route for explicit source media, but allowing screenshot-only best-effort demo media / stylized shells with warnings
 
 ## Files Inspected
+- `/Users/jordy/Desktop/mcp_debug_report_codex.docx`
 - `/Users/jordy/Desktop/log/MCP_Hazify_Section_Replication_Report.docx`
 - `/Users/jordy/Desktop/tool_log.json`
 - `/Users/jordy/Desktop/Customer service/docs/00-START-HERE.md`
@@ -246,6 +294,7 @@ Doelgroep: repo maintainers en coding agents.
 
 ## Files Changed
 - `/Users/jordy/Desktop/Customer service/docs/codex-mcp-section-generation-tracker.md`
+- `/Users/jordy/Desktop/Customer service/AGENTS.md`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themeSectionContext.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themeReadHydration.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/createThemeSection.js`
@@ -310,6 +359,13 @@ Doelgroep: repo maintainers en coding agents.
 - `npm run check:docs` -> passed again after the post-deploy docs drift fixes
 - `npm run check:repo` -> passed again after the post-deploy docs/repo audit
 - `npm run check:docs` -> passed again after the final docs diff sanity check and generated-doc sync rerun
+- `npm run check:docs` -> passed after screenshot-only media strategy + schema-preflight docs alignment
+- `npm run --workspace @hazify/mcp-remote test -- tests/themePlanning.test.mjs` -> passed (`70/70`; current runner still executes the full mcp-remote suite) after planner media-strategy regressions
+- `npm run --workspace @hazify/mcp-remote test -- tests/draftThemeArtifact.test.mjs` -> passed (`70/70`; current runner still executes the full mcp-remote suite) after schema-required-field + screenshot-only placeholder regressions
+- `npm run --workspace @hazify/mcp-remote test` -> passed (`70/70`) after screenshot/media + schema-preflight hardening
+- `npm run check:repo` -> passed again after the same hardening
+- `npm run build` -> passed again after generated tool docs updated
+- `npm test` -> passed again after screenshot/media + schema-preflight hardening
 - Residual noise observed during tests/build, but non-failing:
   - Node `punycode` deprecation warning
   - expected test-path logs for rejected carriers / unauthorized requests
@@ -386,7 +442,8 @@ Doelgroep: repo maintainers en coding agents.
 - `Fix plan.md` is a safe cleanup candidate, but has not been removed in this session.
 - `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh` appears unused by the repo, but removal still needs human confirmation.
 - The latest deployed production runtime is now deployment `af86f32e-ff85-470c-8314-983d572696c4`.
+- The latest screenshot-only exact-replica and schema-preflight hardening from this session is still local and not yet deployed to Railway production.
 
 ## Exact Next Step / Command
-- Perform one real production tool call and verify Railway logs now show request-level `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary` fields.
-- Exact command: `railway logs --service Hazify-MCP-Remote --environment production | rg "requestId|mcp_http_tool_call_domain_failed|failureSummary"`
+- Decide whether to deploy the new screenshot-only exact-replica + schema-preflight hardening to Railway now, then verify one live request path in production logs.
+- Exact command: `git diff --stat && npm run check:docs && npm run --workspace @hazify/mcp-remote test && npm run check:repo && npm run build && npm test`

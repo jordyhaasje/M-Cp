@@ -45,6 +45,8 @@ Verwachte plannertruth:
 - `generationMode = "precision_first"`
 - `completionPolicy.deliveryExpectation = "final_reference_match_in_first_write"`
 - Geen baseline-first vraag of extra toestemming voor pixel-perfect styling
+- Screenshot-only referenties zonder losse bron-assets mogen `previewMediaPolicy = "best_effort_demo_media"` gebruiken. Dan blijft de layout/styling precisie-first, maar mag de eerste write renderbare demo-media of een gestileerde media shell bevatten in plaats van een hard fail op placeholder-only media.
+- Als de prompt wel expliciete bron-assets noemt, hoort de planner streng te blijven met `previewMediaPolicy = "strict_renderable_media"` en `requiresRenderablePreviewMedia = true`
 
 Voorbeeldprompt:
 ```text
@@ -154,10 +156,12 @@ Maak een hero-video section en plaats hem daarna ook op de homepage van theme 12
 
 ## Validation Truth
 - Schema JSON moet geldig zijn
+- Verplichte schema-velden zoals setting/block `label`, `type`, `id`, `name` en `content` waar relevant moeten al in lokale inspectie slagen, niet pas in `theme-check`
 - Range settings moeten binnen min/max en step-grid vallen
 - Theme-scale guardrails mogen content sections blokkeren wanneer ze onbedoeld hero-groot worden
 - Parser-onveilige JS/Liquid combinaties falen vóór preview upload
 - Theme Editor lifecycle hooks zijn verplicht voor precision-first interactieve replica’s
+- Screenshot-only exacte replica's zonder losse assets mogen niet blind op `placeholder_svg_tag` leunen; gebruik liever renderbare demo-media of een gestileerde media shell met correcte aspect-ratio en merchant-editable settings
 
 ## Related Docs
 - `docs/00-START-HERE.md`
