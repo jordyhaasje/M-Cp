@@ -5,7 +5,7 @@ Doelgroep: repo maintainers en coding agents.
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.
 
 ## Current Phase
-- Phase 7 follow-up: bon-hero debugflow hardening for stateless existing-file edits is implemented locally with regressions and docs updates; full repo verification plus Railway redeploy are the current next steps
+- Phase 7 follow-up: bon-hero debugflow hardening is deployed to Railway production; remaining follow-up is one authenticated live-traffic log verification plus any optional repo cleanup
 
 ## Checklist Of Planned Work
 - [x] Read attached report and `tool_log.json`
@@ -251,6 +251,28 @@ Doelgroep: repo maintainers en coding agents.
 - Re-ran targeted regressions after the bon-hero hardening:
   - `npm run --workspace @hazify/mcp-remote test -- tests/createThemeSection.test.mjs` -> pass (`72/72`; current runner still executes the full mcp-remote suite)
   - `npm run --workspace @hazify/mcp-remote test -- tests/draftThemeArtifact.test.mjs` -> pass (`72/72`; current runner still executes the full mcp-remote suite)
+- Re-ran full verification after the bon-hero hardening:
+  - `npm run --workspace @hazify/mcp-remote test` -> pass (`72/72`)
+  - `npm run check:docs` -> pass
+  - `npm run check:repo` -> pass
+  - `npm run build` -> pass
+  - `npm test` -> pass (`EXIT:0`, captured via `/tmp/hazify-root-test-bonhero.log`)
+- Committed the bon-hero stateless-edit hardening as `779b2e1` (`Harden stateless existing-section edit repairs`).
+- Deployed `Hazify-MCP-Remote` production again on Railway:
+  - deployment `e6e3dc27-1e4e-43a7-af8a-0928b698bd1d`
+  - status `SUCCESS`
+  - created at `2026-04-21T12:59:00.766Z`
+  - Node `22.22.2`
+- Ran production smoke checks after deploy:
+  - `GET https://hazify-license-service-production.up.railway.app/health` -> `200`
+  - `GET https://hazify-license-service-production.up.railway.app/v1/session/bootstrap` -> `200`
+  - `GET https://hazify-mcp-remote-production.up.railway.app/.well-known/oauth-protected-resource` -> `200`
+  - `GET https://hazify-mcp-remote-production.up.railway.app/.well-known/oauth-authorization-server` -> `200`
+  - `POST https://hazify-mcp-remote-production.up.railway.app/mcp` -> `401` without credentials, as expected
+  - `Production smoke checks passed`
+- Pushed `main` to GitHub after the runtime deploy:
+  - `git push origin main` -> success
+  - remote now contains runtime commit `779b2e1`
 
 ## Decisions And Assumptions
 - Treat current code and runtime behavior as canonical over older docs/plans, per user request and `AGENTS.md`.
@@ -431,6 +453,14 @@ Doelgroep: repo maintainers en coding agents.
   - Railway startup warning about binding `0.0.0.0` without DNS rebinding protection
 - `npm run --workspace @hazify/mcp-remote test -- tests/createThemeSection.test.mjs` -> passed (`72/72`; current runner still executes the full mcp-remote suite) after existing-file create-conflict repair-sequence hardening
 - `npm run --workspace @hazify/mcp-remote test -- tests/draftThemeArtifact.test.mjs` -> passed (`72/72`; current runner still executes the full mcp-remote suite) after context-placeholder edit-failure hardening
+- `npm run --workspace @hazify/mcp-remote test` -> passed (`72/72`) after bon-hero stateless-edit hardening
+- `npm run check:docs` -> passed after generated tool docs re-synced `AGENTS.md` and `docs/02-SYSTEM-FLOW.md`
+- `npm run check:repo` -> passed after the same hardening
+- `npm run build` -> passed after generated tool docs re-synced `AGENTS.md` and `docs/02-SYSTEM-FLOW.md`
+- `npm test` -> passed (`EXIT:0`) after bon-hero stateless-edit hardening
+- `railway up --ci --verbose -m "Harden stateless existing-section edit repairs"` -> production deploy `e6e3dc27-1e4e-43a7-af8a-0928b698bd1d` succeeded
+- `npm run smoke:prod` -> passed after deploy
+- `git push origin main` -> passed after deploy
 
 ## Shopify Dev MCP Docs Consulted
 - `learn_shopify_api(api: "liquid", model: "none")`
@@ -475,6 +505,7 @@ Doelgroep: repo maintainers en coding agents.
   - `Hazify-MCP-Remote` production current latest success: `2026-04-20T19:30:28Z`, deployment `ab876e1b-2fe0-49cb-9c56-3a3167984813`, commit `3226bcf` (`Harden patch-theme prompt compatibility`), Node `22.22.2`
   - `Hazify-MCP-Remote` production current latest success after planner-contract + observability deploy: `2026-04-21T08:53:55.282Z`, deployment `79e25fee-738a-47d1-8431-b5fad08d63e9`, Node `22.22.2`
   - `Hazify-MCP-Remote` production current latest success after mixed-theme-target continuity deploy: `2026-04-21T09:37:19.521Z`, deployment `af86f32e-ff85-470c-8314-983d572696c4`, Node `22.22.2`
+  - `Hazify-MCP-Remote` production current latest success after bon-hero stateless-edit hardening: `2026-04-21T12:59:00.766Z`, deployment `e6e3dc27-1e4e-43a7-af8a-0928b698bd1d`, commit `779b2e1` (`Harden stateless existing-section edit repairs`), Node `22.22.2`
   - `Hazify-MCP-Remote` `cleanup-root-deploy` latest success: `2026-04-04T08:31:56Z`, Node `18.20.8`
   - `Hazify-License-Service` production latest success: `2026-04-19T07:44:40Z`, Node `22.22.2`
 - Safe config comparison:
@@ -503,9 +534,9 @@ Doelgroep: repo maintainers en coding agents.
 - Railway cleanup environment still appears stale relative to production (`Node 18` image vs current `Node 22` baseline); no code change applied in this session.
 - Production Railway logs still need one more verification pass after a real authenticated tool call on the new deploy, because current smoke only exercised public discovery endpoints and the expected unauthenticated `401` on `/mcp`.
 - `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh` appears unused by the repo, but removal still needs human confirmation.
-- The latest deployed production runtime is still deployment `8fb1def7-1745-4a0d-bd94-0b4b3df479e1`; the new bon-hero stateless-edit hardening is local only until the next deploy.
-- GitHub parity must be rechecked after the next commit because this session adds new runtime changes.
+- The latest deployed production runtime is now deployment `e6e3dc27-1e4e-43a7-af8a-0928b698bd1d`.
+- After the tracker sync commit, git-vs-deploy parity should be rechecked again if strict commit-to-deploy parity matters; the runtime-affecting deploy commit is `779b2e1`.
 
 ## Exact Next Step / Command
-- Run the full repo checks, then commit and redeploy the bon-hero stateless-edit hardening to Railway production.
-- Exact command: `npm run --workspace @hazify/mcp-remote test && npm run check:docs && npm run check:repo && npm run build && npm test`
+- Trigger or observe one authenticated production `plan-theme-edit` / `create-theme-section` / `draft-theme-artifact` request on the new deploy and confirm the new domain-failure/requestId data in Railway logs.
+- Exact command: `railway logs --latest --lines 100 --filter "requestId OR mcp_http_tool_call_domain_failed OR failureSummary"`
