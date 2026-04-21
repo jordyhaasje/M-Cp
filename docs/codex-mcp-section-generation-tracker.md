@@ -5,7 +5,7 @@ Doelgroep: repo maintainers en coding agents.
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.
 
 ## Current Phase
-- Phase 7: deploy parity for planner/observability hardening is confirmed on Railway; the next bottleneck is the final mixed `themeId` / `themeRole` safety pass before this last local change is committed and deployed
+- Phase 7: final mixed `themeId` / `themeRole` safety pass is deployed to Railway; current follow-up work is docs anti-drift cleanup, repo cleanup analysis, and final production-readiness summary
 
 ## Checklist Of Planned Work
 - [x] Read attached report and `tool_log.json`
@@ -111,6 +111,18 @@ Doelgroep: repo maintainers en coding agents.
   - `npm test` -> pass (confirmed again via `/tmp/hazify-root-test.log`, exit code `0`)
 - Aligned the `plan-theme-edit` source `docsDescription` with the new sticky-target safety rule so `generate:docs` keeps `AGENTS.md` and `docs/02-SYSTEM-FLOW.md` in sync on future runs.
 - Re-ran `npm run check:docs` after the source-doc alignment -> pass.
+- Committed the mixed-theme-target safety hardening as `255e59b` (`Harden theme target continuity across prompt flows`).
+- Deployed `Hazify-MCP-Remote` production again on Railway; latest production deployment is now `af86f32e-ff85-470c-8314-983d572696c4` (`SUCCESS`, `2026-04-21T09:37:19.521Z`, Node `22.22.2`).
+- Verified the new Railway production deploy logs show the expected startup/build sequence for `@hazify/mcp-remote@1.1.0`.
+- Ran a documentation drift pass after deployment and corrected:
+  - `get-themes` being framed as discovery instead of a mandatory first step when an explicit `themeId` or `themeRole` is already known
+  - `get-theme-files` / `read-theme-files` auto-`includeContent` semantics being described more precisely
+  - README scope/guidance so `plan-theme-edit`, `search-theme-files`, `patch-theme-file`, and `apply-theme-draft` confirmation requirements are surfaced more explicitly
+- Re-ran `npm run check:docs` -> pass after the docs drift fixes.
+- Ran a repo cleanup audit:
+  - confirmed `Fix plan.md` is not referenced anywhere in active docs/scripts and is a safe cleanup candidate
+  - confirmed `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh` has no current repo references, but it still looks like a manual operational smoke script and should only be removed with human confirmation
+  - confirmed `output/` is currently empty, so it is not an active source of repo noise right now
 - Re-consulted Context7 MCP SDK docs to confirm that stateless clients depend on real structured schema fields for safe multi-step continuation.
 - Spawned two explorer sub-agents:
   - one to inspect the next plain-prompt orchestration bottleneck in planner/edit flows
@@ -192,6 +204,11 @@ Doelgroep: repo maintainers en coding agents.
 - Remaining edge-case conflict from sub-agent review: `themeTargetsCompatible` is still permissive when one flow uses `themeId` and the next uses `themeRole`, which may still deserve a stricter pass for cross-theme safety.
 - New concrete conflict found during this session: `plan-theme-edit` already classified many broader existing-section refinements as `rewrite-existing`, but its `writeArgsTemplate` still emitted `draft-theme-artifact mode="create"` for that branch. That mismatch could produce avoidable create-only conflicts and wrong inspection paths for normal LLM clients on existing files. Fixed locally in source + tests.
 - New observability conflict found during this session: Railway logs could not cleanly distinguish tool-level guarded failures from thrown exceptions, and request-to-log correlation was weak. Fixed locally in `src/index.js` + runtime regressions, but not yet deployed.
+- Documentation drift found after the deployment:
+  - some manual docs still framed `get-themes` as a mandatory first step instead of optional discovery
+  - some docs overstated when `get-theme-files` automatically forces `includeContent=true`
+  - README scope text under-described the importance of `plan-theme-edit`, `search-theme-files`, `patch-theme-file`, and `apply-theme-draft` confirmation semantics
+  - fixed locally in docs; no runtime mismatch remains from these specific statements
 
 ## Files Inspected
 - `/Users/jordy/Desktop/log/MCP_Hazify_Section_Replication_Report.docx`
@@ -223,6 +240,9 @@ Doelgroep: repo maintainers en coding agents.
 - `/Users/jordy/Desktop/Customer service/docs/01-TECH-STACK.md`
 - `/Users/jordy/Desktop/Customer service/docs/README.md`
 - `/Users/jordy/Desktop/Customer service/docs/03-THEME-SECTION-GENERATION.md`
+- `/Users/jordy/Desktop/Customer service/Fix plan.md`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh`
+- `/Users/jordy/Desktop/Customer service/output/`
 
 ## Files Changed
 - `/Users/jordy/Desktop/Customer service/docs/codex-mcp-section-generation-tracker.md`
@@ -287,6 +307,9 @@ Doelgroep: repo maintainers en coding agents.
 - `npm run check:docs` -> passed again after README / tech-stack observability updates
 - `npm run check:repo` -> passed again after planner contract + observability hardening
 - `npm test` -> passed again after planner contract + observability hardening (rerun captured to `/tmp/hazify-npm-test.log`)
+- `npm run check:docs` -> passed again after the post-deploy docs drift fixes
+- `npm run check:repo` -> passed again after the post-deploy docs/repo audit
+- `npm run check:docs` -> passed again after the final docs diff sanity check and generated-doc sync rerun
 - Residual noise observed during tests/build, but non-failing:
   - Node `punycode` deprecation warning
   - expected test-path logs for rejected carriers / unauthorized requests
@@ -332,6 +355,7 @@ Doelgroep: repo maintainers en coding agents.
   - `Hazify-MCP-Remote` production success after exact-read auto-hydration hardening: `2026-04-20T19:19:53Z`, deployment `5b4d873a-51d6-46ea-b299-6dc1bd7cd624`, commit `71674b0` (`Auto-hydrate exact theme reads for write flows`), Node `22.22.2`
   - `Hazify-MCP-Remote` production current latest success: `2026-04-20T19:30:28Z`, deployment `ab876e1b-2fe0-49cb-9c56-3a3167984813`, commit `3226bcf` (`Harden patch-theme prompt compatibility`), Node `22.22.2`
   - `Hazify-MCP-Remote` production current latest success after planner-contract + observability deploy: `2026-04-21T08:53:55.282Z`, deployment `79e25fee-738a-47d1-8431-b5fad08d63e9`, Node `22.22.2`
+  - `Hazify-MCP-Remote` production current latest success after mixed-theme-target continuity deploy: `2026-04-21T09:37:19.521Z`, deployment `af86f32e-ff85-470c-8314-983d572696c4`, Node `22.22.2`
   - `Hazify-MCP-Remote` `cleanup-root-deploy` latest success: `2026-04-04T08:31:56Z`, Node `18.20.8`
   - `Hazify-License-Service` production latest success: `2026-04-19T07:44:40Z`, Node `22.22.2`
 - Safe config comparison:
@@ -348,8 +372,8 @@ Doelgroep: repo maintainers en coding agents.
     - `inspection_failed_truncated`
     - `missing_theme_context_reads`
     - successful `preview_ready` drafts after the required planner/read steps
-  - On April 21, 2026 the live Railway production runtime now includes the planner-contract + observability hardening from commit `3b57903`.
-  - Filtered post-deploy production log searches for `requestId`, `mcp_http_tool_call_domain_failed`, and `failureSummary` returned no request matches yet, so real production request traffic still needs one follow-up verification pass.
+  - On April 21, 2026 the live Railway production runtime now includes the planner-contract + observability hardening from commit `3b57903` and the mixed-theme-target continuity hardening from commit `255e59b`.
+  - The latest deploy-log check after `255e59b` still only showed startup/build lines, so real post-deploy request traffic is still needed for one follow-up verification pass on `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary`.
   - Production/deploy warnings observed:
     - repeated `npm warn config production Use --omit=dev instead`
     - `punycode` deprecation warning during build/start
@@ -359,13 +383,10 @@ Doelgroep: repo maintainers en coding agents.
 - No failing tests or repo gates remain.
 - Railway cleanup environment still appears stale relative to production (`Node 18` image vs current `Node 22` baseline); no code change applied in this session.
 - Production Railway logs still need one more verification pass after real post-deploy tool traffic, because the latest filtered log search only found startup lines and no new request events yet.
-- Current local uncommitted changes now only include the final mixed-theme-target safety hardening:
-  - conservative `themeEditMemory` target merging
-  - stricter `themeTargetsCompatible` checks for mixed `themeId` / `themeRole`
-  - `plan-theme-edit` sticky-target reset on explicit theme switch
-  - related regression tests and docs updates
-- The latest deployed production runtime is now deployment `79e25fee-738a-47d1-8431-b5fad08d63e9`; the new mixed-theme-target safety hardening from this turn is still local only.
+- `Fix plan.md` is a safe cleanup candidate, but has not been removed in this session.
+- `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh` appears unused by the repo, but removal still needs human confirmation.
+- The latest deployed production runtime is now deployment `af86f32e-ff85-470c-8314-983d572696c4`.
 
 ## Exact Next Step / Command
-- Review the final mixed-theme-target safety diff, commit it, deploy `apps/hazify-mcp-remote` to Railway production, and then verify with real post-deploy traffic that production logs still show the expected `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary` behavior.
-- Exact command: `git diff -- apps/hazify-mcp-remote/src/lib/themeEditMemory.js apps/hazify-mcp-remote/src/tools/planThemeEdit.js apps/hazify-mcp-remote/tests/toolHardening.test.mjs apps/hazify-mcp-remote/tests/createThemeSection.test.mjs apps/hazify-mcp-remote/README.md docs/02-SYSTEM-FLOW.md AGENTS.md`
+- Perform one real production tool call and verify Railway logs now show request-level `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary` fields.
+- Exact command: `railway logs --service Hazify-MCP-Remote --environment production | rg "requestId|mcp_http_tool_call_domain_failed|failureSummary"`

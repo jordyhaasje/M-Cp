@@ -7,7 +7,7 @@ Runtime: Node.js `>=22.12.0`.
 
 ## Scope
 - Wel: producten, klanten, orders, tracking, refunds en theme file CRUD.
-- Wel: gevalideerde theme editing pipeline via `create-theme-section`, `draft-theme-artifact`, `apply-theme-draft`, `get-theme-file(s)` / `read-theme-file(s)` en `verify-theme-files`.
+- Wel: gevalideerde theme editing pipeline via `plan-theme-edit`, `search-theme-files`, `patch-theme-file`, `create-theme-section`, `draft-theme-artifact`, `apply-theme-draft`, `get-theme-file(s)` / `read-theme-file(s)` en `verify-theme-files`.
 - Niet: automatische JSON template placement of blind live import.
 - Niet: browser automation binnen de hoofd-MCP runtime.
 
@@ -39,7 +39,7 @@ npm run --workspace @hazify/mcp-remote start:remote
 - Bevestig local-vs-remote parity daarom altijd apart via Railway deploy metadata/logs, zeker voordat je een fix als “live” beschouwt.
 
 ## Theme edit flow
-- Canonical agent flow: `get-themes` -> `plan-theme-edit` -> compacte read/preflight -> `create-theme-section` voor nieuwe sections -> optioneel aparte `mode="edit"` of `patch-theme-file` voor vervolgfixes.
+- Canonical agent flow: gebruik `get-themes` alleen voor theme discovery wanneer de gebruiker nog geen expliciet `themeId` of `themeRole` heeft gegeven; daarna `plan-theme-edit` -> compacte read/preflight -> `create-theme-section` voor nieuwe sections -> optioneel aparte `mode="edit"` of `patch-theme-file` voor vervolgfixes.
 - `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact` blijft de standaardflow voor bestaande single-file theme edits.
 - `read-theme-file` en `read-theme-files` zijn veilige compat-aliassen van `get-theme-file(s)` voor clients die read-* toolnamen gokken.
 - Start voor native product-blocks, theme blocks en template placement eerst met `plan-theme-edit` op hetzelfde expliciet gekozen theme. Die planner houdt de read-scope klein en voorkomt one-file writes op themes waar de renderflow via snippets loopt.
@@ -61,9 +61,9 @@ npm run --workspace @hazify/mcp-remote start:remote
 - Gebruik in `richtext.default` alleen Shopify-veilige HTML: top-level `<p>` of `<ul>` en geen tags zoals `<mark>`.
 - `draft-theme-artifact` ondersteunt voor single-file requests ook top-level `key + value`, `key + content`, `key + liquid` of `key + searchString + replaceString`, en valideert nieuwe `blocks/*.liquid` files nu ook op block-basisregels.
 - `draft-theme-artifact mode="create"` blokkeert nu ook bestaande doelbestanden vroegtijdig en geeft dan machine-readable edit-hints plus alternatieve nieuwe keys terug in plaats van impliciet richting overwrite te gaan.
-- `get-theme-files` exposeert nu ook compat-aliassen `role` en `filenames` in het publieke MCP schema. Missende batch-paths komen terug in `missingKeys` en tellen niet als geldige content-reads voor latere writes.
+- `get-theme-files` exposeert nu ook compat-aliassen `role` en `filenames` in het publieke MCP schema. Missende batch-paths komen terug in `missingKeys` en tellen niet als geldige content-reads voor latere writes. `includeContent` wordt alleen automatisch naar `true` gezet wanneer de gevraagde `keys` exact overeenkomen met de planner-voorgeschreven `nextReadKeys` op een compatibel theme-target.
 - Lokale create-validatie bundelt meerdere deterministische fouten in één response met machine-readable velden zoals `errorCode`, `errors[]`, `lintIssues[]`, `normalizedArgs`, `nextAction`, `retryMode`, `suggestedSchemaRewrites` en `preferSelectFor`. Operationele blockers zoals patch-anchor fouten, mixed create/edit zonder mode en preview write failures blijven fail-fast. Als zowel schema/style-inspectie als `theme-check` stuk zijn, komen die nu samen terug in dezelfde lokale preflight-response.
-- `apply-theme-draft` promoveert een eerder goedgekeurde draft alleen naar een expliciet target; er is geen write-default naar live en deze tool is niet bedoeld als eerste write van een nieuwe section
+- `apply-theme-draft` promoveert een eerder goedgekeurde draft alleen naar een expliciet target; er is geen write-default naar live en deze tool is niet bedoeld als eerste write van een nieuwe section. De tool vereist ook expliciet `confirmation=\"APPLY_THEME_DRAFT\"` plus een `reason`.
 - `verify-theme-files` en `get-theme-file(s)` helpen bij verificatie en readback
 - Gebruik in nieuwe sections `video` voor merchant-uploaded video bestanden; `video_url` is alleen voor externe YouTube/Vimeo bronnen
 - Gebruik `color_scheme` alleen wanneer het doeltheme al globale color schemes heeft in `config/settings_schema.json` en `config/settings_data.json`

@@ -103,7 +103,7 @@ Use <style> or markup-level CSS variables for section.id scoping
 <!-- END: TOOLS_LIST -->
 
 ## 5. Theme Editing Pipeline
-- Canonical agent flow: `get-themes` -> `plan-theme-edit` -> compacte read/preflight -> `create-theme-section` voor nieuwe sections -> optioneel aparte `mode="edit"` of `patch-theme-file` voor vervolgfixes.
+- Canonical agent flow: gebruik `get-themes` alleen voor discovery wanneer de gebruiker nog geen expliciet `themeId` of `themeRole` heeft gegeven; daarna `plan-theme-edit` -> compacte read/preflight -> `create-theme-section` voor nieuwe sections -> optioneel aparte `mode="edit"` of `patch-theme-file` voor vervolgfixes.
 - Bestaande theme edit: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact` of `patch-theme-file`.
 - Nieuwe section creates lopen bij voorkeur via `create-theme-section`; generieke multi-file of advanced theme writes blijven via `draft-theme-artifact` lopen.
 1. Start voor native product-blocks, theme blocks en template placement eerst met `plan-theme-edit` op hetzelfde expliciete theme. Die planner geeft compact terug of je een single-file patch, multi-file edit of create-section flow nodig hebt. Voor `new_section` retourneert de planner nu naast compacte `themeContext`-guardrails ook een `sectionBlueprint` met section-category metadata, exacte required reads, helper snippets en parser/media/theme guardrails.

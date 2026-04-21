@@ -34,7 +34,7 @@ De planner representeert deze requests via `intent`, `qualityTarget`, `category`
 ### Screenshot replica, nieuwe section
 Gebruik wanneer de gebruiker een screenshot, referentiebeeld of termen als `exact`, `pixel-perfect`, `replica` of `match` geeft.
 
-1. `get-themes`
+1. `get-themes` alleen als theme discovery nodig is; sla deze stap over als de gebruiker al een expliciet `themeId` of `themeRole` heeft gegeven
 2. `plan-theme-edit` met `intent="new_section"` op het expliciete target theme
 3. Lees exact `nextReadKeys` met `includeContent=true`
 4. `create-theme-section`
@@ -54,7 +54,7 @@ Maak deze Trustpilot review slider exact na van de screenshot als standalone sec
 ### Text-only nieuwe section
 Gebruik wanneer de gebruiker geen referentiebeeld geeft, maar wel een duidelijke beschrijving.
 
-1. `get-themes`
+1. `get-themes` alleen als theme discovery nodig is; sla deze stap over als de gebruiker al een expliciet `themeId` of `themeRole` heeft gegeven
 2. `plan-theme-edit` met `intent="new_section"`
 3. Lees exact `nextReadKeys`
 4. `create-theme-section`
@@ -138,6 +138,11 @@ Maak een hero-video section en plaats hem daarna ook op de homepage van theme 12
 - `draft-theme-artifact` kan `status="preview_ready"` teruggeven terwijl het doeltheme het live `main` theme is
 - Dit is geen impliciete publish-flow; het betekent dat de preview write naar het expliciet gekozen target succesvol was
 - De remote moet live-target risico expliciet blijven waarschuwen
+
+## Read Semantics
+- `get-theme-files` of `read-theme-files` zetten `includeContent` niet blind automatisch aan.
+- Die auto-hydratie gebeurt alleen wanneer de gevraagde `keys` exact overeenkomen met de planner `nextReadKeys` op een compatibel theme-target.
+- Voor alle andere batch-reads blijft `includeContent` standaard `false` tenzij de client het expliciet meegeeft.
 - `apply-theme-draft` is alleen voor promote/apply van een bestaande draft, nooit voor de eerste create-write
 
 ## Token-Efficiënte Flow
