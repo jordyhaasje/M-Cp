@@ -49,6 +49,7 @@ Verwachte plannertruth:
 - Als de prompt wel expliciete bron-assets noemt, hoort de planner streng te blijven met `previewMediaPolicy = "strict_renderable_media"` en `requiresRenderablePreviewMedia = true`
 - Als de referentie expliciet desktop en mobiel toont, hoort de planner `requiresResponsiveViewportParity = true` te signaleren.
 - Als de referentie duidelijke decoratieve anchors noemt of toont, zoals floating productmedia, badges of seals, horen die anchors onderdeel van de eerste write te blijven en niet te degraderen naar een generieke baseline.
+- Als de referentie een echte rating-strip of comparison-iconografie toont, moeten sterren en check/x/thumb-iconen in de eerste write ook herkenbaar blijven in plaats van generieke blokjes, cirkels of lege vakken.
 - Voor comparison/shell replica's hoort de pipeline dubbele background-shells te vermijden wanneer theme wrappers zoals `section-properties` al de outer surface of spacinglaag beheren.
 
 Voorbeeldprompt:
@@ -82,7 +83,8 @@ Gebruik wanneer het doelbestand al bestaat of wanneer de gebruiker expliciet bes
 4. `draft-theme-artifact mode="edit"` voor volledige rewrites of multi-file edits
 
 Belangrijk:
-- Zodra het doelbestand al bestaat, gebruik je nooit opnieuw `create-theme-section`
+- Zodra het doelbestand al bestaat, hoort de client niet opnieuw `create-theme-section` te kiezen maar over te schakelen naar `existing_edit`
+- Als een gewone stateless client tóch nog een refine-prompt via `create-theme-section` op exact dezelfde net aangemaakte section stuurt, converteert de server die route nu veilig naar `draft-theme-artifact mode="edit"` zolang theme-target en recent file-context aantoonbaar hetzelfde blijven
 - Broad rewrites op bestaande grote files blijven beschermd door truncation checks
 - Gebruik `value` alleen als het volledige bestand bewust is ingelezen en vervangen moet worden
 - Gebruik in `files[].value` altijd echte volledige bestandsinhoud; context-placeholders of samenvattingen zoals `REWRITE_ALREADY_APPLIED_IN_CONTEXT` zijn ongeldig

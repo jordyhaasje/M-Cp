@@ -550,6 +550,14 @@ try {
     true
   );
   assert.equal(
+    exactComparisonReplicaPlan.sectionBlueprint?.referenceSignals?.requiresRatingStars,
+    true
+  );
+  assert.equal(
+    exactComparisonReplicaPlan.sectionBlueprint?.referenceSignals?.requiresComparisonIconography,
+    true
+  );
+  assert.equal(
     exactComparisonReplicaPlan.sectionBlueprint?.referenceSignals?.avoidDoubleSectionShell,
     true
   );
@@ -561,7 +569,9 @@ try {
   assert.ok(
     exactComparisonReplicaPlan.warnings.some((warning) =>
       warning.toLowerCase().includes("badge") ||
-      warning.toLowerCase().includes("double")
+      warning.toLowerCase().includes("double") ||
+      warning.toLowerCase().includes("ster") ||
+      warning.toLowerCase().includes("icon")
     ),
     "exact comparison replica plans should warn about decorative anchors and shell strategy"
   );

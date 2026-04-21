@@ -2409,6 +2409,16 @@ function collectExactMatchReferenceSafety(
   const hasDecorativeBadgeMarkup =
     /\b(badge|seal|sticker|eyebrow|gluten[-_ ]?free)\b/i.test(source) ||
     /border-radius\s*:\s*999(?:px|rem|em)?/i.test(source);
+  const hasRatingStarMarkup =
+    /★|☆|&#9733;|&#9734;|&starf;|&star;|rating[-_ ]?star|star[-_ ]?(?:icon|row|rating)|aria-label\s*=\s*["'][^"']*star/i.test(
+      source
+    ) ||
+    (/\b(rating|trustpilot|review[-_ ]?rating)\b/i.test(source) && /<svg\b/i.test(source));
+  const hasComparisonIconography =
+    /[✔✓✕✖✗]|check(?:mark|marks?)\b|thumbs?[-_ ]?down\b|cross(?:es)?\b|x[-_ ]?mark\b|aria-label\s*=\s*["'][^"']*(?:check|thumb|cross|x)/i.test(
+      source
+    ) ||
+    (/\b(check|thumb|cross|comparison)\b/i.test(source) && /<svg\b/i.test(source));
   const hasResponsiveViewportHandling =
     /@media\b|@container\b|clamp\(|repeat\(\s*auto-fit|repeat\(\s*auto-fill|minmax\(/i.test(
       source
@@ -2528,6 +2538,43 @@ function collectExactMatchReferenceSafety(
     suggestedFixes.push(
       "Voeg een badge- of seal-anchor toe die merchants later kunnen aanpassen.",
       "Laat onderscheidende badge-elementen uit de referentie niet weg als de flow om een exacte match vraagt."
+    );
+  }
+
+  if (referenceSignals.requiresRatingStars && !hasRatingStarMarkup) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "De exacte referentie bevat een ster- of rating-strip, maar de section bevat geen herkenbare ster- of rating-iconografie.",
+        fixSuggestion:
+          "Gebruik echte sterren of semantische rating-iconen, bijvoorbeeld via sterglyphs, SVG-sterren of toegankelijke rating-markup in plaats van generieke blokjes.",
+        issueCode: "exact_match_missing_rating_stars",
+      })
+    );
+    suggestedFixes.push(
+      "Gebruik echte ster- of rating-iconografie voor de rating-strip.",
+      "Vervang generieke blokjes of abstracte vormen door herkenbare sterren of toegankelijke rating-markup."
+    );
+  }
+
+  if (
+    referenceSignals.requiresComparisonIconography &&
+    !hasComparisonIconography
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "De exacte comparison-referentie verwacht herkenbare check/x/thumb-iconografie, maar de section bevat geen duidelijke vergelijking-iconen.",
+        fixSuggestion:
+          "Gebruik echte check/x/thumb-achtige iconografie, bijvoorbeeld via SVG, glyphs of semantische icon-markup in plaats van generieke cirkels of lege vakken.",
+        issueCode: "exact_match_missing_comparison_iconography",
+      })
+    );
+    suggestedFixes.push(
+      "Gebruik echte check/x/thumb-achtige vergelijking-iconen.",
+      "Vervang generieke cirkels of lege vakken door herkenbare iconografie die de referentie beter benadert."
     );
   }
 

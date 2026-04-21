@@ -245,6 +245,17 @@ const DECORATIVE_BADGE_REFERENCE_PATTERNS = [
   },
 ];
 
+const RATING_STAR_REFERENCE_PATTERNS = [
+  /\b(stars?|star rating|rating strip|rating row|review rating)\b/i,
+  /\b(trustpilot|4\.5|5 stars?|five stars?)\b/i,
+];
+
+const COMPARISON_ICON_REFERENCE_PATTERNS = [
+  /\b(check(?:mark|marks)?|tick(?:s)?)\b/i,
+  /\b(thumbs?[- ]?down|thumbs? down|cross(?:es)?|x mark|x-mark)\b/i,
+  /\b(versus|vs\b|others)\b/i,
+];
+
 const EXPLICIT_MEDIA_SOURCE_PATTERNS = [
   /shopify:\/\//i,
   /cdn\.shopify/i,
@@ -596,6 +607,13 @@ const buildReferenceSignals = ({
       exactReplicaRequested && requestedDecorativeMediaAnchors.length > 0,
     requiresDecorativeBadgeAnchors:
       exactReplicaRequested && requestedDecorativeBadgeAnchors.length > 0,
+    requiresRatingStars:
+      exactReplicaRequested &&
+      RATING_STAR_REFERENCE_PATTERNS.some((pattern) => pattern.test(query)),
+    requiresComparisonIconography:
+      exactReplicaRequested &&
+      archetype === "comparison_table" &&
+      COMPARISON_ICON_REFERENCE_PATTERNS.some((pattern) => pattern.test(query)),
     requiresTitleAccent:
       exactReplicaRequested &&
       /\b(cursief|italic|italics|accent(?:woord| word)?|emphasis|emphasized)\b/i.test(
@@ -957,6 +975,18 @@ const buildCategoryGuardrails = ({
     );
   }
 
+  if (referenceSignals?.requiresRatingStars) {
+    guardrails.push(
+      "Behoud ster- of rating-iconografie uit de referentie; vervang die niet door generieke blokjes of vormloze placeholders."
+    );
+  }
+
+  if (referenceSignals?.requiresComparisonIconography) {
+    guardrails.push(
+      "Behoud comparison-iconografie zoals check/x/thumb-achtige markers; vervang die niet door generieke cirkels of lege vakken."
+    );
+  }
+
   if (referenceSignals?.avoidDoubleSectionShell) {
     guardrails.push(
       "Gebruik geen dubbele achtergrond-shell. Combineer een theme wrapper helper met een eigen decoratieve shell alleen wanneer duidelijk is welke laag spacing en welke laag de visuele surface beheert."
@@ -1211,6 +1241,16 @@ const buildSectionGenerationBlueprint = ({
             ...(referenceSignals.requiresDecorativeBadgeAnchors
               ? [
                   "Behoud badge- of seal-achtige reference-elementen uit de referentie in de eerste write en maak ze zo nodig merchant-editable.",
+                ]
+              : []),
+            ...(referenceSignals.requiresRatingStars
+              ? [
+                  "Behoud de ster/rating-strip uit de referentie in de eerste write; degradeer niet naar generieke blokjes of abstracte vormen.",
+                ]
+              : []),
+            ...(referenceSignals.requiresComparisonIconography
+              ? [
+                  "Behoud de check/x/thumb-iconografie van de vergelijking in de eerste write in plaats van generieke vormpjes.",
                 ]
               : []),
             ...(referenceSignals.avoidDoubleSectionShell

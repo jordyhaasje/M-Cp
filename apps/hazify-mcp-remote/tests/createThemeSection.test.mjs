@@ -8,6 +8,8 @@ import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
 import {
   clearThemeEditMemory,
   rememberThemePlan,
+  rememberThemeRead,
+  rememberThemeWrite,
 } from "../src/lib/themeEditMemory.js";
 
 const originalFetch = global.fetch;
@@ -675,6 +677,12 @@ test("createThemeSection - auto-hydrates planner reads before writing a new sect
     ),
     "create-theme-section should auto-hydrate exact planner reads when they are safely derivable"
   );
+  assert.equal(result.recommendedFollowUpTool, "plan-theme-edit");
+  assert.equal(result.recommendedFollowUpArgsTemplate?.intent, "existing_edit");
+  assert.equal(
+    result.recommendedFollowUpArgsTemplate?.targetFile,
+    "sections/review-replica.liquid"
+  );
 });
 
 test("createThemeSection - accepts required planner reads gathered via multiple exact get-theme-file calls", async () => {
@@ -738,6 +746,90 @@ test("createThemeSection - accepts required planner reads gathered via multiple 
 
   assert.equal(result.success, true);
   assert.equal(draftExecuteCalls, 1);
+});
+
+test("createThemeSection - auto-switches to edit when the same newly created section is refined via create again", async () => {
+  global.fetch = createGraphqlFetch({
+    ...plannerFiles,
+    "sections/feature-comparison-women.liquid": makeTextAsset(`
+      <div>Existing generated section</div>
+      {% schema %}
+      {"name":"Feature comparison women","presets":[{"name":"Feature comparison women"}]}
+      {% endschema %}
+    `),
+  });
+
+  let capturedArgs = null;
+  let capturedContext = null;
+  draftThemeArtifact.execute = async (args, context) => {
+    capturedArgs = args;
+    capturedContext = context;
+    return { success: true, status: "preview_ready", warnings: [] };
+  };
+
+  const requestContext = { shopifyClient, tokenHash: "create-theme-refine-auto-switch" };
+  rememberThemeWrite(requestContext, {
+    themeId: 123,
+    intent: "new_section",
+    mode: "create",
+    files: [{ key: "sections/feature-comparison-women.liquid" }],
+    createdSectionFile: "sections/feature-comparison-women.liquid",
+  });
+  rememberThemeRead(requestContext, {
+    themeId: 123,
+    files: [
+      {
+        key: "sections/feature-comparison-women.liquid",
+        found: true,
+        value: "<div>Existing generated section</div>",
+      },
+    ],
+  });
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/feature-comparison-women.liquid",
+      liquid: `
+<section class="feature-comparison-women">
+  <div class="feature-comparison-women__inner">
+    <h2>{{ section.settings.heading }}</h2>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Feature comparison women",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "This is what sets us apart." }
+  ],
+  "presets": [{ "name": "Feature comparison women" }]
+}
+{% endschema %}
+`,
+    },
+    requestContext
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(result.autoSwitchedToEdit, true);
+  assert.equal(result.autoSwitchReason, "recent_same_section_refinement");
+  assert.equal(result.originalRequestedTool, "create-theme-section");
+  assert.equal(result.writeToolUsed, "draft-theme-artifact");
+  assert.equal(result.writeModeUsed, "edit");
+  assert.equal(capturedArgs?.mode, "edit");
+  assert.equal(
+    capturedArgs?.files?.[0]?.key,
+    "sections/feature-comparison-women.liquid"
+  );
+  assert.equal(
+    result.recommendedFollowUpArgsTemplate?.targetFile,
+    "sections/feature-comparison-women.liquid"
+  );
+  assert.ok(
+    result.warnings?.some((warning) => warning.includes("veilig omgezet naar een existing_edit rewrite")),
+    "auto-switched create refinements should explain why the request was converted to edit mode"
+  );
+  assert.equal(capturedContext?.plannerHandoff?.intent, "existing_edit");
 });
 
 test("planThemeEdit - keeps the last created section as sticky follow-up target", async () => {

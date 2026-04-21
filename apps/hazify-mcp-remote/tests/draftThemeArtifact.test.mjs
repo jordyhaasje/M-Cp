@@ -783,6 +783,8 @@ test("draftThemeArtifact - rejects generic comparison replicas that drop decorat
             requiresResponsiveViewportParity: true,
             requiresDecorativeMediaAnchors: true,
             requiresDecorativeBadgeAnchors: true,
+            requiresRatingStars: true,
+            requiresComparisonIconography: true,
             requestedDecorativeMediaAnchors: ["floating_product_media"],
             requestedDecorativeBadgeAnchors: ["gluten_free_badge"],
             requiresTitleAccent: false,
@@ -809,7 +811,169 @@ test("draftThemeArtifact - rejects generic comparison replicas that drop decorat
       result.errors?.some((issue) => issue.issueCode === "exact_match_missing_reference_badge_anchor")
     );
     assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "exact_match_missing_rating_stars")
+    );
+    assert.ok(
       result.errors?.some((issue) => issue.issueCode === "exact_match_double_background_shell")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects exact comparison replicas that replace stars and icons with generic shapes", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFileFetchMock({
+    key: "sections/comparison-generic-shapes.liquid",
+    initialValue: "",
+    existing: false,
+  }).handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        files: [
+          {
+            key: "sections/comparison-generic-shapes.liquid",
+            value: `
+<style>
+  .comparison-generic {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 48px;
+    padding: 40px;
+    background: #e7ddb7;
+  }
+  .comparison-generic__rating {
+    display: flex;
+    gap: 8px;
+    margin-top: 24px;
+  }
+  .comparison-generic__rating span {
+    width: 20px;
+    height: 20px;
+    display: inline-block;
+    background: #17be75;
+  }
+  .comparison-generic__card {
+    background: #fff;
+    border-radius: 32px;
+    overflow: hidden;
+  }
+  .comparison-generic__shape {
+    width: 44px;
+    height: 44px;
+    display: inline-block;
+    background: #4b352c;
+    border-radius: 999px;
+  }
+  .comparison-generic__shape--other {
+    background: transparent;
+    border: 4px solid #b7b7b7;
+    border-radius: 0;
+  }
+  @media (max-width: 749px) {
+    .comparison-generic {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<section class="comparison-generic page-width">
+  <div>
+    <h2>{{ section.settings.heading }}</h2>
+    <div class="comparison-generic__rating" aria-label="rating strip">
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </div>
+  </div>
+  <div class="comparison-generic__card">
+    {% for block in section.blocks %}
+      <div class="comparison-generic__row" {{ block.shopify_attributes }}>
+        <span>{{ block.settings.label }}</span>
+        <span class="comparison-generic__shape" aria-hidden="true"></span>
+        <span class="comparison-generic__shape comparison-generic__shape--other" aria-hidden="true"></span>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Comparison generic shapes",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "This is what sets us apart." }
+  ],
+  "blocks": [
+    {
+      "type": "row",
+      "name": "Row",
+      "settings": [
+        { "type": "text", "id": "label", "label": "Label", "default": "Formulated for Women" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Comparison generic shapes" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        sectionBlueprint: {
+          qualityTarget: "exact_match",
+          archetype: "comparison_table",
+          referenceSignals: {
+            exactReplicaRequested: true,
+            previewMediaPolicy: "best_effort_demo_media",
+            hasScreenshotLikeReference: true,
+            hasDesktopMobileReferences: true,
+            hasExplicitMediaSources: false,
+            prefersRenderablePreviewMedia: true,
+            requiresRenderablePreviewMedia: false,
+            allowStylizedPreviewFallbacks: true,
+            requiresResponsiveViewportParity: true,
+            requiresDecorativeMediaAnchors: false,
+            requiresDecorativeBadgeAnchors: false,
+            requiresRatingStars: true,
+            requiresComparisonIconography: true,
+            requestedDecorativeMediaAnchors: [],
+            requestedDecorativeBadgeAnchors: [],
+            requiresTitleAccent: false,
+            requiresNavButtons: false,
+            requiresThemeEditorLifecycleHooks: false,
+            requiresThemeWrapperMirror: true,
+            requiresTwoSurfaceComposition: true,
+            requiresDedicatedInnerCard: true,
+            avoidDoubleSectionShell: false,
+          },
+        },
+        themeSectionContext: {
+          usesPageWidth: true,
+        },
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "exact_match_missing_rating_stars")
+    );
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "exact_match_missing_comparison_iconography")
     );
   } finally {
     global.fetch = previousFetch;

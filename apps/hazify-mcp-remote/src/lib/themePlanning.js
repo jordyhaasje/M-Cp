@@ -635,6 +635,16 @@ const buildPlanFromAnalysis = ({
           "De referentie bevat badge- of seal-achtige elementen. Behandel die als onderdeel van de compositie, niet als optionele versiering."
         );
       }
+      if (referenceSignals?.requiresRatingStars) {
+        warnings.push(
+          "De referentie bevat een rating-strip met echte ster-iconografie. Gebruik geen generieke blokjes of abstracte vormen als vervanging."
+        );
+      }
+      if (referenceSignals?.requiresComparisonIconography) {
+        warnings.push(
+          "De comparison-referentie verwacht herkenbare check/x/thumb-iconografie. Vervang die niet door generieke cirkels of lege vakken."
+        );
+      }
       if (referenceSignals?.avoidDoubleSectionShell) {
         warnings.push(
           "Gebruik geen dubbele achtergrond-shell. Als je een theme wrapper helper zoals section-properties spiegelt, kies dan bewust welke laag de decoratieve background en spacing draagt."

@@ -5,6 +5,7 @@ import { planThemeEdit } from "../lib/themePlanning.js";
 import { getThemeFiles } from "../lib/themeFiles.js";
 import { inferTemplateSurfaceFromSectionLiquid } from "../lib/themeSectionContext.js";
 import {
+  getRecentThemeRead,
   getThemeEditMemory,
   haveRecentThemeReads,
   rememberThemeWrite,
@@ -23,6 +24,13 @@ const SummaryFieldSchema = z.string().max(4000).optional();
 const PlannerHandoffSchema = z.object({}).passthrough();
 const SECTION_KEY_PATTERN = /^sections\/[A-Za-z0-9._-]+\.liquid$/;
 const SECTION_HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
+const FOLLOW_UP_REFINEMENT_PATTERNS = [
+  /\b(pixel[- ]?perfect|pixelperfect)\b/i,
+  /\b(polish|polished|refine|refined|finesse|tighten)\b/i,
+  /\b(verbeter|verfijn|optimaliseer|maak.*beter|maak.*exact)\b/i,
+  /\b(improve|upgrade|restyle|redesign|exact(?:er|ly)?|closer)\b/i,
+  /\b(mobile|desktop|spacing|typography|icons?|badge|sachet|mockup)\b/i,
+];
 
 const normalizeCreateThemeSectionInput = (rawInput) => {
   if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
@@ -288,13 +296,143 @@ const buildAlternateSectionKeySuggestions = (key) => {
   );
 };
 
+const looksLikeFollowUpRefinement = (value) =>
+  FOLLOW_UP_REFINEMENT_PATTERNS.some((pattern) => pattern.test(String(value || "")));
+
+const buildExistingEditContinuation = ({
+  input,
+  planningQuery,
+  recentPlan,
+  plannerHandoff,
+}) => {
+  const explicitThemeTarget = {
+    ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
+    ...(input.themeRole ? { themeRole: input.themeRole } : {}),
+  };
+  const fallbackTemplate =
+    recentPlan?.template ||
+    plannerHandoff?.template ||
+    inferTemplateSurfaceFromSectionLiquid(input.liquid);
+  const editPlanArgsTemplate = {
+    ...explicitThemeTarget,
+    intent: "existing_edit",
+    ...(fallbackTemplate ? { template: fallbackTemplate } : {}),
+    targetFile: input.key,
+    query: planningQuery,
+  };
+  const editWriteArgsTemplate = {
+    ...explicitThemeTarget,
+    mode: "edit",
+    files: [
+      {
+        key: input.key,
+        value: "<full rewritten file content>",
+      },
+    ],
+  };
+  const editPlannerHandoff = {
+    brief: planningQuery,
+    plannerQuery: planningQuery,
+    intent: "existing_edit",
+    template: fallbackTemplate || null,
+    themeTarget: {
+      themeId:
+        input.themeId === undefined || input.themeId === null
+          ? null
+          : Number(input.themeId),
+      themeRole: String(input.themeRole || "").trim() || null,
+    },
+    targetFile: input.key,
+    themeContext:
+      recentPlan?.themeContext && typeof recentPlan.themeContext === "object"
+        ? recentPlan.themeContext
+        : plannerHandoff?.themeContext && typeof plannerHandoff.themeContext === "object"
+          ? plannerHandoff.themeContext
+          : null,
+    sectionBlueprint:
+      recentPlan?.sectionBlueprint && typeof recentPlan.sectionBlueprint === "object"
+        ? recentPlan.sectionBlueprint
+        : plannerHandoff?.sectionBlueprint &&
+            typeof plannerHandoff.sectionBlueprint === "object"
+          ? plannerHandoff.sectionBlueprint
+          : null,
+    requiredReadKeys: [input.key],
+    readTool: "plan-theme-edit",
+    writeTool: "draft-theme-artifact",
+    requiredToolNames: [
+      "plan-theme-edit",
+      "get-theme-file",
+      "get-theme-files",
+      "draft-theme-artifact",
+    ],
+    nextWriteKeys: [input.key],
+    newFileSuggestions: buildAlternateSectionKeySuggestions(input.key),
+  };
+
+  return {
+    explicitThemeTarget,
+    fallbackTemplate,
+    editPlanArgsTemplate,
+    editWriteArgsTemplate,
+    editPlannerHandoff,
+  };
+};
+
+const buildRefinementRouteMetadata = ({
+  input,
+  planningQuery,
+  recentPlan,
+  plannerHandoff,
+}) => {
+  const {
+    editPlanArgsTemplate,
+    editWriteArgsTemplate,
+    editPlannerHandoff,
+  } = buildExistingEditContinuation({
+    input,
+    planningQuery,
+    recentPlan,
+    plannerHandoff,
+  });
+
+  return {
+    recommendedFollowUpTool: "plan-theme-edit",
+    recommendedFollowUpArgsTemplate: editPlanArgsTemplate,
+    recommendedFollowUpWriteTool: "draft-theme-artifact",
+    recommendedFollowUpWriteArgsTemplate: editWriteArgsTemplate,
+    followUpPlannerHandoff: editPlannerHandoff,
+    followUpRepairSequence: [
+      {
+        tool: "plan-theme-edit",
+        purpose: "refine_existing_section",
+        argsTemplate: editPlanArgsTemplate,
+      },
+      {
+        tool: "get-theme-file",
+        purpose: "read_existing_section_before_edit",
+        argsTemplate: {
+          ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
+          ...(input.themeRole ? { themeRole: input.themeRole } : {}),
+          key: input.key,
+          includeContent: true,
+        },
+      },
+      {
+        tool: "draft-theme-artifact",
+        purpose: "apply_existing_edit",
+        argsTemplate: editWriteArgsTemplate,
+      },
+    ],
+  };
+};
+
 const createThemeSectionTool = {
   name: "create-theme-section",
   title: "Create Theme Section",
   description:
-    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Never use this tool to modify a section file that already exists, even if that file was just created earlier in the same conversation. Do not use apply-theme-draft first. Required: explicit themeId or themeRole, one section file path or handle, and the complete Liquid file with a valid {% schema %}. After plan-theme-edit, the tool prefers the exact nextReadKeys first and now tries to auto-hydrate those exact planner reads when they are safely derivable; if required context still ontbreekt, the write stays blocked. For screenshot/design-replica requests: lever de finale styling in de eerste create-write, niet eerst een veilige baseline gevolgd door een vraag of het pixel-perfect moet worden gemaakt. Screenshot-only replica's zonder losse bron-assets mogen nu wel renderbare demo-media of gestileerde media shells gebruiken zolang de layout, styling en merchant settings exact blijven gericht op de referentie. Exact-match comparison/shell replica's moeten daarnaast hun decoratieve anchors en shell-strategie direct goed meenemen; generieke tabel-baselines of dubbele background-shells horen door de validator teruggestuurd te worden.",
+    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Never use this tool to modify a section file that already exists, even if that file was just created earlier in the same conversation. Do not use apply-theme-draft first. Required: explicit themeId or themeRole, one section file path or handle, and the complete Liquid file with a valid {% schema %}. After plan-theme-edit, the tool prefers the exact nextReadKeys first and now tries to auto-hydrate those exact planner reads when they are safely derivable; if required context still ontbreekt, the write stays blocked. For screenshot/design-replica requests: lever de finale styling in de eerste create-write, niet eerst een veilige baseline gevolgd door een vraag of het pixel-perfect moet worden gemaakt. Screenshot-only replica's zonder losse bron-assets mogen nu wel renderbare demo-media of gestileerde media shells gebruiken zolang de layout, styling en merchant settings exact blijven gericht op de referentie. Exact-match comparison/shell replica's moeten daarnaast hun decoratieve anchors, ster-rating en vergelijking-iconografie direct goed meenemen; generieke tabel-baselines, blokjes als sterren of dubbele background-shells horen door de validator teruggestuurd te worden. Als een gewone chatclient per ongeluk nog eens create-theme-section op exact dezelfde net aangemaakte section-key aanroept voor een refinement, kan de runtime die follow-up nu veilig omzetten naar een existing_edit rewrite in plaats van opnieuw op create vast te lopen.",
   docsDescription:
-    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Gebruik deze tool nooit om een bestaand section-bestand te wijzigen, ook niet als dat bestand net in dezelfde sessie is aangemaakt. Zodra de target-key al bestaat moet de flow omschakelen naar `plan-theme-edit intent='existing_edit'` en daarna naar `draft-theme-artifact mode=\"edit\"` of `patch-theme-file`. Vereist: expliciet `themeId` of `themeRole`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Lees na `plan-theme-edit` bij voorkeur eerst de exacte `nextReadKeys` in; wanneer die planner-reads veilig exact afleidbaar zijn probeert deze tool ze nu eerst automatisch met `includeContent=true` te hydrateren. Alleen wanneer vereiste theme-context daarna nog ontbreekt, blijft de create-write geblokkeerd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Voor zulke replica-prompts verwacht deze tool directe finale styling in de eerste create-write; vraag dus niet eerst om extra toestemming om het daarna pixel-perfect te maken. Als de referentie alleen screenshot-gedreven is en er geen losse bron-assets zijn, mag de eerste write nu wel renderbare demo-media of een gestileerde media shell gebruiken zolang de compositie, styling en merchant-editable settings trouw aan de referentie blijven. Bij exact-match comparison/shell replica's moeten ook onderscheidende decoratieve anchors zoals floating productmedia, badges/seals en de juiste outer-shell strategie in de eerste write aanwezig zijn; te generieke tabel-baselines of dubbele background-shells worden nu expliciet teruggestuurd door de validator. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
+    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Gebruik deze tool nooit om een bestaand section-bestand te wijzigen, ook niet als dat bestand net in dezelfde sessie is aangemaakt. Zodra de target-key al bestaat moet de flow omschakelen naar `plan-theme-edit intent='existing_edit'` en daarna naar `draft-theme-artifact mode=\"edit\"` of `patch-theme-file`. Voor gewone stateless chatclients zet de runtime een herhaalde create op exact dezelfde net aangemaakte section-key nu ook veilig om naar een existing_edit rewrite wanneer duidelijk is dat het om een refinement-follow-up gaat. Vereist: expliciet `themeId` of `themeRole`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Lees na `plan-theme-edit` bij voorkeur eerst de exacte `nextReadKeys` in; wanneer die planner-reads veilig exact afleidbaar zijn probeert deze tool ze nu eerst automatisch met `includeContent=true` te hydrateren. Alleen wanneer vereiste theme-context daarna nog ontbreekt, blijft de create-write geblokkeerd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Voor zulke replica-prompts verwacht deze tool directe finale styling in de eerste create-write; vraag dus niet eerst om extra toestemming om het daarna pixel-perfect te maken. Als de referentie alleen screenshot-gedreven is en er geen losse bron-assets zijn, mag de eerste write nu wel renderbare demo-media of een gestileerde media shell gebruiken zolang de compositie, styling en merchant-editable settings trouw aan de referentie blijven. Bij exact-match comparison/shell replica's moeten ook onderscheidende decoratieve anchors zoals floating productmedia, badges/seals, echte ster-ratings, vergelijking-iconografie en de juiste outer-shell strategie in de eerste write aanwezig zijn; te generieke tabel-baselines, blokjes als sterren of dubbele background-shells worden nu expliciet teruggestuurd door de validator. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
   inputSchema: CreateThemeSectionPublicObjectSchema,
   schema: CreateThemeSectionInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -463,72 +601,98 @@ const createThemeSectionTool = {
       const existingFile = existingResult.files?.find((file) => file.key === input.key);
       if (existingFile && !existingFile.missing && existingFile.found !== false) {
         const alternateKeySuggestions = buildAlternateSectionKeySuggestions(input.key);
-        const explicitThemeTarget = {
-          ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
-          ...(input.themeRole ? { themeRole: input.themeRole } : {}),
-        };
-        const fallbackTemplate =
-          recentPlan?.template ||
-          plannerHandoff?.template ||
-          inferTemplateSurfaceFromSectionLiquid(input.liquid);
-        const editPlanArgsTemplate = {
-          ...explicitThemeTarget,
-          intent: "existing_edit",
-          ...(fallbackTemplate ? { template: fallbackTemplate } : {}),
-          targetFile: input.key,
-          query: planningQuery,
-        };
-        const editWriteArgsTemplate = {
-          ...explicitThemeTarget,
-          mode: "edit",
-          files: [
+        const {
+          explicitThemeTarget,
+          editPlanArgsTemplate,
+          editWriteArgsTemplate,
+          editPlannerHandoff,
+        } = buildExistingEditContinuation({
+          input,
+          planningQuery,
+          recentPlan,
+          plannerHandoff: plannerHandoffTargetCompatible ? plannerHandoff : null,
+        });
+        const recentlyCreatedSameSection =
+          memoryState?.lastCreatedSectionFile === input.key &&
+          themeTargetsCompatible(memoryState.themeTarget, {
+            themeId: input.themeId,
+            themeRole: input.themeRole,
+          });
+        const recentlyReadSameSection = Boolean(
+          getRecentThemeRead(context, {
+            key: input.key,
+            themeId: input.themeId,
+            themeRole: input.themeRole,
+            requireContent: true,
+          })
+        );
+        const followUpRefinementRequested =
+          looksLikeFollowUpRefinement(summary || planningQuery) ||
+          recentlyReadSameSection ||
+          plannerHandoff?.intent === "existing_edit";
+
+        if (recentlyCreatedSameSection && followUpRefinementRequested) {
+          const autoSwitchWarning =
+            "create-theme-section heeft deze follow-up veilig omgezet naar een existing_edit rewrite, omdat dezelfde section net in deze flow is aangemaakt en daarna opnieuw op exact dezelfde key werd verfijnd.";
+          const autoSwitchedResult = await draftThemeArtifact.execute(
             {
-              key: input.key,
-              value: "<full rewritten file content>",
+              ...explicitThemeTarget,
+              mode: "edit",
+              files: [
+                {
+                  key: input.key,
+                  value: input.liquid,
+                },
+              ],
             },
-          ],
-        };
-        const editPlannerHandoff = {
-          brief: planningQuery,
-          plannerQuery: planningQuery,
-          intent: "existing_edit",
-          template: fallbackTemplate || null,
-          themeTarget: {
-            themeId:
-              input.themeId === undefined || input.themeId === null
-                ? null
-                : Number(input.themeId),
-            themeRole: String(input.themeRole || "").trim() || null,
-          },
-          targetFile: input.key,
-          themeContext:
-            recentPlan?.themeContext && typeof recentPlan.themeContext === "object"
-              ? recentPlan.themeContext
-              : plannerHandoffTargetCompatible &&
-                  plannerHandoff?.themeContext &&
-                  typeof plannerHandoff.themeContext === "object"
-                ? plannerHandoff.themeContext
-                : null,
-          sectionBlueprint:
-            recentPlan?.sectionBlueprint && typeof recentPlan.sectionBlueprint === "object"
-              ? recentPlan.sectionBlueprint
-              : plannerHandoffTargetCompatible &&
-                  plannerHandoff?.sectionBlueprint &&
-                  typeof plannerHandoff.sectionBlueprint === "object"
-                ? plannerHandoff.sectionBlueprint
-                : null,
-          requiredReadKeys: [input.key],
-          readTool: "plan-theme-edit",
-          writeTool: "draft-theme-artifact",
-          requiredToolNames: [
-            "plan-theme-edit",
-            "get-theme-file",
-            "get-theme-files",
-            "draft-theme-artifact",
-          ],
-          nextWriteKeys: [input.key],
-          newFileSuggestions: alternateKeySuggestions,
-        };
+            {
+              ...context,
+              themeSectionContext:
+                editPlannerHandoff.themeContext &&
+                typeof editPlannerHandoff.themeContext === "object"
+                  ? editPlannerHandoff.themeContext
+                  : null,
+              sectionBlueprint:
+                editPlannerHandoff.sectionBlueprint &&
+                typeof editPlannerHandoff.sectionBlueprint === "object"
+                  ? editPlannerHandoff.sectionBlueprint
+                  : null,
+              plannerHandoff: editPlannerHandoff,
+              themeContextWarnings: [autoSwitchWarning],
+            }
+          );
+
+          if (autoSwitchedResult && typeof autoSwitchedResult === "object") {
+            if (autoSwitchedResult.success === true) {
+              rememberThemeWrite(context, {
+                themeId: input.themeId,
+                themeRole: input.themeRole,
+                intent: "existing_edit",
+                mode: "edit",
+                files: [{ key: input.key }],
+              });
+            }
+            return {
+              ...autoSwitchedResult,
+              autoSwitchedToEdit: true,
+              autoSwitchReason: "recent_same_section_refinement",
+              requestedCreateKeyExisted: true,
+              originalRequestedTool: "create-theme-section",
+              writeToolUsed: "draft-theme-artifact",
+              writeModeUsed: "edit",
+              warnings: Array.from(
+                new Set([...(autoSwitchedResult.warnings || []), autoSwitchWarning])
+              ),
+              ...buildRefinementRouteMetadata({
+                input,
+                planningQuery,
+                recentPlan,
+                plannerHandoff: editPlannerHandoff,
+              }),
+            };
+          }
+        }
+
         return buildCreateSectionRepairResponse({
           status: "inspection_failed",
           message:
@@ -876,6 +1040,12 @@ const createThemeSectionTool = {
           ? { sectionBlueprint }
           : {}),
         ...(plannerHandoff ? { plannerHandoff } : {}),
+        ...buildRefinementRouteMetadata({
+          input,
+          planningQuery,
+          recentPlan,
+          plannerHandoff,
+        }),
       };
     }
 
@@ -902,6 +1072,12 @@ const createThemeSectionTool = {
           ? { sectionBlueprint }
           : {}),
         ...(plannerHandoff ? { plannerHandoff } : {}),
+        ...buildRefinementRouteMetadata({
+          input,
+          planningQuery,
+          recentPlan,
+          plannerHandoff,
+        }),
       };
     }
 
