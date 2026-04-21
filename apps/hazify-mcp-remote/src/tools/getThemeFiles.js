@@ -25,19 +25,26 @@ const normalizeGetThemeFilesInput = (rawInput) => {
   }
 
   return {
-    themeId: rawInput.themeId,
-    themeRole: rawInput.themeRole ?? rawInput.role,
+    themeId: rawInput.themeId ?? rawInput.theme_id,
+    themeRole:
+      rawInput.themeRole ?? rawInput.theme_role ?? rawInput.role,
     keys: rawInput.keys ?? rawInput.filenames,
-    includeContent: rawInput.includeContent,
+    includeContent:
+      rawInput.includeContent ?? rawInput.include_content,
+    limit: rawInput.limit,
   };
 };
 
 const GetThemeFilesPublicObjectSchema = z
   .object({
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
+    theme_id: z.coerce.number().int().positive().optional().describe("Compat alias van themeId voor generieke wrappers."),
     themeRole: ThemeRoleSchema
       .optional()
       .describe("Optionele theme role. Geef deze in editflows expliciet mee zodat je read-context overeenkomt met plan-theme-edit en je write-call."),
+    theme_role: ThemeRoleSchema
+      .optional()
+      .describe("Compat alias van themeRole voor generieke wrappers."),
     role: ThemeRoleSchema
       .optional()
       .describe("Compat alias van themeRole voor generieke clients."),
@@ -57,6 +64,10 @@ const GetThemeFilesPublicObjectSchema = z
       .boolean()
       .optional()
       .describe("Include file content (value/attachment) in response. Laat dit voor planner-required reads bij voorkeur op true of leeg."),
+    include_content: z
+      .boolean()
+      .optional()
+      .describe("Compat alias van includeContent voor generieke wrappers."),
   })
   .strict();
 
@@ -68,8 +79,26 @@ const GetThemeFilesInputSchema = z.preprocess(
       themeRole: ThemeRoleSchema.optional(),
       keys: z.array(z.string().min(1)).min(1).max(10),
       includeContent: z.boolean().optional(),
+      limit: z.number().int().positive().optional(),
     })
     .superRefine((input, ctx) => {
+      if (input.themeId && input.themeRole) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["themeId"],
+          message: "Gebruik themeId of themeRole, niet allebei tegelijk.",
+        });
+      }
+
+      if (input.limit !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["limit"],
+          message:
+            "get-theme-files ondersteunt geen limit. Gebruik exact keys[] met maximaal 10 bestanden, of gebruik search-theme-files voor zoeken.",
+        });
+      }
+
       const normalized = input.keys.map((key) => String(key).trim());
       if (new Set(normalized).size !== normalized.length) {
         ctx.addIssue({
@@ -97,7 +126,12 @@ const getThemeFilesTool = {
     "Read EXACT files from a Shopify theme. GEEN GLOBBING. Geef in editflows bij voorkeur altijd expliciet themeId of themeRole mee zodat je read-context overeenkomt met plan-theme-edit en je write-call. Dit is vaak de verplichte read-stap vóór create-theme-section of draft-theme-artifact wanneer de planner meerdere nextReadKeys teruggeeft. Alleen voor backwards compatibility valt deze read-tool terug op main als themeId/themeRole ontbreekt; dat levert dan ook een warning op. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path. Gebruik dit bij voorkeur na plan-theme-edit, zodat je alleen de exact voorgestelde files leest. Wanneer een planner-read content nodig heeft en includeContent ontbreekt, zet deze tool dat nu automatisch op true met een warning.",
   inputSchema: GetThemeFilesPublicObjectSchema,
   schema: GetThemeFilesInputSchema,
-  execute: async (input, context = {}) => {
+  execute: async (rawInput, context = {}) => {
+    const normalizedParse = GetThemeFilesInputSchema.safeParse(rawInput);
+    if (!normalizedParse.success) {
+      throw new Error(normalizedParse.error.issues.map((issue) => issue.message).join(" | "));
+    }
+    const input = normalizedParse.data;
     const shopifyClient = requireShopifyClient(context);
     const usedMainFallback = !input.themeId && !input.themeRole;
     const effectiveThemeRole = input.themeId ? undefined : input.themeRole || "main";

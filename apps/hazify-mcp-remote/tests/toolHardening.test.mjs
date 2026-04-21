@@ -137,6 +137,16 @@ try {
   assert.equal(singleThemeReadPayload.success, true, "get-theme-file should accept exact keys without forcing a theme target");
   assert.equal(singleThemeReadPayload.data.themeRole, undefined, "get-theme-file should not silently inject main at schema level");
 
+  const singleThemeReadAliasPayload = getThemeFileTool.schema.safeParse({
+    theme_id: 123456789,
+    filename: "sections/test.liquid",
+    include_content: false,
+  });
+  assert.equal(singleThemeReadAliasPayload.success, true, "get-theme-file should normalize safe snake_case aliases");
+  assert.equal(singleThemeReadAliasPayload.data.themeId, 123456789);
+  assert.equal(singleThemeReadAliasPayload.data.key, "sections/test.liquid");
+  assert.equal(singleThemeReadAliasPayload.data.includeContent, false);
+
   const metadataBatchReadPayload = getThemeFilesTool.schema.safeParse({
     keys: ["sections/test.liquid"],
   });
@@ -168,6 +178,21 @@ try {
     "sections/test.liquid",
     "snippets/button.liquid",
   ]);
+
+  const metadataBatchReadSnakeCasePayload = getThemeFilesTool.schema.safeParse({
+    theme_id: 123456789,
+    filenames: ["sections/test.liquid"],
+    include_content: true,
+  });
+  assert.equal(metadataBatchReadSnakeCasePayload.success, true, "get-theme-files should normalize snake_case aliases");
+  assert.equal(metadataBatchReadSnakeCasePayload.data.themeId, 123456789);
+  assert.equal(metadataBatchReadSnakeCasePayload.data.includeContent, true);
+
+  const metadataBatchReadLimitPayload = getThemeFilesTool.schema.safeParse({
+    keys: ["sections/test.liquid"],
+    limit: 1,
+  });
+  assert.equal(metadataBatchReadLimitPayload.success, false, "get-theme-files should reject limit and keep exact reads schema-driven");
 
   const metadataBatchReadWildcardPayload = getThemeFilesTool.schema.safeParse({
     filenames: ["sections/*.liquid"],
@@ -484,6 +509,23 @@ try {
   assert.equal(createThemeSectionSummaryResult.errorCode, "missing_section_liquid");
   assert.equal(createThemeSectionSummaryResult.nextTool, "create-theme-section");
 
+  const createThemeSectionLiquidSummaryPayload = createThemeSectionTool.schema.safeParse({
+    theme_role: "main",
+    target_file: "sections/review-replica.liquid",
+    liquid_summary: "pixel-perfect comparison section",
+  });
+  assert.equal(
+    createThemeSectionLiquidSummaryPayload.success,
+    true,
+    "create-theme-section should accept legacy liquid_summary placeholders and repair them at execution time"
+  );
+  const createThemeSectionLiquidSummaryResult = await createThemeSectionTool.execute(
+    createThemeSectionLiquidSummaryPayload.data,
+    {}
+  );
+  assert.equal(createThemeSectionLiquidSummaryResult.success, false);
+  assert.equal(createThemeSectionLiquidSummaryResult.errorCode, "missing_section_liquid");
+
   const ambiguousPlanPayload = planThemeEditTool.schema.safeParse({
     _tool_input_summary: "Bepaal wat hier aangepast moet worden",
   });
@@ -506,6 +548,16 @@ try {
   assert.equal(searchThemeFilesSummaryPayload.success, true, "search-theme-files should accept compatible summary-only inputs");
   assert.ok(searchThemeFilesSummaryPayload.data.query.includes("buy_buttons"));
   assert.deepEqual(searchThemeFilesSummaryPayload.data.scope, ["sections", "snippets"]);
+  assert.equal(searchThemeFilesSummaryPayload.data.themeRole, "main");
+
+  const searchThemeFilesLimitAliasPayload = SearchThemeFilesInputSchema.safeParse({
+    query: "buy_buttons",
+    scope: "sections",
+    limit: 3,
+  });
+  assert.equal(searchThemeFilesLimitAliasPayload.success, true, "search-theme-files should accept non-technical limit and scope aliases");
+  assert.equal(searchThemeFilesLimitAliasPayload.data.resultLimit, 3);
+  assert.deepEqual(searchThemeFilesLimitAliasPayload.data.scope, ["sections"]);
 
   const patchThemeFileSummaryPayload = patchThemeFileTool.schema.safeParse({
     _tool_input_summary: "Patch snippets/product-info.liquid in het live theme",
@@ -778,6 +830,27 @@ try {
     draftSummaryOnlyResult.errors.some((issue) => issue.path.join(".") === "files"),
     "summary-only draft payloads should fail with a structured repair error on the missing write payload"
   );
+
+  const draftFileValueSummaryPayload = draftThemeArtifact.schema.safeParse({
+    theme_role: "main",
+    files: [
+      {
+        key: "sections/stock-pulse.liquid",
+        value_summary: "full rewrite of this section",
+      },
+    ],
+  });
+  assert.equal(
+    draftFileValueSummaryPayload.success,
+    true,
+    "draft-theme-artifact should accept legacy files[].value_summary placeholders and repair them at execution time"
+  );
+  const draftFileValueSummaryResult = await draftThemeArtifact.execute(
+    draftFileValueSummaryPayload.data,
+    {}
+  );
+  assert.equal(draftFileValueSummaryResult.success, false);
+  assert.equal(draftFileValueSummaryResult.errorCode, "missing_draft_files");
 
   const invalidDraftSchemaPayload = draftThemeArtifact.schema.safeParse({
     files: [

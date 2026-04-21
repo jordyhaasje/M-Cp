@@ -82,6 +82,8 @@ const ThemeDraftPatchesSchema = z
   .max(10)
   .describe("Voer meerdere patches sequentieel uit binnen hetzelfde bestand. Gebruik dit wanneer een bestaand bestand meerdere losse wijzigingen nodig heeft of wanneer één unieke patch-anchor niet genoeg is.");
 
+const SummaryFieldSchema = z.string().max(4000).optional();
+
 const ThemeDraftFilePublicSchema = z
   .object({
     key: z.string().min(1).describe("De exacte filelocatie (bijv. sections/feature-sandbox.liquid)"),
@@ -99,6 +101,15 @@ const ThemeDraftFilePublicSchema = z
       .string()
       .optional()
       .describe("Compat alias van value binnen files[]."),
+    value_summary: SummaryFieldSchema.describe(
+      "Compat placeholderveld voor wrappers die abusievelijk een samenvatting meesturen. Dit vervangt nooit echte file-inhoud."
+    ),
+    content_summary: SummaryFieldSchema.describe(
+      "Compat placeholderveld voor wrappers die abusievelijk een samenvatting meesturen. Dit vervangt nooit echte file-inhoud."
+    ),
+    liquid_summary: SummaryFieldSchema.describe(
+      "Compat placeholderveld voor wrappers die abusievelijk een samenvatting meesturen. Dit vervangt nooit echte file-inhoud."
+    ),
     patch: ThemeDraftPatchSchema.optional().describe("Verander een specifieke string zonder het hele bestand in te sturen. Bespaart tokens en voorkomt truncated writes."),
     patches: ThemeDraftPatchesSchema.optional(),
     baseChecksumMd5: z.string().optional().describe("Optioneel MD5 checksum voor optimistic locking. De write faalt als het bestand tussentijds is gewijzigd."),
@@ -109,9 +120,13 @@ const ThemeDraftFilePublicSchema = z
       data.value !== undefined ||
       data.content !== undefined ||
       data.liquid !== undefined;
+    const hasValueSummaryLike =
+      data.value_summary !== undefined ||
+      data.content_summary !== undefined ||
+      data.liquid_summary !== undefined;
     const hasPatch = data.patch !== undefined;
     const hasPatches = Array.isArray(data.patches) && data.patches.length > 0;
-    return [hasValueLike, hasPatch, hasPatches].filter(Boolean).length === 1;
+    return [hasValueLike || hasValueSummaryLike, hasPatch, hasPatches].filter(Boolean).length === 1;
   }, {
     message:
       "Provide exactly one logical write mode: one of 'value'/'content'/'liquid', 'patch', or 'patches'",
@@ -140,8 +155,6 @@ const ThemeDraftFileSchema = z
     message: "Provide exactly one of 'value', 'patch', or 'patches'",
   });
 
-const SummaryFieldSchema = z.string().max(4000).optional();
-
 const DraftThemeArtifactPublicObjectSchema = z
   .object({
     files: z
@@ -165,6 +178,11 @@ const DraftThemeArtifactPublicObjectSchema = z
       .min(1)
       .optional()
       .describe("Compat alias van key voor single-file flows."),
+    target_file: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Compat alias van targetFile voor generieke wrappers."),
     value: z
       .string()
       .optional()
@@ -177,6 +195,15 @@ const DraftThemeArtifactPublicObjectSchema = z
       .string()
       .optional()
       .describe("Compat alias van value voor single-file Liquid writes."),
+    value_summary: SummaryFieldSchema.describe(
+      "Compat placeholderveld voor wrappers die abusievelijk een samenvatting meesturen. Dit vervangt nooit echte file-inhoud."
+    ),
+    content_summary: SummaryFieldSchema.describe(
+      "Compat placeholderveld voor wrappers die abusievelijk een samenvatting meesturen. Dit vervangt nooit echte file-inhoud."
+    ),
+    liquid_summary: SummaryFieldSchema.describe(
+      "Compat placeholderveld voor wrappers die abusievelijk een samenvatting meesturen. Dit vervangt nooit echte file-inhoud."
+    ),
     searchString: z
       .string()
       .optional()
@@ -211,9 +238,20 @@ const DraftThemeArtifactPublicObjectSchema = z
       .or(z.number())
       .optional()
       .describe("Optioneel expliciet doel theme ID. Laat weg om via themeRole te resolven."),
+    theme_id: z
+      .string()
+      .or(z.number())
+      .optional()
+      .describe("Compat alias van themeId voor generieke wrappers."),
     themeRole: ThemeRoleSchema
       .optional()
       .describe("Target theme role. Verplicht als themeId niet is opgegeven. Vraag de gebruiker welk thema."),
+    theme_role: ThemeRoleSchema
+      .optional()
+      .describe("Compat alias van themeRole voor generieke wrappers."),
+    role: ThemeRoleSchema
+      .optional()
+      .describe("Compat alias van themeRole voor generieke wrappers."),
     mode: z
       .enum(["create", "edit"])
       .optional()
@@ -221,8 +259,12 @@ const DraftThemeArtifactPublicObjectSchema = z
         "'create' = nieuw sectionbestand met volledige inspectie. 'edit' = bestaand bestand fixen met lichtere checks. Zet mode altijd op het TOP-LEVEL request, nooit in files[]. Als mode ontbreekt en je patch/patches gebruikt, behandelt de pipeline dit automatisch als edit; value-only writes worden dan eerst tegen het doeltheme geprobed om create/edit veilig af te leiden."
       ),
     isStandalone: z.boolean().optional().describe("Mark as standalone workflow"),
+    is_standalone: z.boolean().optional().describe("Compat alias van isStandalone voor generieke wrappers."),
     plannerHandoff: PlannerHandoffSchema.optional().describe(
       "Optionele planner-handoff uit plan-theme-edit met volledige brief, reference signals en required reads. Gebruik dit om de write-flow semantisch aan het plannerresultaat te binden."
+    ),
+    planner_handoff: PlannerHandoffSchema.optional().describe(
+      "Compat alias van plannerHandoff voor generieke wrappers."
     ),
   })
   .strict();
@@ -305,21 +347,38 @@ const normalizeDraftFileInput = (file) => {
   return normalized;
 };
 
+const hasNormalizedDraftFileWriteMode = (file) =>
+  Boolean(
+    file &&
+      (
+        typeof file.value === "string" ||
+        file.patch !== undefined ||
+        (Array.isArray(file.patches) && file.patches.length > 0)
+      )
+  );
+
 const normalizeDraftThemeArtifactInput = (rawInput) => {
   if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
     return rawInput;
   }
 
   const summary = extractThemeToolSummary(rawInput);
+  const normalizedFiles = Array.isArray(rawInput.files)
+    ? rawInput.files
+        .map((file) => normalizeDraftFileInput(file))
+        .filter((file) => hasNormalizedDraftFileWriteMode(file))
+    : rawInput.files;
   let normalized = {
-    files: Array.isArray(rawInput.files)
-      ? rawInput.files.map((file) => normalizeDraftFileInput(file))
-      : rawInput.files,
-    themeId: rawInput.themeId,
-    themeRole: rawInput.themeRole,
+    files:
+      Array.isArray(normalizedFiles) && normalizedFiles.length > 0
+        ? normalizedFiles
+        : undefined,
+    themeId: rawInput.themeId ?? rawInput.theme_id,
+    themeRole:
+      rawInput.themeRole ?? rawInput.theme_role ?? rawInput.role,
     mode: rawInput.mode,
-    isStandalone: rawInput.isStandalone,
-    plannerHandoff: rawInput.plannerHandoff,
+    isStandalone: rawInput.isStandalone ?? rawInput.is_standalone,
+    plannerHandoff: rawInput.plannerHandoff ?? rawInput.planner_handoff,
   };
 
   if (summary) {
@@ -339,13 +398,19 @@ const normalizeDraftThemeArtifactInput = (rawInput) => {
 
   if (!normalized.files) {
     if (rawInput.file && typeof rawInput.file === "object" && !Array.isArray(rawInput.file)) {
-      normalized.files = [normalizeDraftFileInput(rawInput.file)];
+      const normalizedFile = normalizeDraftFileInput(rawInput.file);
+      if (hasNormalizedDraftFileWriteMode(normalizedFile)) {
+        normalized.files = [normalizedFile];
+      }
     }
   }
 
   if (!normalized.files) {
     const inferredKey =
-      rawInput.key || rawInput.targetFile || (summary ? inferSingleThemeFile(summary) : null);
+      rawInput.key ||
+      rawInput.targetFile ||
+      rawInput.target_file ||
+      (summary ? inferSingleThemeFile(summary) : null);
     if (
       inferredKey &&
       (rawInput.value !== undefined ||
@@ -428,7 +493,16 @@ function extractSchemaJson(value) {
 }
 
 function parseSectionSchema(value) {
-  const schemaJson = extractSchemaJson(value);
+  const schemaBlocks = getLiquidBlockContents(value, "schema");
+  if (schemaBlocks.length > 1) {
+    return {
+      schema: null,
+      error: "Multiple {% schema %} blocks gevonden. Gebruik exact één schema block per section file.",
+    };
+  }
+
+  const [schemaJsonRaw] = schemaBlocks;
+  const schemaJson = schemaJsonRaw === undefined ? null : String(schemaJsonRaw).trim();
   if (schemaJson === null) {
     return { schema: null, error: "Missing {% schema %} block." };
   }
@@ -2148,10 +2222,110 @@ function extractLiquidOutputTags(value) {
   );
 }
 
+function getLineNumberAtIndex(source, index) {
+  return String(source || "")
+    .slice(0, Math.max(0, Number(index) || 0))
+    .split("\n").length;
+}
+
+function collectLiquidDelimiterBalanceIssues(value, fileKey) {
+  const issues = [];
+  const suggestedFixes = [];
+  const source = String(value || "");
+  const tokenPattern = /({{[-]?|{%-?|[-]?}}|[-]?%})/g;
+  const stack = [];
+
+  for (const match of source.matchAll(tokenPattern)) {
+    const token = String(match[0] || "");
+    const index = match.index ?? 0;
+
+    if (token === "{{" || token === "{{-") {
+      stack.push({ kind: "output", index });
+      continue;
+    }
+
+    if (token === "{%" || token === "{%-") {
+      stack.push({ kind: "tag", index });
+      continue;
+    }
+
+    if (token === "}}" || token === "-}}") {
+      const current = stack.pop();
+      if (!current || current.kind !== "output") {
+        issues.push(
+          createInspectionIssue({
+            path: [fileKey],
+            problem:
+              `Building Inspection Failed: een Liquid output-delimiter sluit niet correct rond regel ${getLineNumberAtIndex(source, index)}.`,
+            fixSuggestion:
+              "Controleer of alle {{ ... }} output-tags correct openen en sluiten en dat er geen losse }} of -}} overblijven.",
+            issueCode: "inspection_failed_liquid_delimiter_balance",
+          })
+        );
+        suggestedFixes.push(
+          "Sluit elke {{ of {{- af met een bijpassende }} of -}}.",
+          "Controleer of HTML, SVG of JavaScript geen losse Liquid-sluiters bevat."
+        );
+        return { issues, suggestedFixes };
+      }
+      continue;
+    }
+
+    if (token === "%}" || token === "-%}") {
+      const current = stack.pop();
+      if (!current || current.kind !== "tag") {
+        issues.push(
+          createInspectionIssue({
+            path: [fileKey],
+            problem:
+              `Building Inspection Failed: een Liquid tag-delimiter sluit niet correct rond regel ${getLineNumberAtIndex(source, index)}.`,
+            fixSuggestion:
+              "Controleer of alle {% ... %} tags correct openen en sluiten en dat er geen losse %} of -%} overblijven.",
+            issueCode: "inspection_failed_liquid_delimiter_balance",
+          })
+        );
+        suggestedFixes.push(
+          "Sluit elke {% of {%- af met een bijpassende %} of -%}.",
+          "Controleer vooral for/if/schema/style/javascript blokken op kapotte delimiters."
+        );
+        return { issues, suggestedFixes };
+      }
+    }
+  }
+
+  if (stack.length > 0) {
+    const unclosed = stack[stack.length - 1];
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          `Building Inspection Failed: ongesloten Liquid ${unclosed.kind === "tag" ? "tag" : "output"} gedetecteerd rond regel ${getLineNumberAtIndex(source, unclosed.index)}.`,
+        fixSuggestion:
+          unclosed.kind === "tag"
+            ? "Voeg de ontbrekende %} of -%} toe en controleer of alle {% ... %} blokken volledig zijn."
+            : "Voeg de ontbrekende }} of -}} toe en controleer of alle {{ ... }} expressies volledig zijn.",
+        issueCode: "inspection_failed_liquid_delimiter_balance",
+      })
+    );
+    suggestedFixes.push(
+      "Controleer of geen enkele {{ ... }} of {% ... %} expressie halverwege is afgebroken.",
+      "Laat de client altijd een volledige filebody genereren in plaats van een afgekorte samenvatting."
+    );
+  }
+
+  return {
+    issues,
+    suggestedFixes,
+  };
+}
+
 function collectLiquidRendererSafety(value, fileKey) {
   const issues = [];
   const warnings = [];
   const suggestedFixes = [];
+  const delimiterInspection = collectLiquidDelimiterBalanceIssues(value, fileKey);
+  issues.push(...(delimiterInspection.issues || []));
+  suggestedFixes.push(...(delimiterInspection.suggestedFixes || []));
   const outputTags = extractLiquidOutputTags(value);
   const nestedLiquidOutput = outputTags.find((tag) => /{{|{%-?\s*|{%\s*/.test(tag.slice(2, -2)));
 
@@ -4356,7 +4530,7 @@ export const draftThemeArtifact = {
         suggestedFixes: [
           "Geef files[] mee voor canonieke multi-file writes.",
           "Of gebruik een veilige single-file shorthand: key + value/content/liquid of key + patch/patches.",
-          "Vrije summary-tekst mag nooit de daadwerkelijke file-inhoud vervangen.",
+          "Vrije summary-tekst of velden zoals value_summary/liquid_summary mogen nooit de daadwerkelijke file-inhoud vervangen.",
         ],
         shouldNarrowScope: false,
         nextAction: "provide_structured_write_payload",
@@ -4368,7 +4542,7 @@ export const draftThemeArtifact = {
             problem:
               "De draft bevat geen files[] payload en ook geen veilige single-file shorthand met write-inhoud.",
             fixSuggestion:
-              "Stuur files[] mee of gebruik key + value/content/liquid of key + patch/patches.",
+              "Stuur files[] mee of gebruik key + value/content/liquid of key + patch/patches. Samenvattingsvelden zoals value_summary of liquid_summary zijn niet genoeg.",
           }),
         ],
       });

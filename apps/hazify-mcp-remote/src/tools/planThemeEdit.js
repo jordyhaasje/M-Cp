@@ -105,9 +105,18 @@ const PlanThemeEditPublicObjectSchema = z
       .positive()
       .optional()
       .describe("Optional explicit Shopify theme ID."),
+    theme_id: z
+      .coerce.number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Compat alias van themeId voor generieke wrappers."),
     themeRole: ThemeRoleSchema
       .optional()
       .describe("Theme role when themeId is omitted. Geef altijd expliciet hetzelfde target mee als in je uiteindelijke write-flow."),
+    theme_role: ThemeRoleSchema
+      .optional()
+      .describe("Compat alias van themeRole voor generieke wrappers."),
     template: TemplateSchema
       .optional()
       .describe("Optioneel template-oppervlak, bijv. product of homepage. Als dit ontbreekt gebruikt de planner een veilige default per intent."),
@@ -123,11 +132,21 @@ const PlanThemeEditPublicObjectSchema = z
       .min(1)
       .optional()
       .describe("Exact bestaand bestand wanneer je al weet welk file gepatcht moet worden."),
+    target_file: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Compat alias van targetFile voor generieke wrappers."),
     sectionTypeHint: z
       .string()
       .max(120)
       .optional()
       .describe("Optionele hint voor de section type/handle, bijvoorbeeld main-product."),
+    section_type_hint: z
+      .string()
+      .max(120)
+      .optional()
+      .describe("Compat alias van sectionTypeHint voor generieke wrappers."),
     _tool_input_summary: z
       .string()
       .max(4000)
@@ -187,6 +206,13 @@ const PlanThemeEditPublicObjectSchema = z
       .max(5)
       .default(3)
       .describe("Maximaal aantal gerelateerde snippets om compact mee te nemen in de plan-output."),
+    snippet_limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(5)
+      .optional()
+      .describe("Compat alias van snippetLimit voor generieke wrappers."),
   })
   .strict();
 
@@ -246,13 +272,13 @@ const normalizePlanThemeEditInput = (rawInput) => {
 
   let normalized = {
     intent: rawInput.intent,
-    themeId: rawInput.themeId,
-    themeRole: rawInput.themeRole,
+    themeId: rawInput.themeId ?? rawInput.theme_id,
+    themeRole: rawInput.themeRole ?? rawInput.theme_role,
     template: rawInput.template,
     query: compactPlanQuery(rawInput.query),
-    targetFile: rawInput.targetFile,
-    sectionTypeHint: rawInput.sectionTypeHint,
-    snippetLimit: rawInput.snippetLimit,
+    targetFile: rawInput.targetFile ?? rawInput.target_file,
+    sectionTypeHint: rawInput.sectionTypeHint ?? rawInput.section_type_hint,
+    snippetLimit: rawInput.snippetLimit ?? rawInput.snippet_limit,
   };
   const descriptionAlias =
     compactPlanQuery(rawInput.description) || "";

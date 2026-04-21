@@ -432,11 +432,17 @@ test("draftThemeArtifact - fails when linter finds issues", async (t) => {
   const result = await execute(draftThemeArtifact.schema.parse(input), { shopifyClient: mockShopifyClient });
 
   assert.strictEqual(result.success, false);
-  assert.strictEqual(result.status, "lint_failed");
-  assert.strictEqual(result.errorCode, "lint_failed_liquid_syntax");
+  assert.strictEqual(result.status, "inspection_failed");
+  assert.strictEqual(result.errorCode, "inspection_failed_multiple");
   assert.ok(result.errors.length > 0, "Should return linter errors");
-  assert.strictEqual(result.errors[0].severity, "error");
-  assert.strictEqual(result.errors[0].issueCode, "lint_failed_liquid_syntax");
+  assert.ok(
+    result.errors.some((issue) => issue.issueCode === "inspection_failed_liquid_delimiter_balance"),
+    "Should surface the local Liquid delimiter failure before theme-check upload"
+  );
+  assert.ok(
+    result.errors.some((issue) => issue.issueCode === "lint_failed_liquid_syntax"),
+    "Should keep the downstream theme-check syntax issue in the aggregated response"
+  );
   assert.strictEqual(result.lintIssues?.[0]?.check, "LiquidHTMLSyntaxError");
   assert.ok(Number.isInteger(result.lintIssues?.[0]?.line));
 });
@@ -1032,6 +1038,105 @@ test("draftThemeArtifact - flags missing schema labels during local inspection b
   assert.ok(
     result.suggestedFixes?.some((entry) => entry.includes("Voeg een label toe")),
     "local inspection should provide an immediate label repair hint"
+  );
+});
+
+test("draftThemeArtifact - rejects multiple schema blocks during local inspection", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/duplicate-schema.liquid",
+          value: `
+<section>{{ section.settings.heading }}</section>
+{% schema %}
+{
+  "name": "Duplicate schema",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Duplicate schema" }]
+}
+{% endschema %}
+{% schema %}
+{
+  "name": "Duplicate schema again",
+  "settings": [],
+  "presets": [{ "name": "Duplicate schema again" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some(
+      (issue) =>
+        issue.issueCode === "inspection_failed_schema" &&
+        String(issue.suggestedReplacement || "").includes("Multiple {% schema %} blocks")
+    ),
+    "multiple schema blocks should fail during local inspection before preview write"
+  );
+});
+
+test("draftThemeArtifact - catches unclosed liquid delimiters before theme-check is the first syntax detector", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/broken-delimiters.liquid",
+          value: `
+<section class="broken-delimiters">
+  <h2>{{ section.settings.heading }</h2>
+</section>
+{% schema %}
+{
+  "name": "Broken delimiters",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Broken delimiters" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "inspection_failed_liquid_delimiter_balance"),
+    "unclosed Liquid delimiters should be surfaced during local inspection"
   );
 });
 

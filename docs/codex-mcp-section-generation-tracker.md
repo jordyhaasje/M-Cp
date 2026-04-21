@@ -5,7 +5,7 @@ Doelgroep: repo maintainers en coding agents.
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.
 
 ## Current Phase
-- Phase 7 follow-up: exact section-refinement continuity hardening is deployed to Railway production; remaining work is one authenticated live-traffic verification of the newer request/failure log fields plus optional block/snippet fidelity expansion
+- Phase 8: tool-argument normalization and create/edit preflight hardening are verified locally; remaining work is the production redeploy plus one authenticated post-deploy log verification of the new wrapper/preflight behavior
 
 ## Checklist Of Planned Work
 - [x] Read attached report and `tool_log.json`
@@ -377,6 +377,35 @@ Doelgroep: repo maintainers en coding agents.
   - `GET https://hazify-mcp-remote-production.up.railway.app/.well-known/oauth-authorization-server` -> `200`
   - `POST https://hazify-mcp-remote-production.up.railway.app/mcp` -> `401` without credentials, as expected
   - `Production smoke checks passed`
+- Read `/Users/jordy/Desktop/mcp_debug_log_shopify_theme_flow (1).docx`, `/Users/jordy/Desktop/tool_call_debug_log.json`, `/Users/jordy/Desktop/goed1.png`, `/Users/jordy/Desktop/goed2.png`, and `/Users/jordy/Desktop/uitkomst.png` for the latest user-reported comparison-section failure.
+- Re-checked Railway production request logs around April 21, 2026 18:22 CEST and confirmed the live flow pattern:
+  - `plan-theme-edit` succeeded with required exact reads
+  - `get-theme-files` succeeded when called with exact keys
+  - two `create-theme-section` attempts failed for deterministic content reasons (`inspection_failed_multiple`, `LiquidHTMLSyntaxError`, invalid/missing schema JSON)
+  - a third `create-theme-section` attempt succeeded with draft `5a50743c-16d3-447f-9abf-c684a64fb644`
+- Identified the actual wrapper regression behind the latest log:
+  - `get-theme-file`, `get-theme-files`, and `search-theme-files` already had preprocess-based alias normalization in their schemas, but some runtime execute paths did not re-parse raw inputs before use
+  - this meant non-technical snake_case inputs such as `theme_id`, `theme_role`, `filename`, `include_content`, and `result_limit` could still fail or bypass the intended normalization in real traffic even though schema-only tests looked fine
+- Hardened exact-read/search tool wrappers so normal chat-driven clients now consistently normalize safe aliases at runtime while still rejecting unsafe inputs such as `limit` on `get-theme-files` and glob/pattern misuse on exact-read tools.
+- Hardened write-tool compatibility for ordinary prompt clients:
+  - `create-theme-section` now accepts repairable placeholder fields like `liquid_summary` in its public schema but still fails safely with `missing_section_liquid` unless full parseable Liquid is present
+  - `draft-theme-artifact` now accepts summary-like placeholder fields only as repairable compat input and never mistakes them for real file content
+- Hardened local section preflight before preview writes:
+  - explicit rejection of multiple `{% schema %}` blocks
+  - early Liquid delimiter-balance detection before downstream theme-check becomes the first syntax detector
+  - clearer repair guidance when summary placeholders are used instead of full file bodies
+- Added regression coverage for:
+  - runtime-safe snake_case argument normalization on theme read/search tools
+  - exact-read `limit` rejection
+  - repairable summary-placeholder inputs for `create-theme-section` and `draft-theme-artifact`
+  - local rejection of multiple schema blocks
+  - early Liquid delimiter-balance failures that still preserve aggregated downstream lint feedback when present
+- Re-ran verification after the wrapper/preflight hardening:
+  - `npm run --workspace @hazify/mcp-remote test` -> pass (`77/77`)
+  - `npm run check:docs` -> pass
+  - `npm run check:repo` -> pass
+  - `npm run build` -> pass
+  - `npm test` -> pass (`EXIT:0`)
 
 ## Decisions And Assumptions
 - Treat current code and runtime behavior as canonical over older docs/plans, per user request and `AGENTS.md`.
@@ -490,8 +519,11 @@ Doelgroep: repo maintainers en coding agents.
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/lib/themeReadHydration.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/createThemeSection.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/getThemeFile.js`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/getThemeFiles.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/patchThemeFile.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/planThemeEdit.js`
+- `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/src/tools/searchThemeFiles.js`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
 - `/Users/jordy/Desktop/Customer service/apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
@@ -594,6 +626,11 @@ Doelgroep: repo maintainers en coding agents.
 - `npm test` -> passed after exact refinement-continuity hardening
 - `railway up --ci --verbose -m "Harden exact section refinement continuity"` -> production deploy `eff195b1-4c86-474b-a40c-9bec6ed2a01a` succeeded
 - `npm run smoke:prod` -> passed after deploy
+- `npm run --workspace @hazify/mcp-remote test` -> passed (`77/77`) after wrapper argument-normalization + local Liquid/schema preflight hardening
+- `npm run check:docs` -> passed after generated tool docs re-synced `AGENTS.md` and `docs/02-SYSTEM-FLOW.md`
+- `npm run check:repo` -> passed after the same hardening
+- `npm run build` -> passed after the same hardening
+- `npm test` -> passed (`EXIT:0`) after the same hardening
 
 ## Shopify Dev MCP Docs Consulted
 - `learn_shopify_api(api: "liquid", model: "none")`

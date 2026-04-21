@@ -41,19 +41,22 @@ const normalizeCreateThemeSectionInput = (rawInput) => {
   const explicitKey =
     typeof rawInput.key === "string" && rawInput.key.trim()
       ? rawInput.key.trim()
-      : typeof rawInput.targetFile === "string" && rawInput.targetFile.trim()
-        ? rawInput.targetFile.trim()
+      : typeof (rawInput.targetFile ?? rawInput.target_file) === "string" &&
+            String(rawInput.targetFile ?? rawInput.target_file).trim()
+        ? String(rawInput.targetFile ?? rawInput.target_file).trim()
         : null;
   const explicitHandle =
     typeof rawInput.handle === "string" && rawInput.handle.trim()
       ? rawInput.handle.trim()
-      : typeof rawInput.sectionHandle === "string" && rawInput.sectionHandle.trim()
-        ? rawInput.sectionHandle.trim()
+      : typeof (rawInput.sectionHandle ?? rawInput.section_handle) === "string" &&
+            String(rawInput.sectionHandle ?? rawInput.section_handle).trim()
+        ? String(rawInput.sectionHandle ?? rawInput.section_handle).trim()
         : null;
 
   let normalized = {
-    themeId: rawInput.themeId,
-    themeRole: rawInput.themeRole,
+    themeId: rawInput.themeId ?? rawInput.theme_id,
+    themeRole:
+      rawInput.themeRole ?? rawInput.theme_role ?? rawInput.role,
     key:
       explicitKey ||
       (explicitHandle && SECTION_HANDLE_PATTERN.test(explicitHandle)
@@ -65,8 +68,8 @@ const normalizeCreateThemeSectionInput = (rawInput) => {
         : rawInput.content !== undefined
           ? rawInput.content
           : rawInput.liquid,
-    isStandalone: rawInput.isStandalone,
-    plannerHandoff: rawInput.plannerHandoff,
+    isStandalone: rawInput.isStandalone ?? rawInput.is_standalone,
+    plannerHandoff: rawInput.plannerHandoff ?? rawInput.planner_handoff,
   };
 
   if (summary) {
@@ -89,9 +92,20 @@ const CreateThemeSectionPublicObjectSchema = z
       .or(z.number())
       .optional()
       .describe("Optioneel expliciet doel theme ID. Laat weg om via themeRole te resolven."),
+    theme_id: z
+      .string()
+      .or(z.number())
+      .optional()
+      .describe("Compat alias van themeId voor generieke wrappers."),
     themeRole: ThemeRoleSchema
       .optional()
       .describe("Target theme role. Verplicht als themeId niet is opgegeven. Vraag de gebruiker welk thema."),
+    theme_role: ThemeRoleSchema
+      .optional()
+      .describe("Compat alias van themeRole voor generieke wrappers."),
+    role: ThemeRoleSchema
+      .optional()
+      .describe("Compat alias van themeRole voor generieke wrappers."),
     key: z
       .string()
       .min(1)
@@ -102,6 +116,11 @@ const CreateThemeSectionPublicObjectSchema = z
       .min(1)
       .optional()
       .describe("Compat alias van key voor clients die targetFile gebruiken."),
+    target_file: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Compat alias van targetFile voor generieke wrappers."),
     handle: z
       .string()
       .min(1)
@@ -112,6 +131,11 @@ const CreateThemeSectionPublicObjectSchema = z
       .min(1)
       .optional()
       .describe("Compat alias van handle."),
+    section_handle: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Compat alias van sectionHandle voor generieke wrappers."),
     value: z
       .string()
       .optional()
@@ -124,6 +148,15 @@ const CreateThemeSectionPublicObjectSchema = z
       .string()
       .optional()
       .describe("Compat alias van value."),
+    value_summary: SummaryFieldSchema.describe(
+      "Compat placeholderveld voor wrappers die abusievelijk een samenvatting meesturen. Dit vervangt nooit echte Liquid-inhoud."
+    ),
+    content_summary: SummaryFieldSchema.describe(
+      "Compat placeholderveld voor wrappers die abusievelijk een samenvatting meesturen. Dit vervangt nooit echte Liquid-inhoud."
+    ),
+    liquid_summary: SummaryFieldSchema.describe(
+      "Compat placeholderveld voor wrappers die abusievelijk een samenvatting meesturen. Dit vervangt nooit echte Liquid-inhoud."
+    ),
     _tool_input_summary: SummaryFieldSchema.describe(
       "Compat summary voor beperkte clients. Alleen veilige inferentie voor theme target en exact één sections/<handle>.liquid path."
     ),
@@ -143,8 +176,15 @@ const CreateThemeSectionPublicObjectSchema = z
       .boolean()
       .optional()
       .describe("Optionele hint voor standalone section-workflows."),
+    is_standalone: z
+      .boolean()
+      .optional()
+      .describe("Compat alias van isStandalone voor generieke wrappers."),
     plannerHandoff: PlannerHandoffSchema.optional().describe(
       "Optionele planner-handoff uit plan-theme-edit met volledige brief, reference signals en required reads. Gebruik dit om write-context portable te houden over meerdere toolcalls."
+    ),
+    planner_handoff: PlannerHandoffSchema.optional().describe(
+      "Compat alias van plannerHandoff voor generieke wrappers."
     ),
   })
   .strict();
@@ -546,7 +586,7 @@ const createThemeSectionTool = {
             problem:
               "Er ontbreekt een volledige value/content/liquid payload voor de nieuwe section.",
             fixSuggestion:
-              "Stuur de complete sections/<handle>.liquid inhoud mee via value, content of liquid.",
+              "Stuur de complete sections/<handle>.liquid inhoud mee via value, content of liquid. Velden zoals liquid_summary of andere samenvattingen zijn niet genoeg.",
           }),
         ],
       });
