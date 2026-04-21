@@ -169,6 +169,11 @@ Doelgroep: repo maintainers en coding agents.
   - local `main` was `8` commits ahead of `origin/main`
   - Railway production was already running commit `198e1fa`, so production and git remote were temporarily out of sync
 - Deleted stale root document `/Users/jordy/Desktop/Customer service/Fix plan.md` after confirming it is not referenced by active docs or scripts.
+- Committed the stale-plan cleanup and tracker sync as `656b553` (`Remove stale plan doc and sync tracker`).
+- Pushed `main` to GitHub and verified remote parity:
+  - `git ls-remote origin refs/heads/main` -> `656b5535880d11522230f8d4348eeec34d0a898c`
+  - `git fetch origin main && git rev-list --left-right --count origin/main...HEAD` -> `0 0`
+  - `origin/main` now matches local `HEAD`
 - Re-ran `npm run check:docs` after the source-doc alignment -> pass.
 - Committed the mixed-theme-target safety hardening as `255e59b` (`Harden theme target continuity across prompt flows`).
 - Deployed `Hazify-MCP-Remote` production again on Railway; latest production deployment is now `af86f32e-ff85-470c-8314-983d572696c4` (`SUCCESS`, `2026-04-21T09:37:19.521Z`, Node `22.22.2`).
@@ -394,6 +399,7 @@ Doelgroep: repo maintainers en coding agents.
 - `railway up --ci --verbose -m "Harden screenshot replicas and schema preflight"` -> production deploy `8fb1def7-1745-4a0d-bd94-0b4b3df479e1` succeeded
 - `npm run smoke:prod` -> passed after deploy
 - `npm run check:docs` -> passed again after tracker/deploy notes + stale plan cleanup
+- `git fetch origin main && git rev-list --left-right --count origin/main...HEAD` -> passed (`0 0`) after pushing the cleanup commit
 - Residual noise observed during tests/build, but non-failing:
   - Node `punycode` deprecation warning
   - expected test-path logs for rejected carriers / unauthorized requests
@@ -470,7 +476,8 @@ Doelgroep: repo maintainers en coding agents.
 - Production Railway logs still need one more verification pass after a real authenticated tool call on the new deploy, because current smoke only exercised public discovery endpoints and the expected unauthenticated `401` on `/mcp`.
 - `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh` appears unused by the repo, but removal still needs human confirmation.
 - The latest deployed production runtime is now deployment `8fb1def7-1745-4a0d-bd94-0b4b3df479e1`.
+- GitHub `origin/main` is now ahead of Railway only by the non-runtime cleanup commit `656b553` (tracker + stale plan deletion). The latest runtime-affecting deployed commit remains `198e1fa`.
 
 ## Exact Next Step / Command
-- Push the current `main` branch so `origin/main` catches up with the already-live Railway production deployment, then confirm the branch is no longer ahead.
-- Exact command: `git push origin main && git rev-list --left-right --count origin/main...HEAD`
+- Trigger or observe one authenticated production `plan-theme-edit` / `create-theme-section` / `draft-theme-artifact` request on the new deploy and confirm `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary` behavior in Railway logs.
+- Exact command: `railway logs --latest --lines 100 --filter "requestId OR mcp_http_tool_call_domain_failed OR failureSummary"`
