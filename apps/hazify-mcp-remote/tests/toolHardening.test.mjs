@@ -17,8 +17,10 @@ import { planThemeEditTool } from "../src/tools/planThemeEdit.js";
 import { SearchThemeFilesInputSchema } from "../src/tools/searchThemeFiles.js";
 import {
   clearThemeEditMemory,
+  getThemeEditMemory,
   rememberThemePlan,
   rememberThemeRead,
+  themeTargetsCompatible,
 } from "../src/lib/themeEditMemory.js";
 import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
@@ -640,6 +642,74 @@ try {
     global.fetch = previousSummaryFetch;
     draftThemeArtifact.execute = originalSummaryDraftExecute;
   }
+
+  assert.equal(
+    themeTargetsCompatible({ themeId: 123 }, { themeRole: "main" }),
+    false,
+    "mixed explicit themeId/themeRole targets should not be treated as compatible without proof they resolve to the same theme"
+  );
+  assert.equal(
+    themeTargetsCompatible({ themeId: 123, themeRole: "main" }, { themeRole: "main" }),
+    true,
+    "a remembered themeId may only stay compatible with a role-only target when the remembered role is uniquely resolvable"
+  );
+
+  clearThemeEditMemory();
+  const themeSwitchContext = { tokenHash: "theme-target-switch-memory" };
+  rememberThemePlan(themeSwitchContext, {
+    themeRole: "main",
+    intent: "existing_edit",
+    targetFile: "sections/live-theme-testimonials.liquid",
+  });
+  rememberThemePlan(themeSwitchContext, {
+    themeId: 222,
+    intent: "existing_edit",
+    targetFile: "sections/preview-theme-testimonials.liquid",
+  });
+  const switchedThemeState = getThemeEditMemory(themeSwitchContext);
+  assert.equal(switchedThemeState.themeTarget.themeId, 222);
+  assert.equal(
+    switchedThemeState.themeTarget.themeRole,
+    null,
+    "remembered theme memory should drop stale role data when the user explicitly switches to a different themeId"
+  );
+
+  clearThemeEditMemory();
+  rememberThemePlan(
+    { tokenHash: "patch-theme-cross-target" },
+    {
+      themeRole: "main",
+      intent: "existing_edit",
+      targetFile: "snippets/product-info.liquid",
+      nextReadKeys: ["snippets/product-info.liquid"],
+      nextWriteKeys: ["snippets/product-info.liquid"],
+      immediateNextTool: "get-theme-file",
+      writeTool: "patch-theme-file",
+    }
+  );
+  const patchThemeCrossTargetResult = await patchThemeFileTool.execute(
+    patchThemeFileTool.schema.parse({
+      themeId: 222,
+      _tool_input_summary: "Patch de product info snippet",
+      searchString: "{%- when 'title' -%}",
+      replaceString: "{%- when 'title' -%}\n  <span>Badge</span>",
+    }),
+    { shopifyClient: mockShopifyClient, tokenHash: "patch-theme-cross-target" }
+  );
+  assert.equal(patchThemeCrossTargetResult.success, false);
+  assert.equal(patchThemeCrossTargetResult.errorCode, "missing_patch_target_file");
+  assert.equal(patchThemeCrossTargetResult.nextArgsTemplate?.themeId, 222);
+  assert.equal(
+    patchThemeCrossTargetResult.nextArgsTemplate?.themeRole,
+    undefined,
+    "patch-theme-file should not silently carry over a stale themeRole when the user explicitly switches themes"
+  );
+  assert.ok(
+    !patchThemeCrossTargetResult.warnings?.some((warning) =>
+      warning.includes("Patch target is automatisch overgenomen uit de recente theme-flow")
+    ),
+    "patch-theme-file should not reuse a remembered target from another theme"
+  );
 
   const patchThemeFileReplacementsPayload = patchThemeFileTool.schema.safeParse({
     key: "sections/main-product.liquid",

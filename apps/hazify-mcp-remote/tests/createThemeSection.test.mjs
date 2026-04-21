@@ -855,3 +855,33 @@ test("planThemeEdit - keeps the recent existing-edit target as sticky follow-up 
     "sticky existing-edit refinements should preserve the exact existing file in the write template"
   );
 });
+
+test("planThemeEdit - does not reuse a sticky target after an explicit theme switch", async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  const requestContext = { shopifyClient, tokenHash: "sticky-theme-switch-follow-up" };
+  rememberThemePlan(requestContext, {
+    themeRole: "main",
+    intent: "existing_edit",
+    targetFile: "sections/testimonials.liquid",
+    nextReadKeys: ["sections/testimonials.liquid"],
+    nextWriteKeys: ["sections/testimonials.liquid"],
+    immediateNextTool: "get-theme-file",
+    writeTool: "draft-theme-artifact",
+  });
+
+  const planResult = await planThemeEditTool.execute(
+    {
+      themeId: 222,
+      description: "maak hem mobiel compacter en rustiger",
+    },
+    requestContext
+  );
+
+  assert.equal(
+    Boolean(planResult.stickyTarget),
+    false,
+    "plan-theme-edit should not silently reuse a remembered target after the user explicitly switches themes"
+  );
+  assert.equal(planResult.normalizedArgs?.themeId, 222);
+});

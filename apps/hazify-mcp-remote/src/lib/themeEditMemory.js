@@ -12,13 +12,64 @@ const trimToNull = (value) => {
   return normalized ? normalized : null;
 };
 
+const normalizeThemeRole = (value) => {
+  const normalized = trimToNull(value);
+  return normalized ? normalized.toLowerCase() : null;
+};
+
+const normalizeThemeId = (value) => {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+};
+
 const normalizeThemeTarget = ({ themeId, themeRole } = {}) => ({
-  themeId:
-    themeId === undefined || themeId === null || themeId === ""
-      ? null
-      : Number(themeId),
-  themeRole: trimToNull(themeRole),
+  themeId: normalizeThemeId(themeId),
+  themeRole: normalizeThemeRole(themeRole),
 });
+
+const isUniquelyResolvableThemeRole = (themeRole) =>
+  normalizeThemeRole(themeRole) === "main";
+
+const mergeThemeTargets = (previousTarget = {}, nextTarget = {}) => {
+  const previous = normalizeThemeTarget(previousTarget);
+  const next = normalizeThemeTarget(nextTarget);
+  const nextHasThemeId = next.themeId !== null;
+  const nextHasThemeRole = Boolean(next.themeRole);
+
+  if (!nextHasThemeId && !nextHasThemeRole) {
+    return previous;
+  }
+
+  if (nextHasThemeId && nextHasThemeRole) {
+    return next;
+  }
+
+  if (nextHasThemeId) {
+    const canCarryRole =
+      previous.themeId !== null &&
+      previous.themeId === next.themeId &&
+      Boolean(previous.themeRole);
+    return {
+      themeId: next.themeId,
+      themeRole: canCarryRole ? previous.themeRole : null,
+    };
+  }
+
+  const canCarryId =
+    previous.themeId !== null &&
+    Boolean(previous.themeRole) &&
+    previous.themeRole === next.themeRole &&
+    isUniquelyResolvableThemeRole(next.themeRole);
+
+  return {
+    themeId: canCarryId ? previous.themeId : null,
+    themeRole: next.themeRole,
+  };
+};
 
 const getThemeEditMemoryKey = (context = {}) =>
   trimToNull(
@@ -68,21 +119,57 @@ const withThemeEditMemoryState = (context, updater) => {
 const themeTargetsCompatible = (left = {}, right = {}) => {
   const normalizedLeft = normalizeThemeTarget(left);
   const normalizedRight = normalizeThemeTarget(right);
+  const leftHasThemeId = normalizedLeft.themeId !== null;
+  const rightHasThemeId = normalizedRight.themeId !== null;
+  const leftHasThemeRole = Boolean(normalizedLeft.themeRole);
+  const rightHasThemeRole = Boolean(normalizedRight.themeRole);
+
+  if ((!leftHasThemeId && !leftHasThemeRole) || (!rightHasThemeId && !rightHasThemeRole)) {
+    return true;
+  }
+
+  if (leftHasThemeId && rightHasThemeId) {
+    if (normalizedLeft.themeId !== normalizedRight.themeId) {
+      return false;
+    }
+
+    if (
+      leftHasThemeRole &&
+      rightHasThemeRole &&
+      normalizedLeft.themeRole !== normalizedRight.themeRole
+    ) {
+      return false;
+    }
+
+    return true;
+  }
 
   if (
-    normalizedLeft.themeId !== null &&
-    normalizedRight.themeId !== null &&
-    normalizedLeft.themeId !== normalizedRight.themeId
+    leftHasThemeRole &&
+    rightHasThemeRole &&
+    normalizedLeft.themeRole !== normalizedRight.themeRole
   ) {
     return false;
   }
 
-  if (
-    normalizedLeft.themeRole &&
-    normalizedRight.themeRole &&
-    normalizedLeft.themeRole !== normalizedRight.themeRole
-  ) {
-    return false;
+  if (leftHasThemeRole && rightHasThemeRole && !leftHasThemeId && !rightHasThemeId) {
+    return true;
+  }
+
+  if (leftHasThemeId && rightHasThemeRole) {
+    return (
+      isUniquelyResolvableThemeRole(normalizedRight.themeRole) &&
+      leftHasThemeRole &&
+      normalizedLeft.themeRole === normalizedRight.themeRole
+    );
+  }
+
+  if (leftHasThemeRole && rightHasThemeId) {
+    return (
+      isUniquelyResolvableThemeRole(normalizedLeft.themeRole) &&
+      rightHasThemeRole &&
+      normalizedRight.themeRole === normalizedLeft.themeRole
+    );
   }
 
   return true;
@@ -133,10 +220,7 @@ const rememberThemePlan = (
   } = {}
 ) =>
   withThemeEditMemoryState(context, (state) => {
-    const themeTarget = normalizeThemeTarget({
-      themeId: themeId ?? state.themeTarget?.themeId ?? null,
-      themeRole: themeRole ?? state.themeTarget?.themeRole ?? null,
-    });
+    const themeTarget = mergeThemeTargets(state.themeTarget, { themeId, themeRole });
     return {
       ...state,
       themeTarget,
@@ -175,10 +259,7 @@ const rememberThemeRead = (
   } = {}
 ) =>
   withThemeEditMemoryState(context, (state) => {
-    const themeTarget = normalizeThemeTarget({
-      themeId: themeId ?? state.themeTarget?.themeId ?? null,
-      themeRole: themeRole ?? state.themeTarget?.themeRole ?? null,
-    });
+    const themeTarget = mergeThemeTargets(state.themeTarget, { themeId, themeRole });
     const nextReadFiles = { ...(state.readFiles || {}) };
 
     for (const file of normalizeReadFiles(files)) {
@@ -212,10 +293,7 @@ const rememberThemeWrite = (
   } = {}
 ) =>
   withThemeEditMemoryState(context, (state) => {
-    const themeTarget = normalizeThemeTarget({
-      themeId: themeId ?? state.themeTarget?.themeId ?? null,
-      themeRole: themeRole ?? state.themeTarget?.themeRole ?? null,
-    });
+    const themeTarget = mergeThemeTargets(state.themeTarget, { themeId, themeRole });
     const normalizedFiles = (Array.isArray(files) ? files : [])
       .map((file) => trimToNull(file?.key || file))
       .filter(Boolean);
