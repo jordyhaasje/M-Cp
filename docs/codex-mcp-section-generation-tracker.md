@@ -5,7 +5,7 @@ Doelgroep: repo maintainers en coding agents.
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.
 
 ## Current Phase
-- Phase 7 follow-up: screenshot-driven comparison-section fidelity hardening is implemented locally; remaining work is final tracker sync, commit, Railway deploy, and one post-deploy live-traffic verification
+- Phase 7 follow-up: screenshot-driven comparison-section fidelity hardening is deployed to Railway production; remaining work is one authenticated live-traffic verification of the newer request/failure log fields
 
 ## Checklist Of Planned Work
 - [x] Read attached report and `tool_log.json`
@@ -305,6 +305,18 @@ Doelgroep: repo maintainers en coding agents.
   - `npm run --workspace @hazify/mcp-remote test` -> pass
   - `npm run build` -> pass
   - `npm test` -> pass
+- Committed the comparison screenshot fidelity hardening as `d289e6f` (`Harden exact comparison section replica fidelity`).
+- Deployed `Hazify-MCP-Remote` production again on Railway:
+  - deployment/build `a0fbcd05-2a64-4209-9b81-d09da96767ac`
+  - status `SUCCESS` (`Deploy complete` via `railway up --ci --verbose`)
+  - runtime build still resolved Node `22.22.2`
+- Ran production smoke checks after deploy:
+  - `GET https://hazify-license-service-production.up.railway.app/health` -> `200`
+  - `GET https://hazify-license-service-production.up.railway.app/v1/session/bootstrap` -> `200`
+  - `GET https://hazify-mcp-remote-production.up.railway.app/.well-known/oauth-protected-resource` -> `200`
+  - `GET https://hazify-mcp-remote-production.up.railway.app/.well-known/oauth-authorization-server` -> `200`
+  - `POST https://hazify-mcp-remote-production.up.railway.app/mcp` -> `401` without credentials, as expected
+  - `Production smoke checks passed`
 
 ## Decisions And Assumptions
 - Treat current code and runtime behavior as canonical over older docs/plans, per user request and `AGENTS.md`.
@@ -578,7 +590,7 @@ Doelgroep: repo maintainers en coding agents.
     - successful `preview_ready` drafts after the required planner/read steps
   - On April 21, 2026 the live Railway production runtime now includes the planner-contract + observability hardening from commit `3b57903` and the mixed-theme-target continuity hardening from commit `255e59b`.
   - The latest deploy-log check after `255e59b` still only showed startup/build lines, so real post-deploy request traffic is still needed for one follow-up verification pass on `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary`.
-  - The screenshot-fidelity hardening is still local at this point in the tracker; no new Railway deploy has been executed for it yet.
+- The screenshot-fidelity hardening is now live on Railway production via deployment/build `a0fbcd05-2a64-4209-9b81-d09da96767ac`.
   - Production/deploy warnings observed:
     - repeated `npm warn config production Use --omit=dev instead`
     - `punycode` deprecation warning during build/start
@@ -586,13 +598,12 @@ Doelgroep: repo maintainers en coding agents.
 
 ## Open Issues
 - No failing tests or repo gates remain.
-- The new screenshot-driven comparison fidelity hardening still needs commit + Railway deploy + parity verification.
 - Railway cleanup environment still appears stale relative to production (`Node 18` image vs current `Node 22` baseline); no code change applied in this session.
 - Production Railway logs still need one more verification pass after a real authenticated tool call on the new deploy, because current smoke only exercised public discovery endpoints and the expected unauthenticated `401` on `/mcp`.
 - `apps/hazify-license-service/scripts/run-free-onboarding-smoke-test.sh` appears unused by the repo, but removal still needs human confirmation.
-- The latest deployed production runtime is still deployment `e6e3dc27-1e4e-43a7-af8a-0928b698bd1d` until this comparison-fidelity patchset is deployed.
-- After the new screenshot-fidelity runtime deploy, git-vs-deploy parity should be rechecked again if strict commit-to-deploy parity matters.
+- The latest deployed production runtime is now the comparison-fidelity deploy/build `a0fbcd05-2a64-4209-9b81-d09da96767ac`, corresponding to runtime commit `d289e6f`.
+- Git-vs-deploy parity still needs one last recheck after pushing the post-deploy tracker sync commit.
 
 ## Exact Next Step / Command
-- Commit and deploy the screenshot-driven comparison fidelity hardening, then run Railway smoke checks and recheck production deployment parity.
-- Exact command: `railway up --ci --verbose -m "Harden exact comparison section replica fidelity"`
+- Push the local post-deploy tracker sync to GitHub and then, when real authenticated traffic is available, confirm the newer `requestId` / `mcp_http_tool_call_domain_failed` / `failureSummary` fields in Railway production logs.
+- Exact command: `railway logs --latest --lines 100 --filter "requestId OR mcp_http_tool_call_domain_failed OR failureSummary"`
