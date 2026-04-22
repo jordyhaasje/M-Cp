@@ -23,7 +23,7 @@ Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve
 ## Verificatie- en release-ledger
 | Service | Laatst lokaal geverifieerd | Laatste lokale bewijsset | Laatst live op Railway | Live parity bevestigd |
 | --- | --- | --- | --- | --- |
-| `Hazify-MCP-Remote` | 2026-04-22 | `npm run check:docs`, `npm run check:repo`, `npm run build`, `npm run --workspace @hazify/mcp-remote test`, plus gerichte matrix/regressies voor `crossThemeAcceptanceMatrix` en Liquid template placement | `f71c9ba8-764f-4d8d-a337-aa6e313529a2` op 2026-04-22 | Ja. Railway deploy is succesvol, deploy logs tonen startup, en `npm run release:postdeploy` is groen. |
+| `Hazify-MCP-Remote` | 2026-04-22 | `npm run check:docs`, `npm run check:repo`, `npm run build`, `npm run --workspace @hazify/mcp-remote test`, plus gerichte matrix/regressies voor `crossThemeAcceptanceMatrix`, de nieuwe exact-match review-wall heuristieken en Liquid template placement | `4c680bc9-7a23-45a3-bbc0-d3d349eb73fe` op 2026-04-22 | Ja. Railway deploy is succesvol, build/runtime logs tonen een normale startup, en `npm run release:postdeploy` is groen. |
 | `Hazify-License-Service` | 2026-04-22 | `npm run --workspace @hazify/license-service test` en repo-brede build/checks | `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22 | Ja. De crash op `81578f9a-b774-4126-90f1-1eb12f9ac0b2` is opgelost; de nieuwe Railway deploy start correct en `npm run release:postdeploy` is groen. |
 
 Releasewaarheid:
@@ -91,7 +91,7 @@ De grootste resterende risico’s zitten nu vooral in:
 - Repo-brede verificatie op 2026-04-22 is groen: `npm run check:docs`, `npm run check:repo`, `npm run build`, `npm run --workspace @hazify/mcp-remote test`, `npm run --workspace @hazify/license-service test` en `npm run test:e2e`.
 
 ## Productiebewijs uit Railway
-De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `f71c9ba8-764f-4d8d-a337-aa6e313529a2` op 2026-04-22. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22.
+De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `4c680bc9-7a23-45a3-bbc0-d3d349eb73fe` op 2026-04-22. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22.
 
 De logs laten een realistisch beeld zien:
 - de planner-, read- en write-pipeline wordt actief gebruikt op echte shops
@@ -100,7 +100,7 @@ De logs laten een realistisch beeld zien:
 - er komen nog echte parse- en schemafouten terug op section-creatie en op bestaande product-sections
 - Railway bevestigde op 2026-04-22 ook een echte bestaande-section foutketen op `sections/hero-v1.liquid`: eerst `inspection_failed_truncated`, daarna `inspection_failed_liquid_delimiter_balance`. Dat incident is lokaal gereproduceerd en nu afgedekt met regressies voor mobile-only CSS-patches op bestaande sections met inline animatie-CSS.
 
-Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live Railway runtime sluit nu aan op de lokale remediation van 2026-04-22, inclusief de fix voor bestaande mobile-only section-edits met inline animatie-CSS. De eerdere license-service crash op ontbrekende `BACKUP_EXPORT_*` startup-validatie is opgeheven; backup-export blijft nu feature-gated op de admin-route in plaats van de hele service omver te trekken.
+Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live Railway runtime sluit nu aan op de lokale remediation van 2026-04-22, inclusief de fix voor bestaande mobile-only section-edits met inline animatie-CSS, de bredere desktop/mobile exact-match heuristieken, de review-wall double-shell guard en de composiet theme-scale check. De eerdere license-service crash op ontbrekende `BACKUP_EXPORT_*` startup-validatie is opgeheven; backup-export blijft nu feature-gated op de admin-route in plaats van de hele service omver te trekken.
 
 ## Open blockers
 - `[P1] Docs-drift wordt nog niet volledig automatisch tegengehouden.`
