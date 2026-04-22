@@ -22,7 +22,7 @@ Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve
 ## Verificatie- en release-ledger
 | Service | Laatst lokaal geverifieerd | Laatste lokale bewijsset | Laatst live op Railway | Live parity bevestigd |
 | --- | --- | --- | --- | --- |
-| `Hazify-MCP-Remote` | 2026-04-22 | `npm run check:docs`, `npm run check:repo`, `npm run build`, `npm run --workspace @hazify/mcp-remote test`, plus gerichte matrix/regressies voor `crossThemeAcceptanceMatrix` en Liquid template placement | `a114fabe-96fd-4a64-9b47-03f6d2bf3045` op 2026-04-22 | Ja. Railway deploy is succesvol, deploy logs tonen startup, en `npm run release:postdeploy` is groen. |
+| `Hazify-MCP-Remote` | 2026-04-22 | `npm run check:docs`, `npm run check:repo`, `npm run build`, `npm run --workspace @hazify/mcp-remote test`, plus gerichte matrix/regressies voor `crossThemeAcceptanceMatrix` en Liquid template placement | `f71c9ba8-764f-4d8d-a337-aa6e313529a2` op 2026-04-22 | Ja. Railway deploy is succesvol, deploy logs tonen startup, en `npm run release:postdeploy` is groen. |
 | `Hazify-License-Service` | 2026-04-22 | `npm run --workspace @hazify/license-service test` en repo-brede build/checks | `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22 | Ja. De crash op `81578f9a-b774-4126-90f1-1eb12f9ac0b2` is opgelost; de nieuwe Railway deploy start correct en `npm run release:postdeploy` is groen. |
 
 Releasewaarheid:
@@ -87,7 +87,7 @@ De grootste resterende risico’s zitten nu vooral in:
 - Repo-brede verificatie op 2026-04-22 is groen: `npm run check:docs`, `npm run check:repo`, `npm run build`, `npm run --workspace @hazify/mcp-remote test`, `npm run --workspace @hazify/license-service test` en `npm run test:e2e`.
 
 ## Productiebewijs uit Railway
-De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `7d1f857c-441d-4e44-ae97-f8470c808505` op 2026-04-22. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22.
+De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `f71c9ba8-764f-4d8d-a337-aa6e313529a2` op 2026-04-22. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22.
 
 De logs laten een realistisch beeld zien:
 - de planner-, read- en write-pipeline wordt actief gebruikt op echte shops
