@@ -87,6 +87,13 @@ const extractPlannerBrief = (rawInput = {}, normalizedInput = {}) => {
     return rawInput.description.trim();
   }
 
+  if (
+    typeof normalizedInput?.analysisText === "string" &&
+    normalizedInput.analysisText.trim()
+  ) {
+    return normalizedInput.analysisText.trim();
+  }
+
   if (typeof normalizedInput?.query === "string" && normalizedInput.query.trim()) {
     return normalizedInput.query.trim();
   }
@@ -126,6 +133,13 @@ const PlanThemeEditPublicObjectSchema = z
       .optional()
       .describe(
         "Taakomschrijving of zichtbare anchor. Langere client-prompts zijn toegestaan; de planner compacteert deze intern tot een korte query voor tokenzuinige planning."
+      ),
+    analysisText: z
+      .string()
+      .max(PLAN_QUERY_PUBLIC_MAX_LENGTH)
+      .optional()
+      .describe(
+        "Interne of compatibele volledige analysetekst naast de compacte query. Hoeft normale clients meestal niet expliciet mee te sturen."
       ),
     targetFile: z
       .string()
@@ -242,6 +256,7 @@ const PlanThemeEditNormalizedShape = z
     themeRole: ThemeRoleSchema.optional(),
     template: TemplateSchema.optional(),
     query: z.string().max(240).optional(),
+    analysisText: z.string().max(PLAN_QUERY_PUBLIC_MAX_LENGTH).optional(),
     targetFile: z.string().min(1).optional(),
     sectionTypeHint: z.string().max(120).optional(),
     snippetLimit: z.number().int().min(1).max(5).default(3),
@@ -276,12 +291,18 @@ const normalizePlanThemeEditInput = (rawInput) => {
     themeRole: rawInput.themeRole ?? rawInput.theme_role,
     template: rawInput.template,
     query: compactPlanQuery(rawInput.query),
+    analysisText:
+      typeof rawInput.query === "string" && rawInput.query.trim()
+        ? rawInput.query.trim().slice(0, PLAN_QUERY_PUBLIC_MAX_LENGTH)
+        : undefined,
     targetFile: rawInput.targetFile ?? rawInput.target_file,
     sectionTypeHint: rawInput.sectionTypeHint ?? rawInput.section_type_hint,
     snippetLimit: rawInput.snippetLimit ?? rawInput.snippet_limit,
   };
   const descriptionAlias =
-    compactPlanQuery(rawInput.description) || "";
+    typeof rawInput.description === "string" && rawInput.description.trim()
+      ? rawInput.description.trim().slice(0, PLAN_QUERY_PUBLIC_MAX_LENGTH)
+      : "";
 
   if (!normalized.intent) {
     for (const candidate of [rawInput.intent_type, rawInput.intentType, rawInput.type]) {
@@ -293,7 +314,11 @@ const normalizePlanThemeEditInput = (rawInput) => {
   }
 
   if (!normalized.query && descriptionAlias) {
-    normalized.query = descriptionAlias;
+    normalized.query = compactPlanQuery(descriptionAlias);
+  }
+
+  if (!normalized.analysisText && descriptionAlias) {
+    normalized.analysisText = descriptionAlias;
   }
 
   if (!normalized.targetFile && Array.isArray(rawInput.targetFiles) && rawInput.targetFiles.length === 1) {
@@ -318,6 +343,11 @@ const normalizePlanThemeEditInput = (rawInput) => {
   }
   if (!normalized.query) {
     normalized.query = compactPlanQuery(summary);
+  }
+  if (!normalized.analysisText) {
+    normalized.analysisText = String(summary || "")
+      .trim()
+      .slice(0, PLAN_QUERY_PUBLIC_MAX_LENGTH);
   }
   if (!normalized.targetFile && normalized.intent === "existing_edit") {
     normalized.targetFile = inferSingleThemeFile(summary) || normalized.targetFile;
@@ -345,6 +375,7 @@ const summarizeNormalizedPlanInput = (input = {}) => ({
   themeRole: input.themeRole || null,
   template: input.template || null,
   query: input.query || null,
+  analysisText: input.analysisText || null,
   targetFile: input.targetFile || null,
   sectionTypeHint: input.sectionTypeHint || null,
   snippetLimit: input.snippetLimit ?? 3,
@@ -930,6 +961,7 @@ const planThemeEditTool = {
       intent: input.intent,
       template: input.template,
       query: input.query,
+      analysisText: input.analysisText,
       targetFile: input.targetFile,
       nextReadKeys: result?.nextReadKeys || [],
       nextWriteKeys: result?.nextWriteKeys || [],

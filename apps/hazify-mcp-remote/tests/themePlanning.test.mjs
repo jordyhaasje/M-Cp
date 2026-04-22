@@ -603,6 +603,44 @@ try {
     "exact comparison replica plans should warn about decorative anchors and shell strategy"
   );
 
+  const exactTrustpilotReviewPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query:
+      "Maak deze Trustpilot review slider exact na van de desktop en mobiele screenshots, met pijlen rechtsboven, dezelfde rating cards en aparte desktop/mobile composities.",
+  });
+  assert.equal(exactTrustpilotReviewPlan.sectionBlueprint?.qualityTarget, "exact_match");
+  assert.equal(exactTrustpilotReviewPlan.sectionBlueprint?.archetype, "review_slider");
+  assert.equal(
+    exactTrustpilotReviewPlan.sectionBlueprint?.referenceSignals?.hasDesktopMobileReferences,
+    true
+  );
+  assert.equal(
+    exactTrustpilotReviewPlan.sectionBlueprint?.referenceSignals?.requiresResponsiveViewportParity,
+    true
+  );
+  assert.equal(
+    exactTrustpilotReviewPlan.sectionBlueprint?.referenceSignals?.requiresThemeEditorLifecycleHooks,
+    true
+  );
+  assert.equal(
+    exactTrustpilotReviewPlan.sectionBlueprint?.referenceSignals?.requiresThemeWrapperMirror,
+    true
+  );
+  assert.equal(
+    exactTrustpilotReviewPlan.sectionBlueprint?.referenceSignals?.requiresNavButtons,
+    true
+  );
+  assert.equal(
+    exactTrustpilotReviewPlan.sectionBlueprint?.referenceSignals?.previewMediaPolicy,
+    "best_effort_demo_media"
+  );
+  assert.equal(
+    exactTrustpilotReviewPlan.sectionBlueprint?.referenceSignals?.avoidDoubleSectionShell,
+    true
+  );
+
   const beforeAfterPlan = await planThemeEdit(shopifyClient, "2026-01", {
     themeId: 123,
     intent: "new_section",

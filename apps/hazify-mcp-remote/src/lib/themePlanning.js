@@ -981,6 +981,7 @@ export const planThemeEdit = async (
     intent = "existing_edit",
     template,
     query,
+    analysisText,
     targetFile,
     sectionTypeHint,
     snippetLimit = DEFAULT_SNIPPET_LIMIT,
@@ -1239,7 +1240,7 @@ export const planThemeEdit = async (
     intent === "new_section"
       ? buildSectionGenerationBlueprint({
           templateSurface,
-          query,
+          query: analysisText || query,
           sectionTypeHint,
           representativeSectionFile: sectionFile,
           representativeSectionType: templateAnalysis.primarySection?.type || null,

@@ -207,9 +207,30 @@ const DESKTOP_MOBILE_REFERENCE_PATTERNS = [
   /\bmobile\b.*\bdesktop\b/i,
   /\bdesktop versie\b/i,
   /\bmobiele? versie\b/i,
+  /\bdesktop image\b.*\bmobile image\b/i,
+  /\bmobile image\b.*\bdesktop image\b/i,
+  /\bdesktop screenshot\b.*\bmobile screenshot\b/i,
+  /\bmobile screenshot\b.*\bdesktop screenshot\b/i,
   /\bdesktop and mobile\b/i,
   /\bdesktop en mobile\b/i,
+  /\bdesktop en mobiel\b/i,
   /\bboth desktop and mobile\b/i,
+  /\bbeide\b.*\bdesktop\b.*\bmob(?:ile|iel(?:e)?)\b/i,
+  /\btwee\b.*\b(?:screenshots?|afbeeldingen|referentiebeelden)\b/i,
+];
+
+const DESKTOP_REFERENCE_PATTERNS = [/\bdesktop\b/i, /\blaptop\b/i, /\bpc\b/i];
+
+const MOBILE_REFERENCE_PATTERNS = [
+  /\bmob(?:ile|iel(?:e)?)\b/i,
+  /\bphone\b/i,
+  /\bsmartphone\b/i,
+];
+
+const VIEWPORT_REFERENCE_HINT_PATTERNS = [
+  /\b(versie|variant|weergave|viewport|breakpoint|layout|compositie)\b/i,
+  /\b(screenshots?|afbeeldingen|referentiebeelden|reference images?)\b/i,
+  /\b(beide|both|allebei|twee|two)\b/i,
 ];
 
 const DECORATIVE_MEDIA_REFERENCE_PATTERNS = [
@@ -440,6 +461,33 @@ const extractReferenceAnchorTags = (query, definitions = []) =>
     .map((entry) => entry.tag)
     .filter(Boolean);
 
+const inferDesktopMobileReferencePair = ({
+  query = "",
+  exactReplicaRequested = false,
+  hasScreenshotLikeReference = false,
+} = {}) => {
+  if (DESKTOP_MOBILE_REFERENCE_PATTERNS.some((pattern) => pattern.test(query))) {
+    return true;
+  }
+
+  const hasDesktopReference = DESKTOP_REFERENCE_PATTERNS.some((pattern) =>
+    pattern.test(query)
+  );
+  const hasMobileReference = MOBILE_REFERENCE_PATTERNS.some((pattern) =>
+    pattern.test(query)
+  );
+
+  if (!hasDesktopReference || !hasMobileReference) {
+    return false;
+  }
+
+  return (
+    hasScreenshotLikeReference ||
+    exactReplicaRequested ||
+    VIEWPORT_REFERENCE_HINT_PATTERNS.some((pattern) => pattern.test(query))
+  );
+};
+
 const inferSectionArchetype = ({
   query = "",
   sectionTypeHint = "",
@@ -551,12 +599,35 @@ const buildReferenceSignals = ({
   const hasScreenshotLikeReference = SCREENSHOT_REFERENCE_PATTERNS.some((pattern) =>
     pattern.test(query)
   );
-  const hasDesktopMobileReferences = DESKTOP_MOBILE_REFERENCE_PATTERNS.some((pattern) =>
-    pattern.test(query)
-  );
+  const hasDesktopMobileReferences = inferDesktopMobileReferencePair({
+    query,
+    exactReplicaRequested,
+    hasScreenshotLikeReference,
+  });
   const hasExplicitMediaSources = EXPLICIT_MEDIA_SOURCE_PATTERNS.some((pattern) =>
     pattern.test(query)
   );
+  const reviewLikeReference =
+    /\b(review|reviews|testimonial|testimonials|trustpilot|quote|quotes|klant(?:en)?|beoordeling(?:en)?|ervaring(?:en)?)\b/i.test(
+      query
+    );
+  const boundedCardCompositionRequested =
+    /\b(card|cards|wall|masonry|grid|quotes?)\b/i.test(query);
+  const exactReplicaWrapperMirror =
+    exactReplicaRequested &&
+    !heroLike &&
+    Boolean(
+      themeContext?.usesPageWidth || themeContext?.usesSectionPropertiesWrapper
+    ) &&
+    (hasScreenshotLikeReference ||
+      hasDesktopMobileReferences ||
+      archetype === "comparison_table" ||
+      reviewLikeReference ||
+      boundedCardCompositionRequested);
+  const wantsDedicatedInnerCard =
+    exactReplicaRequested &&
+    (archetype === "comparison_table" ||
+      (reviewLikeReference && boundedCardCompositionRequested));
   const requestedDecorativeMediaAnchors = uniqueStrings(
     extractReferenceAnchorTags(query, DECORATIVE_MEDIA_REFERENCE_PATTERNS)
   );
@@ -627,18 +698,14 @@ const buildReferenceSignals = ({
       /\b(pijl|pijlen|arrow|arrows|prev|next|navigatie|navigation)\b/i.test(
         query
       ),
-    requiresThemeWrapperMirror:
-      exactReplicaRequested &&
-      !heroLike &&
-      Boolean(themeContext?.usesPageWidth),
-    requiresTwoSurfaceComposition:
-      exactReplicaRequested && archetype === "comparison_table",
-    requiresDedicatedInnerCard:
-      exactReplicaRequested && archetype === "comparison_table",
+    requiresThemeWrapperMirror: exactReplicaWrapperMirror,
+    requiresTwoSurfaceComposition: wantsDedicatedInnerCard,
+    requiresDedicatedInnerCard: wantsDedicatedInnerCard,
     avoidDoubleSectionShell:
-      exactReplicaRequested &&
-      archetype === "comparison_table" &&
-      Boolean(themeContext?.usesPageWidth),
+      exactReplicaWrapperMirror &&
+      (wantsDedicatedInnerCard ||
+        hasScreenshotLikeReference ||
+        hasDesktopMobileReferences),
     requestedVisibleCardsDesktop: extractRequestedVisibleCardCount(query),
   };
 };
@@ -1320,6 +1387,17 @@ const buildGuardrails = ({
     );
   }
 
+  if (
+    typeof maxFontSizePx === "number" &&
+    Number.isFinite(maxFontSizePx) &&
+    typeof maxPaddingYValuePx === "number" &&
+    Number.isFinite(maxPaddingYValuePx)
+  ) {
+    guardrails.push(
+      "Beperk de gecombineerde visuele massa: laat headline, kaartpadding en layout-gaps samen niet alsnog hero-groot worden wanneer elk onderdeel afzonderlijk nog net binnen de limiet valt."
+    );
+  }
+
   if (typeof maxMinHeightPx === "number" && Number.isFinite(maxMinHeightPx)) {
     guardrails.push(
       `Gebruik geen vaste hero-min-height boven ongeveer ${maxMinHeightPx}px zonder expliciete gebruikersvraag.`
@@ -1358,6 +1436,13 @@ const analyzeSectionScale = (value, { key } = {}) => {
     ]),
     maxGapPx: extractPropertyMaxPx(source, ["gap", "row-gap", "column-gap"]),
     maxMinHeightPx: extractPropertyMaxPx(source, ["min-height", "height"]),
+    maxTopOffsetPx: extractPropertyMaxPx(source, [
+      "top",
+      "inset-block-start",
+      "inset-top",
+    ]),
+    hasStickyPosition: /position\s*:\s*sticky\b/i.test(source),
+    usesSectionPropertiesWrapper: /render\s+['"]section-properties['"]/i.test(source),
     spacingSettings,
     maxSpacingDefaultPx: getMaxSpacingDefault(spacingSettings),
     isHeroLike: inferHeroLikeName({
@@ -1383,6 +1468,99 @@ const createScaleIssue = ({
   },
   issueCode,
 });
+
+const createCompositeScaleIssue = ({
+  fileKey,
+  representativeSectionKey,
+  issueCode = "inspection_failed_theme_scale",
+  contributingMetrics = [],
+}) => ({
+  path: [fileKey],
+  problem: `De nieuwe section stapelt meerdere middelgrote schaalafwijkingen (${contributingMetrics.join(
+    ", "
+  )}). Daardoor oogt de totale compositie groter dan '${representativeSectionKey}', ook al blijft elk onderdeel afzonderlijk nog net binnen een harde limiet.`,
+  fixSuggestion:
+    "Breng headline, kaartpadding, layout-gaps en eventuele sticky offsets samen dichter bij de theme-conventie. Spiegel ook de bestaande wrapper/surface-strategie van het doeltheme in plaats van een hero-achtige shell op te bouwen.",
+  suggestedReplacement: {
+    contributingMetrics,
+  },
+  issueCode,
+});
+
+const collectCompositeScalePressure = ({
+  candidate,
+  representativeScale,
+}) => {
+  const contributingMetrics = [];
+  let totalPressure = 0;
+
+  const addPressure = ({
+    label,
+    actualValue,
+    recommendedValue,
+    softRatio,
+    weight,
+  }) => {
+    if (
+      typeof actualValue !== "number" ||
+      !Number.isFinite(actualValue) ||
+      typeof recommendedValue !== "number" ||
+      !Number.isFinite(recommendedValue) ||
+      recommendedValue <= 0
+    ) {
+      return;
+    }
+
+    const ratio = actualValue / recommendedValue;
+    if (ratio <= softRatio) {
+      return;
+    }
+
+    contributingMetrics.push(label);
+    totalPressure += (ratio - softRatio) * weight;
+  };
+
+  addPressure({
+    label: "expliciete font-size",
+    actualValue: candidate.maxFontSizePx,
+    recommendedValue: representativeScale.maxExplicitFontSizePx,
+    softRatio: 1.15,
+    weight: 1.35,
+  });
+  addPressure({
+    label: "verticale spacing/padding",
+    actualValue: candidate.maxPaddingYValuePx,
+    recommendedValue:
+      representativeScale.maxExplicitPaddingYPx ??
+      representativeScale.maxSpacingSettingDefaultPx,
+    softRatio: 1.25,
+    weight: 1.1,
+  });
+  addPressure({
+    label: "card gap/whitespace",
+    actualValue: candidate.maxGapPx,
+    recommendedValue: representativeScale.maxGapPx,
+    softRatio: 1.2,
+    weight: 1,
+  });
+  addPressure({
+    label: "min-height/vaste hoogte",
+    actualValue: candidate.maxMinHeightPx,
+    recommendedValue: representativeScale.maxMinHeightPx,
+    softRatio: 1.2,
+    weight: 0.95,
+  });
+
+  if (candidate.hasStickyPosition && contributingMetrics.length >= 2) {
+    contributingMetrics.push("sticky offset/compositie");
+    totalPressure += 0.2;
+  }
+
+  return {
+    contributingMetrics: uniqueStrings(contributingMetrics),
+    totalPressure,
+  };
+};
 
 const pushScaleWarning = (warnings, suggestedFixes, warning, fixSuggestion) => {
   warnings.push(warning);
@@ -1528,6 +1706,44 @@ const inspectSectionScaleAgainstTheme = ({
     }
   }
 
+  if (!isHeroLikeCandidate && issues.length === 0) {
+    const compositePressure = collectCompositeScalePressure({
+      candidate,
+      representativeScale,
+    });
+
+    if (
+      compositePressure.contributingMetrics.length >= 2 &&
+      compositePressure.totalPressure >= 0.9
+    ) {
+      const issue = createCompositeScaleIssue({
+        fileKey,
+        representativeSectionKey,
+        contributingMetrics: compositePressure.contributingMetrics,
+      });
+      issues.push(issue);
+      suggestedFixes.push(issue.fixSuggestion);
+    }
+  } else if (isHeroLikeCandidate) {
+    const compositePressure = collectCompositeScalePressure({
+      candidate,
+      representativeScale,
+    });
+    if (
+      compositePressure.contributingMetrics.length >= 2 &&
+      compositePressure.totalPressure >= 0.9
+    ) {
+      pushScaleWarning(
+        warnings,
+        suggestedFixes,
+        `De nieuwe section stapelt meerdere middelgrote schaalafwijkingen (${compositePressure.contributingMetrics.join(
+          ", "
+        )}). Dat is groter dan de normale content-conventie uit '${representativeSectionKey}', maar de section lijkt bewust hero-achtig benoemd.`,
+        "Breng headline, padding en gaps dichter bij de theme-conventie wanneer de hero minder dominant moet ogen."
+      );
+    }
+  }
+
   if (themeContext.usesPageWidth && !candidate.hasPageWidthClass) {
     pushScaleWarning(
       warnings,
@@ -1610,6 +1826,7 @@ const buildThemeSectionContext = ({
     },
     preferredClasses: analysis.preferredClasses,
     usesPageWidth: analysis.hasPageWidthClass,
+    usesSectionPropertiesWrapper: analysis.usesSectionPropertiesWrapper,
     usesRte: analysis.hasRteClass,
     usesButtonClass: analysis.hasButtonClass,
     spacingSettings: analysis.spacingSettings,

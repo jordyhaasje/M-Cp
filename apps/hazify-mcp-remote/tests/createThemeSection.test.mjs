@@ -380,6 +380,91 @@ test("createThemeSection - keeps exact-match planner context even when a compat 
   assert.equal(result.plannerHandoff?.qualityTarget, "exact_match");
 });
 
+test("createThemeSection - preserves desktop/mobile exact-match review signals through planner handoff", serial, async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let capturedContext = null;
+  draftThemeArtifact.execute = async (_input, context) => {
+    capturedContext = context;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const requestContext = { shopifyClient, tokenHash: "create-theme-review-handoff" };
+  const planResult = await planThemeEditTool.execute(
+    {
+      themeId: 123,
+      intent: "new_section",
+      template: "homepage",
+      query:
+        "Maak deze Trustpilot review slider exact na van de desktop en mobiele screenshots, met pijlen rechtsboven, dezelfde rating cards en aparte desktop/mobile composities.",
+    },
+    requestContext
+  );
+
+  await getThemeFilesTool.execute(planResult.nextArgsTemplate, requestContext);
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/review-slider-desktop-mobile.liquid",
+      liquid: `
+<style>
+  #shopify-section-{{ section.id }} .review-slider {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<section class="review-slider page-width">
+  <button type="button" aria-label="Previous review">Prev</button>
+  <h2>{{ section.settings.heading }}</h2>
+  <button type="button" aria-label="Next review">Next</button>
+</section>
+{% schema %}
+{
+  "name": "Review slider desktop mobile",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Wat zeggen klanten?" }
+  ],
+  "presets": [{ "name": "Review slider desktop mobile" }]
+}
+{% endschema %}
+`,
+      _tool_input_summary:
+        "Maak deze Trustpilot review slider exact na van de desktop en mobiele screenshots, met pijlen rechtsboven, dezelfde rating cards en aparte desktop/mobile composities.",
+    },
+    requestContext
+  );
+
+  assert.equal(
+    capturedContext.sectionBlueprint?.referenceSignals?.hasDesktopMobileReferences,
+    true
+  );
+  assert.equal(
+    capturedContext.sectionBlueprint?.referenceSignals?.requiresResponsiveViewportParity,
+    true
+  );
+  assert.equal(
+    capturedContext.sectionBlueprint?.referenceSignals?.requiresThemeEditorLifecycleHooks,
+    true
+  );
+  assert.equal(
+    capturedContext.sectionBlueprint?.referenceSignals?.requiresThemeWrapperMirror,
+    true
+  );
+  assert.equal(
+    capturedContext.sectionBlueprint?.referenceSignals?.requiresNavButtons,
+    true
+  );
+  assert.equal(
+    result.plannerHandoff?.sectionBlueprint?.referenceSignals?.hasDesktopMobileReferences,
+    true
+  );
+});
+
 test("createThemeSection - can continue from plannerHandoff alone when session memory is absent", serial, async () => {
   global.fetch = createGraphqlFetch({
     "sections/custom-reference.liquid": makeTextAsset(`

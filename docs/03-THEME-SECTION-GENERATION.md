@@ -44,13 +44,14 @@ Verwachte plannertruth:
 - `qualityTarget = "exact_match"`
 - `generationMode = "precision_first"`
 - `completionPolicy.deliveryExpectation = "final_reference_match_in_first_write"`
+- De planner bewaart naast de compacte `query` nu ook een langere analysetekst in de handoff, zodat desktop/mobile-, screenshot- en exact-match-signalen niet wegvallen als ze alleen in `description`, `_tool_input_summary` of later in een langere prompt staan.
 - Geen baseline-first vraag of extra toestemming voor pixel-perfect styling
 - Screenshot-only referenties zonder losse bron-assets mogen `previewMediaPolicy = "best_effort_demo_media"` gebruiken. Dan blijft de layout/styling precisie-first, maar mag de eerste write renderbare demo-media of een gestileerde media shell bevatten in plaats van een hard fail op placeholder-only media.
 - Als de prompt wel expliciete bron-assets noemt, hoort de planner streng te blijven met `previewMediaPolicy = "strict_renderable_media"` en `requiresRenderablePreviewMedia = true`
 - Als de referentie expliciet desktop en mobiel toont, hoort de planner `requiresResponsiveViewportParity = true` te signaleren.
 - Als de referentie duidelijke decoratieve anchors noemt of toont, zoals floating productmedia, badges of seals, horen die anchors onderdeel van de eerste write te blijven en niet te degraderen naar een generieke baseline.
 - Als de referentie een echte rating-strip of comparison-iconografie toont, moeten sterren en check/x/thumb-iconen in de eerste write ook herkenbaar blijven in plaats van generieke blokjes, cirkels of lege vakken.
-- Voor comparison/shell replica's hoort de pipeline dubbele background-shells te vermijden wanneer theme wrappers zoals `section-properties` al de outer surface of spacinglaag beheren.
+- Voor bounded review walls, comparison cards en vergelijkbare shell-replica's hoort de pipeline dubbele background-shells te vermijden wanneer theme wrappers zoals `section-properties` al de outer surface of spacinglaag beheren.
 
 Voorbeeldprompt:
 ```text
@@ -177,11 +178,13 @@ Maak een hero-video section en plaats hem daarna ook op de homepage van theme 12
 - Verplichte schema-velden zoals setting/block `label`, `type`, `id`, `name` en `content` waar relevant moeten al in lokale inspectie slagen, niet pas in `theme-check`
 - Range settings moeten binnen min/max en step-grid vallen
 - Theme-scale guardrails mogen content sections blokkeren wanneer ze onbedoeld hero-groot worden
+- Theme-scale guardrails kijken nu niet alleen naar losse maxima, maar ook naar gecombineerde visuele massa. Middelgrote overschrijdingen in font-size, padding, gap en sticky compositie kunnen samen dus alsnog een `inspection_failed_theme_scale` opleveren.
 - Parser-onveilige JS/Liquid combinaties falen vóór preview upload
 - Theme Editor lifecycle hooks zijn verplicht voor precision-first interactieve replica’s
 - Screenshot-only exacte replica's zonder losse assets mogen niet blind op `placeholder_svg_tag` leunen; gebruik liever renderbare demo-media of een gestileerde media shell met correcte aspect-ratio en merchant-editable settings
 - Exact-match comparison/shell replica's mogen niet terugvallen op een generieke tabel zonder de onderscheidende decoratieve media/badge anchors uit de referentie.
 - Exact-match comparison/shell replica's mogen geen dubbele background-shell bouwen wanneer een theme wrapper-helper al een outer background of spacing-surface impliceert.
+- Decoratieve inline SVG-iconen zoals sterratings, quote marks of badges tellen niet meer automatisch als merchant-media; een generieke `image_picker` warning hoort alleen nog terug te komen wanneer er echt image/video-markup of resource-based media aanwezig is.
 
 ## Related Docs
 - `docs/00-START-HERE.md`

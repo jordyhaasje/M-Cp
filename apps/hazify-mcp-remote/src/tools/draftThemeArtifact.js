@@ -3817,7 +3817,11 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
     warnings.push("Schema mist een color setting voor merchant-editable styling. Dit is aanbevolen voor theme editing.");
     suggestedFixes.push("Voeg color settings toe voor achtergrond, tekst of accentkleuren.");
   }
-  if (!settingTypes.has("image_picker") && /<img\b|image_tag|svg/i.test(value)) {
+  const hasMerchantEditableMediaMarkup =
+    /<img\b|<picture\b|image_tag\b|image_url\b|video_tag\b|<video\b|<iframe\b|placeholder_svg_tag\b/i.test(
+      value
+    );
+  if (!settingTypes.has("image_picker") && hasMerchantEditableMediaMarkup) {
     warnings.push("De section lijkt media te gebruiken, maar schema bevat geen image_picker.");
     suggestedFixes.push("Voeg een image_picker toe wanneer imagery of logo's merchant-editable moeten zijn.");
   }

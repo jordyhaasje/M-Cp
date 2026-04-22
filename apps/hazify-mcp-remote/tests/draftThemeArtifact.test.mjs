@@ -1423,6 +1423,160 @@ test("draftThemeArtifact - flags missing theme wrapper mirroring on exact replic
   }
 });
 
+test("draftThemeArtifact - rejects exact review-wall replicas that combine section-properties with a root background shell", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFileFetchMock({
+    key: "sections/trustpilot-review-wall.liquid",
+    initialValue: "",
+    existing: false,
+  }).handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        files: [
+          {
+            key: "sections/trustpilot-review-wall.liquid",
+            value: `
+<style>
+  .trustpilot-review-wall {
+    background: #eae6db;
+    padding: 32px;
+  }
+
+  .trustpilot-review-wall__inner {
+    display: grid;
+    gap: 24px;
+  }
+
+  .trustpilot-review-wall__card {
+    background: #ffffff;
+    border-radius: 28px;
+    padding: 24px;
+  }
+
+  .trustpilot-review-wall__rating {
+    display: flex;
+    gap: 8px;
+  }
+
+  @media (min-width: 900px) {
+    .trustpilot-review-wall__inner {
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    }
+  }
+</style>
+<section class="trustpilot-review-wall">
+  <div {% render 'section-properties', background: section.settings.background %}>
+    <div class="trustpilot-review-wall__inner page-width">
+      <div>
+        <div class="trustpilot-review-wall__rating" aria-label="Trustpilot rating">
+          <span aria-hidden="true">★</span>
+          <span aria-hidden="true">★</span>
+          <span aria-hidden="true">★</span>
+          <span aria-hidden="true">★</span>
+          <span aria-hidden="true">★</span>
+        </div>
+        <h2>{{ section.settings.heading }}</h2>
+      </div>
+      <article class="trustpilot-review-wall__card">
+        <svg aria-hidden="true" viewBox="0 0 32 32"><path d="M8 8h8v8H8z"></path></svg>
+        <h3>{{ section.settings.card_title }}</h3>
+        <p>{{ section.settings.card_copy }}</p>
+      </article>
+    </div>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Trustpilot review wall",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Wat zeggen klanten?" },
+    { "type": "text", "id": "card_title", "label": "Card title", "default": "Prima bedrijf" },
+    { "type": "textarea", "id": "card_copy", "label": "Card copy", "default": "Goede communicatie en snelle levering." },
+    { "type": "color", "id": "background", "label": "Background", "default": "#EAE6DB" }
+  ],
+  "presets": [{ "name": "Trustpilot review wall" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        sectionBlueprint: {
+          qualityTarget: "exact_match",
+          archetype: "review_slider",
+          referenceSignals: {
+            exactReplicaRequested: true,
+            previewMediaPolicy: "best_effort_demo_media",
+            hasScreenshotLikeReference: true,
+            hasDesktopMobileReferences: true,
+            hasExplicitMediaSources: false,
+            prefersRenderablePreviewMedia: true,
+            requiresRenderablePreviewMedia: false,
+            allowStylizedPreviewFallbacks: true,
+            requiresResponsiveViewportParity: false,
+            requiresDecorativeMediaAnchors: false,
+            requiresDecorativeBadgeAnchors: false,
+            requiresRatingStars: true,
+            requiresComparisonIconography: false,
+            requestedDecorativeMediaAnchors: [],
+            requestedDecorativeBadgeAnchors: [],
+            requiresTitleAccent: false,
+            requiresNavButtons: false,
+            requiresThemeEditorLifecycleHooks: false,
+            requiresThemeWrapperMirror: true,
+            requiresTwoSurfaceComposition: true,
+            requiresDedicatedInnerCard: true,
+            avoidDoubleSectionShell: true,
+          },
+        },
+        themeSectionContext: {
+          usesPageWidth: true,
+          usesSectionPropertiesWrapper: true,
+        },
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "exact_match_double_background_shell")
+    );
+    assert.ok(
+      !result.errors?.some(
+        (issue) => issue.issueCode === "exact_match_missing_reference_media_anchor"
+      )
+    );
+    assert.ok(
+      !result.errors?.some(
+        (issue) => issue.issueCode === "exact_match_missing_reference_badge_anchor"
+      )
+    );
+    assert.ok(
+      !result.errors?.some((issue) => issue.issueCode === "exact_match_missing_rating_stars")
+    );
+    assert.ok(
+      !result.warnings?.some((warning) => warning.includes("image_picker")),
+      "decorative inline SVG and star glyphs should not trigger a merchant media warning"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("draftThemeArtifact - flags missing schema labels during local inspection before relying only on theme-check", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -2686,10 +2840,141 @@ test("draftThemeArtifact - rejects hero-scale typography when theme context says
   );
 
   assert.equal(result.success, false);
-  assert.equal(result.errorCode, "inspection_failed_theme_scale");
+  assert.ok(
+    ["inspection_failed_theme_scale", "inspection_failed_multiple"].includes(
+      result.errorCode
+    )
+  );
   assert.ok(
     result.errors?.some((issue) => issue.issueCode === "inspection_failed_theme_scale"),
     "theme-scale diagnostics should be returned when the generated section is much larger than the target theme convention"
+  );
+  assert.equal(
+    result.themeContext?.representativeSection?.key,
+    "sections/testimonials.liquid"
+  );
+});
+
+test("draftThemeArtifact - rejects content sections whose combined scale pressure is too large for the theme", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/review-wall-composite-scale.liquid",
+          value: `
+<style>
+  .review-wall-composite {
+    display: grid;
+    gap: 52px;
+    padding: 84px 32px;
+  }
+
+  .review-wall-composite__intro {
+    position: sticky;
+    top: 40px;
+  }
+
+  .review-wall-composite__title {
+    font-size: 56px;
+    line-height: 0.98;
+  }
+
+  .review-wall-composite__card {
+    display: grid;
+    gap: 28px;
+    padding: 42px;
+    border-radius: 30px;
+    background: #ffffff;
+  }
+</style>
+<section class="review-wall-composite">
+  <div class="review-wall-composite__intro">
+    <h2 class="review-wall-composite__title">{{ section.settings.heading }}</h2>
+  </div>
+  <article class="review-wall-composite__card">
+    <p>{{ section.settings.body }}</p>
+  </article>
+</section>
+{% schema %}
+{
+  "name": "Review wall composite scale",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Wat zeggen klanten?" },
+    { "type": "textarea", "id": "body", "label": "Body", "default": "Goede communicatie en snelle levering." }
+  ],
+  "presets": [{ "name": "Review wall composite scale" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    {
+      shopifyClient: mockShopifyClient,
+      themeSectionContext: {
+        representativeSection: {
+          key: "sections/testimonials.liquid",
+          type: "testimonials",
+        },
+        usesPageWidth: true,
+        usesSectionPropertiesWrapper: true,
+        usesRte: false,
+        scaleGuide: {
+          maxExplicitFontSizePx: 42,
+          maxExplicitPaddingYPx: 48,
+          maxGapPx: 28,
+          maxMinHeightPx: null,
+          maxSpacingSettingDefaultPx: 36,
+        },
+        spacingSettings: [
+          {
+            id: "padding_top",
+            type: "range",
+            default: 36,
+            min: 0,
+            max: 80,
+            step: 4,
+          },
+        ],
+        guardrails: [
+          "Gebruik de page-width wrapper van het doeltheme voor gewone content sections.",
+        ],
+      },
+    }
+  );
+
+  assert.equal(result.success, false);
+  assert.ok(
+    ["inspection_failed_theme_scale", "inspection_failed_multiple"].includes(
+      result.errorCode
+    )
+  );
+  assert.ok(
+    result.errors?.some(
+      (issue) =>
+        issue.issueCode === "inspection_failed_theme_scale" &&
+        issue.problem.includes("stapelt meerdere middelgrote schaalafwijkingen")
+    ),
+    "composite scale pressure should fail even when no single metric crosses the old hard limit"
+  );
+  assert.ok(
+    result.warnings?.some((warning) => warning.includes("page-width wrapper")),
+    "missing wrapper mirroring should still surface as a warning alongside the composite scale failure"
+  );
+  assert.ok(
+    result.suggestedFixes?.some((entry) => entry.includes("wrapper/surface-strategie")),
+    "composite scale diagnostics should explain how to reduce the overall visual mass"
   );
   assert.equal(
     result.themeContext?.representativeSection?.key,
