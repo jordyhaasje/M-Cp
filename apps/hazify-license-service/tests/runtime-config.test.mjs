@@ -62,29 +62,37 @@ assert.throws(
   "Railway production should hard fail startup when mandatory production envs are missing"
 );
 
-assert.throws(
-  () =>
-    reloadRuntimeConfig({
-      NODE_ENV: "development",
-      RAILWAY_ENVIRONMENT_NAME: "production",
-      PORT: "8787",
-      DATABASE_URL: "postgres://unit-test",
-      DATABASE_SSL: "false",
-      DB_POOL_MAX: "10",
-      DB_STATEMENT_TIMEOUT_MS: "5000",
-      DATA_ENCRYPTION_KEY: "unit-test-key",
-      HAZIFY_FREE_MODE: "false",
-      ADMIN_API_KEY: "admin-key",
-      MCP_API_KEY: "mcp-key",
-      PUBLIC_BASE_URL: "https://license.example.test",
-      MCP_PUBLIC_URL: "https://mcp.example.test/mcp",
-      DB_SINGLE_WRITER_ENFORCED: "true",
-      BACKUP_EXPORT_KEY: "",
-      BACKUP_EXPORT_DIRECTORY: "",
-      BACKUP_EXPORT_POLICY: "",
-    }),
-  /BACKUP_EXPORT_KEY is verplicht in productie\./,
-  "backup export should require explicit production configuration"
+const productionConfigWithoutBackupExport = reloadRuntimeConfig({
+  NODE_ENV: "development",
+  RAILWAY_ENVIRONMENT_NAME: "production",
+  PORT: "8787",
+  DATABASE_URL: "postgres://unit-test",
+  DATABASE_SSL: "false",
+  DB_POOL_MAX: "10",
+  DB_STATEMENT_TIMEOUT_MS: "5000",
+  DATA_ENCRYPTION_KEY: "unit-test-key",
+  HAZIFY_FREE_MODE: "false",
+  ADMIN_API_KEY: "admin-key",
+  MCP_API_KEY: "mcp-key",
+  PUBLIC_BASE_URL: "https://license.example.test",
+  MCP_PUBLIC_URL: "https://mcp.example.test/mcp",
+  DB_SINGLE_WRITER_ENFORCED: "true",
+  BACKUP_EXPORT_KEY: "",
+  BACKUP_EXPORT_DIRECTORY: "",
+  BACKUP_EXPORT_POLICY: "",
+});
+
+assert.equal(
+  productionConfigWithoutBackupExport.effectiveProduction,
+  true,
+  "startup should still resolve Railway production correctly when backup export is not configured"
 );
+assert.equal(
+  productionConfigWithoutBackupExport.backupExportKey,
+  "",
+  "backup export should remain feature-gated instead of blocking production startup"
+);
+assert.equal(productionConfigWithoutBackupExport.backupExportDirectory, "");
+assert.equal(productionConfigWithoutBackupExport.backupExportPolicy, "");
 
 console.log("runtime-config.test.mjs passed");

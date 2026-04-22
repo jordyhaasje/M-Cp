@@ -117,15 +117,6 @@ function assertValidRuntimeConfig(nextConfig, env = process.env) {
     if (!nextConfig.dbSingleWriterEnforced) {
       throw new Error("DB_SINGLE_WRITER_ENFORCED=true is verplicht in productie.");
     }
-    if (!String(nextConfig.backupExportKey || "").trim()) {
-      throw new Error("BACKUP_EXPORT_KEY is verplicht in productie.");
-    }
-    if (!String(nextConfig.backupExportDirectory || "").trim()) {
-      throw new Error("BACKUP_EXPORT_DIRECTORY is verplicht in productie.");
-    }
-    if (String(nextConfig.backupExportPolicy || "").trim() !== "encrypted") {
-      throw new Error("BACKUP_EXPORT_POLICY=encrypted is verplicht in productie.");
-    }
   }
 }
 

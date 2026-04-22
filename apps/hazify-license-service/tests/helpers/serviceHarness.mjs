@@ -14,11 +14,31 @@ const serverModulePath = path.resolve(testDir, "../../src/server.js");
 
 function createPgMemPool() {
   const mem = newDb({ autoCreateForeignKeyIndices: true });
+  const advisoryLocks = new Set();
   mem.public.registerFunction({
     name: "gen_random_uuid",
     args: [],
     returns: "uuid",
     implementation: () => crypto.randomUUID(),
+  });
+  mem.public.registerFunction({
+    name: "pg_try_advisory_lock",
+    args: ["bigint"],
+    returns: "bool",
+    implementation: (key) => {
+      const normalizedKey = String(key);
+      if (advisoryLocks.has(normalizedKey)) {
+        return false;
+      }
+      advisoryLocks.add(normalizedKey);
+      return true;
+    },
+  });
+  mem.public.registerFunction({
+    name: "pg_advisory_unlock",
+    args: ["bigint"],
+    returns: "bool",
+    implementation: (key) => advisoryLocks.delete(String(key)),
   });
   const pg = mem.adapters.createPg();
   return new pg.Pool();

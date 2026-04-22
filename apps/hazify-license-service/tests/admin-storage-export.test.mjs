@@ -110,6 +110,34 @@ const baseOptions = {
 };
 
 {
+  const tempDir = await createTempDir("hz-backup-missing-prod-");
+  const { calls, json } = createJsonRecorder();
+  const handlers = createAdminHandlers({
+    ...baseOptions,
+    appRoot: tempDir,
+    json,
+    config: {
+      backupExportKey: "",
+      backupExportDirectory: "",
+      backupExportPolicy: "",
+      effectiveProduction: true,
+    },
+  });
+
+  await handlers.handleAdminStorageExport({}, {});
+
+  assert.equal(calls[0].statusCode, 500, "unconfigured production backup export should be rejected");
+  assert.match(
+    String(calls[0].payload.message || ""),
+    /BACKUP_EXPORT_KEY is verplicht voor export in productie\./,
+    "production export should stay feature-gated until explicit backup envs are present"
+  );
+
+  const entries = await fs.readdir(tempDir);
+  assert.equal(entries.length, 0, "no export directory should be created when backup export is disabled");
+}
+
+{
   const tempDir = await createTempDir("hz-backup-prod-");
   const { calls, json } = createJsonRecorder();
   const handlers = createAdminHandlers({

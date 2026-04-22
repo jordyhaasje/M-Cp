@@ -43,4 +43,32 @@ await assert.rejects(
   "production startup should fail when mandatory envs are missing even if NODE_ENV is wrong"
 );
 
+const successPort = await getFreePort();
+const productionHarness = await startLicenseServiceTestServer({
+  port: successPort,
+  publicBaseUrl: `http://127.0.0.1:${successPort}`,
+  mcpPublicUrl: `http://127.0.0.1:${successPort}/mcp`,
+  env: {
+    NODE_ENV: "development",
+    RAILWAY_ENVIRONMENT_NAME: "production",
+    DATA_ENCRYPTION_KEY: "license-service-test-encryption-key",
+    BACKUP_EXPORT_KEY: "",
+    BACKUP_EXPORT_DIRECTORY: "",
+    BACKUP_EXPORT_POLICY: "",
+    HAZIFY_FREE_MODE: "false",
+    DB_SINGLE_WRITER_ENFORCED: "true",
+  },
+  cacheBuster: `startup-prod-success=${Date.now()}`,
+});
+
+try {
+  assert.equal(
+    productionHarness.server.listening,
+    true,
+    "production startup should still succeed when backup export is simply not configured"
+  );
+} finally {
+  await productionHarness.cleanup();
+}
+
 console.log("startup-production-env.test.mjs passed");
