@@ -36,7 +36,9 @@ Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazif
 - `mcp_http_tool_call_domain_failed` betekent dat de tool zelf gecontroleerd heeft gefaald, bijvoorbeeld door theme inspectie, `theme-check`, create/edit guardrails of read-repair blokkades.
 - `mcp_http_tool_call_failed` blijft gereserveerd voor echte exceptions/protocolfouten.
 - Elke request krijgt een `requestId`; dezelfde waarde gaat mee in `X-Request-Id` en in de JSON logs.
+- `npm run release:status` is de operationele git-impactcheck: deze laat zien of er nog een lokale commit nodig is, of push naar `origin/main` nog openstaat en welke Railway service(s) na die push een redeploy nodig hebben.
 - `scripts/check-git-sync.mjs` controleert alleen repo parity tegen `origin/main`. Railway deploy parity moet apart bevestigd worden via deploy metadata of logs.
+- `npm run smoke:prod` is een post-deploy smoke check op live Railway URLs, niet een pre-deploy check.
 
 ## 3. Persistence
 - Zowel de License Service als de Remote MCP draaien op PostgreSQL-backed persistence. Er is geen JSON-file opslag of runtime in-memory fallback meer buiten tests.

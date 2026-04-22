@@ -344,8 +344,27 @@ export function createAdminHandlers({
       const checksum = crypto.createHash("sha256").update(payload, "utf8").digest("hex");
 
       const keyMaterial = String(config.backupExportKey || "").trim();
+      const backupDirectory = String(config.backupExportDirectory || "").trim();
+      const backupPolicy = String(config.backupExportPolicy || "").trim().toLowerCase();
+      const isProduction = config.effectiveProduction === true;
+      if (isProduction) {
+        if (!keyMaterial) {
+          throw new Error("BACKUP_EXPORT_KEY is verplicht voor export in productie.");
+        }
+        if (!backupDirectory) {
+          throw new Error("BACKUP_EXPORT_DIRECTORY is verplicht voor export in productie.");
+        }
+        if (backupPolicy !== "encrypted") {
+          throw new Error("BACKUP_EXPORT_POLICY=encrypted is verplicht voor export in productie.");
+        }
+      }
+
       let artifact;
-      if (keyMaterial) {
+      const shouldEncrypt = backupPolicy === "encrypted" || (!backupPolicy && !!keyMaterial);
+      if (shouldEncrypt) {
+        if (!keyMaterial) {
+          throw new Error("BACKUP_EXPORT_KEY is required to encrypt the export.");
+        }
         const key = crypto.createHash("sha256").update(keyMaterial, "utf8").digest();
         const iv = crypto.randomBytes(12);
         const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
@@ -359,6 +378,9 @@ export function createAdminHandlers({
           data: Buffer.concat([iv, tag, encrypted]).toString("base64"),
         };
       } else {
+        if (isProduction) {
+          throw new Error("Plaintext backup exports are not allowed in production.");
+        }
         artifact = {
           timestamp,
           encrypted: false,
@@ -367,7 +389,7 @@ export function createAdminHandlers({
         };
       }
 
-      const backupDir = path.resolve(appRoot, "data/backups");
+      const backupDir = path.resolve(appRoot, backupDirectory || "data/backups");
       await fs.mkdir(backupDir, { recursive: true });
       const fileName = `export-${timestamp.replace(/[:.]/g, "-")}.json`;
       const filePath = path.resolve(backupDir, fileName);

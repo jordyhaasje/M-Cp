@@ -10,8 +10,22 @@ const VALID_LICENSE_STATUSES = new Set(["active", "past_due", "canceled", "inval
 const ACCOUNT_SESSION_COOKIE = "hz_user_session";
 const SHOPIFY_CREDENTIAL_VALIDATION_TIMEOUT_MS = 10000;
 
+function isRailwayProductionEnvironment(env = process.env) {
+  const railwayEnvironmentName = String(
+    env.RAILWAY_ENVIRONMENT_NAME || env.RAILWAY_ENVIRONMENT || ""
+  )
+    .trim()
+    .toLowerCase();
+  return railwayEnvironmentName === "production";
+}
+
+function isEffectiveProductionEnv(env = process.env) {
+  const nodeEnv = String(env.NODE_ENV || "").trim().toLowerCase();
+  return nodeEnv === "production" || isRailwayProductionEnvironment(env);
+}
+
 function resolveRuntimeConfig(env = process.env) {
-  const isProduction = String(env.NODE_ENV || "").trim().toLowerCase() === "production";
+  const isProduction = isEffectiveProductionEnv(env);
   return {
     port: Number(env.PORT || 8787),
     adminApiKey: env.ADMIN_API_KEY || "",
@@ -58,11 +72,14 @@ function resolveRuntimeConfig(env = process.env) {
     autoActivateSignupLicenses:
       String(env.HAZIFY_AUTO_ACTIVATE_SIGNUP_LICENSES || "").trim().toLowerCase() === "true",
     backupExportKey: env.BACKUP_EXPORT_KEY || "",
+    backupExportDirectory: env.BACKUP_EXPORT_DIRECTORY || "",
+    backupExportPolicy: String(env.BACKUP_EXPORT_POLICY || "").trim().toLowerCase(),
+    effectiveProduction: isProduction,
   };
 }
 
 function assertValidRuntimeConfig(nextConfig, env = process.env) {
-  const isProduction = String(env.NODE_ENV || "").trim().toLowerCase() === "production";
+  const isProduction = isEffectiveProductionEnv(env);
 
   if (!Number.isSafeInteger(nextConfig.dbSingleWriterLockKey)) {
     throw new Error("DB_SINGLE_WRITER_LOCK_KEY moet een geldig integer lock-ID zijn.");
@@ -100,11 +117,20 @@ function assertValidRuntimeConfig(nextConfig, env = process.env) {
     if (!nextConfig.dbSingleWriterEnforced) {
       throw new Error("DB_SINGLE_WRITER_ENFORCED=true is verplicht in productie.");
     }
+    if (!String(nextConfig.backupExportKey || "").trim()) {
+      throw new Error("BACKUP_EXPORT_KEY is verplicht in productie.");
+    }
+    if (!String(nextConfig.backupExportDirectory || "").trim()) {
+      throw new Error("BACKUP_EXPORT_DIRECTORY is verplicht in productie.");
+    }
+    if (String(nextConfig.backupExportPolicy || "").trim() !== "encrypted") {
+      throw new Error("BACKUP_EXPORT_POLICY=encrypted is verplicht in productie.");
+    }
   }
 }
 
 const config = resolveRuntimeConfig();
-const IS_PRODUCTION = String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
+const IS_PRODUCTION = isEffectiveProductionEnv();
 
 function reloadRuntimeConfig(env = process.env) {
   const nextConfig = resolveRuntimeConfig(env);
@@ -125,5 +151,6 @@ export {
   SHOPIFY_CREDENTIAL_VALIDATION_TIMEOUT_MS,
   VALID_LICENSE_STATUSES,
   config,
+  isEffectiveProductionEnv,
   reloadRuntimeConfig,
 };

@@ -2,6 +2,23 @@ import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
 import { assertNoUserErrors } from "@hazify/shopify-core";
 import { z } from "zod";
+import { createMutationAuditLog } from "../lib/db.js";
+
+const resolveShopDomain = (context, shopifyClient) => {
+    if (typeof context?.shopifyDomain === "string" && context.shopifyDomain.trim()) {
+        return context.shopifyDomain.trim();
+    }
+    const rawUrl = typeof shopifyClient?.url === "string" ? shopifyClient.url : "";
+    if (!rawUrl) {
+        return null;
+    }
+    try {
+        return new URL(rawUrl).hostname || null;
+    }
+    catch {
+        return null;
+    }
+};
 // Input schema for deleteProductVariants
 const DeleteProductVariantsInputSchema = z.object({
     productId: z.string().min(1).describe("Shopify product GID"),
@@ -58,6 +75,20 @@ const deleteProductVariants = {
             }));
             assertNoUserErrors(data.productVariantsBulkDelete.userErrors, "Failed to delete variants");
             const product = data.productVariantsBulkDelete.product;
+            const auditLog = await createMutationAuditLog({
+                toolName: "delete-product-variants",
+                tenantId: context?.tenantId || null,
+                shopDomain: resolveShopDomain(context, shopifyClient),
+                requestId: context?.requestId || null,
+                reason: input.reason,
+                targetIds: [productId, ...variantIds],
+                payload: {
+                    confirmation: input.confirmation,
+                    productId,
+                    variantIds,
+                    remainingVariantIds: product?.variants?.edges.map((edge) => edge?.node?.id).filter(Boolean) || [],
+                },
+            });
             return {
                 product: {
                     id: product.id,
@@ -69,6 +100,14 @@ const deleteProductVariants = {
                         sku: e.node.sku,
                         options: e.node.selectedOptions,
                     })),
+                },
+                audit: {
+                    auditLogId: auditLog?.id || null,
+                    reason: input.reason,
+                    requestId: context?.requestId || null,
+                    tenantId: context?.tenantId || null,
+                    shopDomain: resolveShopDomain(context, shopifyClient),
+                    targetIds: [productId, ...variantIds],
                 },
             };
         }

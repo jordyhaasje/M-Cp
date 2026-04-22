@@ -494,6 +494,11 @@ try {
   const domainFailureBody = await domainFailureResponse.json();
   assert.equal(domainFailureResponse.status, 200, "tool-level failures should still return a normal MCP response");
   assert.equal(domainFailureBody?.error, undefined, "tool-level failures should not become JSON-RPC exceptions");
+  assert.equal(
+    domainFailureBody?.result?.isError,
+    true,
+    "tool-level domain failures should surface as MCP tool errors"
+  );
   const domainFailureEvent = capturedHttpEvents
     .slice(domainFailureStart)
     .find((entry) => entry?.event === "mcp_http_tool_call_domain_failed");

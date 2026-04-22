@@ -253,6 +253,13 @@ const buildErrorWithStatus = (message, status, extras = {}) => {
   return error;
 };
 
+const buildMissingThemeTargetError = () =>
+  buildErrorWithStatus(
+    "Er ontbreekt een expliciet theme target. Geef themeId of themeRole mee voordat je theme-bestanden leest of schrijft.",
+    400,
+    { errorCode: "explicit_theme_target_required" }
+  );
+
 const extractErrorMessage = (data, fallbackText) => {
   if (data && typeof data === "object") {
     if (typeof data.errors === "string" && data.errors.trim()) {
@@ -719,7 +726,7 @@ const getThemeFileRestByTheme = async (
 const getThemeFileRest = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main", key }
+  { themeId, themeRole, key }
 ) => {
   const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
   return getThemeFileRestByTheme(shopifyClient, apiVersion, { theme, key });
@@ -761,7 +768,7 @@ const upsertThemeFileRestByTheme = async (
 const upsertThemeFileRest = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main", key, value, attachment, checksum }
+  { themeId, themeRole, key, value, attachment, checksum }
 ) => {
   const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
   return upsertThemeFileRestByTheme(shopifyClient, apiVersion, { theme, key, value, attachment, checksum });
@@ -787,7 +794,7 @@ const deleteThemeFileRestByTheme = async (
 const deleteThemeFileRest = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main", key }
+  { themeId, themeRole, key }
 ) => {
   const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
   return deleteThemeFileRestByTheme(shopifyClient, apiVersion, { theme, key });
@@ -796,7 +803,7 @@ const deleteThemeFileRest = async (
 const assertThemeFileChecksum = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main", key, checksum }
+  { themeId, themeRole, key, checksum }
 ) => {
   try {
     const current = await getThemeFile(shopifyClient, apiVersion, { themeId, themeRole, key });
@@ -1004,7 +1011,7 @@ export const listThemes = async (shopifyClient, apiVersion = DEFAULT_API_VERSION
 export const resolveTheme = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main" } = {}
+  { themeId, themeRole } = {}
 ) => {
   if (themeId !== undefined && themeId !== null) {
     const normalizedThemeId = Number(themeId);
@@ -1018,8 +1025,12 @@ export const resolveTheme = async (
     );
   }
 
+  if (themeRole === undefined || themeRole === null || String(themeRole).trim() === "") {
+    throw buildMissingThemeTargetError();
+  }
+
   const themes = await listThemes(shopifyClient, apiVersion);
-  const role = normalizeThemeRole(themeRole) || "main";
+  const role = normalizeThemeRole(themeRole);
   const byRole = themes.find((theme) => normalizeThemeRole(theme?.role) === role);
   if (!byRole) {
     const roles = Array.from(new Set(themes.map((theme) => normalizeThemeRole(theme?.role)).filter(Boolean)));
@@ -1034,7 +1045,7 @@ export const resolveTheme = async (
 export const getThemeFile = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main", key }
+  { themeId, themeRole, key }
 ) =>
   withThemeGraphqlFallback(
     async () => {
@@ -1069,7 +1080,7 @@ export const getThemeFile = async (
 export const getThemeFiles = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main", keys = [], includeContent = false }
+  { themeId, themeRole, keys = [], includeContent = false }
 ) => {
   if (!Array.isArray(keys) || keys.length === 0) {
     throw new Error("keys moet minimaal 1 item bevatten.");
@@ -1096,7 +1107,7 @@ export const getThemeFiles = async (
 export const searchThemeFiles = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main", patterns = [], keys = [], includeContent = false, resultLimit = 20 }
+  { themeId, themeRole, patterns = [], keys = [], includeContent = false, resultLimit = 20 }
 ) => {
   const hasPatterns = Array.isArray(patterns) && patterns.length > 0;
   const hasKeys = Array.isArray(keys) && keys.length > 0;
@@ -1170,7 +1181,7 @@ export const searchThemeFiles = async (
 export const verifyThemeFiles = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main", expected = [] }
+  { themeId, themeRole, expected = [] }
 ) => {
   if (!Array.isArray(expected) || expected.length === 0) {
     throw new Error("expected moet minimaal 1 item bevatten.");
@@ -1214,7 +1225,7 @@ export const verifyThemeFiles = async (
 export const upsertThemeFiles = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main", files = [], verifyAfterWrite = false }
+  { themeId, themeRole, files = [], verifyAfterWrite = false }
 ) => {
   if (!Array.isArray(files) || files.length === 0) {
     throw new Error("files moet minimaal 1 item bevatten.");
@@ -1471,7 +1482,7 @@ export const upsertThemeFiles = async (
 export const upsertThemeFile = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main", key, value, attachment, checksum }
+  { themeId, themeRole, key, value, attachment, checksum }
 ) => {
   validateCoreFileUpsert(key, value, attachment);
 
@@ -1532,7 +1543,7 @@ export const upsertThemeFile = async (
 export const deleteThemeFile = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole = "main", key }
+  { themeId, themeRole, key }
 ) =>
   withThemeGraphqlFallback(
     async () => {

@@ -28,9 +28,6 @@ const UpdateProductInputSchema = z.object({
         type: z.string().optional(),
     }))
         .optional(),
-    collectionsToJoin: z.array(z.string()).optional().describe("Collection GIDs to add the product to"),
-    collectionsToLeave: z.array(z.string()).optional().describe("Collection GIDs to remove the product from"),
-    redirectNewHandle: z.boolean().optional().describe("If true, old handle redirects to new handle"),
     media: z
         .array(z.object({
         originalSource: z.string().url(),
@@ -39,7 +36,7 @@ const UpdateProductInputSchema = z.object({
     }))
         .optional()
         .describe("New media to add to the product"),
-});
+}).strict();
 // Will be initialized in index.ts
 const updateProduct = {
     name: "update-product",

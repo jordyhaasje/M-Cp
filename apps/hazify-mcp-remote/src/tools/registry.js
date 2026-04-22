@@ -324,7 +324,10 @@ const productMutationOutputSchema = z
   .passthrough();
 
 const deleteProductOutputSchema = z
-  .object({ deletedProductId: z.string() })
+  .object({
+    deletedProductId: z.string(),
+    audit: passthroughObject().optional(),
+  })
   .passthrough();
 
 const deleteProductVariantsOutputSchema = z
@@ -336,6 +339,7 @@ const deleteProductVariantsOutputSchema = z
         remainingVariants: z.array(passthroughObject()),
       })
       .passthrough(),
+    audit: passthroughObject().optional(),
   })
   .passthrough();
 
@@ -379,6 +383,7 @@ const refundOrderOutputSchema = z
     order: z.object({ id: z.string(), name: z.string() }).passthrough().nullable(),
     resolvedOrder: passthroughObject(),
     audit: passthroughObject(),
+    idempotencyKey: z.string().optional(),
   })
   .passthrough();
 

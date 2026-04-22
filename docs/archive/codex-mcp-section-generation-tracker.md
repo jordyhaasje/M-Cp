@@ -1,5 +1,9 @@
-# Codex MCP Section Generation Tracker
+# Codex MCP Section Generation Tracker (archief)
 Doelgroep: repo maintainers en coding agents.
+
+Status: gearchiveerd op 2026-04-22. Dit document is historisch en geen actieve bron van waarheid meer.
+
+Canonieke actieve documenten zijn nu `docs/04-MCP-REMOTE-AUDIT.md` en `docs/05-REMEDIATION-PLAN.md`.
 
 ## Objective
 - Make `@hazify/mcp-remote` reliably plan, create, edit, place, and validate Shopify sections/blocks across themes from screenshot-driven and text-only prompts without weakening safety, while preserving existing non-theme Shopify MCP capabilities.

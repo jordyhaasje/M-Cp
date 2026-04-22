@@ -79,12 +79,15 @@ import { createAccountHandlers } from "./routes/account.js";
 import { createLicenseBillingHandlers } from "./routes/license-billing.js";
 import { createAdminHandlers } from "./routes/admin.js";
 import { createOAuthHandlers } from "./routes/oauth.js";
+import { createPersistDbQueue } from "./lib/persist-db.js";
 
 const RATE_BUCKETS = new Map();
 
 let storage = null;
 let db = null;
-let writeQueue = Promise.resolve();
+let persistDb = async function persistDbNotReady() {
+  throw new Error("persistDb is not ready");
+};
 let storageClosed = false;
 let server = null;
 
@@ -173,13 +176,6 @@ async function loadDb() {
   }
 
   return safeState;
-}
-
-async function persistDb() {
-  writeQueue = writeQueue.then(async () => {
-    await storage.persistState(db);
-  });
-  await writeQueue;
 }
 
 function logEvent(event, data = {}) {
@@ -1512,7 +1508,10 @@ export async function startLicenseService({ port = config.port } = {}) {
   storage = createStorageAdapter(config);
   await storage.init();
   db = await loadDb();
-  writeQueue = Promise.resolve();
+  persistDb = createPersistDbQueue({
+    storage,
+    getState: () => db,
+  });
   initializeHandlers();
 
   server = createHttpServer();

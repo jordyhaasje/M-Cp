@@ -5,7 +5,7 @@ import { fetchWithSafeRedirects } from "../lib/urlSecurity.js";
 
 const CloneProductFromUrlInputSchema = z.object({
   sourceUrl: z.string().url().describe("Public Shopify product URL"),
-  status: z.enum(["ACTIVE", "DRAFT", "ARCHIVED"]).default("DRAFT"),
+  status: z.enum(["DRAFT", "ARCHIVED"]).default("DRAFT"),
   titleOverride: z.string().optional(),
   handleOverride: z.string().optional(),
   vendorOverride: z.string().optional(),
@@ -125,7 +125,7 @@ function resolveSourceVariantImageUrl(variant, sourceImagesById) {
 const cloneProductFromUrl = {
   name: "clone-product-from-url",
   description:
-    "Clone a public Shopify product URL into your connected store with options, variants, prices and media.",
+    "Clone a public Shopify product URL into your connected store with options, variants, prices and media. First-pass imports stay in DRAFT or ARCHIVED totdat variant-media mapping expliciet is geverifieerd.",
   schema: CloneProductFromUrlInputSchema,
   execute: async (input, context = {}) => {
       const shopifyClient = requireShopifyClient(context);

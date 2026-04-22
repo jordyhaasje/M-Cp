@@ -318,12 +318,16 @@ const getOrderById = {
                         number: tracking.number,
                         url: tracking.url
                     }))),
-                    legacyCustomAttributes: (order.customAttributes || []).filter((attribute) => {
-                        const key = attribute?.key?.trim()?.toLowerCase();
-                        return !!key && ["tracking_number", "trackingnumber", "tracking-number", "carrier", "tracking_company", "trackingcompany", "tracking-company", "tracking_url", "trackingurl", "tracking-url"].includes(key);
-                    }),
-                    legacyMetafields: metafields.filter((metafield) => metafield.namespace === "shipping" &&
-                        ["tracking_number", "carrier", "tracking_url"].includes(metafield.key))
+                    legacySignals: {
+                        deprecated: true,
+                        message: "Legacy tracking in customAttributes/metafields is read-only and no longer a write path. Gebruik fulfillments.trackingInfo als bron van waarheid.",
+                        customAttributes: (order.customAttributes || []).filter((attribute) => {
+                            const key = attribute?.key?.trim()?.toLowerCase();
+                            return !!key && ["tracking_number", "trackingnumber", "tracking-number", "carrier", "tracking_company", "trackingcompany", "tracking-company", "tracking_url", "trackingurl", "tracking-url"].includes(key);
+                        }),
+                        metafields: metafields.filter((metafield) => metafield.namespace === "shipping" &&
+                            ["tracking_number", "carrier", "tracking_url"].includes(metafield.key))
+                    }
                 },
                 lineItems,
                 tags: order.tags,

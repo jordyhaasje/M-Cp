@@ -26,6 +26,10 @@ async function main() {
           "Gebruik deze flow wanneer de gebruiker een bestaand bestand of bestaande section in het theme wil aanpassen.",
       },
     },
+    docsSync: {
+      autoSyncedTargets: ["AGENTS.md", "docs/02-SYSTEM-FLOW.md"],
+      note: "Only the tool catalog markers are auto-synced; the rest of the docs remain hand-maintained.",
+    },
     policies: {
       defaultFileStrategy: "single-section-file",
       automaticTemplatePlacement: false,
@@ -60,6 +64,9 @@ async function main() {
 
   console.log(
     `Documentation workflow truth prepared for '${workflowManifest.workflows.existingThemeEdit.label}'.`
+  );
+  console.log(
+    `Auto-sync scope: ${workflowManifest.docsSync.autoSyncedTargets.join(", ")} only; all other docs are manual.`
   );
 }
 

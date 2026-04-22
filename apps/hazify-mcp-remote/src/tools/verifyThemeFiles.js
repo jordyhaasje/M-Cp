@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { verifyThemeFiles } from "../lib/themeFiles.js";
+import { rememberThemeRead } from "../lib/themeEditMemory.js";
+import {
+  buildExplicitThemeTargetRequiredResponse,
+  resolveThemeTargetFromInputOrMemory,
+} from "./_themeTargeting.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
@@ -8,7 +13,7 @@ const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
 const VerifyThemeFilesInputSchema = z
   .object({
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-    themeRole: ThemeRoleSchema.optional().describe("Optionele theme role. Geef deze in editflows expliciet mee; alleen voor backwards compatibility valt deze read-tool anders terug op main."),
+    themeRole: ThemeRoleSchema.optional().describe("Expliciete theme role. Vereist tenzij dezelfde flow al eerder expliciet een theme target bevestigde."),
     expected: z
       .array(
         z.object({
@@ -34,17 +39,35 @@ const VerifyThemeFilesInputSchema = z
 
 const verifyThemeFilesTool = {
   name: "verify-theme-files",
-  description: "Verify multiple theme files by expected metadata (size/checksumMd5). Geef in editflows bij voorkeur altijd expliciet themeId of themeRole mee zodat je verify-context overeenkomt met je planner/read/write-flow. Alleen voor backwards compatibility valt deze read-only tool terug op main als themeId/themeRole ontbreekt; dat levert dan ook een warning op. Minimaal geldig voorbeeld: { expected: [{ key: 'sections/hero.liquid', checksumMd5: '...' }] }.",
+  description: "Verify multiple theme files by expected metadata (size/checksumMd5). Geef in editflows expliciet themeId of themeRole mee zodat je verify-context overeenkomt met je planner/read/write-flow. Als dezelfde flow al eerder een theme target bevestigde, mag die sticky worden hergebruikt; anders blokkeert deze tool met een repair response. Minimaal geldig voorbeeld: { expected: [{ key: 'sections/hero.liquid', checksumMd5: '...' }] }.",
   schema: VerifyThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);
-    const usedMainFallback = !input.themeId && !input.themeRole;
-    const effectiveThemeRole = input.themeId ? undefined : input.themeRole || "main";
+    const resolvedThemeTarget = resolveThemeTargetFromInputOrMemory(input, context);
+    if (!resolvedThemeTarget) {
+      return buildExplicitThemeTargetRequiredResponse({
+        toolName: "verify-theme-files",
+        normalizedArgs: {
+          expected: input.expected,
+        },
+        nextArgsTemplate: {
+          expected: input.expected,
+        },
+      });
+    }
     try {
       const result = await verifyThemeFiles(shopifyClient, API_VERSION, {
-        themeId: input.themeId,
-        themeRole: effectiveThemeRole,
+        themeId: resolvedThemeTarget.themeId ?? undefined,
+        themeRole: resolvedThemeTarget.themeId ? undefined : resolvedThemeTarget.themeRole,
         expected: input.expected,
+      });
+      rememberThemeRead(context, {
+        themeId: result.theme.id,
+        themeRole:
+          result.theme.role?.toLowerCase?.() ||
+          resolvedThemeTarget.themeRole ||
+          undefined,
+        files: [],
       });
 
       return {
@@ -55,12 +78,8 @@ const verifyThemeFilesTool = {
         },
         summary: result.summary,
         results: result.results,
-        ...(usedMainFallback
-          ? {
-              warnings: [
-                "⚠️ themeId/themeRole ontbrak; deze verify-call viel voor backwards compatibility terug op het LIVE main theme.",
-              ],
-            }
+        ...(resolvedThemeTarget.warnings?.length
+          ? { warnings: resolvedThemeTarget.warnings }
           : {}),
       };
     } catch (error) {

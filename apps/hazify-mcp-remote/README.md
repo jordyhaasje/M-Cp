@@ -64,7 +64,8 @@ npm run --workspace @hazify/mcp-remote start:remote
 - `draft-theme-artifact` behandelt context-placeholders in bestaande full rewrites nu expliciet als foutklasse. Waarden zoals `REWRITE_ALREADY_APPLIED_IN_CONTEXT` worden niet meer als vage truncation geclassificeerd, maar geven een directe repair terug: stuur het volledige herschreven bestand of gebruik een letterlijke patch/patches.
 - `draft-theme-artifact` geeft bij Shopify richtext-default fouten nu expliciete repair-codes terug zoals `richtext_default_forbidden_tag`, en bij een te minimale premium standalone section `standalone_section_too_minimal`.
 - `draft-theme-artifact` voert voor interactieve sections nu extra parser-safety checks uit, zoals detectie van `${...{{ ... }}...}` conflicten, geneste `{{ ... }}` binnen dezelfde output-tag, en niet-gescopede JS selectors. Media-heavy sections krijgen extra guardrails voor image/video settings en responsieve rendering.
-- Wanneer `plannerHandoff` aanwezig is, gebruikt `draft-theme-artifact` nu ook de planner-afgeleide `themeContext` en `sectionBlueprint` als sessiegeheugen ontbreekt. Dat maakt stateless chatclients zoals ChatGPT/Claude/Perplexity betrouwbaarder in meerstaps section-flows.
+- Wanneer `plannerHandoff` aanwezig is, gebruikt `draft-theme-artifact` nu ook de planner-afgeleide `themeContext`, `sectionBlueprint` en native-block `architecture` als sessiegeheugen ontbreekt. Dat maakt stateless chatclients zoals ChatGPT/Claude/Perplexity betrouwbaarder in meerstaps section- en native-block flows.
+- Native-block snippet-writes worden nu ook gevalideerd tegen het gerelateerde section-schema: nieuwe block types en `block.settings.*` refs moeten echt bestaan, optionele block-media moet blank-safe blijven, en `@theme`/`content_for 'blocks'` routes vereisen een echt `blocks/*.liquid` bestand.
 - Voor editflows die net uit `plan-theme-edit` komen, verwacht `draft-theme-artifact` nu ook dat de planner-bestanden eerst echt zijn gelezen; daardoor blijven native block en multi-file edits dichter bij de echte section/snippet-architectuur van het theme.
 - Gebruik in `richtext.default` alleen Shopify-veilige HTML: top-level `<p>` of `<ul>` en geen tags zoals `<mark>`.
 - `draft-theme-artifact` ondersteunt voor single-file requests ook top-level `key + value`, `key + content`, `key + liquid` of `key + searchString + replaceString`, en valideert nieuwe `blocks/*.liquid` files nu ook op block-basisregels.
@@ -100,3 +101,5 @@ Zie ook `docs/03-THEME-SECTION-GENERATION.md` voor archetype-notes, voorbeeldpro
 ```bash
 npm run --workspace @hazify/mcp-remote test
 ```
+
+De lokale acceptatiematrix dekt nu ook native-block write/preview flows over vier Shopify 2.0 theme-archetypes, naast prompt-only create, screenshot-only exact create, image-backed exact create, existing edit en template placement.

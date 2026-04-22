@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
 import { assertNoUserErrors } from "@hazify/shopify-core";
@@ -21,6 +22,7 @@ const RefundTransactionSchema = z.object({
 const RefundOrderInputSchema = z.object({
   orderId: z.string().min(1).describe("Accepts Shopify GID, numeric order id, or order number like 1004/#1004"),
   confirmation: z.literal("REFUND_ORDER").describe("Verplicht type: 'REFUND_ORDER' ter bevestiging om accidentele refunds te voorkomen."),
+  idempotencyKey: z.string().min(8).max(255).optional().describe("Optionele Shopify idempotency key. Als deze ontbreekt, genereert de server een deterministische sleutel."),
   note: z.string().optional(),
   audit: z.object({
     amount: z.string().min(1).describe("Refund amount for audit trail, e.g. '19.95'"),
@@ -40,6 +42,26 @@ const RefundOrderInputSchema = z.object({
   transactions: z.array(RefundTransactionSchema).optional(),
 });
 
+const buildDeterministicRefundIdempotencyKey = ({ resolvedOrderId, input, refundInput }) => {
+  const hash = crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        resolvedOrderId,
+        audit: input.audit,
+        note: refundInput.note || null,
+        notify: refundInput.notify,
+        currency: refundInput.currency || null,
+        allowOverRefunding: refundInput.allowOverRefunding ?? null,
+        refundLineItems: refundInput.refundLineItems || [],
+        shipping: refundInput.shipping || null,
+        transactions: refundInput.transactions || [],
+      })
+    )
+    .digest("hex");
+  return `refund-${hash.slice(0, 48)}`;
+};
+
 
 const refundOrder = {
   name: "refund-order",
@@ -58,8 +80,8 @@ const refundOrder = {
           : auditNote;
 
       const mutation = gql`
-        mutation RefundOrder($input: RefundInput!) {
-          refundCreate(input: $input) {
+        mutation RefundOrder($input: RefundInput!, $idempotencyKey: String!) {
+          refundCreate(input: $input) @idempotent(key: $idempotencyKey) {
             refund {
               id
               createdAt
@@ -103,8 +125,19 @@ const refundOrder = {
           parentId: t.parentId,
         })),
       };
+      const idempotencyKey =
+        typeof input.idempotencyKey === "string" && input.idempotencyKey.trim()
+          ? input.idempotencyKey.trim()
+          : buildDeterministicRefundIdempotencyKey({
+              resolvedOrderId,
+              input,
+              refundInput,
+            });
 
-      const data = await shopifyClient.request(mutation, { input: refundInput });
+      const data = await shopifyClient.request(mutation, {
+        input: refundInput,
+        idempotencyKey,
+      });
       const payload = data.refundCreate;
 
       assertNoUserErrors(payload.userErrors, "Failed to create refund");
@@ -129,6 +162,7 @@ const refundOrder = {
           matchedByQuery: resolvedOrder.matchedByQuery || null,
         },
         audit: input.audit,
+        idempotencyKey,
       };
     } catch (error) {
       console.error("Error creating refund:", error);

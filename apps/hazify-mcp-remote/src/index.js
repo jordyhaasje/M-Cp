@@ -75,10 +75,11 @@ const createServerInstance = () => new McpServer({
 });
 const toMcpResponse = (result) => {
     const structuredContent = result && typeof result === "object" ? result : { result };
+    const isError = structuredContent?.success === false;
     return {
         content: [{ type: "text", text: JSON.stringify(structuredContent) }],
         structuredContent,
-        isError: false,
+        isError,
     };
 };
 const normalizeIsoDate = (value) => {

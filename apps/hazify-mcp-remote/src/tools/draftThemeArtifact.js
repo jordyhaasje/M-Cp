@@ -11,6 +11,7 @@ import {
   inspectSectionScaleAgainstTheme,
 } from "../lib/themeSectionContext.js";
 import {
+  getRecentThemeRead,
   getThemeEditMemory,
   haveRecentThemeReads,
   rememberThemeWrite,
@@ -58,7 +59,8 @@ Theme-aware section regels:
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
 - Voor native blocks binnen een bestaande section (bijv. product-info of main-product): gebruik mode="edit" en patch de bestaande schema.blocks plus de render markup/snippet. Dit is geen los blocks/*.liquid bestand.
-- Als de gebruiker een nieuwe section ook op een homepage/productpagina geplaatst wil hebben, maak eerst sections/<handle>.liquid in mode="create" en doe daarna alleen bij expliciete placement-vraag een aparte mode="edit" call voor templates/*.json op hetzelfde expliciet gekozen thema. Gebruik config/settings_data.json alleen als uitzonderingsroute.
+- Native-block snippet-writes gebruiken nu ook planner-architectuur en het gerelateerde section-schema voor extra preflight: nieuwe block types of block.settings refs moeten echt in het parent schema bestaan, optionele block-media moet blank-safe blijven, en @theme/content_for('blocks') flows vereisen een echt blocks/*.liquid bestand.
+- Als de gebruiker een nieuwe section ook op een homepage/productpagina geplaatst wil hebben, maak eerst sections/<handle>.liquid in mode="create" en doe daarna alleen bij expliciete placement-vraag een aparte mode="edit" call voor het relevante templates/*.json of templates/*.liquid bestand op hetzelfde expliciet gekozen thema. Gebruik config/settings_data.json alleen als uitzonderingsroute.
 - Gebruik voor nieuwe sections bij voorkeur enabled_on/disabled_on in de schema in plaats van legacy "templates" wanneer je beschikbaarheid per template wilt sturen.
 - Lokale inspectie en theme-check lint worden waar mogelijk samen als lokale preflight teruggegeven, zodat een retry meerdere deterministische fouten tegelijk kan repareren. Wanneer plannerHandoff aanwezig is, gebruikt deze tool nu ook de planner-afgeleide theme-context en sectionBlueprint zodat stateless clients minder context verliezen.
 
@@ -648,7 +650,7 @@ function collectSchemaRequiredFieldIssues(schema, fileKey, { rootOwner = "sectio
         });
       }
 
-      if (!blockName) {
+      if (!blockName && (!blockType || !blockType.startsWith("@"))) {
         pushIssue({
           path: [fileKey, "schema", "blocks", blockPathSegment, "name"],
           problem: `Section block '${blockType || `block_${blockIndex + 1}`}' mist verplichte property 'name'.`,
@@ -1812,6 +1814,305 @@ function collectOptionalResourceRuntimeSafety(
     unsafeRefs,
     issueDetections,
     warningDetections,
+  };
+}
+
+function collectSnippetOptionalResourceRuntimeSafety(
+  value,
+  fileKey,
+  relatedSchema,
+  {
+    rootOwner = "section",
+    originalValue = null,
+  } = {}
+) {
+  if (!relatedSchema) {
+    return buildInspectionResult({});
+  }
+
+  const currentInspection = collectOptionalResourceRuntimeSafety(
+    value,
+    fileKey,
+    relatedSchema,
+    { rootOwner }
+  );
+
+  if (typeof originalValue !== "string" || originalValue.length === 0) {
+    return currentInspection;
+  }
+
+  const baselineInspection = collectOptionalResourceRuntimeSafety(
+    originalValue,
+    fileKey,
+    relatedSchema,
+    { rootOwner }
+  );
+
+  return filterOptionalResourceInspectionAgainstBaseline(
+    currentInspection,
+    baselineInspection
+  );
+}
+
+function collectLiquidSettingReferences(source) {
+  return uniqueStrings(
+    Array.from(
+      String(source || "").matchAll(/\b(section|block)\.settings\.([A-Za-z_][\w-]*)\b/g),
+      (match) => `${String(match[1] || "").trim()}.settings.${String(match[2] || "").trim()}`
+    ).filter(Boolean)
+  );
+}
+
+function collectBlockTypeReferences(source) {
+  const references = [];
+  const normalizedSource = String(source || "");
+
+  if (/case\s+block\.type/i.test(normalizedSource)) {
+    references.push(
+      ...Array.from(
+        normalizedSource.matchAll(/{%-?\s*when\s+['"]([^'"]+)['"]/gi),
+        (match) => String(match[1] || "").trim()
+      )
+    );
+  }
+
+  references.push(
+    ...Array.from(
+      normalizedSource.matchAll(/\bblock\.type\s*(?:==|!=|contains)\s*['"]([^'"]+)['"]/gi),
+      (match) => String(match[1] || "").trim()
+    )
+  );
+
+  return uniqueStrings(references.filter(Boolean));
+}
+
+function filterNewReferenceValues(currentValues, baselineValues = []) {
+  const baseline = new Set(
+    (Array.isArray(baselineValues) ? baselineValues : [])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+  );
+
+  return uniqueStrings(
+    (Array.isArray(currentValues) ? currentValues : []).filter((value) => {
+      const normalized = String(value || "").trim();
+      return normalized && !baseline.has(normalized);
+    })
+  );
+}
+
+function collectRelatedSchemaReferenceIntegrity(
+  value,
+  fileKey,
+  relatedSchema,
+  {
+    relatedSchemaKey = null,
+    rootOwner = "section",
+    originalValue = null,
+  } = {}
+) {
+  if (!relatedSchema) {
+    return buildInspectionResult({});
+  }
+
+  const issues = [];
+  const suggestedFixes = [];
+  const schemaRefs = collectSchemaSettingRefs(relatedSchema, { rootOwner });
+  const knownSettingRefs = new Set(schemaRefs.map((entry) => entry.ref));
+  const baselineUnknownSettingRefs = collectLiquidSettingReferences(originalValue).filter(
+    (ref) => !knownSettingRefs.has(ref)
+  );
+  const currentUnknownSettingRefs = collectLiquidSettingReferences(value).filter(
+    (ref) => !knownSettingRefs.has(ref)
+  );
+  const newUnknownSettingRefs = filterNewReferenceValues(
+    currentUnknownSettingRefs,
+    baselineUnknownSettingRefs
+  );
+
+  for (const ref of newUnknownSettingRefs) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          `${ref} wordt in '${fileKey}' gebruikt, maar staat niet in het gerelateerde schema van '${relatedSchemaKey || "de parent section"}'. Daardoor blijft de native-block write onvolledig of onwaar.`,
+        fixSuggestion:
+          "Werk ook het gerelateerde section/block schema bij zodat deze setting echt bestaat, of verwijder de ongeldige ref uit de snippet.",
+        issueCode: "inspection_failed_unknown_setting_ref",
+        suggestedReplacement: {
+          missingSettingRef: ref,
+          relatedSchemaKey,
+        },
+      })
+    );
+  }
+
+  const knownBlockTypes = new Set(
+    (Array.isArray(relatedSchema?.blocks) ? relatedSchema.blocks : [])
+      .map((block) => String(block?.type || "").trim())
+      .filter(Boolean)
+  );
+  const baselineUnknownBlockTypes = collectBlockTypeReferences(originalValue).filter(
+    (type) => !knownBlockTypes.has(type)
+  );
+  const currentUnknownBlockTypes = collectBlockTypeReferences(value).filter(
+    (type) => !knownBlockTypes.has(type)
+  );
+  const newUnknownBlockTypes = filterNewReferenceValues(
+    currentUnknownBlockTypes,
+    baselineUnknownBlockTypes
+  );
+
+  for (const blockType of newUnknownBlockTypes) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          `Block type '${blockType}' wordt in '${fileKey}' gerenderd, maar bestaat niet in het gerelateerde schema van '${relatedSchemaKey || "de parent section"}'. Daardoor kan deze native block-flow niet volledig werken.`,
+        fixSuggestion:
+          "Voeg het block type toe aan het gerelateerde section schema, of verwijder de renderer-case totdat de schema-write meekomt.",
+        issueCode: "inspection_failed_unknown_block_type",
+        suggestedReplacement: {
+          missingBlockType: blockType,
+          relatedSchemaKey,
+        },
+      })
+    );
+  }
+
+  if (issues.length > 0) {
+    suggestedFixes.push(
+      "Houd snippet-renderers, block types en schema settings altijd in sync binnen dezelfde native-block flow.",
+      "Werk bij nieuwe block.types of block.settings ook het parent section-schema of theme block-schema bij."
+    );
+  }
+
+  return buildInspectionResult({
+    issues,
+    suggestedFixes,
+  });
+}
+
+function collectSnippetRendererContractSafety(
+  value,
+  fileKey,
+  { treatAsNativeBlockRenderer = false } = {}
+) {
+  const source = String(value || "");
+  const warnings = [];
+  const suggestedFixes = [];
+  const rendersSectionBlocks = /for\s+block\s+in\s+section\.blocks/i.test(source);
+  const usesBlockContext =
+    rendersSectionBlocks ||
+    /\bblock\.settings\b|\bblock\.type\b|content_for\s+['"]block['"]/i.test(source);
+
+  if (!treatAsNativeBlockRenderer && !usesBlockContext) {
+    return buildInspectionResult({});
+  }
+
+  if (
+    usesBlockContext &&
+    !/block\.shopify_attributes/.test(source) &&
+    !/{%\s*render\s+block\s*%}/i.test(source)
+  ) {
+    warnings.push(
+      `Native block renderer snippet '${fileKey}' mist block.shopify_attributes. Daardoor kan Theme Editor drag-and-drop of block-selectie minder betrouwbaar werken.`
+    );
+    suggestedFixes.push(
+      "Zet {{ block.shopify_attributes }} op de top-level block wrapper wanneer een snippet block-markup rendert."
+    );
+  }
+
+  if (usesBlockContext && !hasLiquidBlockTag(source, "doc")) {
+    warnings.push(
+      `Native block renderer snippet '${fileKey}' mist een {% doc %} block. Shopify LiquidDoc helpt hier parameters, tooling en renderer-contracten eerlijker te houden.`
+    );
+    suggestedFixes.push(
+      "Voeg een compact {% doc %} block toe met de verwachte snippet-parameters of block-context."
+    );
+  }
+
+  return buildInspectionResult({
+    warnings,
+    suggestedFixes,
+  });
+}
+
+function extractSchemaFromCandidateValue(value) {
+  if (typeof value !== "string" || value.length === 0 || !hasLiquidBlockTag(value, "schema")) {
+    return null;
+  }
+
+  const parsed = parseSectionSchema(value);
+  if (!parsed?.schema) {
+    return null;
+  }
+
+  return parsed.schema;
+}
+
+function resolveSnippetRelatedSchema({
+  file,
+  files = [],
+  context,
+  themeId,
+  themeRole,
+  plannerArchitecture = null,
+  plannedReadKeys = [],
+  plannedWriteKeys = [],
+} = {}) {
+  const candidateKeys = uniqueStrings([
+    plannerArchitecture?.primarySectionFile,
+    ...(Array.isArray(plannedWriteKeys) ? plannedWriteKeys : []).filter((key) =>
+      /^sections\/.+\.liquid$/i.test(String(key || ""))
+    ),
+    ...(Array.isArray(plannedReadKeys) ? plannedReadKeys : []).filter((key) =>
+      /^sections\/.+\.liquid$/i.test(String(key || ""))
+    ),
+    ...(Array.isArray(files) ? files : []).map((entry) => entry?.key).filter((key) =>
+      /^sections\/.+\.liquid$/i.test(String(key || ""))
+    ),
+  ]);
+
+  for (const candidateKey of candidateKeys) {
+    if (!candidateKey || candidateKey === file?.key) {
+      continue;
+    }
+
+    const batchFile = (Array.isArray(files) ? files : []).find(
+      (entry) => entry?.key === candidateKey
+    );
+    const batchSchema =
+      extractSchemaFromCandidateValue(batchFile?.value) ||
+      extractSchemaFromCandidateValue(batchFile?.originalValue);
+    if (batchSchema) {
+      return {
+        schema: batchSchema,
+        key: candidateKey,
+        rootOwner: "section",
+      };
+    }
+
+    const recentRead = getRecentThemeRead(context, {
+      key: candidateKey,
+      themeId,
+      themeRole,
+      requireContent: true,
+    });
+    const readSchema = extractSchemaFromCandidateValue(recentRead?.content);
+    if (readSchema) {
+      return {
+        schema: readSchema,
+        key: candidateKey,
+        rootOwner: "section",
+      };
+    }
+  }
+
+  return {
+    schema: null,
+    key: null,
+    rootOwner: "section",
   };
 }
 
@@ -3040,6 +3341,59 @@ function inspectConfigFile(file) {
 }
 
 function inspectTemplateFile(file) {
+  if (file.key.endsWith(".liquid")) {
+    const value = String(file.value || "");
+    const issues = [];
+    const warnings = [`⚠️ Template write (${file.key}): dit wijzigt de pagina-layout direct.`];
+    const suggestedFixes = [];
+
+    if (
+      containsLiquidInSpecialBlock(value, "stylesheet") ||
+      containsLiquidInSpecialBlock(value, "javascript")
+    ) {
+      issues.push(
+        createInspectionIssue({
+          path: [file.key],
+          problem:
+            "Liquid binnen {% stylesheet %} of {% javascript %} is niet toegestaan. Gebruik <style> of markup-level CSS variables.",
+          fixSuggestion:
+            "Verplaats Liquid-afhankelijke CSS of JS naar reguliere <style>/<script>-markup of naar veilige vooraf berekende assigns.",
+          issueCode: "inspection_failed_css",
+        })
+      );
+      suggestedFixes.push(
+        "Verplaats Liquid-afhankelijke CSS of JS uit {% stylesheet %}/{% javascript %} naar reguliere markup."
+      );
+    }
+
+    const rendererSafety = collectLiquidRendererSafety(value, file.key);
+    issues.push(...(rendererSafety.issues || []));
+    warnings.push(...(rendererSafety.warnings || []));
+    suggestedFixes.push(...(rendererSafety.suggestedFixes || []));
+
+    if (!hasRenderableContentOutsideSchema(value)) {
+      issues.push(
+        createInspectionIssue({
+          path: [file.key],
+          problem:
+            `Template '${file.key}' moet renderbare Liquid bevatten, bijvoorbeeld één of meer {% section '...' %} tags.`,
+          fixSuggestion:
+            "Voeg ten minste één renderbare {% section '...' %} tag of andere geldige template-markup toe.",
+          issueCode: "inspection_failed_incomplete_template",
+        })
+      );
+      suggestedFixes.push(
+        "Voeg ten minste één renderbare {% section '...' %} tag of andere geldige template-markup toe."
+      );
+    }
+
+    return buildInspectionResult({
+      issues,
+      warnings,
+      suggestedFixes,
+    });
+  }
+
   let parsed;
   try {
     parsed = parseJsonLike(file.value);
@@ -3540,7 +3894,16 @@ function inspectThemeBlockFile(file) {
   });
 }
 
-function inspectSnippetFile(file) {
+function inspectSnippetFile(
+  file,
+  {
+    relatedSchema = null,
+    relatedSchemaKey = null,
+    rootOwner = "section",
+    originalValue = null,
+    treatAsNativeBlockRenderer = false,
+  } = {}
+) {
   const value = String(file.value || "");
   const issues = [];
   const warnings = [];
@@ -3567,6 +3930,57 @@ function inspectSnippetFile(file) {
   issues.push(...(rendererInspection.issues || []));
   warnings.push(...(rendererInspection.warnings || []));
   suggestedFixes.push(...(rendererInspection.suggestedFixes || []));
+
+  const rendererContractInspection = collectSnippetRendererContractSafety(value, file.key, {
+    treatAsNativeBlockRenderer,
+  });
+  issues.push(...(rendererContractInspection.issues || []));
+  warnings.push(...(rendererContractInspection.warnings || []));
+  suggestedFixes.push(...(rendererContractInspection.suggestedFixes || []));
+
+  if (relatedSchema) {
+    const relatedSchemaIntegrity = collectRelatedSchemaReferenceIntegrity(
+      value,
+      file.key,
+      relatedSchema,
+      {
+        relatedSchemaKey,
+        rootOwner,
+        originalValue,
+      }
+    );
+    issues.push(...(relatedSchemaIntegrity.issues || []));
+    warnings.push(...(relatedSchemaIntegrity.warnings || []));
+    suggestedFixes.push(...(relatedSchemaIntegrity.suggestedFixes || []));
+
+    const optionalResourceInspection = collectSnippetOptionalResourceRuntimeSafety(
+      value,
+      file.key,
+      relatedSchema,
+      {
+        rootOwner,
+        originalValue,
+      }
+    );
+    issues.push(...(optionalResourceInspection.issues || []));
+    warnings.push(...(optionalResourceInspection.warnings || []));
+    suggestedFixes.push(...(optionalResourceInspection.suggestedFixes || []));
+
+    const relatedSettingTypes = collectSchemaSettingTypes(relatedSchema);
+    const interactiveInspection = collectInteractiveSectionSafety(value, file.key);
+    issues.push(...(interactiveInspection.issues || []));
+    warnings.push(...(interactiveInspection.warnings || []));
+    suggestedFixes.push(...(interactiveInspection.suggestedFixes || []));
+
+    const mediaInspection = collectMediaSectionSafety(
+      value,
+      file.key,
+      relatedSettingTypes
+    );
+    issues.push(...(mediaInspection.issues || []));
+    warnings.push(...(mediaInspection.warnings || []));
+    suggestedFixes.push(...(mediaInspection.suggestedFixes || []));
+  }
 
   if (hasRawImgWithoutDimensions(value)) {
     issues.push(
@@ -4739,6 +5153,11 @@ export const draftThemeArtifact = {
             typeof effectivePlannerHandoff.sectionBlueprint === "object"
           ? effectivePlannerHandoff.sectionBlueprint
           : null;
+    const effectivePlannerArchitecture =
+      effectivePlannerHandoff?.architecture &&
+      typeof effectivePlannerHandoff.architecture === "object"
+        ? effectivePlannerHandoff.architecture
+        : null;
     const shouldEnforcePlannedReads =
       plannedReadKeys.length > 0 &&
       (
@@ -5110,6 +5529,48 @@ export const draftThemeArtifact = {
 
     files = resolvedFiles;
 
+    if (
+      effectivePlanIntent === "native_block" &&
+      effectivePlannerArchitecture?.usesThemeBlocks === true &&
+      files.every((file) => !String(file.key || "").startsWith("blocks/"))
+    ) {
+      const suggestedBlockFile =
+        Array.isArray(effectivePlannerHandoff?.newFileSuggestions) &&
+        effectivePlannerHandoff.newFileSuggestions.find((key) =>
+          String(key || "").startsWith("blocks/")
+        );
+      return buildFailureResponse({
+        status: "inspection_failed",
+        message:
+          "Deze native block-flow draait via @theme/content_for('blocks'). Een section/snippet-only write is hier onvolledig; voeg minstens één blocks/*.liquid bestand toe.",
+        errorCode: "native_block_requires_theme_block_file",
+        retryable: true,
+        suggestedFixes: [
+          "Maak of wijzig het theme block in blocks/*.liquid.",
+          "Gebruik sections/ of snippets/ alleen als aanvulling op de block-route, niet als vervanging ervan.",
+        ],
+        shouldNarrowScope: false,
+        nextAction: "add_theme_block_file",
+        retryMode: "same_request_after_fix",
+        normalizedArgs: getNormalizedArgs(),
+        plannerHandoff: effectivePlannerHandoff,
+        ...(suggestedBlockFile
+          ? {
+              nextArgsTemplate: {
+                ...getNormalizedArgs(),
+                files: [
+                  ...files,
+                  {
+                    key: suggestedBlockFile,
+                    value: "<complete Shopify theme block with {% doc %} and {% schema %}>",
+                  },
+                ],
+              },
+            }
+          : {}),
+      });
+    }
+
     try {
       const themeCompatibility = await validateThemeCompatibilityForSections({
         files,
@@ -5344,7 +5805,27 @@ export const draftThemeArtifact = {
           });
         }
       } else if (file.key.endsWith(".liquid") && file.key.startsWith("snippets/")) {
-        inspection = inspectSnippetFile(file);
+        const relatedSnippetSchema = resolveSnippetRelatedSchema({
+          file,
+          files,
+          context,
+          themeId,
+          themeRole,
+          plannerArchitecture: effectivePlannerArchitecture,
+          plannedReadKeys,
+          plannedWriteKeys,
+        });
+        inspection = inspectSnippetFile(file, {
+          relatedSchema: relatedSnippetSchema.schema,
+          relatedSchemaKey: relatedSnippetSchema.key,
+          rootOwner: relatedSnippetSchema.rootOwner,
+          originalValue:
+            typeof file.originalValue === "string" ? file.originalValue : null,
+          treatAsNativeBlockRenderer:
+            effectivePlanIntent === "native_block" ||
+            (Array.isArray(effectivePlannerArchitecture?.snippetRendererKeys) &&
+              effectivePlannerArchitecture.snippetRendererKeys.includes(file.key)),
+        });
       }
 
       if (inspection) {

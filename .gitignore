@@ -6,6 +6,7 @@
 apps/*/dist/
 *.log
 npm-debug.log*
+.playwright-cli/
 
 # Environment files
 .env

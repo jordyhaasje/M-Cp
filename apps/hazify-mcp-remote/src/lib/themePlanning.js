@@ -785,7 +785,7 @@ export const searchThemeFilesWithSnippets = async (
     filePatterns = [],
     keys = [],
     themeId,
-    themeRole = "main",
+    themeRole,
     resultLimit = 8,
     snippetLength = 120,
   } = {}

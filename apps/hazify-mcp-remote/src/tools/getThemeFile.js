@@ -2,6 +2,10 @@ import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { getThemeFile } from "../lib/themeFiles.js";
 import { rememberThemeRead } from "../lib/themeEditMemory.js";
+import {
+  buildExplicitThemeTargetRequiredResponse,
+  resolveThemeTargetFromInputOrMemory,
+} from "./_themeTargeting.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
@@ -25,7 +29,7 @@ const GetThemeFilePublicObjectSchema = z
   .object({
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     theme_id: z.coerce.number().int().positive().optional().describe("Compat alias van themeId voor generieke wrappers."),
-    themeRole: ThemeRoleSchema.optional().describe("Optionele theme role. Geef deze in editflows expliciet mee; alleen voor backwards compatibility valt deze read-tool anders terug op main."),
+    themeRole: ThemeRoleSchema.optional().describe("Expliciete theme role. Vereist tenzij dezelfde flow al eerder expliciet een theme target bevestigde."),
     theme_role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers."),
     role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers."),
     key: z.string().min(1).optional().describe("Theme file key, e.g. sections/hero.liquid"),
@@ -59,7 +63,7 @@ const GetThemeFileInputSchema = z.preprocess(
 const getThemeFileTool = {
   name: "get-theme-file",
   description:
-    "Read one exact file from a Shopify theme. Geef in editflows bij voorkeur altijd expliciet themeId of themeRole mee zodat je read-context overeenkomt met plan-theme-edit en je write-call. Dit is vaak de verplichte read-stap vóór create-theme-section of draft-theme-artifact wanneer de planner één nextReadKey teruggeeft. Alleen voor backwards compatibility valt deze read-tool terug op main als themeId/themeRole ontbreekt; dat levert dan ook een warning op. Lees dit liefst na plan-theme-edit, en alleen de compacte exact keys die de planner voorstelt. Voor native product-block flows hoef je templates/*.json na plan-theme-edit meestal niet opnieuw te lezen tenzij placement van het block expliciet gevraagd is. Handige reads zijn bijvoorbeeld sections/main-product.liquid, snippets/product-info.liquid of templates/product.json.",
+    "Read one exact file from a Shopify theme. Geef in editflows expliciet themeId of themeRole mee zodat je read-context overeenkomt met plan-theme-edit en je write-call. Als dezelfde flow al eerder een theme target bevestigde, mag die sticky worden hergebruikt; anders blokkeert deze tool met een repair response. Lees dit liefst na plan-theme-edit, en alleen de compacte exact keys die de planner voorstelt. Voor native product-block flows hoef je het planner-geselecteerde templatebestand daarna meestal niet opnieuw te lezen tenzij placement expliciet gevraagd is. Handige reads zijn bijvoorbeeld sections/main-product.liquid, snippets/product-info.liquid, templates/product.json of templates/index.liquid.",
   inputSchema: GetThemeFilePublicObjectSchema,
   schema: GetThemeFileInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -69,12 +73,24 @@ const getThemeFileTool = {
     }
     const input = normalizedParse.data;
     const shopifyClient = requireShopifyClient(context);
-    const usedMainFallback = !input.themeId && !input.themeRole;
-    const effectiveThemeRole = input.themeId ? undefined : input.themeRole || "main";
+    const resolvedThemeTarget = resolveThemeTargetFromInputOrMemory(input, context);
+    if (!resolvedThemeTarget) {
+      return buildExplicitThemeTargetRequiredResponse({
+        toolName: "get-theme-file",
+        normalizedArgs: {
+          key: input.key,
+          includeContent: input.includeContent,
+        },
+        nextArgsTemplate: {
+          key: input.key,
+          includeContent: input.includeContent,
+        },
+      });
+    }
     try {
       const result = await getThemeFile(shopifyClient, API_VERSION, {
-        themeId: input.themeId,
-        themeRole: effectiveThemeRole,
+        themeId: resolvedThemeTarget.themeId ?? undefined,
+        themeRole: resolvedThemeTarget.themeId ? undefined : resolvedThemeTarget.themeRole,
         key: input.key,
       });
 
@@ -86,7 +102,10 @@ const getThemeFileTool = {
 
       rememberThemeRead(context, {
         themeId: result.theme.id,
-        themeRole: result.theme.role?.toLowerCase?.() || input.themeRole || effectiveThemeRole,
+        themeRole:
+          result.theme.role?.toLowerCase?.() ||
+          resolvedThemeTarget.themeRole ||
+          undefined,
         files: [
           {
             key: result.asset?.key || input.key,
@@ -106,12 +125,8 @@ const getThemeFileTool = {
           role: result.theme.role,
         },
         asset,
-        ...(usedMainFallback
-          ? {
-              warnings: [
-                "⚠️ themeId/themeRole ontbrak; deze read-call viel voor backwards compatibility terug op het LIVE main theme.",
-              ],
-            }
+        ...(resolvedThemeTarget.warnings?.length
+          ? { warnings: resolvedThemeTarget.warnings }
           : {}),
       };
     } catch (error) {

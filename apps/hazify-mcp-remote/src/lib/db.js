@@ -109,6 +109,18 @@ async function ensureThemeDraftSchema() {
       ALTER TABLE theme_drafts ADD COLUMN IF NOT EXISTS preview_theme_id BIGINT;
       ALTER TABLE theme_drafts ADD COLUMN IF NOT EXISTS applied_theme_id BIGINT;
       ALTER TABLE theme_drafts ALTER COLUMN files_json SET DEFAULT '[]'::jsonb;
+
+      CREATE TABLE IF NOT EXISTS mutation_audit_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tool_name TEXT NOT NULL,
+        tenant_id TEXT,
+        shop_domain TEXT,
+        request_id TEXT,
+        reason TEXT NOT NULL,
+        target_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        payload_json JSONB,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
     `
         : `
       CREATE TABLE IF NOT EXISTS theme_drafts (
@@ -124,6 +136,18 @@ async function ensureThemeDraftSchema() {
         applied_theme_id BIGINT,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS mutation_audit_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tool_name TEXT NOT NULL,
+        tenant_id TEXT,
+        shop_domain TEXT,
+        request_id TEXT,
+        reason TEXT NOT NULL,
+        target_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        payload_json JSONB,
+        created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `;
 
@@ -234,4 +258,46 @@ export async function tryAcquireThemeFileLock(themeId, fileKey) {
   const dbPool = getDbPool();
   const lockKeyString = `theme:${themeId}:${fileKey}`;
   return tryAcquireAdvisoryLock(dbPool, lockKeyString);
+}
+
+export async function createMutationAuditLog({
+  toolName,
+  tenantId = null,
+  shopDomain = null,
+  requestId = null,
+  reason,
+  targetIds = [],
+  payload = null,
+} = {}) {
+  const dbPool = await ensureThemeDraftSchema();
+  const auditLogId = crypto.randomUUID();
+  const result = await dbPool.query(
+    `INSERT INTO mutation_audit_logs (
+      id,
+      tool_name,
+      tenant_id,
+      shop_domain,
+      request_id,
+      reason,
+      target_ids_json,
+      payload_json
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    RETURNING *`,
+    [
+      auditLogId,
+      String(toolName || "").trim(),
+      tenantId ? String(tenantId) : null,
+      shopDomain ? String(shopDomain) : null,
+      requestId ? String(requestId) : null,
+      String(reason || "").trim(),
+      JSON.stringify(
+        (Array.isArray(targetIds) ? targetIds : [])
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean)
+      ),
+      payload === undefined ? null : JSON.stringify(payload),
+    ]
+  );
+
+  return result.rows[0] || null;
 }

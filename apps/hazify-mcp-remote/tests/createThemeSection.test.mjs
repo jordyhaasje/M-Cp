@@ -14,6 +14,7 @@ import {
 
 const originalFetch = global.fetch;
 const originalDraftExecute = draftThemeArtifact.execute;
+const serial = { concurrency: false };
 
 const shopifyClient = {
   url: "https://unit-test-shop.myshopify.com/admin/api/2026-01/graphql.json",
@@ -154,7 +155,7 @@ test.afterEach(() => {
   clearThemeEditMemory();
 });
 
-test("createThemeSection - forwards static section blueprint and theme context from the planner", async () => {
+test("createThemeSection - forwards static section blueprint and theme context from the planner", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 
   let capturedInput = null;
@@ -234,7 +235,7 @@ test("createThemeSection - forwards static section blueprint and theme context f
   );
 });
 
-test("createThemeSection - reuses precision-first planner metadata for exact screenshot replicas", async () => {
+test("createThemeSection - reuses precision-first planner metadata for exact screenshot replicas", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 
   let capturedContext = null;
@@ -316,7 +317,7 @@ test("createThemeSection - reuses precision-first planner metadata for exact scr
   assert.equal(planResult.plannerHandoff?.sectionBlueprint?.qualityTarget, "exact_match");
 });
 
-test("createThemeSection - keeps exact-match planner context even when a compat summary is present", async () => {
+test("createThemeSection - keeps exact-match planner context even when a compat summary is present", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 
   let capturedContext = null;
@@ -379,7 +380,7 @@ test("createThemeSection - keeps exact-match planner context even when a compat 
   assert.equal(result.plannerHandoff?.qualityTarget, "exact_match");
 });
 
-test("createThemeSection - can continue from plannerHandoff alone when session memory is absent", async () => {
+test("createThemeSection - can continue from plannerHandoff alone when session memory is absent", serial, async () => {
   global.fetch = createGraphqlFetch({
     "sections/custom-reference.liquid": makeTextAsset(`
       <section class="custom-reference page-width">
@@ -487,7 +488,7 @@ test("createThemeSection - can continue from plannerHandoff alone when session m
   );
 });
 
-test("createThemeSection - forwards media-oriented blueprint hints for hero/video sections", async () => {
+test("createThemeSection - forwards media-oriented blueprint hints for hero/video sections", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 
   let capturedContext = null;
@@ -558,7 +559,7 @@ test("createThemeSection - forwards media-oriented blueprint hints for hero/vide
   );
 });
 
-test("createThemeSection - blocks overwriting an existing section key", async () => {
+test("createThemeSection - blocks overwriting an existing section key", serial, async () => {
   global.fetch = createGraphqlFetch({
     ...plannerFiles,
     "sections/existing-section.liquid": makeTextAsset(`
@@ -638,7 +639,7 @@ test("createThemeSection - blocks overwriting an existing section key", async ()
   assert.equal(draftExecuteCalls, 0);
 });
 
-test("createThemeSection - auto-hydrates planner reads before writing a new section", async () => {
+test("createThemeSection - auto-hydrates planner reads before writing a new section", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 
   let draftExecuteCalls = 0;
@@ -685,7 +686,7 @@ test("createThemeSection - auto-hydrates planner reads before writing a new sect
   );
 });
 
-test("createThemeSection - accepts required planner reads gathered via multiple exact get-theme-file calls", async () => {
+test("createThemeSection - accepts required planner reads gathered via multiple exact get-theme-file calls", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 
   let draftExecuteCalls = 0;
@@ -748,7 +749,7 @@ test("createThemeSection - accepts required planner reads gathered via multiple 
   assert.equal(draftExecuteCalls, 1);
 });
 
-test("createThemeSection - auto-switches to edit when the same newly created section is refined via create again", async () => {
+test("createThemeSection - auto-switches to edit when the same newly created section is refined via create again", serial, async () => {
   global.fetch = createGraphqlFetch({
     ...plannerFiles,
     "sections/feature-comparison-women.liquid": makeTextAsset(`
@@ -832,7 +833,7 @@ test("createThemeSection - auto-switches to edit when the same newly created sec
   assert.equal(capturedContext?.plannerHandoff?.intent, "existing_edit");
 });
 
-test("planThemeEdit - keeps the last created section as sticky follow-up target", async () => {
+test("planThemeEdit - keeps the last created section as sticky follow-up target", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 
   draftThemeArtifact.execute = async () => ({
@@ -922,7 +923,7 @@ test("planThemeEdit - keeps the last created section as sticky follow-up target"
   );
 });
 
-test("planThemeEdit - keeps the recent existing-edit target as sticky follow-up target", async () => {
+test("planThemeEdit - keeps the recent existing-edit target as sticky follow-up target", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 
   const requestContext = { shopifyClient, tokenHash: "sticky-existing-edit-follow-up" };
@@ -964,7 +965,7 @@ test("planThemeEdit - keeps the recent existing-edit target as sticky follow-up 
   );
 });
 
-test("planThemeEdit - does not reuse a sticky target after an explicit theme switch", async () => {
+test("planThemeEdit - does not reuse a sticky target after an explicit theme switch", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 
   const requestContext = { shopifyClient, tokenHash: "sticky-theme-switch-follow-up" };

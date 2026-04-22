@@ -10,6 +10,8 @@ import {
 } from "../src/lib/themeEditMemory.js";
 import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
+process.env.NODE_ENV = "test";
+
 const execute = draftThemeArtifact.execute;
 const themeDraftDb = createThemeDraftDbHarness();
 
@@ -986,6 +988,353 @@ test("draftThemeArtifact - rejects exact comparison replicas that replace stars 
   }
 });
 
+test("draftThemeArtifact - flags missing viewport parity on exact replicas with explicit desktop/mobile references", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFileFetchMock({
+    key: "sections/exact-replica-no-breakpoints.liquid",
+    initialValue: "",
+    existing: false,
+  }).handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        files: [
+          {
+            key: "sections/exact-replica-no-breakpoints.liquid",
+            value: `
+<style>
+  .exact-replica {
+    display: grid;
+    gap: 32px;
+    padding: 32px;
+  }
+</style>
+<section class="exact-replica page-width">
+  <div>
+    <h2>{{ section.settings.heading }}</h2>
+    <div class="rte">{{ section.settings.body }}</div>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Exact replica no breakpoints",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Match the reference" },
+    { "type": "richtext", "id": "body", "label": "Body", "default": "<p>Desktop and mobile were both provided.</p>" }
+  ],
+  "presets": [{ "name": "Exact replica no breakpoints" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        sectionBlueprint: {
+          qualityTarget: "exact_match",
+          referenceSignals: {
+            exactReplicaRequested: true,
+            hasDesktopMobileReferences: true,
+            requiresResponsiveViewportParity: true,
+            previewMediaPolicy: "best_effort_demo_media",
+            hasExplicitMediaSources: false,
+            prefersRenderablePreviewMedia: true,
+            requiresRenderablePreviewMedia: false,
+            allowStylizedPreviewFallbacks: true,
+            requiresTitleAccent: false,
+            requiresNavButtons: false,
+            requiresThemeEditorLifecycleHooks: false,
+            requiresThemeWrapperMirror: true,
+          },
+        },
+        themeSectionContext: {
+          usesPageWidth: true,
+        },
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "exact_match_missing_viewport_parity")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - flags missing nav buttons on exact replicas that require explicit controls", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFileFetchMock({
+    key: "sections/exact-replica-no-nav-buttons.liquid",
+    initialValue: "",
+    existing: false,
+  }).handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        files: [
+          {
+            key: "sections/exact-replica-no-nav-buttons.liquid",
+            value: `
+<style>
+  .exact-navless {
+    display: grid;
+    gap: 24px;
+  }
+
+  @media (max-width: 749px) {
+    .exact-navless {
+      gap: 16px;
+    }
+  }
+</style>
+<section class="exact-navless page-width">
+  <div class="exact-navless__track">
+    <article>{{ section.settings.heading }}</article>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Exact replica no nav buttons",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Carousel cards" }
+  ],
+  "presets": [{ "name": "Exact replica no nav buttons" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        sectionBlueprint: {
+          qualityTarget: "exact_match",
+          referenceSignals: {
+            exactReplicaRequested: true,
+            requiresResponsiveViewportParity: true,
+            requiresNavButtons: true,
+            previewMediaPolicy: "best_effort_demo_media",
+            hasExplicitMediaSources: false,
+            prefersRenderablePreviewMedia: true,
+            requiresRenderablePreviewMedia: false,
+            allowStylizedPreviewFallbacks: true,
+            requiresTitleAccent: false,
+            requiresThemeEditorLifecycleHooks: false,
+            requiresThemeWrapperMirror: true,
+          },
+        },
+        themeSectionContext: {
+          usesPageWidth: true,
+        },
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "exact_match_missing_nav_buttons")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - flags missing Theme Editor lifecycle hooks on interactive exact replicas", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFileFetchMock({
+    key: "sections/exact-replica-no-editor-hooks.liquid",
+    initialValue: "",
+    existing: false,
+  }).handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        files: [
+          {
+            key: "sections/exact-replica-no-editor-hooks.liquid",
+            value: `
+<style>
+  .exact-slider {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<section class="exact-slider page-width" data-section-id="{{ section.id }}">
+  <button type="button" aria-label="Previous slide">Prev</button>
+  <div class="exact-slider__track">{{ section.settings.heading }}</div>
+  <button type="button" aria-label="Next slide">Next</button>
+</section>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const root = document.querySelector('[data-section-id="{{ section.id }}"]');
+    root?.querySelector('.exact-slider__track');
+  });
+</script>
+{% schema %}
+{
+  "name": "Exact replica no editor hooks",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Interactive slider" }
+  ],
+  "presets": [{ "name": "Exact replica no editor hooks" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        sectionBlueprint: {
+          qualityTarget: "exact_match",
+          referenceSignals: {
+            exactReplicaRequested: true,
+            requiresResponsiveViewportParity: false,
+            requiresNavButtons: true,
+            requiresThemeEditorLifecycleHooks: true,
+            previewMediaPolicy: "best_effort_demo_media",
+            hasExplicitMediaSources: false,
+            prefersRenderablePreviewMedia: true,
+            requiresRenderablePreviewMedia: false,
+            allowStylizedPreviewFallbacks: true,
+            requiresTitleAccent: false,
+            requiresThemeWrapperMirror: true,
+          },
+        },
+        themeSectionContext: {
+          usesPageWidth: true,
+        },
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "exact_match_missing_theme_editor_hooks")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - flags missing theme wrapper mirroring on exact replicas", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFileFetchMock({
+    key: "sections/exact-replica-no-wrapper.liquid",
+    initialValue: "",
+    existing: false,
+  }).handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        files: [
+          {
+            key: "sections/exact-replica-no-wrapper.liquid",
+            value: `
+<style>
+  .exact-no-wrapper {
+    display: grid;
+    gap: 24px;
+    padding: 32px;
+  }
+</style>
+<section class="exact-no-wrapper">
+  <h2>{{ section.settings.heading }}</h2>
+</section>
+{% schema %}
+{
+  "name": "Exact replica no wrapper",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Mirror the theme shell" }
+  ],
+  "presets": [{ "name": "Exact replica no wrapper" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        sectionBlueprint: {
+          qualityTarget: "exact_match",
+          referenceSignals: {
+            exactReplicaRequested: true,
+            requiresResponsiveViewportParity: false,
+            requiresNavButtons: false,
+            requiresThemeEditorLifecycleHooks: false,
+            previewMediaPolicy: "best_effort_demo_media",
+            hasExplicitMediaSources: false,
+            prefersRenderablePreviewMedia: true,
+            requiresRenderablePreviewMedia: false,
+            allowStylizedPreviewFallbacks: true,
+            requiresTitleAccent: false,
+            requiresThemeWrapperMirror: true,
+          },
+        },
+        themeSectionContext: {
+          usesPageWidth: true,
+        },
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "exact_match_missing_theme_wrapper")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("draftThemeArtifact - flags missing schema labels during local inspection before relying only on theme-check", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -1839,6 +2188,119 @@ test("draftThemeArtifact - rejects blocks without a schema block in create mode"
   assert.equal(result.success, false);
   assert.equal(result.errorCode, "inspection_failed_schema");
   assert.match(result.message, /blocks\/\*\.liquid/i);
+});
+
+test("draftThemeArtifact - allows @app section blocks without a name during native block edits", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFilesFetchMock({
+    files: {
+      "sections/main-product.liquid": `
+{% render 'product-info', product: product, section: section %}
+{% schema %}
+{
+  "name": "Main product",
+  "blocks": [
+    { "type": "text", "name": "Text" },
+    { "type": "buy_buttons", "name": "Buy buttons" },
+    { "type": "@app" }
+  ]
+}
+{% endschema %}
+`,
+      "snippets/product-info.liquid": `
+{% for block in section.blocks %}
+  <div class="product-info__block" {{ block.shopify_attributes }}>
+    {% case block.type %}
+      {% when 'text' %}
+        <p>{{ product.title }}</p>
+      {% when 'buy_buttons' %}
+        <button>Add to cart</button>
+      {% when 'review_badge' %}
+        <div class="review-badge">{{ block.settings.label }}</div>
+    {% endcase %}
+  </div>
+{% endfor %}
+`,
+    },
+  });
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        plannerHandoff: {
+          intent: "native_block",
+          themeTarget: { themeId: 111, themeRole: null },
+          requiredReadKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+          nextWriteKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+          architecture: {
+            primarySectionFile: "sections/main-product.liquid",
+            usesThemeBlocks: false,
+            snippetRendererKeys: ["snippets/product-info.liquid"],
+            hasBlockShopifyAttributes: true,
+          },
+        },
+        files: [
+          {
+            key: "sections/main-product.liquid",
+            value: `
+{% render 'product-info', product: product, section: section %}
+{% schema %}
+{
+  "name": "Main product",
+  "blocks": [
+    { "type": "text", "name": "Text" },
+    { "type": "buy_buttons", "name": "Buy buttons" },
+    {
+      "type": "review_badge",
+      "name": "Review badge",
+      "settings": [
+        { "type": "text", "id": "label", "label": "Label", "default": "4.9/5 verified" }
+      ]
+    },
+    { "type": "@app" }
+  ]
+}
+{% endschema %}
+`,
+          },
+          {
+            key: "snippets/product-info.liquid",
+            value: `
+{% for block in section.blocks %}
+  <div class="product-info__block" {{ block.shopify_attributes }}>
+    {% case block.type %}
+      {% when 'text' %}
+        <p>{{ product.title }}</p>
+      {% when 'buy_buttons' %}
+        <button>Add to cart</button>
+      {% when 'review_badge' %}
+        <div class="review-badge">{{ block.settings.label }}</div>
+    {% endcase %}
+  </div>
+{% endfor %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient, tokenHash: "native-block-app-blocks" }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+  } finally {
+    global.fetch = previousFetch;
+  }
 });
 
 test("draftThemeArtifact - rejects range settings whose default falls outside min/max before preview upload", async () => {
@@ -4242,6 +4704,321 @@ test("draftThemeArtifact - flags nested Liquid delimiters inside a single output
   }
 });
 
+test("draftThemeArtifact - flags native block snippet refs that drift away from the related section schema", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const context = {
+    shopifyClient: mockShopifyClient,
+    tokenHash: "snippet-schema-integrity",
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFilesFetchMock({
+    files: {
+      "sections/main-product.liquid": `
+<section class="main-product">
+  {% render 'product-info', product: product, section: section %}
+</section>
+{% schema %}
+{
+  "name": "Main product",
+  "blocks": [
+    { "type": "text", "name": "Text", "settings": [{ "type": "text", "id": "body", "label": "Body", "default": "Hello" }] },
+    { "type": "buy_buttons", "name": "Buy buttons" }
+  ]
+}
+{% endschema %}
+`,
+      "snippets/product-info.liquid": `
+{% doc %}
+  @param {object} section
+  @param {object} product
+{% enddoc %}
+{% for block in section.blocks %}
+  <div class="product-info__block" {{ block.shopify_attributes }}>
+    {% case block.type %}
+      {% when 'text' %}
+        <p>{{ block.settings.body }}</p>
+      {% when 'buy_buttons' %}
+        <button>Add to cart</button>
+    {% endcase %}
+  </div>
+{% endfor %}
+`,
+    },
+    themeIdFallback: 111,
+  });
+
+  rememberThemePlan(context, {
+    themeId: 111,
+    intent: "native_block",
+    nextReadKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+    nextWriteKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+    plannerHandoff: {
+      intent: "native_block",
+      themeTarget: { themeId: 111, themeRole: null },
+      requiredReadKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+      nextWriteKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+      architecture: {
+        primarySectionFile: "sections/main-product.liquid",
+        usesThemeBlocks: false,
+        snippetRendererKeys: ["snippets/product-info.liquid"],
+        hasBlockShopifyAttributes: true,
+      },
+    },
+  });
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        files: [
+          {
+            key: "snippets/product-info.liquid",
+            value: `
+{% doc %}
+  @param {object} section
+  @param {object} product
+{% enddoc %}
+{% for block in section.blocks %}
+  <div class="product-info__block" {{ block.shopify_attributes }}>
+    {% case block.type %}
+      {% when 'text' %}
+        <p>{{ block.settings.body }}</p>
+      {% when 'review_badge' %}
+        <p>{{ block.settings.badge_label }}</p>
+      {% when 'buy_buttons' %}
+        <button>Add to cart</button>
+    {% endcase %}
+  </div>
+{% endfor %}
+`,
+          },
+        ],
+      }),
+      context
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "inspection_failed_unknown_block_type")
+    );
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "inspection_failed_unknown_setting_ref")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - flags new unguarded optional resources inside native block snippets", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const context = {
+    shopifyClient: mockShopifyClient,
+    tokenHash: "snippet-optional-resource",
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFilesFetchMock({
+    files: {
+      "sections/main-product.liquid": `
+<section class="main-product">
+  {% render 'product-info', product: product, section: section %}
+</section>
+{% schema %}
+{
+  "name": "Main product",
+  "blocks": [
+    {
+      "type": "review_badge",
+      "name": "Review badge",
+      "settings": [
+        { "type": "image_picker", "id": "badge_image", "label": "Badge image" },
+        { "type": "text", "id": "badge_label", "label": "Badge label", "default": "Verified" }
+      ]
+    }
+  ]
+}
+{% endschema %}
+`,
+      "snippets/product-info.liquid": `
+{% doc %}
+  @param {object} section
+  @param {object} product
+{% enddoc %}
+{% for block in section.blocks %}
+  <div class="product-info__block" {{ block.shopify_attributes }}>
+    {% case block.type %}
+      {% when 'review_badge' %}
+        <p>{{ block.settings.badge_label }}</p>
+    {% endcase %}
+  </div>
+{% endfor %}
+`,
+    },
+    themeIdFallback: 111,
+  });
+
+  rememberThemePlan(context, {
+    themeId: 111,
+    intent: "native_block",
+    nextReadKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+    nextWriteKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+    plannerHandoff: {
+      intent: "native_block",
+      themeTarget: { themeId: 111, themeRole: null },
+      requiredReadKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+      nextWriteKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+      architecture: {
+        primarySectionFile: "sections/main-product.liquid",
+        usesThemeBlocks: false,
+        snippetRendererKeys: ["snippets/product-info.liquid"],
+        hasBlockShopifyAttributes: true,
+      },
+    },
+  });
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        files: [
+          {
+            key: "snippets/product-info.liquid",
+            value: `
+{% doc %}
+  @param {object} section
+  @param {object} product
+{% enddoc %}
+{% for block in section.blocks %}
+  <div class="product-info__block" {{ block.shopify_attributes }}>
+    {% case block.type %}
+      {% when 'review_badge' %}
+        {{ block.settings.badge_image | image_url: width: 96 | image_tag: class: 'review-badge__image', loading: 'lazy' }}
+        <p>{{ block.settings.badge_label }}</p>
+    {% endcase %}
+  </div>
+{% endfor %}
+`,
+          },
+        ],
+      }),
+      context
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some(
+        (issue) => issue.issueCode === "inspection_failed_unguarded_optional_resource"
+      )
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - native theme-block flows require a blocks file when planner architecture says @theme", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFilesFetchMock({
+    files: {
+      "sections/main-product.liquid": `
+<section class="editor-product">
+  {% content_for 'blocks' %}
+</section>
+{% schema %}
+{
+  "name": "Main product",
+  "blocks": [
+    { "type": "@theme" },
+    { "type": "@app" }
+  ]
+}
+{% endschema %}
+`,
+    },
+    themeIdFallback: 111,
+  });
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        plannerHandoff: {
+          intent: "native_block",
+          themeTarget: { themeId: 111, themeRole: null },
+          requiredReadKeys: ["sections/main-product.liquid"],
+          nextWriteKeys: ["sections/main-product.liquid"],
+          newFileSuggestions: ["blocks/<new-theme-block>.liquid"],
+          architecture: {
+            primarySectionFile: "sections/main-product.liquid",
+            usesThemeBlocks: true,
+            snippetRendererKeys: [],
+            hasBlockShopifyAttributes: null,
+          },
+        },
+        files: [
+          {
+            key: "sections/main-product.liquid",
+            value: `
+<section class="editor-product">
+  {% content_for 'blocks' %}
+</section>
+{% schema %}
+{
+  "name": "Main product",
+  "blocks": [
+    { "type": "@theme" },
+    { "type": "@app" }
+  ]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient, tokenHash: "native-theme-block-route" }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, "native_block_requires_theme_block_file");
+    assert.equal(
+      result.nextArgsTemplate?.files?.some((file) => file.key === "blocks/<new-theme-block>.liquid"),
+      true
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("draftThemeArtifact - fails when checksum precondition blocks the preview write", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -4838,6 +5615,57 @@ test("draftThemeArtifact - rejects invalid json template writes in edit mode", a
     assert.equal(result.status, "inspection_failed");
     assert.equal(result.errorCode, "inspection_failed_json");
     assert.ok(result.message.includes("'order' array"));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("draftThemeArtifact - allows Liquid template placement edits in edit mode", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const originalFetch = global.fetch;
+  global.fetch = createThemeFilesFetchMock({
+    files: {
+      "templates/index.liquid": `
+{% section 'premium-hero' %}
+{% section 'brand-story' %}
+`,
+    },
+  });
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        files: [
+          {
+            key: "templates/index.liquid",
+            value: `
+{% section 'premium-hero' %}
+{% section 'brand-story' %}
+{% section 'matrix-acceptance' %}
+`,
+          }
+        ]
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+    assert.ok(
+      result.warnings.some((warning) =>
+        warning.includes("Template write (templates/index.liquid)")
+      )
+    );
   } finally {
     global.fetch = originalFetch;
   }

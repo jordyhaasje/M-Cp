@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { searchThemeFilesWithSnippets } from "../lib/themePlanning.js";
+import { rememberThemeRead } from "../lib/themeEditMemory.js";
 import {
   extractThemeToolSummary,
   inferSearchScope,
@@ -8,6 +9,10 @@ import {
   normalizeSummaryFilePatterns,
   normalizeSummaryScope,
 } from "./_themeToolCompatibility.js";
+import {
+  buildExplicitThemeTargetRequiredResponse,
+  resolveThemeTargetFromInputOrMemory,
+} from "./_themeTargeting.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
@@ -28,7 +33,7 @@ const SearchThemeFilesPublicObjectSchema = z
     mode: z.enum(["literal", "regex"]).optional(),
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     theme_id: z.coerce.number().int().positive().optional().describe("Compat alias van themeId voor generieke wrappers."),
-    themeRole: ThemeRoleSchema.optional().describe("Theme role fallback when themeId is omitted"),
+    themeRole: ThemeRoleSchema.optional().describe("Expliciete theme role. Vereist tenzij dezelfde flow al eerder expliciet een theme target bevestigde."),
     theme_role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers."),
     role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers."),
     keys: z.array(z.string().min(1)).min(1).max(10).optional().describe("Exacte file keys om compact binnen al bekende planner-output te zoeken."),
@@ -53,7 +58,7 @@ const SearchThemeFilesShape = z
     query: z.string().min(1).describe("Literal text or regex pattern to search for"),
     mode: z.enum(["literal", "regex"]).default("literal"),
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-    themeRole: ThemeRoleSchema.optional().describe("Theme role fallback when themeId is omitted"),
+    themeRole: ThemeRoleSchema.optional().describe("Expliciete theme role. Vereist tenzij dezelfde flow al eerder expliciet een theme target bevestigde."),
     keys: z.array(z.string().min(1)).min(1).max(10).optional().describe("Exacte file keys om compact binnen al bekende planner-output te zoeken, bijvoorbeeld ['sections/main-product.liquid', 'snippets/product-info.liquid']."),
     filePatterns: z.array(z.string().min(1)).max(20).optional().describe("Glob patterns to filter files (bijv. ['*.liquid', 'assets/*']). Gebruik filePatterns of scope om de zoekruimte smal te houden."),
     scope: z.array(ScopeBucketSchema).min(1).max(4).optional().describe("JE BENT VERPLICHT scope OF filePatterns TE GEBRUIKEN. MOET EEN ARRAY ZIJN (e.g. ['sections']). Absoluut GEEN losse string."),
@@ -115,7 +120,7 @@ const SearchThemeFilesInputSchema = z.preprocess(
 const searchThemeFilesTool = {
   name: "search-theme-files",
   description:
-    "Search scoped theme files and return compact snippets instead of full file dumps. Deze read-only tool valt voor backwards compatibility terug op main als themeId/themeRole ontbreekt, maar gebruik in elke editflow bij voorkeur hetzelfde expliciete target als in plan-theme-edit en je write-call. Gebruik dit eerst om een exacte, unieke patch-anchor of bestaand renderpad te vinden voordat je leest of schrijft. Voor native product-blocks of template placement gebruik je bij voorkeur eerst plan-theme-edit, en zoek je daarna alleen in de voorgestelde scope of exact keys. Bij compatibele clients mag een korte _tool_input_summary ook; die wordt dan als query gebruikt en de scope wordt waar mogelijk automatisch vernauwd. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund. Minimaal geldig voorbeeld: { query: 'buy_buttons', scope: ['sections', 'snippets'] }, { query: 'block.type', keys: ['sections/main-product.liquid', 'snippets/product-info.liquid'] } of { query: 'main-product', filePatterns: ['sections/*.liquid'] }.",
+    "Search scoped theme files and return compact snippets instead of full file dumps. Gebruik in elke editflow hetzelfde expliciete target als in plan-theme-edit en je write-call. Als dezelfde flow al eerder een theme target bevestigde, mag die sticky worden hergebruikt; anders blokkeert deze tool met een repair response. Gebruik dit eerst om een exacte, unieke patch-anchor of bestaand renderpad te vinden voordat je leest of schrijft. Voor native product-blocks of template placement gebruik je bij voorkeur eerst plan-theme-edit, en zoek je daarna alleen in de voorgestelde scope of exact keys. Bij compatibele clients mag een korte _tool_input_summary ook; die wordt dan als query gebruikt en de scope wordt waar mogelijk automatisch vernauwd. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund. Minimaal geldig voorbeeld: { query: 'buy_buttons', scope: ['sections', 'snippets'] }, { query: 'block.type', keys: ['sections/main-product.liquid', 'snippets/product-info.liquid'] } of { query: 'main-product', filePatterns: ['sections/*.liquid'] }.",
   inputSchema: SearchThemeFilesPublicObjectSchema,
   schema: SearchThemeFilesInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -129,21 +134,43 @@ const searchThemeFilesTool = {
       ? input.scope.map((bucket) => scopeBucketPatterns[bucket]).filter(Boolean)
       : [];
     const filePatterns = Array.from(new Set([...(input.filePatterns || []), ...scopePatterns]));
-    const usedMainFallback = !input.themeId && !input.themeRole;
+    const resolvedThemeTarget = resolveThemeTargetFromInputOrMemory(input, context);
+    if (!resolvedThemeTarget) {
+      return buildExplicitThemeTargetRequiredResponse({
+        toolName: "search-theme-files",
+        normalizedArgs: {
+          query: input.query,
+          keys: input.keys,
+          filePatterns,
+          scope: input.scope,
+        },
+        nextArgsTemplate: {
+          query: input.query,
+          ...(input.keys?.length ? { keys: input.keys } : {}),
+          ...(filePatterns.length ? { filePatterns } : {}),
+          ...(input.scope?.length ? { scope: input.scope } : {}),
+        },
+      });
+    }
     const result = await searchThemeFilesWithSnippets(shopifyClient, API_VERSION, {
       ...input,
-      ...(usedMainFallback ? { themeRole: "main" } : {}),
+      themeId: resolvedThemeTarget.themeId ?? undefined,
+      themeRole: resolvedThemeTarget.themeId ? undefined : resolvedThemeTarget.themeRole,
       keys: input.keys,
       filePatterns,
     });
+    rememberThemeRead(context, {
+      themeId: result.theme.id,
+      themeRole:
+        result.theme.role?.toLowerCase?.() ||
+        resolvedThemeTarget.themeRole ||
+        undefined,
+      files: [],
+    });
     return {
       ...result,
-      ...(usedMainFallback
-        ? {
-            warnings: [
-              "⚠️ themeId/themeRole ontbrak; deze search-call viel voor backwards compatibility terug op het LIVE main theme.",
-            ],
-          }
+      ...(resolvedThemeTarget.warnings?.length
+        ? { warnings: resolvedThemeTarget.warnings }
         : {}),
     };
   },

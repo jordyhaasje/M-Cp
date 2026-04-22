@@ -7,7 +7,7 @@ Deze gids beschrijft de actuele waarheid voor screenshot-driven en text-only sec
 - Nieuwe standalone sections uit screenshots of tekst
 - Bestaande section edits
 - Native product-page blocks in bestaande sections/snippets
-- Expliciete JSON template placement
+- Expliciete template placement op JSON- of Liquid-templates
 - Veilig preview/apply gedrag zonder blind live placement
 
 ## Ondersteunde request-typen
@@ -104,7 +104,7 @@ Gebruik wanneer de gebruiker een block in een bestaande productsection wil, bijv
 Belangrijk:
 - Veel themes renderen product blocks via snippets
 - Dit is meestal geen `blocks/*.liquid` create-flow
-- `templates/*.json` hoeft na planning meestal niet opnieuw gelezen te worden tenzij placement expliciet gevraagd is
+- Het planner-geselecteerde templatebestand hoeft na planning meestal niet opnieuw gelezen te worden tenzij placement expliciet gevraagd is
 
 Voorbeeldprompt:
 ```text
@@ -115,7 +115,7 @@ Voeg een review badge native block toe aan de productpagina.
 Nieuwe sections worden niet automatisch in templates geplaatst. Placement gebeurt alleen op expliciete gebruikersvraag.
 
 1. Maak eerst de section
-2. Daarna aparte `draft-theme-artifact mode="edit"` op `templates/*.json`
+2. Daarna aparte `draft-theme-artifact mode="edit"` op het relevante `templates/*.json` of `templates/*.liquid` bestand
 
 Voorbeeldprompt:
 ```text
@@ -181,4 +181,6 @@ Maak een hero-video section en plaats hem daarna ook op de homepage van theme 12
 - `docs/00-START-HERE.md`
 - `docs/01-TECH-STACK.md`
 - `docs/02-SYSTEM-FLOW.md`
-- `docs/codex-mcp-section-generation-tracker.md`
+- `docs/04-MCP-REMOTE-AUDIT.md`
+- `docs/05-REMEDIATION-PLAN.md`
+- `docs/archive/codex-mcp-section-generation-tracker.md`

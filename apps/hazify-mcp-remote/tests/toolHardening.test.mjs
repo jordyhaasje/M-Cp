@@ -1184,7 +1184,7 @@ try {
     { shopifyClient: trackingContextClient }
   );
 
-  await updateOrder.execute(
+  const redirectedTrackingResult = await updateOrder.execute(
     updateOrder.schema.parse({
       id: "gid://shopify/Order/1",
       confirmation: "UPDATE_ORDER",
@@ -1196,11 +1196,14 @@ try {
     }),
     { shopifyClient: trackingContextClient }
   );
+  assert.equal(redirectedTrackingResult.success, false);
+  assert.equal(redirectedTrackingResult.errorCode, "tracking_requires_dedicated_tool");
+  assert.equal(redirectedTrackingResult.nextTool, "set-order-tracking");
 
   assert.equal(
-    trackingContextCalls.length >= 2,
+    trackingContextCalls.length >= 1,
     true,
-    "tracking update tools should execute order tracking context fetch in both execution paths"
+    "update-fulfillment-tracking should still execute an order tracking context fetch"
   );
 
   await assert.rejects(
