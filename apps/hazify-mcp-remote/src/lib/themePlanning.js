@@ -75,12 +75,24 @@ const SURGICAL_EXISTING_EDIT_PATTERNS = [
   /\b(?:padding|margin|gap|spacing|color|colour|radius|border|font(?:[- ]size)?|width|height)\b/i,
   /\b(?:heading|title|subtitle|label|copy|tekst|text|cta|link|aria(?:-label)?|alt)\b/i,
   /\b(?:typo|copyfix|copy fix|rename|hernoem|vervang|replace|default|preset)\b/i,
+  /\b(?:order|position|reorder|verplaats|move|plaats|zet|swap|shift|boven(?:aan)?|onder(?:aan)?|first|last)\b/i,
 ];
 
-const BROAD_EXISTING_EDIT_PATTERNS = [
+const EXPLICIT_BROAD_EXISTING_EDIT_PATTERNS = [
   /\b(?:v2|v3|rewrite|rewriten|rework|rebuild|overhaul|full(?:e|y)?|volledig(?:e)?|complete(?:ly)?|exact(?:ly|e)?)\b/i,
   /\b(?:optimaliseer|optimize|optimise|verbeter|improve|upgrade|polish|refine|restyle|redesign)\b/i,
-  /\b(?:desktop|mobile|responsive|animat(?:ie|e|ion)|layout|styling|slider|carousel|accordion|trustpilot)\b/i,
+];
+
+const RESPONSIVE_EXISTING_EDIT_SURFACE_PATTERNS = [
+  /\b(?:desktop|mobile|mobiel|responsive|animat(?:ie|e|ion)|layout|styling|slider|carousel|accordion|trustpilot)\b/i,
+];
+
+const CONSTRAINED_RESPONSIVE_EXISTING_EDIT_PATTERNS = [
+  /\b(?:alleen|enkel|only|just|specifiek)\b.*\b(?:mobile|mobiel)\b/i,
+  /\b(?:mobile|mobiel)\b.*\b(?:alleen|enkel|only|just|specifiek)\b/i,
+  /\b(?:zonder|without)\b.*\bdesktop\b/i,
+  /\bdesktop\b.*\b(?:ongewijzigd|unchanged|zelfde|same)\b/i,
+  /\b(?:behoud|houd|keep|laat)\b.*\b(?:animat(?:ie|e|ion)|layout|markup)\b/i,
 ];
 
 const uniqueStrings = (values) => Array.from(new Set(values.filter(Boolean)));
@@ -441,7 +453,26 @@ const looksLikeSurgicalExistingEditQuery = (query) => {
     return false;
   }
 
-  if (BROAD_EXISTING_EDIT_PATTERNS.some((pattern) => pattern.test(normalized))) {
+  const constrainedResponsiveEdit =
+    RESPONSIVE_EXISTING_EDIT_SURFACE_PATTERNS.some((pattern) => pattern.test(normalized)) &&
+    CONSTRAINED_RESPONSIVE_EXISTING_EDIT_PATTERNS.some((pattern) =>
+      pattern.test(normalized)
+    ) &&
+    SURGICAL_EXISTING_EDIT_PATTERNS.some((pattern) => pattern.test(normalized));
+
+  if (constrainedResponsiveEdit) {
+    return true;
+  }
+
+  if (
+    EXPLICIT_BROAD_EXISTING_EDIT_PATTERNS.some((pattern) => pattern.test(normalized)) ||
+    (RESPONSIVE_EXISTING_EDIT_SURFACE_PATTERNS.some((pattern) =>
+      pattern.test(normalized)
+    ) &&
+      !CONSTRAINED_RESPONSIVE_EXISTING_EDIT_PATTERNS.some((pattern) =>
+        pattern.test(normalized)
+      ))
+  ) {
     return false;
   }
 
@@ -449,9 +480,33 @@ const looksLikeSurgicalExistingEditQuery = (query) => {
 };
 
 const looksLikeBroadExistingEditQuery = (query) =>
-  BROAD_EXISTING_EDIT_PATTERNS.some((pattern) =>
-    pattern.test(normalizeText(query))
-  );
+  (() => {
+    const normalized = normalizeText(query);
+    if (!normalized) {
+      return false;
+    }
+
+    if (
+      RESPONSIVE_EXISTING_EDIT_SURFACE_PATTERNS.some((pattern) =>
+        pattern.test(normalized)
+      ) &&
+      CONSTRAINED_RESPONSIVE_EXISTING_EDIT_PATTERNS.some((pattern) =>
+        pattern.test(normalized)
+      ) &&
+      SURGICAL_EXISTING_EDIT_PATTERNS.some((pattern) => pattern.test(normalized))
+    ) {
+      return false;
+    }
+
+    return (
+      EXPLICIT_BROAD_EXISTING_EDIT_PATTERNS.some((pattern) =>
+        pattern.test(normalized)
+      ) ||
+      RESPONSIVE_EXISTING_EDIT_SURFACE_PATTERNS.some((pattern) =>
+        pattern.test(normalized)
+      )
+    );
+  })();
 
 const shouldPreferStructuredExistingEdit = ({
   query,

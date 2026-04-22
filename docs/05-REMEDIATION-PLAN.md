@@ -28,6 +28,7 @@ Dit document volgt de actuele release-gates, live-validatie en resterende onderh
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Protocolcorrectheid MCP-errors | MCP maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | Live bevestigd op `Hazify-MCP-Remote` deployment `a114fabe-96fd-4a64-9b47-03f6d2bf3045` plus groene post-deploy smoke. |
 | Strikt theme-targeting | MCP maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | Geen stille `main`-fallback meer; sticky target alleen na expliciete eerdere keuze; live smoke is groen. |
+| Existing-section edit betrouwbaarheid | MCP maintainers | In uitvoering | Ja | Ja | Ja | Ja | Ja | Nee | 2026-04-22 | Planner routeert constrained mobile-only edits nu naar `patch-theme-file`; delimiter-inspectie negeert embedded CSS/JS closers zoals keyframes en bewaart wel echte Liquid-openers. Nog commit/push/deploy + post-deploy logcheck nodig. |
 | Liquid template placement in edit-flow | MCP maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | `draft-theme-artifact` accepteert nu ook `templates/*.liquid` naast `templates/*.json`; current live runtime is bevestigd. |
 | Snippet/native-block parity | MCP maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | `plannerHandoff` draagt nu architecture mee; snippet-validatie checkt gerelateerd schema, onveilige optionele block-media, `@theme` routes en laat Shopify-conforme `@app`-schema entries ongemoeid. |
 | Cross-theme acceptatiematrix | MCP maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | Vier archetypes + prompt-only create, screenshot-only exact create, image-backed exact create, existing edit, native-block write/preview en template placement zijn lokaal groen; live runtime draait op de gevalideerde code. |
@@ -39,6 +40,7 @@ Dit document volgt de actuele release-gates, live-validatie en resterende onderh
 - `npm run release:status`
 - `npm run release:preflight`
 - `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
 - `node --test apps/hazify-mcp-remote/tests/crossThemeAcceptanceMatrix.test.mjs`
 - `node --test apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
 - Shopify Dev MCP `validate_theme` op een representatieve tijdelijke OS 2.0 theme-fixture (`sections/exact-reference.liquid`, `sections/main-product.liquid`, `snippets/product-info.liquid`)

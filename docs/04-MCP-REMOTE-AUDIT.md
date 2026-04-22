@@ -70,6 +70,8 @@ De grootste resterende risico’s zitten nu vooral in:
 - `create-theme-section` kan verplichte planner-reads zelf hydrateren en kan alleen in een smalle, bewezen vervolgsituatie create veilig omzetten naar edit.
 - `patch-theme-file` is nu de feitelijke kleine existing-edit route voor exacte single-file fixes.
 - `draft-theme-artifact` bevat sterke preflight-guardrails voor delimiterfouten, schema-validatie, range-defaults, step-alignment, presets, richtext defaults, `color_scheme`-compatibiliteit, parser-onveilige JS/Liquid-mixen en verify-after-write.
+- De delimiter-preflight is nu ook embedded-code-safe: bare `}}` of `%}` uit inline CSS/JS, zoals keyframes of compacte animaties, veroorzaken niet langer vals-positieve `inspection_failed_liquid_delimiter_balance` fouten, terwijl echte ongesloten Liquid-openers in dezelfde blokken wel blijven falen.
+- De planner behandelt constrained responsive edits op bestaande files nu strikter als patch-flow: prompts zoals “alleen op mobiel”, “desktop ongewijzigd” en “behoud bestaande animatie” sturen niet meer onnodig naar een rewrite.
 - `draft-theme-artifact` controleert native-block snippets nu ook tegen het gerelateerde section-schema: nieuwe block types en `block.settings.*` refs moeten echt bestaan, onveilige optionele block-media worden teruggestuurd, `@theme`/`content_for 'blocks'` routes vereisen een echt `blocks/*.liquid` bestand, en `@app`/`@theme` blocks in section-schema’s worden nu Shopify-conform niet meer onterecht op `name` afgekeurd.
 - Screenshot- en reference-driven flows zijn inhoudelijk veel sterker dan eerder: de planner en validator begrijpen nu precision-first signalen zoals decoratieve anchors, media shells, responsive parity en screenshot-only fallbackstrategieën, en de suite bewijst nu ook volledige screenshot-only en image-backed create/writes over vier archetypes.
 - De huidige lokale verificatie is groen: `npm run release:preflight` slaagt, `npm run --workspace @hazify/mcp-remote test` bevat nu ook de nieuwe native-block regressie rond `@app` schema-entries en de cross-theme acceptatiematrix bewijst nu native-block writes + preview-ready output over alle vier archetypes.
@@ -92,6 +94,7 @@ De logs laten een realistisch beeld zien:
 - de validator blokkeert daadwerkelijk fouten zoals `inspection_failed_liquid_delimiter_balance`
 - schemafouten zoals ongeldige range-defaults worden daadwerkelijk onderschept
 - er komen nog echte parse- en schemafouten terug op section-creatie en op bestaande product-sections
+- Railway bevestigde op 2026-04-22 ook een echte bestaande-section foutketen op `sections/hero-v1.liquid`: eerst `inspection_failed_truncated`, daarna `inspection_failed_liquid_delimiter_balance`. Dat incident is lokaal gereproduceerd en nu afgedekt met regressies voor mobile-only CSS-patches op bestaande sections met inline animatie-CSS.
 
 Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live Railway runtime sluit nu aan op de lokale remediation van 2026-04-22. De eerdere license-service crash op ontbrekende `BACKUP_EXPORT_*` startup-validatie is opgeheven; backup-export blijft nu feature-gated op de admin-route in plaats van de hele service omver te trekken.
 

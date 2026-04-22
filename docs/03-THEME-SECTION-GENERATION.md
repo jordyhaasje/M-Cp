@@ -85,9 +85,11 @@ Gebruik wanneer het doelbestand al bestaat of wanneer de gebruiker expliciet bes
 Belangrijk:
 - Zodra het doelbestand al bestaat, hoort de client niet opnieuw `create-theme-section` te kiezen maar over te schakelen naar `existing_edit`
 - Als een gewone stateless client tóch nog een refine-prompt via `create-theme-section` op exact dezelfde net aangemaakte section stuurt, converteert de server die route nu veilig naar `draft-theme-artifact mode="edit"` zolang theme-target en recent file-context aantoonbaar hetzelfde blijven
+- Kleine constrained responsive edits zoals “alleen op mobiel”, “desktop ongewijzigd” of een bestaande rating/CTA bovenaan zetten, horen nu expliciet in de `patch-theme-file` route en niet meer automatisch in een rewrite-flow
 - Broad rewrites op bestaande grote files blijven beschermd door truncation checks
 - Gebruik `value` alleen als het volledige bestand bewust is ingelezen en vervangen moet worden
 - Gebruik in `files[].value` altijd echte volledige bestandsinhoud; context-placeholders of samenvattingen zoals `REWRITE_ALREADY_APPLIED_IN_CONTEXT` zijn ongeldig
+- De lokale Liquid delimiter-check negeert nu bare `}}` en `%}` uit embedded CSS/JS, zoals keyframes of compacte scriptblokken, maar blijft echte ongesloten `{{` en `{%` in dezelfde file nog steeds blokkeren
 
 Voorbeeldprompt:
 ```text

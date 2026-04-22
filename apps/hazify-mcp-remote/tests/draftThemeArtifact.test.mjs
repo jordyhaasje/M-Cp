@@ -410,6 +410,94 @@ test("draftThemeArtifact - keeps generic truncation guard for short real rewrite
   }
 });
 
+test("draftThemeArtifact - a truncated rewrite does not poison a later CSS patch on the same existing section", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const animatedHeroSection = `
+<style>
+  .hero-v1__rating-wrap { justify-content: center; }
+  @keyframes heroRatingPulse{0%{transform:translateY(0)}50%{transform:translateY(-4px)}100%{transform:translateY(0)}}
+  .hero-v1__rating-card { animation: heroRatingPulse 2.4s ease-in-out infinite; }
+</style>
+
+<div class="hero-v1__content">
+  <div class="hero-v1__rating-wrap">
+    <span class="hero-v1__rating-card">{{ section.settings.rating_text }}</span>
+  </div>
+  <h2>{{ section.settings.heading }}</h2>
+</div>
+
+{% schema %}
+{
+  "name": "Hero V1",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hero" },
+    { "type": "text", "id": "rating_text", "label": "Rating text", "default": "4.9/5" }
+  ],
+  "presets": [{ "name": "Hero V1" }]
+}
+{% endschema %}
+`;
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/hero-v1.liquid",
+    initialValue: animatedHeroSection,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const truncatedResult = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "edit",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/hero-v1.liquid",
+            value: "<div>Te kort</div>",
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(truncatedResult.success, false);
+    assert.equal(truncatedResult.errorCode, "inspection_failed_truncated");
+
+    const patchResult = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "edit",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/hero-v1.liquid",
+            patch: {
+              searchString: ".hero-v1__rating-wrap { justify-content: center; }",
+              replaceString:
+                ".hero-v1__rating-wrap { justify-content: center; order: -1; margin-bottom: 12px; }",
+            },
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(patchResult.success, true);
+    assert.equal(patchResult.status, "preview_ready");
+    assert.match(themeMock.getValue(), /order:\s*-1/);
+    assert.match(themeMock.getValue(), /margin-bottom:\s*12px/);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("draftThemeArtifact - fails when linter finds issues", async (t) => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -1486,6 +1574,53 @@ test("draftThemeArtifact - catches unclosed liquid delimiters before theme-check
   assert.ok(
     result.errors?.some((issue) => issue.issueCode === "inspection_failed_liquid_delimiter_balance"),
     "unclosed Liquid delimiters should be surfaced during local inspection"
+  );
+});
+
+test("draftThemeArtifact - still catches an unclosed Liquid output inside inline style blocks", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/broken-style-delimiters.liquid",
+          value: `
+<style>
+  @keyframes heroRatingPulse{0%{transform:translateY(0)}50%{transform:translateY(-4px)}100%{transform:translateY(0)}}
+  #shopify-section-{{ section.id } .card { padding: 24px; }
+</style>
+<div class="card">{{ section.settings.heading }}</div>
+{% schema %}
+{
+  "name": "Broken style delimiters",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Broken style delimiters" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "inspection_failed_liquid_delimiter_balance"),
+    "a real unclosed Liquid opening inside inline style should still fail local inspection"
   );
 });
 

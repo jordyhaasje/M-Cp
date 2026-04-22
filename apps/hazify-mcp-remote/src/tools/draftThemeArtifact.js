@@ -2499,6 +2499,94 @@ function removeLiquidBlock(value, tagName) {
   );
 }
 
+function maskSourcePreservingNewlines(value) {
+  return String(value || "").replace(/[^\n]/g, " ");
+}
+
+function maskLiquidBlockPreservingNewlines(value, tagName) {
+  return String(value || "").replace(
+    new RegExp(
+      `{%-?\\s*${escapeRegExp(tagName)}\\s*-?%}[\\s\\S]*?{%-?\\s*end${escapeRegExp(tagName)}\\s*-?%}`,
+      "gi"
+    ),
+    (match) => maskSourcePreservingNewlines(match)
+  );
+}
+
+function maskEmbeddedCodeClosers(value) {
+  const source = String(value || "");
+  const keepRanges = [];
+  const completeLiquidTokenPattern = /({{-[\s\S]*?-}}|{{[\s\S]*?}}|{%-[\s\S]*?-%}|{%[\s\S]*?%})/g;
+
+  for (const match of source.matchAll(completeLiquidTokenPattern)) {
+    const start = match.index ?? 0;
+    keepRanges.push([start, start + String(match[0] || "").length]);
+  }
+
+  if (keepRanges.length === 0) {
+    return source.replace(/-}}|}}|-%}|%}/g, (token) => " ".repeat(token.length));
+  }
+
+  keepRanges.sort((left, right) => left[0] - right[0]);
+  let sanitized = "";
+  let cursor = 0;
+
+  for (const [start, end] of keepRanges) {
+    if (start > cursor) {
+      sanitized += source
+        .slice(cursor, start)
+        .replace(/-}}|}}|-%}|%}/g, (token) => " ".repeat(token.length));
+    }
+    sanitized += source.slice(start, end);
+    cursor = end;
+  }
+
+  if (cursor < source.length) {
+    sanitized += source
+      .slice(cursor)
+      .replace(/-}}|}}|-%}|%}/g, (token) => " ".repeat(token.length));
+  }
+
+  return sanitized;
+}
+
+function sanitizeEmbeddedHtmlBlockContents(value, tagName) {
+  return String(value || "").replace(
+    new RegExp(`(<${escapeRegExp(tagName)}\\b[^>]*>)([\\s\\S]*?)(</${escapeRegExp(tagName)}>)`, "gi"),
+    (_match, openTag, blockContent, closeTag) =>
+      `${openTag}${maskEmbeddedCodeClosers(blockContent)}${closeTag}`
+  );
+}
+
+function sanitizeEmbeddedLiquidBlockContents(value, tagName) {
+  return String(value || "").replace(
+    new RegExp(
+      `({%-?\\s*${escapeRegExp(tagName)}\\s*-?%})([\\s\\S]*?)({%-?\\s*end${escapeRegExp(tagName)}\\s*-?%})`,
+      "gi"
+    ),
+    (_match, openTag, blockContent, closeTag) =>
+      `${openTag}${maskEmbeddedCodeClosers(blockContent)}${closeTag}`
+  );
+}
+
+function sanitizeSourceForLiquidDelimiterBalance(value) {
+  let sanitized = String(value || "");
+
+  for (const tagName of ["raw", "comment", "schema", "doc"]) {
+    sanitized = maskLiquidBlockPreservingNewlines(sanitized, tagName);
+  }
+
+  for (const tagName of ["style", "script"]) {
+    sanitized = sanitizeEmbeddedHtmlBlockContents(sanitized, tagName);
+  }
+
+  for (const tagName of ["stylesheet", "javascript"]) {
+    sanitized = sanitizeEmbeddedLiquidBlockContents(sanitized, tagName);
+  }
+
+  return sanitized;
+}
+
 function hasRenderableContentOutsideSchema(value) {
   let source = String(value || "");
   for (const tagName of ["schema", "stylesheet", "javascript", "style", "doc", "comment"]) {
@@ -2533,10 +2621,11 @@ function collectLiquidDelimiterBalanceIssues(value, fileKey) {
   const issues = [];
   const suggestedFixes = [];
   const source = String(value || "");
+  const sanitizedSource = sanitizeSourceForLiquidDelimiterBalance(source);
   const tokenPattern = /({{[-]?|{%-?|[-]?}}|[-]?%})/g;
   const stack = [];
 
-  for (const match of source.matchAll(tokenPattern)) {
+  for (const match of sanitizedSource.matchAll(tokenPattern)) {
     const token = String(match[0] || "");
     const index = match.index ?? 0;
 
@@ -2557,7 +2646,7 @@ function collectLiquidDelimiterBalanceIssues(value, fileKey) {
           createInspectionIssue({
             path: [fileKey],
             problem:
-              `Building Inspection Failed: een Liquid output-delimiter sluit niet correct rond regel ${getLineNumberAtIndex(source, index)}.`,
+              `Building Inspection Failed: een Liquid output-delimiter sluit niet correct rond regel ${getLineNumberAtIndex(sanitizedSource, index)}.`,
             fixSuggestion:
               "Controleer of alle {{ ... }} output-tags correct openen en sluiten en dat er geen losse }} of -}} overblijven.",
             issueCode: "inspection_failed_liquid_delimiter_balance",
@@ -2579,7 +2668,7 @@ function collectLiquidDelimiterBalanceIssues(value, fileKey) {
           createInspectionIssue({
             path: [fileKey],
             problem:
-              `Building Inspection Failed: een Liquid tag-delimiter sluit niet correct rond regel ${getLineNumberAtIndex(source, index)}.`,
+              `Building Inspection Failed: een Liquid tag-delimiter sluit niet correct rond regel ${getLineNumberAtIndex(sanitizedSource, index)}.`,
             fixSuggestion:
               "Controleer of alle {% ... %} tags correct openen en sluiten en dat er geen losse %} of -%} overblijven.",
             issueCode: "inspection_failed_liquid_delimiter_balance",
@@ -2600,7 +2689,7 @@ function collectLiquidDelimiterBalanceIssues(value, fileKey) {
       createInspectionIssue({
         path: [fileKey],
         problem:
-          `Building Inspection Failed: ongesloten Liquid ${unclosed.kind === "tag" ? "tag" : "output"} gedetecteerd rond regel ${getLineNumberAtIndex(source, unclosed.index)}.`,
+          `Building Inspection Failed: ongesloten Liquid ${unclosed.kind === "tag" ? "tag" : "output"} gedetecteerd rond regel ${getLineNumberAtIndex(sanitizedSource, unclosed.index)}.`,
         fixSuggestion:
           unclosed.kind === "tag"
             ? "Voeg de ontbrekende %} of -%} toe en controleer of alle {% ... %} blokken volledig zijn."

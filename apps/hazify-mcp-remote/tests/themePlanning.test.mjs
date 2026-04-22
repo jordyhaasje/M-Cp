@@ -344,6 +344,20 @@ try {
   assert.equal(exactSurgicalEditPlan.recommendedFlow, "patch-existing");
   assert.equal(exactSurgicalEditPlan.shouldUse, "patch-theme-file");
 
+  const constrainedResponsiveEditPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "existing_edit",
+    targetFile: "sections/main-product.liquid",
+    query:
+      "Zet alleen op mobiel de review-sterren bovenaan, laat desktop en de bestaande animatie verder ongewijzigd.",
+  });
+  assert.equal(constrainedResponsiveEditPlan.recommendedFlow, "patch-existing");
+  assert.equal(
+    constrainedResponsiveEditPlan.shouldUse,
+    "patch-theme-file",
+    "constrained mobile-only reorders should stay in the patch flow instead of being escalated to a rewrite"
+  );
+
   global.fetch = createGraphqlFetch(homepageJsonFiles);
 
   const newSectionPlan = await planThemeEdit(shopifyClient, "2026-01", {
