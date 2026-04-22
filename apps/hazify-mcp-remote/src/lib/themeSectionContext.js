@@ -42,6 +42,64 @@ const HERO_SECTION_PATTERNS = [
   /split[-_ ]?hero/i,
 ];
 
+const HERO_FULL_BLEED_PATTERNS = [
+  /\bfull[-_ ]?(?:width|bleed)\b/i,
+  /\bedge[-_ ]?to[-_ ]?edge\b/i,
+  /\bviewport[-_ ]?wide\b/i,
+  /\bbleeds?\b/i,
+];
+
+const HERO_BOXED_PATTERNS = [
+  /\bboxed\b/i,
+  /\bbounded\b/i,
+  /\bcontained\b/i,
+  /\bframed\b/i,
+  /\bin\s+(?:een\s+)?container\b/i,
+  /\bcard[-_ ]?(?:style|shell)?\b/i,
+];
+
+const HERO_SPLIT_LAYOUT_PATTERNS = [
+  /\bsplit[-_ ]?hero\b/i,
+  /\btwo[-_ ]?column\b/i,
+  /\b2[-_ ]?column\b/i,
+  /\btwo columns\b/i,
+  /\btwee kolommen\b/i,
+  /\bside[-_ ]?by[-_ ]?side\b/i,
+  /\btwo[-_ ]?up\b/i,
+];
+
+const HERO_OVERLAY_PATTERNS = [
+  /\boverlay\b/i,
+  /\bgradient\b/i,
+  /\bfade\b/i,
+  /\bmedia[-_ ]?layer\b/i,
+  /\bimage[-_ ]?layer\b/i,
+  /\bvideo[-_ ]?layer\b/i,
+  /\bcontent[-_ ]?layer\b/i,
+  /\bcontent\s+over\b/i,
+  /\btext\s+over\b/i,
+  /\bover\s+the\s+(?:image|video|media)\b/i,
+];
+
+const HERO_BACKGROUND_MEDIA_PATTERNS = [
+  /\bbackground[-_ ]?(?:image|video|media)\b/i,
+  /\bmedia[-_ ]?first\b/i,
+  /\bimage[-_ ]?first\b/i,
+  /\bvideo[-_ ]?first\b/i,
+  /\bbackground\s+hero\b/i,
+  /\bhero\s+background\b/i,
+  /\bmedia\s+behind\b/i,
+  /\bimage\s+behind\b/i,
+  /\bvideo\s+behind\b/i,
+];
+
+const HERO_DIRECTIONAL_MEDIA_PATTERNS = [
+  /\b(?:image|media|video|photo|visual|beeld|afbeelding|foto)\b[\w\s,/-]{0,40}\b(?:right|rechts)\b/i,
+  /\b(?:right|rechts)\b[\w\s,/-]{0,40}\b(?:image|media|video|photo|visual|beeld|afbeelding|foto)\b/i,
+  /\b(?:content|copy|headline|tekst|inhoud)\b[\w\s,/-]{0,40}\b(?:left|links)\b/i,
+  /\b(?:left|links)\b[\w\s,/-]{0,40}\b(?:content|copy|headline|tekst|inhoud)\b/i,
+];
+
 const SECTION_CATEGORY_ORDER = ["interactive", "media", "commerce", "static"];
 
 const SECTION_CATEGORY_PATTERNS = {
@@ -499,6 +557,46 @@ const inferSectionArchetype = ({
     ? categorySignals
     : [category].filter(Boolean);
 
+  const inferHeroArchetype = () => {
+    const heroLike =
+      /(hero|banner|masthead|cover|split[-_ ]?hero)/.test(haystack) &&
+      !/(slider|carousel|slideshow)/.test(haystack);
+    if (!heroLike) {
+      return null;
+    }
+
+    const wantsBoxed = HERO_BOXED_PATTERNS.some((pattern) => pattern.test(haystack));
+    const hasDirectionalMedia = HERO_DIRECTIONAL_MEDIA_PATTERNS.some((pattern) =>
+      pattern.test(haystack)
+    );
+    const wantsExplicitSplit =
+      HERO_SPLIT_LAYOUT_PATTERNS.some((pattern) => pattern.test(haystack)) ||
+      (hasDirectionalMedia &&
+        /\b(split|columns?|kolommen|side[-_ ]?by[-_ ]?side)\b/i.test(haystack));
+    const wantsOverlay = HERO_OVERLAY_PATTERNS.some((pattern) => pattern.test(haystack));
+    const wantsBackgroundMedia = HERO_BACKGROUND_MEDIA_PATTERNS.some((pattern) =>
+      pattern.test(haystack)
+    );
+    const wantsFullBleed = HERO_FULL_BLEED_PATTERNS.some((pattern) =>
+      pattern.test(haystack)
+    );
+    const prefersMediaFirst = wantsOverlay || wantsBackgroundMedia || wantsFullBleed;
+
+    if (wantsBoxed) {
+      return "hero_boxed_shell";
+    }
+    if (prefersMediaFirst && wantsFullBleed) {
+      return "hero_full_bleed_media";
+    }
+    if (prefersMediaFirst) {
+      return "hero_media_first_overlay";
+    }
+    if (wantsExplicitSplit) {
+      return "hero_split_layout";
+    }
+    return "hero_banner";
+  };
+
   if (
     /(instagram|tiktok|ugc|reels?|feed|social[-_ ]?(?:strip|feed|slider|carousel|grid|gallery|posts?))/.test(
       haystack
@@ -552,11 +650,9 @@ const inferSectionArchetype = ({
   if (/(gallery|masonry)/.test(haystack)) {
     return "media_gallery";
   }
-  if (
-    /(hero|banner|masthead|cover|split[-_ ]?hero)/.test(haystack) &&
-    !/(slider|carousel|slideshow)/.test(haystack)
-  ) {
-    return "hero_banner";
+  const heroArchetype = inferHeroArchetype();
+  if (heroArchetype) {
+    return heroArchetype;
   }
   if (effectiveSignals.includes("interactive") && effectiveSignals.includes("media")) {
     return "media_carousel";
@@ -1007,11 +1103,101 @@ const buildWriteStrategy = ({ category, qualityTarget = "theme_consistent" } = {
   };
 };
 
+const buildLayoutContract = ({
+  archetype = "content_section",
+  referenceSignals = null,
+} = {}) => {
+  const isMediaFirstHero =
+    archetype === "hero_media_first_overlay" ||
+    archetype === "hero_full_bleed_media";
+  const isFullBleedHero = archetype === "hero_full_bleed_media";
+  const isSplitHero = archetype === "hero_split_layout";
+  const isBoxedHero = archetype === "hero_boxed_shell";
+
+  return {
+    outerShell: isFullBleedHero
+      ? "full_bleed"
+      : isBoxedHero
+        ? "boxed"
+        : isSplitHero
+          ? "bounded_split"
+          : isMediaFirstHero
+            ? "media_first"
+            : "theme_default",
+    contentWidthStrategy: isFullBleedHero
+      ? "inner_content_wrapper"
+      : isBoxedHero
+        ? "boxed_shell"
+        : isSplitHero
+          ? "outer_content_wrapper"
+          : "theme_default",
+    mediaPlacement: isMediaFirstHero
+      ? "background_layer"
+      : isSplitHero
+        ? "inline_end_column"
+        : isBoxedHero
+          ? "boxed_shell_media"
+          : "flexible",
+    contentPlacement: isMediaFirstHero
+      ? "overlay_layer"
+      : isSplitHero
+        ? "inline_start_column"
+        : isBoxedHero
+          ? "boxed_flow"
+          : "flow",
+    overlayRequired:
+      isMediaFirstHero || Boolean(referenceSignals?.requiresOverlayTreatment),
+    fallbackMediaStrategy: isMediaFirstHero
+      ? "shared_primary_slot"
+      : referenceSignals?.prefersRenderablePreviewMedia
+        ? "consistent_media_path"
+        : "theme_default",
+    sharedMediaSlotRequired: isMediaFirstHero,
+    requiresBackgroundMediaArchitecture: isMediaFirstHero,
+    avoidOuterContainer: isMediaFirstHero,
+    avoidSplitLayoutAssumption: isMediaFirstHero,
+    allowOuterContainer: !isMediaFirstHero,
+  };
+};
+
+const buildThemeWrapperStrategy = ({
+  archetype = "content_section",
+  themeContext = null,
+} = {}) => {
+  const isMediaFirstHero =
+    archetype === "hero_media_first_overlay" ||
+    archetype === "hero_full_bleed_media";
+  const isBoxedHero = archetype === "hero_boxed_shell";
+  const prefersThemeContentWidth = Boolean(themeContext?.usesPageWidth);
+
+  return {
+    mirrorThemeSpacingSettings: true,
+    mirrorThemeHelpers: true,
+    usesPageWidth: prefersThemeContentWidth,
+    usesSectionPropertiesWrapper: Boolean(themeContext?.usesSectionPropertiesWrapper),
+    preferredContentWidthLayer: isMediaFirstHero
+      ? "inner_content"
+      : isBoxedHero
+        ? "boxed_shell"
+        : prefersThemeContentWidth
+          ? "outer_shell"
+          : "theme_default",
+    preferredHelperPlacement: isMediaFirstHero
+      ? "inner_content_or_spacing_layer"
+      : isBoxedHero
+        ? "boxed_shell_or_inner_content"
+        : "theme_default",
+    allowOuterThemeContainer: !isMediaFirstHero,
+  };
+};
+
 const buildCategoryGuardrails = ({
   category,
   archetype = "content_section",
   themeContext = null,
   referenceSignals = null,
+  layoutContract = null,
+  themeWrapperStrategy = null,
 }) => {
   const guardrails = [...(themeContext?.guardrails || [])];
 
@@ -1032,6 +1218,37 @@ const buildCategoryGuardrails = ({
   if (category === "commerce" || category === "hybrid") {
     guardrails.push(
       "Spiegel bestaande product/button/price helpers in plaats van eigen commerce-markup te introduceren."
+    );
+  }
+
+  if (layoutContract?.requiresBackgroundMediaArchitecture) {
+    guardrails.push(
+      "Gebruik voor media-first heroes een media layer, overlay layer en content layer in plaats van een losse inline media-kolom.",
+      "Laat fallback-media en geüploade media hetzelfde primaire media-slot en dezelfde wrapper-hiërarchie delen."
+    );
+  }
+
+  if (layoutContract?.avoidSplitLayoutAssumption) {
+    guardrails.push(
+      "Interpreteer een hero met content links en media visueel rechts niet automatisch als split two-column layout wanneer de referentie eigenlijk background-media met overlay toont."
+    );
+  }
+
+  if (layoutContract?.avoidOuterContainer || themeWrapperStrategy?.allowOuterThemeContainer === false) {
+    guardrails.push(
+      "Plaats theme containers of page-width wrappers bij full-bleed/media-first heroes alleen op een inner content-laag en niet blind op de outer hero-shell."
+    );
+  }
+
+  if (archetype === "hero_split_layout") {
+    guardrails.push(
+      "Behoud bij split heroes een echte inline media-kolom en degradeer die niet naar een background-media shell achter de content."
+    );
+  }
+
+  if (archetype === "hero_boxed_shell") {
+    guardrails.push(
+      "Behoud bij boxed heroes de bounded outer shell en laat die niet onbedoeld full-bleed worden door generieke wrapper-spiegeling."
     );
   }
 
@@ -1234,6 +1451,31 @@ const buildSectionGenerationBlueprint = ({
     heroLike: profile.heroLike,
     themeContext,
   });
+  const layoutContract = buildLayoutContract({
+    archetype,
+    referenceSignals,
+  });
+  const themeWrapperStrategy = buildThemeWrapperStrategy({
+    archetype,
+    themeContext,
+  });
+  const contractPreflightChecks = [
+    ...(layoutContract.requiresBackgroundMediaArchitecture
+      ? [
+          "Controleer dat media-first heroes zijn opgebouwd als media layer -> overlay layer -> content layer, niet als losse split-layout met een rechter media-kolom.",
+        ]
+      : []),
+    ...(layoutContract.sharedMediaSlotRequired
+      ? [
+          "Controleer dat fallback-media en geüploade media exact hetzelfde primaire media-slot en dezelfde wrapper-hiërarchie delen.",
+        ]
+      : []),
+    ...(layoutContract.avoidOuterContainer
+      ? [
+          "Controleer dat full-bleed/media-first hero-shells geen onterechte outer page-width of container wrapper krijgen.",
+        ]
+      : []),
+  ];
 
   return {
     archetype,
@@ -1244,6 +1486,8 @@ const buildSectionGenerationBlueprint = ({
       qualityTarget === "exact_match" ? "precision_first" : "theme_aware_baseline",
     completionPolicy,
     referenceSignals,
+    layoutContract,
+    themeWrapperStrategy,
     requiredReads,
     optionalReads,
     relevantHelpers,
@@ -1260,6 +1504,8 @@ const buildSectionGenerationBlueprint = ({
       archetype,
       themeContext,
       referenceSignals,
+      layoutContract,
+      themeWrapperStrategy,
     }),
     forbiddenPatterns: uniqueStrings([
       ...CATEGORY_FORBIDDEN_PATTERNS.universal,
@@ -1280,6 +1526,7 @@ const buildSectionGenerationBlueprint = ({
             ...CATEGORY_EXTRA_VALIDATIONS.media,
           ]
         : []),
+      ...contractPreflightChecks,
       ...(qualityTarget === "exact_match"
         ? [
             "Gebruik geen snelle baseline-first aanpak: besteed extra aandacht aan typography, spacing en compositie vóór de eerste write.",

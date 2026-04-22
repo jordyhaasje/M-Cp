@@ -287,6 +287,14 @@ test("createThemeSection - reuses precision-first planner metadata for exact scr
   assert.equal(capturedContext.sectionBlueprint?.generationMode, "precision_first");
   assert.equal(capturedContext.plannerHandoff?.qualityTarget, "exact_match");
   assert.equal(capturedContext.plannerHandoff?.archetype, "review_slider");
+  assert.ok(
+    capturedContext.plannerHandoff?.layoutContract &&
+      typeof capturedContext.plannerHandoff.layoutContract === "object"
+  );
+  assert.ok(
+    capturedContext.plannerHandoff?.themeWrapperStrategy &&
+      typeof capturedContext.plannerHandoff.themeWrapperStrategy === "object"
+  );
   assert.equal(
     capturedContext.sectionBlueprint?.completionPolicy?.deliveryExpectation,
     "final_reference_match_in_first_write"
@@ -314,6 +322,14 @@ test("createThemeSection - reuses precision-first planner metadata for exact scr
   assert.equal(planResult.plannerHandoff?.archetype, "review_slider");
   assert.equal(planResult.plannerHandoff?.qualityTarget, "exact_match");
   assert.equal(planResult.plannerHandoff?.themeTarget?.themeId, 123);
+  assert.ok(
+    planResult.plannerHandoff?.layoutContract &&
+      typeof planResult.plannerHandoff.layoutContract === "object"
+  );
+  assert.ok(
+    planResult.plannerHandoff?.themeWrapperStrategy &&
+      typeof planResult.plannerHandoff.themeWrapperStrategy === "object"
+  );
   assert.equal(planResult.plannerHandoff?.sectionBlueprint?.qualityTarget, "exact_match");
 });
 

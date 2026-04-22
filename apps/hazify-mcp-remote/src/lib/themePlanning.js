@@ -704,6 +704,8 @@ const buildPlanFromAnalysis = ({
       sectionBlueprint?.qualityTarget === "exact_match" ||
       sectionBlueprint?.generationMode === "precision_first";
     const referenceSignals = sectionBlueprint?.referenceSignals || null;
+    const layoutContract = sectionBlueprint?.layoutContract || null;
+    const themeWrapperStrategy = sectionBlueprint?.themeWrapperStrategy || null;
     recommendedFlow = "create-section";
     shouldUse = "create-theme-section";
     likelyNeedsMultiFileEdit = false;
@@ -723,6 +725,21 @@ const buildPlanFromAnalysis = ({
     warnings.push(
       "Controleer bij range-settings altijd dat default exact op het step-raster ligt vanaf min. Gebruik bij minder dan 3 discrete waarden liever een select-setting."
     );
+    if (layoutContract?.avoidSplitLayoutAssumption) {
+      warnings.push(
+        "De planner classificeert deze hero als media-first/background-media. Behandel media die visueel rechts staat dus niet automatisch als split two-column layout."
+      );
+    }
+    if (layoutContract?.sharedMediaSlotRequired) {
+      warnings.push(
+        "Fallback-media en geüploade media horen in hetzelfde primaire media-slot te blijven in plaats van in twee verschillende DOM-structuren."
+      );
+    }
+    if (layoutContract?.avoidOuterContainer || themeWrapperStrategy?.allowOuterThemeContainer === false) {
+      warnings.push(
+        "Theme containers of page-width wrappers horen hier alleen op een inner content-laag thuis en niet blind op de outer hero-shell."
+      );
+    }
     if (precisionFirst) {
       warnings.push(
         "De prompt lijkt op een exacte replica/screenshot-match. Vermijd een snelle baseline-first create; besteed extra aandacht aan typography, spacing, compositie en responsive rhythm vóór de eerste write."

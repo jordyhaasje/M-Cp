@@ -669,6 +669,108 @@ try {
     "hero-banner prompts should surface a dedicated archetype"
   );
 
+  const mediaFirstHeroPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query:
+      "Maak een hero met media-first compositie, background image, overlay layer en headline links",
+  });
+  assert.equal(
+    mediaFirstHeroPlan.sectionBlueprint?.archetype,
+    "hero_media_first_overlay",
+    "media-first hero prompts should surface a dedicated media-first archetype"
+  );
+  assert.equal(
+    mediaFirstHeroPlan.sectionBlueprint?.layoutContract?.mediaPlacement,
+    "background_layer"
+  );
+  assert.equal(
+    mediaFirstHeroPlan.sectionBlueprint?.layoutContract?.contentPlacement,
+    "overlay_layer"
+  );
+  assert.equal(
+    mediaFirstHeroPlan.sectionBlueprint?.layoutContract?.sharedMediaSlotRequired,
+    true
+  );
+  assert.equal(
+    mediaFirstHeroPlan.sectionBlueprint?.themeWrapperStrategy?.preferredContentWidthLayer,
+    "inner_content"
+  );
+
+  const fullBleedHeroPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query:
+      "Maak een hero zoals in de screenshot met content links en media visueel rechts, maar als full-width background image met overlay over het hele vlak",
+  });
+  assert.equal(
+    fullBleedHeroPlan.sectionBlueprint?.archetype,
+    "hero_full_bleed_media",
+    "full-bleed background-media heroes should not collapse into a split archetype just because media appears on the right"
+  );
+  assert.equal(
+    fullBleedHeroPlan.sectionBlueprint?.layoutContract?.outerShell,
+    "full_bleed"
+  );
+  assert.equal(
+    fullBleedHeroPlan.sectionBlueprint?.layoutContract?.avoidSplitLayoutAssumption,
+    true
+  );
+  assert.equal(
+    fullBleedHeroPlan.sectionBlueprint?.themeWrapperStrategy?.allowOuterThemeContainer,
+    false
+  );
+  assert.ok(
+    fullBleedHeroPlan.warnings.some((warning) =>
+      warning.toLowerCase().includes("niet automatisch als split")
+    ),
+    "full-bleed hero plans should warn against split-layout degradation"
+  );
+
+  const splitHeroPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query:
+      "Maak een split hero in twee kolommen met content links en beeld rechts",
+  });
+  assert.equal(
+    splitHeroPlan.sectionBlueprint?.archetype,
+    "hero_split_layout",
+    "explicit two-column hero prompts should surface a split archetype"
+  );
+  assert.equal(
+    splitHeroPlan.sectionBlueprint?.layoutContract?.mediaPlacement,
+    "inline_end_column"
+  );
+  assert.equal(
+    splitHeroPlan.sectionBlueprint?.layoutContract?.contentPlacement,
+    "inline_start_column"
+  );
+
+  const boxedHeroPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query:
+      "Maak een boxed hero section met headline, CTA en beeld in een contained shell",
+  });
+  assert.equal(
+    boxedHeroPlan.sectionBlueprint?.archetype,
+    "hero_boxed_shell",
+    "boxed hero prompts should surface a bounded-shell archetype"
+  );
+  assert.equal(
+    boxedHeroPlan.sectionBlueprint?.layoutContract?.outerShell,
+    "boxed"
+  );
+  assert.equal(
+    boxedHeroPlan.sectionBlueprint?.layoutContract?.contentWidthStrategy,
+    "boxed_shell"
+  );
+
   const templatePlacementPlan = await planThemeEdit(shopifyClient, "2026-01", {
     themeId: 123,
     intent: "template_placement",

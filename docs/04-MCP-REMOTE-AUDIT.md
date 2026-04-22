@@ -41,6 +41,10 @@ Deze audit is expliciet getoetst aan externe documentatie:
   Bron: <https://shopify.dev/docs/api/liquid/tags/stylesheet>, <https://shopify.dev/docs/api/liquid/tags/javascript>
 - Shopify Liquid docs bevestigen dat `block.shopify_attributes` editor-data-attributen levert en buiten de theme editor geen waarde teruggeeft.
   Bron: <https://shopify.dev/docs/api/liquid/objects/block>
+- Shopify Liquid docs bevestigen dat Shopify-images canoniek via `image_url` plus `image_tag` horen te lopen, dat `image_url` een expliciete `width` of `height` verwacht, en dat `image_tag` standaard width/height-attributen mee kan geven.
+  Bron: <https://shopify.dev/docs/api/liquid/filters/image_url>, <https://shopify.dev/docs/api/liquid/filters/image_tag>
+- Shopify Liquid docs bevestigen dat `content_for 'blocks'` de aangewezen renderzone is voor theme blocks en dat `content_for 'block'` een statisch block van een gegeven type/id rendert.
+  Bron: <https://shopify.dev/docs/api/liquid/tags/content_for>
 - Shopify theme docs bevestigen dat snippets via `render` named parameters ontvangen, buiten de theme editor blijven, en dat LiquidDoc parameter-validatie en toolfeedback toevoegt voor snippets en blocks.
   Bron: <https://shopify.dev/docs/storefronts/themes/architecture/snippets>, <https://shopify.dev/docs/storefronts/themes/tools/liquid-doc>
 - Shopify theme docs bevestigen dat sections en theme blocks app/theme blocks ondersteunen via generieke schema entries zoals `{ "type": "@app" }` en `{ "type": "@theme" }`, plus `content_for 'blocks'` of `{% render block %}` voor rendering.
@@ -60,13 +64,131 @@ Deze audit is expliciet getoetst aan externe documentatie:
 De remote MCP is nu het sterkst op de theme/section-stack. `plan-theme-edit`, `create-theme-section`, `patch-theme-file` en `draft-theme-artifact` vormen samen een serieus geharde pipeline met planner-memory, verplichte reads, lokale inspectie, linting en verify-after-write.
 
 De grootste resterende risico’s zitten nu vooral in:
+- semantische layout- en archetype-fidelity, vooral in validatorafdwinging voor screenshot-driven hero/media-sections; de planner onderscheidt media-first, split-layout, full-width en boxed hero’s nu wel first-class, maar de harde DOM- en media-slot-checks lopen daar nog op achter
+- validators die wrapper-, media-slot- en Theme Editor-contracten nog niet overal hard genoeg afdwingen
 - audit- en docs-drift buiten de auto-gesynchroniseerde toolcatalogus
 - niet-blokkerende Railway hygiene-signalen zoals `punycode` deprecation en `npm warn config production`
+
+## Fase-1 auditinventaris voor Shopify theme generation
+Deze inventaris legt de actuele fase-1 audit structureel vast voor vervolgwerk. Het doel is niet om elk bestand uitputtend te documenteren, maar om de relevante theme-tooling en verantwoordelijkheden helder te groeperen.
+
+### Screenshot-interpretatie en archetype-selectie
+- `apps/hazify-mcp-remote/src/lib/themeSectionContext.js`
+  - inferentie van `category`, `sectionBlueprint.archetype`, reference signals, theme wrapper hints en scale guardrails
+- `apps/hazify-mcp-remote/src/lib/themePlanning.js`
+  - vertaalt template/section/snippet-analyse naar `recommendedFlow`, `nextReadKeys`, `nextWriteKeys`, `sectionBlueprint` en planner-handoff
+- `apps/hazify-mcp-remote/src/tools/planThemeEdit.js`
+  - publieke planner-ingang voor `new_section`, `existing_edit`, `native_block` en `template_placement`
+
+### Section-creatie, editflow en guarded writes
+- `apps/hazify-mcp-remote/src/tools/createThemeSection.js`
+  - nieuwe standalone sections, planner-memory, exact required reads, veilige create->edit follow-up recovery
+- `apps/hazify-mcp-remote/src/tools/patchThemeFile.js`
+  - kleine single-file literal patches met exacte anchor- en readvereisten
+- `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
+  - kern van create/edit inspectie, preview-write, schema/Liquid/media checks en verify-after-write
+
+### Block- en native-block flows
+- `apps/hazify-mcp-remote/src/lib/themePlanning.js`
+  - detectie van section block loops, snippet renderers, `@theme`/`content_for 'blocks'` routes en multi-file noodzaak
+- `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
+  - validatie van related schema refs, native block renderer contracts, block media safety en `blocks/*.liquid` eisen
+
+### Schema-, Liquid- en Theme Editor-validatie
+- `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
+  - verplichte schema fields
+  - range-validatie en step-count limieten
+  - raw `<img>` checks
+  - blank-safe optionele media
+  - exact-match fidelity checks
+  - Theme Editor warnings rond `block.shopify_attributes`
+
+### Read/search/preview/apply infrastructuur
+- `apps/hazify-mcp-remote/src/lib/themeReadHydration.js`
+- `apps/hazify-mcp-remote/src/lib/themeEditMemory.js`
+- `apps/hazify-mcp-remote/src/lib/themeFiles.js`
+- `apps/hazify-mcp-remote/src/tools/getThemeFile.js`
+- `apps/hazify-mcp-remote/src/tools/getThemeFiles.js`
+- `apps/hazify-mcp-remote/src/tools/searchThemeFiles.js`
+- `apps/hazify-mcp-remote/src/tools/verifyThemeFiles.js`
+- `apps/hazify-mcp-remote/src/tools/applyThemeDraft.js`
+
+## Fase-1 confirmed issues en structurele gaten
+### Architectuur en screenshot-interpretatie
+- Fase 1 identificeerde het ontbreken van first-class hero-archetypen voor:
+  - `hero_media_first_overlay`
+  - `hero_split_layout`
+  - `hero_boxed_shell`
+  - `hero_full_bleed_media`
+- Die plannerlaag is nu hersteld: `themeSectionContext` en `plan-theme-edit` onderscheiden deze archetypen nu expliciet en geven daarnaast `layoutContract` plus `themeWrapperStrategy` mee in `sectionBlueprint` en `plannerHandoff`.
+- Theme conventions en section archetypes zijn nog niet scherp genoeg losgetrokken:
+  - theme conventions bepalen welke wrappers/helpers/classes beschikbaar zijn
+  - het archetype bepaalt of de outer shell full-bleed, boxed, split-layout of media-first hoort te zijn
+- Die scheiding is in de planner nu expliciet gemaakt via aparte blueprintlagen voor shell/media-architectuur versus wrapper/helper-mirroring.
+- Batch B heeft nu harde validatorguardrails toegevoegd voor exacte media-first heroes die onterecht een outer `.container` of `page-width` krijgen.
+- Batch B heeft nu ook harde validatorchecks voor exacte media-first heroes waarbij fallback-media en merchant-uploaded media niet exact hetzelfde primaire media-slot en dezelfde wrapper-hiërarchie delen.
+
+### Shopify / schema / Liquid / Theme Editor
+- Range settings met te veel discrete stappen blijven een echte foutklasse in gegenereerde output; de validator onderschept dit nu wel.
+- Missende `label`-velden in section/block settings blijven een echte foutklasse in gegenereerde output; de validator onderschept dit nu wel.
+- Raw `<img>` in plaats van `image_url | image_tag` blijft inhoudelijk een generation risk. Batch B blokkeert nu ook raw Shopify-media `<img>` wanneer de src via `image_url`/`img_url` uit Liquid komt, ook als width/height al aanwezig zijn.
+- Ontbrekende `block.shopify_attributes` is niet langer alleen warning-only in de relevante section/snippet block-render contexts; Batch B maakt dit daar nu een harde validatorfail.
+- `video_url` versus `video` is nu strikter: hosted `<video>`/`video_tag` markup met alleen schema type `video_url` faalt hard, terwijl externe embedflows met `video_url` wel toegestaan blijven.
+- Wrapper/helper-logica is aantoonbaar minder asymmetrisch voor exacte media-first heroes, maar buiten die flows blijft wrapper-correctheid deels theme-aware guidance.
+
+### Validatiegaten
+- Exacte media-first hero-validatie dekt nu hard af:
+  - media-first versus split-layout DOM-mismatch
+  - onterechte outer `page-width` / `.container`
+  - gedeeld media-slot tussen fallback en uploaded image
+- Wat nog niet universeel hard afgedwongen is:
+  - het volledige `media layer -> overlay layer -> content layer` contract buiten exacte media-first/reference-driven flows
+  - bredere background-media versus inline-image checks voor generieke prompt-only hero/video generation
+- De acceptatiesuite bewijst nog geen echte full-bleed media-first hero. De huidige exact-reference fixture blijft een boxed split-shell voorbeeld.
+
+## Fase-1 validatorstatus: sterk versus nog niet afgedwongen
+### Al sterk afgedekt
+- verplichte schema fields zoals `label`, `type`, `id`, `name` en `content`
+- range bounds, step-alignment, te veel stappen en te weinig stappen
+- blank-safe optionele `image_picker`, `video` en `video_url` rendering
+- precision-first exact-match checks voor decoratieve anchors, sterren, vergelijking-iconografie, viewport parity, nav buttons en double-shells
+- native-block schema/snippet drift en `@theme` block-route validatie
+
+### Nog niet hard genoeg
+- first-class hero/media archetype-correctheid buiten exact-match/reference-driven media-first flows
+- volledige `media layer -> overlay layer -> content layer` contractvalidatie buiten exacte hero/media-fixes
+- archetype-aware wrapperregels voor bredere review/video/blocks/PDP flows
+
+## Concrete Shopify/theme fouten die fase 1 expliciet heeft bevestigd
+- Productieruntime op Railway toonde op 2026-04-22 onder meer:
+  - `sections/video-trust-header.liquid.schema.settings.overlay_opacity.label`
+  - `section.settings.image_right_offset`
+  - gecombineerde `ImgWidthAndHeight` en `ValidSchema` issues op `sections/jordy-header.liquid`
+- De test- en code-audit bevestigt daarnaast structureel:
+  - `block.shopify_attributes` was warning-only in fase 1 en is in Batch B nu hard fail gemaakt voor relevante section/snippet block-renderers
+  - hero-archetype-collapsing naar `hero_banner` was een reële plannerfout in fase 1 en is nu op plannerniveau afgedekt met first-class hero-archetypen
+  - raw Shopify-media `<img>` met width/height glipte in fase 1 nog door en wordt nu in Batch B hard geblokkeerd wanneer de src via `image_url`/`img_url` uit Liquid komt
+  - acceptance coverage zonder echte media-first full-bleed hero-case
+
+## Structurele regels voor vervolgwerk
+Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere implementatie, ook waar de code ze nog niet volledig afdwingt.
+
+- Een hero-screenshot met content links en media visueel rechts mag niet automatisch naar split-layout degraderen.
+- Voor media-first heroes hoort de canonieke architectuur te zijn:
+  - hero shell
+  - media layer
+  - overlay layer
+  - content layer
+- Fallback en uploaded image moeten hetzelfde media-slot delen.
+- Full-width hero shells mogen niet blind in `.container` of `page-width` terechtkomen.
+- Theme wrappers/helpers moeten theme-aware worden toegepast zonder het section archetype te breken.
+- Dezelfde foutklassen moeten niet alleen voor hero’s, maar ook voor review sections, video sections, blocks, prompt-only generation en bestaande edits worden beoordeeld.
 
 ## Wat al aantoonbaar goed werkt
 - De server is registry-first opgezet met centrale tooldefinities, outputschema’s en aliassen in `apps/hazify-mcp-remote/src/tools/registry.js`.
 - De runtime doet centrale auth/scope-gating en hydrateert Shopify lazy in `apps/hazify-mcp-remote/src/index.js`.
 - `plan-theme-edit` geeft bruikbare handoff-data terug, inclusief `plannerHandoff`, `nextReadKeys`, `writeTool` en `sectionBlueprint`.
+- `plan-theme-edit` en `themeSectionContext` onderscheiden nu ook first-class hero-archetypen voor `hero_media_first_overlay`, `hero_split_layout`, `hero_boxed_shell` en `hero_full_bleed_media`, inclusief aparte `layoutContract`- en `themeWrapperStrategy`-lagen in `sectionBlueprint` en `plannerHandoff`.
 - `plan-theme-edit` geeft voor native-block flows nu ook architectuur terug in `plannerHandoff`, zoals `primarySectionFile`, `usesThemeBlocks`, `snippetRendererKeys` en `hasBlockShopifyAttributes`.
 - `create-theme-section` kan verplichte planner-reads zelf hydrateren en kan alleen in een smalle, bewezen vervolgsituatie create veilig omzetten naar edit.
 - `patch-theme-file` is nu de feitelijke kleine existing-edit route voor exacte single-file fixes.

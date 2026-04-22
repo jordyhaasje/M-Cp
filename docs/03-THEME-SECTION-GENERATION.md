@@ -129,6 +129,31 @@ Maak een hero-video section en plaats hem daarna ook op de homepage van theme 12
 ```
 
 ## Archetype Notes
+### Hero- en shell-archetypen (fase-1 auditreferentie)
+Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onderscheidt deze hero-archetypen nu first-class en geeft daarnaast `layoutContract` plus `themeWrapperStrategy` mee in `sectionBlueprint`. De validator handhaaft de hoogste-risico gevallen nu ook hard in `draft-theme-artifact`, vooral voor exacte media-first heroes, block wrappers en Shopify-media. Volledige archetype-pariteit buiten exact-match/media-first flows blijft vervolgwerk.
+
+- De planner en validator moeten uiteindelijk first-class onderscheid kunnen maken tussen minstens:
+  - `hero_media_first_overlay`
+  - `hero_split_layout`
+  - `hero_boxed_shell`
+  - `hero_full_bleed_media`
+- Een hero-screenshot met content links en media visueel rechts mag niet automatisch als split two-column layout worden geïnterpreteerd. Controleer eerst of de referentie eigenlijk één full-bleed media-oppervlak met overlay en daarboven content toont.
+- Voor media-first heroes is de canonieke structuur:
+  - outer hero shell
+  - media layer
+  - overlay layer
+  - content layer
+- Fallback-media en merchant-uploaded media moeten hetzelfde primaire media-slot en dezelfde wrapper-hiërarchie delen. Gebruik dus geen aparte DOM-architectuur voor placeholder/fallback versus geüploade media.
+- Full-width media-first heroes horen geen outer `.container`, `page-width` of vergelijkbare bounded shell te krijgen tenzij de referentie aantoonbaar boxed is.
+- Theme conventions en section archetypes zijn twee aparte beslissingen:
+  - theme conventions bepalen welke helpers, spacing-conventies, classes en wrappers beschikbaar zijn
+  - het section archetype bepaalt of de outer shell full-bleed, boxed, media-first, split-layout of card-based hoort te zijn
+- Gebruik in planner- en write-handoffs daarom ook expliciet de twee aparte blueprintlagen:
+  - `layoutContract` voor shell-, media- en overlay-architectuur
+  - `themeWrapperStrategy` voor theme-aware content-width, helperplaatsing en wrapper-mirroring
+- Theme wrappers/helpers mogen daarom niet als blanket rule worden gespiegeld. Een helper zoals `section-properties` of een theme container kan wel op een inner content-laag thuishoren zonder dat de outer hero-shell boxed wordt.
+- Deze principes gelden niet alleen voor hero’s, maar ook voor review sections, video sections, media sections, blocks en bestaande edits waarbij dezelfde media/shell-keuzes opnieuw kunnen ontsporen.
+
 ### Social strips
 - Queries zoals `Instagram strip`, `TikTok feed`, `social strip` of `UGC feed` moeten media-georiënteerd plannen
 - Zonder sliderwoorden hoort dit meestal bij archetype `social_strip`
@@ -148,6 +173,7 @@ Maak een hero-video section en plaats hem daarna ook op de homepage van theme 12
 - Guard optionele `href`, `src`, `poster`, `action` en `formaction`
 - Guard optionele `image_picker`, `video` en `video_url` settings vóór `image_url`, `video_tag` of `external_video_*`
 - `block.shopify_attributes` hoort op block wrappers in loops over `section.blocks`
+- Gebruik voor Shopify image objects en merchant-editable imagery canoniek `image_url | image_tag`. Raw `<img>` hoort hier in principe niet thuis als hoofdpad voor theme generation.
 
 ## Live Versus Preview
 - `draft-theme-artifact` kan `status="preview_ready"` teruggeven terwijl het doeltheme het live `main` theme is
@@ -177,6 +203,9 @@ Maak een hero-video section en plaats hem daarna ook op de homepage van theme 12
 - Schema JSON moet geldig zijn
 - Verplichte schema-velden zoals setting/block `label`, `type`, `id`, `name` en `content` waar relevant moeten al in lokale inspectie slagen, niet pas in `theme-check`
 - Range settings moeten binnen min/max en step-grid vallen
+- Raw `<img>` met Shopify `image_url`/`img_url` als src horen hard te falen; gebruik daar `image_url | image_tag`
+- `block.shopify_attributes` hoort hard aanwezig te zijn op gedeelde block wrappers in loops over `section.blocks` en native block-render snippets
+- Hosted `<video>`/`video_tag` markup met alleen schema type `video_url` hoort hard te falen; gebruik `video` voor merchant-uploaded video en `video_url` voor externe embeds
 - Theme-scale guardrails mogen content sections blokkeren wanneer ze onbedoeld hero-groot worden
 - Theme-scale guardrails kijken nu niet alleen naar losse maxima, maar ook naar gecombineerde visuele massa. Middelgrote overschrijdingen in font-size, padding, gap en sticky compositie kunnen samen dus alsnog een `inspection_failed_theme_scale` opleveren.
 - Parser-onveilige JS/Liquid combinaties falen vóór preview upload
@@ -185,6 +214,18 @@ Maak een hero-video section en plaats hem daarna ook op de homepage van theme 12
 - Exact-match comparison/shell replica's mogen niet terugvallen op een generieke tabel zonder de onderscheidende decoratieve media/badge anchors uit de referentie.
 - Exact-match comparison/shell replica's mogen geen dubbele background-shell bouwen wanneer een theme wrapper-helper al een outer background of spacing-surface impliceert.
 - Decoratieve inline SVG-iconen zoals sterratings, quote marks of badges tellen niet meer automatisch als merchant-media; een generieke `image_picker` warning hoort alleen nog terug te komen wanneer er echt image/video-markup of resource-based media aanwezig is.
+
+### Bekende validatiegaten uit fase 1
+- Exacte media-first heroes krijgen nu harde checks op:
+  - media-first versus split-layout DOM-mismatch
+  - gedeeld media-slot tussen uploaded en fallback-media
+  - onterechte outer `page-width` / `.container` op de hero-shell
+- Voor Shopify resource-media wordt raw `<img>` met `image_url`/`img_url` nu hard afgekeurd, ook als width/height al aanwezig zijn. Pure hardcoded demo-URLs met expliciete dimensies blijven toegestaan als fallbackpad.
+- Ontbrekende `block.shopify_attributes` is nu hard failure in relevante section-loops en native block-render snippets.
+- Hosted video-markup met alleen schema type `video_url` is nu hard failure; externe embedflows met `video_url` blijven toegestaan.
+- Wat nog open blijft:
+  - de volledige `media layer -> overlay layer -> content layer` architectuur wordt nog niet op elk niet-exact hero/video-pad als generiek contract afgedwongen
+  - wrapper-correctheid buiten exacte media-first hero’s blijft deels theme-aware guidance in plaats van universele hard fail
 
 ## Related Docs
 - `docs/00-START-HERE.md`

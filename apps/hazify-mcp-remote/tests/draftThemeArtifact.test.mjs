@@ -303,6 +303,72 @@ function createThemeFilesFetchMock({
   };
 }
 
+const demoCdnImageUrl =
+  "https://cdn.shopify.com/s/files/1/0000/0001/files/reference-hero-1.jpg?v=1";
+
+function buildExactMediaFirstHeroBlueprint(overrides = {}) {
+  const referenceSignals = {
+    exactReplicaRequested: true,
+    previewMediaPolicy: "best_effort_demo_media",
+    hasScreenshotLikeReference: true,
+    hasDesktopMobileReferences: true,
+    hasExplicitMediaSources: false,
+    prefersRenderablePreviewMedia: true,
+    requiresRenderablePreviewMedia: false,
+    allowStylizedPreviewFallbacks: true,
+    requiresResponsiveViewportParity: true,
+    requiresDecorativeMediaAnchors: false,
+    requiresDecorativeBadgeAnchors: false,
+    requiresRatingStars: false,
+    requiresComparisonIconography: false,
+    requiresTitleAccent: false,
+    requiresNavButtons: false,
+    requiresThemeEditorLifecycleHooks: false,
+    requiresThemeWrapperMirror: false,
+    requiresOverlayTreatment: true,
+  };
+
+  return {
+    qualityTarget: "exact_match",
+    archetype: "hero_full_bleed_media",
+    layoutContract: {
+      outerShell: "full_bleed",
+      contentWidthStrategy: "inner_content_wrapper",
+      mediaPlacement: "background_layer",
+      contentPlacement: "overlay_layer",
+      overlayRequired: true,
+      fallbackMediaStrategy: "shared_primary_slot",
+      sharedMediaSlotRequired: true,
+      requiresBackgroundMediaArchitecture: true,
+      avoidOuterContainer: true,
+      avoidSplitLayoutAssumption: true,
+      allowOuterContainer: false,
+    },
+    themeWrapperStrategy: {
+      mirrorThemeSpacingSettings: true,
+      mirrorThemeHelpers: true,
+      usesPageWidth: true,
+      usesSectionPropertiesWrapper: false,
+      preferredContentWidthLayer: "inner_content",
+      preferredHelperPlacement: "inner_content_or_spacing_layer",
+      allowOuterThemeContainer: false,
+    },
+    referenceSignals: {
+      ...referenceSignals,
+      ...(overrides.referenceSignals || {}),
+    },
+    ...(overrides.layoutContract ? { layoutContract: overrides.layoutContract } : {}),
+    ...(overrides.themeWrapperStrategy
+      ? { themeWrapperStrategy: overrides.themeWrapperStrategy }
+      : {}),
+    ...Object.fromEntries(
+      Object.entries(overrides).filter(
+        ([key]) => !["referenceSignals", "layoutContract", "themeWrapperStrategy"].includes(key)
+      )
+    ),
+  };
+}
+
 test("draftThemeArtifact - rejects context placeholders for existing full rewrites with explicit repair hints", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -598,6 +664,141 @@ test("draftThemeArtifact - rejects raw img tags without reliable dimensions befo
     result.suggestedFixes.some((entry) => entry.includes("image_tag")),
     "media failures should steer the model toward Shopify image_tag rendering"
   );
+});
+
+test("draftThemeArtifact - rejects raw Shopify-media img tags even when width and height are present", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/raw-shopify-img-dimensions.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .card {
+    display: grid;
+    padding: 24px;
+    border-radius: 18px;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .card {
+      padding: 16px;
+    }
+  }
+</style>
+<div class="card">
+  <img
+    src="{{ section.settings.image | image_url: width: 1200 }}"
+    width="1200"
+    height="675"
+    alt="{{ section.settings.heading }}"
+  >
+</div>
+{% schema %}
+{
+  "name": "Raw Shopify image dimensions",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "image_picker", "id": "image", "label": "Image" },
+    { "type": "range", "id": "gap", "label": "Gap", "min": 0, "max": 40, "step": 4, "default": 16 },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Raw Shopify image dimensions" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "inspection_failed_shopify_raw_img")
+  );
+});
+
+test("draftThemeArtifact - allows hardcoded demo CDN img fallbacks when dimensions are present", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/demo-cdn-image.liquid",
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "create",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/demo-cdn-image.liquid",
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .demo-image {
+    display: grid;
+    gap: 16px;
+    padding: 24px;
+    border-radius: 18px;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .demo-image {
+      padding: 16px;
+    }
+  }
+</style>
+<section class="demo-image">
+  <img src="${demoCdnImageUrl}" width="1200" height="675" alt="Demo hero image">
+  <h2>{{ section.settings.heading }}</h2>
+</section>
+{% schema %}
+{
+  "name": "Demo CDN image",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Demo hero" },
+    { "type": "range", "id": "gap", "label": "Gap", "min": 0, "max": 40, "step": 4, "default": 16 },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Demo CDN image" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+  } finally {
+    global.fetch = previousFetch;
+  }
 });
 
 test("draftThemeArtifact - rejects placeholder media when exact-match replica requires explicit renderable media", async () => {
@@ -1423,6 +1624,251 @@ test("draftThemeArtifact - flags missing theme wrapper mirroring on exact replic
   }
 });
 
+test("draftThemeArtifact - rejects media-first exact heroes that box the outer shell with page-width/container", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      themeId: 111,
+      mode: "create",
+      files: [
+        {
+          key: "sections/media-first-boxed-outer-shell.liquid",
+          value: `
+<style>
+  .hero {
+    position: relative;
+    min-height: 640px;
+    overflow: hidden;
+  }
+
+  .hero__media,
+  .hero__overlay {
+    position: absolute;
+    inset: 0;
+  }
+
+  .hero__content {
+    position: relative;
+    z-index: 1;
+    padding: 48px;
+    max-width: 640px;
+  }
+
+  .hero__overlay {
+    background: linear-gradient(90deg, rgba(24, 18, 16, 0.72) 0%, rgba(24, 18, 16, 0.12) 72%);
+  }
+</style>
+<section class="hero page-width container">
+  <div class="hero__media">
+    {% if section.settings.image != blank %}
+      {{ section.settings.image | image_url: width: 1600 | image_tag: alt: section.settings.heading }}
+    {% else %}
+      <img src="${demoCdnImageUrl}" width="1600" height="900" alt="Demo hero">
+    {% endif %}
+  </div>
+  <div class="hero__overlay"></div>
+  <div class="hero__content">
+    <h2>{{ section.settings.heading }}</h2>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Media first boxed outer shell",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Glow from the first sip" },
+    { "type": "image_picker", "id": "image", "label": "Image" }
+  ],
+  "presets": [{ "name": "Media first boxed outer shell" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    {
+      shopifyClient: mockShopifyClient,
+      sectionBlueprint: buildExactMediaFirstHeroBlueprint(),
+      themeSectionContext: {
+        usesPageWidth: true,
+      },
+    }
+  );
+
+  assert.equal(result.success, false);
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "exact_match_hero_outer_container")
+  );
+});
+
+test("draftThemeArtifact - rejects media-first exact heroes that degrade into split layouts", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      themeId: 111,
+      mode: "create",
+      files: [
+        {
+          key: "sections/media-first-split-mismatch.liquid",
+          value: `
+<style>
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: 40px;
+    align-items: center;
+  }
+
+  .hero__content {
+    padding: 32px;
+  }
+
+  .hero__image-column img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+</style>
+<section class="hero split-layout">
+  <div class="hero__content">
+    <h2>{{ section.settings.heading }}</h2>
+  </div>
+  <div class="hero__image-column">
+    {% if section.settings.image != blank %}
+      {{ section.settings.image | image_url: width: 1400 | image_tag: alt: section.settings.heading }}
+    {% else %}
+      <img src="${demoCdnImageUrl}" width="1400" height="900" alt="Demo hero">
+    {% endif %}
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Media first split mismatch",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Glow from the first sip" },
+    { "type": "image_picker", "id": "image", "label": "Image" }
+  ],
+  "presets": [{ "name": "Media first split mismatch" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    {
+      shopifyClient: mockShopifyClient,
+      sectionBlueprint: buildExactMediaFirstHeroBlueprint(),
+      themeSectionContext: {
+        usesPageWidth: true,
+      },
+    }
+  );
+
+  assert.equal(result.success, false);
+  assert.ok(
+    result.errors?.some(
+      (issue) => issue.issueCode === "exact_match_media_first_split_mismatch"
+    )
+  );
+});
+
+test("draftThemeArtifact - rejects media-first exact heroes whose fallback and uploaded media use different slots", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      themeId: 111,
+      mode: "create",
+      files: [
+        {
+          key: "sections/media-first-slot-mismatch.liquid",
+          value: `
+<style>
+  .hero {
+    position: relative;
+    min-height: 640px;
+    overflow: hidden;
+  }
+
+  .hero__overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(24, 18, 16, 0.72) 0%, rgba(24, 18, 16, 0.12) 72%);
+  }
+
+  .hero__content {
+    position: relative;
+    z-index: 1;
+    padding: 48px;
+    max-width: 640px;
+  }
+</style>
+<section class="hero">
+  {% if section.settings.image != blank %}
+    <div class="hero__uploaded-media">
+      {{ section.settings.image | image_url: width: 1600 | image_tag: alt: section.settings.heading }}
+    </div>
+  {% else %}
+    <div class="hero__fallback-media">
+      <img src="${demoCdnImageUrl}" width="1600" height="900" alt="Demo hero">
+    </div>
+  {% endif %}
+  <div class="hero__overlay"></div>
+  <div class="hero__content">
+    <h2>{{ section.settings.heading }}</h2>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Media first slot mismatch",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Glow from the first sip" },
+    { "type": "image_picker", "id": "image", "label": "Image" }
+  ],
+  "presets": [{ "name": "Media first slot mismatch" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    {
+      shopifyClient: mockShopifyClient,
+      sectionBlueprint: buildExactMediaFirstHeroBlueprint(),
+      themeSectionContext: {
+        usesPageWidth: true,
+      },
+    }
+  );
+
+  assert.equal(result.success, false);
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "exact_match_media_slot_mismatch")
+  );
+});
+
 test("draftThemeArtifact - rejects exact review-wall replicas that combine section-properties with a root background shell", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -1930,6 +2376,78 @@ test("draftThemeArtifact - accepts guarded optional block images with fallback i
   } finally {
     global.fetch = previousFetch;
   }
+});
+
+test("draftThemeArtifact - rejects section block loops without block.shopify_attributes", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/missing-block-attrs.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .cards {
+    display: grid;
+    gap: 16px;
+  }
+</style>
+<div class="cards">
+  {% for block in section.blocks %}
+    <article class="card">
+      <h3>{{ block.settings.title }}</h3>
+    </article>
+  {% endfor %}
+</div>
+{% schema %}
+{
+  "name": "Missing block attrs",
+  "settings": [
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "blocks": [
+    {
+      "type": "card",
+      "name": "Card",
+      "settings": [
+        { "type": "text", "id": "title", "label": "Title", "default": "Card title" }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "Missing block attrs",
+      "blocks": [
+        { "type": "card" }
+      ]
+    }
+  ]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some(
+      (issue) => issue.issueCode === "inspection_failed_block_shopify_attributes"
+    )
+  );
 });
 
 test("draftThemeArtifact - allows unrelated legacy patch edits when optional resource issues already existed", async () => {
@@ -3190,6 +3708,142 @@ test("draftThemeArtifact - keeps hero-sized hero sections as warnings instead of
     result.warnings?.some((entry) => entry.includes("hero-achtig")),
     "hero-like sections should downgrade oversizing to warnings instead of hard failures"
   );
+});
+
+test("draftThemeArtifact - rejects hosted video markup when schema only exposes video_url", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/video-url-hosted-mismatch.liquid",
+          value: `
+<style>
+  .hero-video {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<section class="hero-video">
+  <video class="hero-video__media" controls muted playsinline></video>
+  <h2>{{ section.settings.heading }}</h2>
+</section>
+{% schema %}
+{
+  "name": "Video URL hosted mismatch",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hero headline" },
+    {
+      "type": "video_url",
+      "id": "video_url",
+      "label": "External video",
+      "accept": ["youtube", "vimeo"]
+    }
+  ],
+  "presets": [{ "name": "Video URL hosted mismatch" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some(
+      (issue) => issue.issueCode === "inspection_failed_video_setting_mismatch"
+    )
+  );
+});
+
+test("draftThemeArtifact - allows external video_url embeds when no hosted video markup is used", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/external-video-embed.liquid",
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "create",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/external-video-embed.liquid",
+            value: `
+<style>
+  .external-video {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<section class="external-video">
+  {% if section.settings.video_url != blank %}
+    <iframe
+      class="external-video__frame"
+      src="https://www.youtube.com/embed/{{ section.settings.video_url.id }}"
+      title="{{ section.settings.heading }}"
+      loading="lazy"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowfullscreen
+    ></iframe>
+  {% else %}
+    <div class="external-video__placeholder" aria-hidden="true"></div>
+  {% endif %}
+  <h2>{{ section.settings.heading }}</h2>
+</section>
+{% schema %}
+{
+  "name": "External video embed",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hero headline" },
+    {
+      "type": "video_url",
+      "id": "video_url",
+      "label": "External video",
+      "accept": ["youtube", "vimeo"]
+    }
+  ],
+  "presets": [{ "name": "External video embed" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+  } finally {
+    global.fetch = previousFetch;
+  }
 });
 
 test("draftThemeArtifact - rejects range settings that exceed Shopify's step-count limit", async () => {
@@ -4684,8 +5338,39 @@ test("draftThemeArtifact - auto-hydrates planner reads before an edit write cont
   const previousFetch = global.fetch;
   global.fetch = createThemeFilesFetchMock({
     files: {
-      "sections/main-product.liquid": goodSectionLiquid,
-      "snippets/product-info.liquid": "{% doc %}{% enddoc %}<div>Existing review block</div>",
+      "sections/main-product.liquid": `
+<section class="main-product">
+  {% render 'product-info', product: product, section: section %}
+</section>
+{% schema %}
+{
+  "name": "Main product",
+  "blocks": [
+    {
+      "type": "review_badge",
+      "name": "Review badge",
+      "settings": [
+        { "type": "text", "id": "badge_label", "label": "Badge label", "default": "Verified" }
+      ]
+    }
+  ]
+}
+{% endschema %}
+`,
+      "snippets/product-info.liquid": `
+{% doc %}
+  @param {object} section
+  @param {object} product
+{% enddoc %}
+{% for block in section.blocks %}
+  <div class="product-info__block" {{ block.shopify_attributes }}>
+    {% case block.type %}
+      {% when 'review_badge' %}
+        <div>Existing review block</div>
+    {% endcase %}
+  </div>
+{% endfor %}
+`,
     },
     themeIdFallback: 111,
   });
@@ -4698,11 +5383,42 @@ test("draftThemeArtifact - auto-hydrates planner reads before an edit write cont
         files: [
           {
             key: "sections/main-product.liquid",
-            value: goodSectionLiquid,
+            value: `
+<section class="main-product">
+  {% render 'product-info', product: product, section: section %}
+</section>
+{% schema %}
+{
+  "name": "Main product",
+  "blocks": [
+    {
+      "type": "review_badge",
+      "name": "Review badge",
+      "settings": [
+        { "type": "text", "id": "badge_label", "label": "Badge label", "default": "Verified" }
+      ]
+    }
+  ]
+}
+{% endschema %}
+`,
           },
           {
             key: "snippets/product-info.liquid",
-            value: "{% doc %}{% enddoc %}<div>Review block</div>",
+            value: `
+{% doc %}
+  @param {object} section
+  @param {object} product
+{% enddoc %}
+{% for block in section.blocks %}
+  <div class="product-info__block" {{ block.shopify_attributes }}>
+    {% case block.type %}
+      {% when 'review_badge' %}
+        <div>Review block</div>
+    {% endcase %}
+  </div>
+{% endfor %}
+`,
           },
         ],
       }),
@@ -4734,8 +5450,39 @@ test("draftThemeArtifact - auto-hydrates planner reads from plannerHandoff when 
   const previousFetch = global.fetch;
   global.fetch = createThemeFilesFetchMock({
     files: {
-      "sections/main-product.liquid": goodSectionLiquid,
-      "snippets/product-info.liquid": "{% doc %}{% enddoc %}<div>Existing review block</div>",
+      "sections/main-product.liquid": `
+<section class="main-product">
+  {% render 'product-info', product: product, section: section %}
+</section>
+{% schema %}
+{
+  "name": "Main product",
+  "blocks": [
+    {
+      "type": "review_badge",
+      "name": "Review badge",
+      "settings": [
+        { "type": "text", "id": "badge_label", "label": "Badge label", "default": "Verified" }
+      ]
+    }
+  ]
+}
+{% endschema %}
+`,
+      "snippets/product-info.liquid": `
+{% doc %}
+  @param {object} section
+  @param {object} product
+{% enddoc %}
+{% for block in section.blocks %}
+  <div class="product-info__block" {{ block.shopify_attributes }}>
+    {% case block.type %}
+      {% when 'review_badge' %}
+        <div>Existing review block</div>
+    {% endcase %}
+  </div>
+{% endfor %}
+`,
     },
     themeIdFallback: 111,
   });
@@ -4764,11 +5511,42 @@ test("draftThemeArtifact - auto-hydrates planner reads from plannerHandoff when 
         files: [
           {
             key: "sections/main-product.liquid",
-            value: goodSectionLiquid,
+            value: `
+<section class="main-product">
+  {% render 'product-info', product: product, section: section %}
+</section>
+{% schema %}
+{
+  "name": "Main product",
+  "blocks": [
+    {
+      "type": "review_badge",
+      "name": "Review badge",
+      "settings": [
+        { "type": "text", "id": "badge_label", "label": "Badge label", "default": "Verified" }
+      ]
+    }
+  ]
+}
+{% endschema %}
+`,
           },
           {
             key: "snippets/product-info.liquid",
-            value: "{% doc %}{% enddoc %}<div>Review block</div>",
+            value: `
+{% doc %}
+  @param {object} section
+  @param {object} product
+{% enddoc %}
+{% for block in section.blocks %}
+  <div class="product-info__block" {{ block.shopify_attributes }}>
+    {% case block.type %}
+      {% when 'review_badge' %}
+        <div>Review block</div>
+    {% endcase %}
+  </div>
+{% endfor %}
+`,
           },
         ],
       }),
@@ -5349,6 +6127,120 @@ test("draftThemeArtifact - flags new unguarded optional resources inside native 
     assert.ok(
       result.errors?.some(
         (issue) => issue.issueCode === "inspection_failed_unguarded_optional_resource"
+      )
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects native block snippets without block.shopify_attributes on the shared block wrapper", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const context = {
+    shopifyClient: mockShopifyClient,
+    tokenHash: "snippet-block-shopify-attrs",
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFilesFetchMock({
+    files: {
+      "sections/main-product.liquid": `
+<section class="main-product">
+  {% render 'product-info', product: product, section: section %}
+</section>
+{% schema %}
+{
+  "name": "Main product",
+  "blocks": [
+    {
+      "type": "review_badge",
+      "name": "Review badge",
+      "settings": [
+        { "type": "text", "id": "badge_label", "label": "Badge label", "default": "Verified" }
+      ]
+    }
+  ]
+}
+{% endschema %}
+`,
+      "snippets/product-info.liquid": `
+{% doc %}
+  @param {object} section
+  @param {object} product
+{% enddoc %}
+{% for block in section.blocks %}
+  <div class="product-info__block" {{ block.shopify_attributes }}>
+    {% case block.type %}
+      {% when 'review_badge' %}
+        <p>{{ block.settings.badge_label }}</p>
+    {% endcase %}
+  </div>
+{% endfor %}
+`,
+    },
+    themeIdFallback: 111,
+  });
+
+  rememberThemePlan(context, {
+    themeId: 111,
+    intent: "native_block",
+    nextReadKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+    nextWriteKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+    plannerHandoff: {
+      intent: "native_block",
+      themeTarget: { themeId: 111, themeRole: null },
+      requiredReadKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+      nextWriteKeys: ["sections/main-product.liquid", "snippets/product-info.liquid"],
+      architecture: {
+        primarySectionFile: "sections/main-product.liquid",
+        usesThemeBlocks: false,
+        snippetRendererKeys: ["snippets/product-info.liquid"],
+        hasBlockShopifyAttributes: true,
+      },
+    },
+  });
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        files: [
+          {
+            key: "snippets/product-info.liquid",
+            value: `
+{% doc %}
+  @param {object} section
+  @param {object} product
+{% enddoc %}
+{% for block in section.blocks %}
+  <div class="product-info__block">
+    {% case block.type %}
+      {% when 'review_badge' %}
+        <p>{{ block.settings.badge_label }}</p>
+    {% endcase %}
+  </div>
+{% endfor %}
+`,
+          },
+        ],
+      }),
+      context
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some(
+        (issue) => issue.issueCode === "inspection_failed_block_shopify_attributes"
       )
     );
   } finally {

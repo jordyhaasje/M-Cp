@@ -1999,9 +1999,11 @@ function collectSnippetRendererContractSafety(
   { treatAsNativeBlockRenderer = false } = {}
 ) {
   const source = String(value || "");
+  const issues = [];
   const warnings = [];
   const suggestedFixes = [];
   const rendersSectionBlocks = /for\s+block\s+in\s+section\.blocks/i.test(source);
+  const rendersStaticThemeBlock = /content_for\s+['"]block['"]/i.test(source);
   const usesBlockContext =
     rendersSectionBlocks ||
     /\bblock\.settings\b|\bblock\.type\b|content_for\s+['"]block['"]/i.test(source);
@@ -2011,12 +2013,19 @@ function collectSnippetRendererContractSafety(
   }
 
   if (
-    usesBlockContext &&
+    (treatAsNativeBlockRenderer || rendersSectionBlocks || rendersStaticThemeBlock) &&
     !/block\.shopify_attributes/.test(source) &&
     !/{%\s*render\s+block\s*%}/i.test(source)
   ) {
-    warnings.push(
-      `Native block renderer snippet '${fileKey}' mist block.shopify_attributes. Daardoor kan Theme Editor drag-and-drop of block-selectie minder betrouwbaar werken.`
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          `Building Inspection Failed: native block renderer snippet '${fileKey}' mist block.shopify_attributes. Daardoor breken Theme Editor drag-and-drop en block-selectie sneller.`,
+        fixSuggestion:
+          "Zet {{ block.shopify_attributes }} op de top-level block wrapper wanneer een snippet block-markup rendert.",
+        issueCode: "inspection_failed_block_shopify_attributes",
+      })
     );
     suggestedFixes.push(
       "Zet {{ block.shopify_attributes }} op de top-level block wrapper wanneer een snippet block-markup rendert."
@@ -2033,6 +2042,7 @@ function collectSnippetRendererContractSafety(
   }
 
   return buildInspectionResult({
+    issues,
     warnings,
     suggestedFixes,
   });
@@ -2483,13 +2493,77 @@ function containsLiquidInSpecialBlock(value, tagName) {
 }
 
 function collectRawImgTags(value) {
-  return Array.from(String(value || "").matchAll(/<img\b([^>]*)>/gi), (match) => match[1] || "");
+  return Array.from(String(value || "").matchAll(/<img\b([^>]*)>/gi), (match) => ({
+    tag: String(match[0] || ""),
+    attributes: String(match[1] || ""),
+  }));
 }
 
 function hasRawImgWithoutDimensions(value) {
   return collectRawImgTags(value).some(
-    (attributes) => !/\bwidth\s*=\s*["'][^"']+["']/i.test(attributes) || !/\bheight\s*=\s*["'][^"']+["']/i.test(attributes)
+    ({ attributes }) =>
+      !/\bwidth\s*=\s*["'][^"']+["']/i.test(attributes) ||
+      !/\bheight\s*=\s*["'][^"']+["']/i.test(attributes)
   );
+}
+
+function hasShopifyResourceBackedRawImg(value) {
+  return collectRawImgTags(value).some(({ tag }) =>
+    /\b(?:src|srcset)\s*=\s*["'][^"']*{{[\s\S]*?\|\s*(?:image_url|img_url)\b[\s\S]*?}}[^"']*["']/i.test(
+      tag
+    )
+  );
+}
+
+function collectRawImgSafetyIssues(
+  value,
+  fileKey,
+  {
+    surfaceLabel = "Shopify sections",
+    extraSuggestedFixes = [],
+  } = {}
+) {
+  const issues = [];
+  const suggestedFixes = [];
+
+  if (hasRawImgWithoutDimensions(value)) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          `Building Inspection Failed: raw <img> tags zonder width en height veroorzaken instabiele ${surfaceLabel}. Gebruik image_url + image_tag of geef expliciete afmetingen mee.`,
+        fixSuggestion:
+          "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen.",
+        issueCode: "inspection_failed_media",
+      })
+    );
+    suggestedFixes.push(
+      "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen."
+    );
+  }
+
+  if (hasShopifyResourceBackedRawImg(value)) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          `Building Inspection Failed: raw <img> tags die een Shopify image_url/img_url renderen horen image_tag te gebruiken in ${surfaceLabel}. Anders verlies je Shopify-dimensies, srcset-gedrag en theme-correcte image rendering.`,
+        fixSuggestion:
+          "Gebruik het Liquid-patroon image_url | image_tag in plaats van een raw <img> met Shopify media-output.",
+        issueCode: "inspection_failed_shopify_raw_img",
+      })
+    );
+    suggestedFixes.push(
+      "Gebruik image_url | image_tag in plaats van een raw <img> wanneer de src uit Shopify Liquid image_url/img_url komt."
+    );
+  }
+
+  suggestedFixes.push(...extraSuggestedFixes);
+
+  return {
+    issues,
+    suggestedFixes: uniqueStrings(suggestedFixes),
+  };
 }
 
 function removeLiquidBlock(value, tagName) {
@@ -2740,8 +2814,15 @@ function collectLiquidRendererSafety(value, fileKey) {
     /for\s+block\s+in\s+section\.blocks/i.test(String(value || "")) &&
     !/block\.shopify_attributes/.test(String(value || ""))
   ) {
-    warnings.push(
-      "Renderer loop over section.blocks mist block.shopify_attributes. Daardoor werkt Theme Editor drag-and-drop minder betrouwbaar."
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Building Inspection Failed: renderer loop over section.blocks mist block.shopify_attributes. Daardoor werkt Theme Editor drag-and-drop en block-selectie niet betrouwbaar.",
+        fixSuggestion:
+          "Zet {{ block.shopify_attributes }} op de block-wrapper wanneer je over section.blocks rendert.",
+        issueCode: "inspection_failed_block_shopify_attributes",
+      })
     );
     suggestedFixes.push(
       "Zet {{ block.shopify_attributes }} op de block-wrapper wanneer je over section.blocks rendert."
@@ -2879,16 +2960,38 @@ function collectInteractiveSectionSafety(value, fileKey) {
 }
 
 function collectMediaSectionSafety(value, fileKey, settingTypes) {
+  const issues = [];
   const warnings = [];
   const suggestedFixes = [];
-  const hasVideoMarkup = /<video\b|video_tag\b/i.test(String(value || ""));
-  const hasIframeEmbed = /<iframe\b/i.test(String(value || ""));
+  const source = String(value || "");
+  const hasHostedVideoMarkup = /<video\b|video_tag\b/i.test(source);
+  const hasIframeEmbed = /<iframe\b|external_video_url\b|external_video_tag\b/i.test(source);
   const hasMediaMarkup =
-    /image_tag\b|<img\b|<video\b|video_tag\b|<iframe\b|placeholder_svg_tag\b/i.test(
-      String(value || "")
+    /image_tag\b|<img\b|<video\b|video_tag\b|external_video_tag\b|<iframe\b|placeholder_svg_tag\b/i.test(
+      source
     );
 
-  if (hasVideoMarkup && !settingTypes.has("video") && !settingTypes.has("video_url")) {
+  if (
+    hasHostedVideoMarkup &&
+    settingTypes.has("video_url") &&
+    !settingTypes.has("video")
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey, "schema", "settings"],
+        problem:
+          `Building Inspection Failed: de media-heavy section '${fileKey}' rendert Shopify-hosted video markup, maar schema biedt alleen video_url. Dat is bedoeld voor externe YouTube/Vimeo URLs, niet voor merchant-uploaded video-bestanden.`,
+        fixSuggestion:
+          "Gebruik setting type 'video' voor merchant-uploaded video-bestanden en reserveer video_url alleen voor externe embeds.",
+        issueCode: "inspection_failed_video_setting_mismatch",
+      })
+    );
+    suggestedFixes.push(
+      "Gebruik setting type 'video' voor merchant-uploaded videobestanden en houd video_url alleen voor externe YouTube/Vimeo embeds."
+    );
+  }
+
+  if (hasHostedVideoMarkup && !settingTypes.has("video") && !settingTypes.has("video_url")) {
     warnings.push(
       `De media-heavy section '${fileKey}' rendert video markup, maar schema mist een video of video_url setting.`
     );
@@ -2921,7 +3024,7 @@ function collectMediaSectionSafety(value, fileKey, settingTypes) {
   }
 
   return {
-    issues: [],
+    issues,
     warnings,
     suggestedFixes,
   };
@@ -2942,6 +3045,8 @@ function collectExactMatchReferenceSafety(
   }
 
   const source = String(value || "");
+  const layoutContract = sectionBlueprint?.layoutContract || null;
+  const themeWrapperStrategy = sectionBlueprint?.themeWrapperStrategy || null;
   const schema = parseSectionSchema(source).schema;
   const schemaSettings = collectSchemaSettings(schema);
   const issues = [];
@@ -3006,6 +3111,31 @@ function collectExactMatchReferenceSafety(
       "i"
     ).test(source)
   );
+  const rootUsesOuterContainer = rootClassTokens.some((className) =>
+    /^(?:page-width|container|content-container)$/i.test(className)
+  );
+  const hasSplitLayoutSignals =
+    /grid-template-columns\s*:[^;]*(?:minmax\([^;]+?\)|\b1fr\b)[^;]*(?:minmax\([^;]+?\)|\b1fr\b)/i.test(
+      source
+    ) ||
+    /class\s*=\s*["'][^"']*(?:split|two[-_ ]column|two[-_ ]up|side[-_ ]by[-_ ]side)[^"']*["']/i.test(
+      source
+    ) ||
+    /\b(?:media|image|visual|photo|video)[-_ ]?(?:column|col|pane|panel)\b/i.test(source);
+  const hasBackgroundLayerSignals =
+    /background-image\s*:|class\s*=\s*["'][^"']*(?:overlay|media-layer|image-layer|background-media|hero__media|hero__overlay)[^"']*["']/i.test(
+      source
+    ) ||
+    /position\s*:\s*absolute[\s\S]{0,180}?inset\s*:\s*0/i.test(source) ||
+    /linear-gradient|radial-gradient|conic-gradient/i.test(source);
+  const hasConditionalMediaFallback =
+    /{%\s*if[\s\S]{0,240}?(?:section\.settings|block\.settings|hero_image|media|image|video)[\s\S]*?{%\s*else\s*%}[\s\S]*?{%\s*endif\s*%}/i.test(
+      source
+    );
+  const hasSharedMediaSlotWrapper =
+    /<([a-z]+)\b[^>]*class\s*=\s*["'][^"']*(?:media|visual|image|video|hero__media)[^"']*["'][^>]*>\s*{%\s*if[\s\S]*?{%\s*endif\s*%}\s*<\/\1>/i.test(
+      source
+    );
 
   if (
     referenceSignals.requiresRenderablePreviewMedia &&
@@ -3217,6 +3347,63 @@ function collectExactMatchReferenceSafety(
     suggestedFixes.push(
       "Gebruik dezelfde content-width wrapper als de representatieve theme section."
     );
+  }
+
+  if (
+    layoutContract?.avoidOuterContainer ||
+    themeWrapperStrategy?.allowOuterThemeContainer === false
+  ) {
+    if (rootUsesOuterContainer) {
+      issues.push(
+        createInspectionIssue({
+          path: [fileKey],
+          problem:
+            "De exacte media-first/full-bleed hero zet een page-width/container op de outer hero-shell. Daardoor wordt een full-bleed referentie onterecht boxed.",
+          fixSuggestion:
+            "Laat de outer hero-shell full-bleed en verplaats page-width/container alleen naar een inner content-laag.",
+          issueCode: "exact_match_hero_outer_container",
+        })
+      );
+      suggestedFixes.push(
+        "Laat de outer hero-shell full-bleed en verplaats page-width/container alleen naar een inner content-laag."
+      );
+    }
+  }
+
+  if (layoutContract?.requiresBackgroundMediaArchitecture) {
+    if (hasSplitLayoutSignals && !hasBackgroundLayerSignals) {
+      issues.push(
+        createInspectionIssue({
+          path: [fileKey],
+          problem:
+            "De exacte hero-referentie vraagt om een media-first/background-media architectuur, maar de huidige markup oogt als een split two-column layout zonder duidelijke media layer, overlay layer en content layer.",
+          fixSuggestion:
+            "Gebruik de hero-architectuur media layer -> overlay layer -> content layer en vermijd een losse inline media-kolom als primaire shell.",
+          issueCode: "exact_match_media_first_split_mismatch",
+        })
+      );
+      suggestedFixes.push(
+        "Gebruik voor media-first heroes een media layer, overlay layer en content layer in plaats van een split two-column shell."
+      );
+    }
+  }
+
+  if (layoutContract?.sharedMediaSlotRequired) {
+    if (hasConditionalMediaFallback && !hasSharedMediaSlotWrapper) {
+      issues.push(
+        createInspectionIssue({
+          path: [fileKey],
+          problem:
+            "De exacte media-first hero gebruikt verschillende DOM-slots of wrappers voor uploaded media en fallback-media. Daardoor wijkt de compositie tussen beide states zichtbaar af.",
+          fixSuggestion:
+            "Laat uploaded media en fallback-media exact hetzelfde primaire media-slot en dezelfde wrapper-hiërarchie delen.",
+          issueCode: "exact_match_media_slot_mismatch",
+        })
+      );
+      suggestedFixes.push(
+        "Laat uploaded media en fallback-media exact hetzelfde primaire media-slot en dezelfde wrapper-hiërarchie delen."
+      );
+    }
   }
 
   if (
@@ -3624,22 +3811,14 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
         : "",
   });
 
-  if (hasRawImgWithoutDimensions(value)) {
-    issues.push(
-      createInspectionIssue({
-        path: [file.key],
-        problem:
-          "Building Inspection Failed: raw <img> tags zonder width en height veroorzaken instabiele Shopify sections. Gebruik image_url + image_tag of geef expliciete afmetingen mee.",
-        fixSuggestion:
-          "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen.",
-        issueCode: "inspection_failed_media",
-      })
-    );
-    suggestedFixes.push(
-      "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen.",
-      "Gebruik image_picker, collection of andere Shopify resource settings voor merchant-editable media."
-    );
-  }
+  const rawImgInspection = collectRawImgSafetyIssues(value, file.key, {
+    surfaceLabel: "Shopify sections",
+    extraSuggestedFixes: [
+      "Gebruik image_picker, collection of andere Shopify resource settings voor merchant-editable media.",
+    ],
+  });
+  issues.push(...(rawImgInspection.issues || []));
+  suggestedFixes.push(...(rawImgInspection.suggestedFixes || []));
 
   if (presets.length === 0) {
     issues.push(
@@ -3825,22 +4004,6 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
     warnings.push("De section lijkt media te gebruiken, maar schema bevat geen image_picker.");
     suggestedFixes.push("Voeg een image_picker toe wanneer imagery of logo's merchant-editable moeten zijn.");
   }
-  if (settingTypes.has("video_url") && !settingTypes.has("video")) {
-    warnings.push(
-      "Schema gebruikt video_url. Dit ondersteunt externe YouTube/Vimeo URLs; gebruik type 'video' voor merchant-uploaded videobestanden."
-    );
-    suggestedFixes.push(
-      "Gebruik een video setting in plaats van video_url wanneer de gebruiker een video moet uploaden in het theme."
-    );
-  }
-  if (blocks.length > 0 && !/block\.shopify_attributes/.test(value)) {
-    warnings.push(
-      "Schema bevat blocks, maar de markup mist block.shopify_attributes. Daardoor werkt drag-and-drop in de Theme Editor minder betrouwbaar."
-    );
-    suggestedFixes.push(
-      "Voeg {{ block.shopify_attributes }} toe op de block wrapper in loops over section.blocks."
-    );
-  }
   if (schema && Object.prototype.hasOwnProperty.call(schema, "templates")) {
     warnings.push(
       "Schema gebruikt legacy 'templates' voor template-beschikbaarheid. Gebruik bij voorkeur enabled_on/disabled_on voor nieuwe sections."
@@ -3944,30 +4107,16 @@ function inspectThemeBlockFile(file) {
   warnings.push(...(optionalResourceInspection.warnings || []));
   suggestedFixes.push(...(optionalResourceInspection.suggestedFixes || []));
 
-  if (settingTypes.has("video_url") && !settingTypes.has("video")) {
-    warnings.push(
-      "Schema gebruikt video_url. Dit ondersteunt externe YouTube/Vimeo URLs; gebruik type 'video' voor merchant-uploaded videobestanden."
-    );
-    suggestedFixes.push(
-      "Gebruik een video setting in plaats van video_url wanneer de gebruiker een video moet uploaden in het theme."
-    );
-  }
+  const mediaInspection = collectMediaSectionSafety(value, file.key, settingTypes);
+  issues.push(...(mediaInspection.issues || []));
+  warnings.push(...(mediaInspection.warnings || []));
+  suggestedFixes.push(...(mediaInspection.suggestedFixes || []));
 
-  if (hasRawImgWithoutDimensions(value)) {
-    issues.push(
-      createInspectionIssue({
-        path: [file.key],
-        problem:
-          "Building Inspection Failed: raw <img> tags zonder width en height veroorzaken instabiele Shopify blocks. Gebruik image_url + image_tag of geef expliciete afmetingen mee.",
-        fixSuggestion:
-          "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen.",
-        issueCode: "inspection_failed_media",
-      })
-    );
-    suggestedFixes.push(
-      "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen."
-    );
-  }
+  const rawImgInspection = collectRawImgSafetyIssues(value, file.key, {
+    surfaceLabel: "Shopify blocks",
+  });
+  issues.push(...(rawImgInspection.issues || []));
+  suggestedFixes.push(...(rawImgInspection.suggestedFixes || []));
 
   if (!hasLiquidBlockTag(value, "doc")) {
     warnings.push(
@@ -4075,21 +4224,11 @@ function inspectSnippetFile(
     suggestedFixes.push(...(mediaInspection.suggestedFixes || []));
   }
 
-  if (hasRawImgWithoutDimensions(value)) {
-    issues.push(
-      createInspectionIssue({
-        path: [file.key],
-        problem:
-          "Building Inspection Failed: raw <img> tags zonder width en height veroorzaken instabiele Shopify renders. Gebruik image_url + image_tag of geef expliciete afmetingen mee.",
-        fixSuggestion:
-          "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen.",
-        issueCode: "inspection_failed_media",
-      })
-    );
-    suggestedFixes.push(
-      "Vervang raw <img> door Shopify image_url + image_tag zodat width/height automatisch goed mee kunnen komen."
-    );
-  }
+  const rawImgInspection = collectRawImgSafetyIssues(value, file.key, {
+    surfaceLabel: "Shopify renders",
+  });
+  issues.push(...(rawImgInspection.issues || []));
+  suggestedFixes.push(...(rawImgInspection.suggestedFixes || []));
 
   if (!hasLiquidBlockTag(value, "doc")) {
     warnings.push(
