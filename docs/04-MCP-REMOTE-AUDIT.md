@@ -15,19 +15,20 @@ Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve
 - Groen: `plan-theme-edit` geeft native-block architectuur nu ook door via `plannerHandoff`, en `draft-theme-artifact` valideert native-block snippets nu tegen gerelateerde section-schema’s, blank-safe optionele resources en `@theme` block-routes, zonder Shopify-onjuiste `name`-eisen op `@app`/`@theme` schema entries af te dwingen.
 - Groen: MCP domeinfouten komen nu protocolcorrect terug als `isError: true`, en read/search/verify vereisen nu een expliciet of sticky bevestigd theme target.
 - Groen: non-theme contract cleanup is aangescherpt voor refunds, product-contracten, tracking-redirects, destructieve auditsporen en eerste productimports.
-- Groen: de license-service herkent Railway-productie nu expliciet, valideert verplichte productie-envs hard en beschermt backup-export/smoke checks beter.
-- Geel: live Railway parity is nog niet opnieuw bevestigd; de huidige lokale remediation staat verder dan de laatst bevestigde productie-deploys.
+- Groen: de license-service herkent Railway-productie nu expliciet, valideert verplichte productie-envs hard en beschermt backup-export/smoke checks beter zonder startup op Railway te blokkeren wanneer backup-export bewust niet is geconfigureerd.
+- Groen: live Railway parity is bevestigd via Railway deploy/logreview en `npm run release:postdeploy` op 2026-04-22.
 - Geel: docs-drift is afgebakend; auto-sync geldt alleen voor `AGENTS.md` en `docs/02-SYSTEM-FLOW.md`.
 
 ## Verificatie- en release-ledger
 | Service | Laatst lokaal geverifieerd | Laatste lokale bewijsset | Laatst live op Railway | Live parity bevestigd |
 | --- | --- | --- | --- | --- |
-| `Hazify-MCP-Remote` | 2026-04-22 | `npm run check:docs`, `npm run check:repo`, `npm run build`, `npm run --workspace @hazify/mcp-remote test`, plus gerichte matrix/regressies voor `crossThemeAcceptanceMatrix` en Liquid template placement | `a220e440-5f9c-43c9-9e77-25e6aa4b407f` op 2026-04-21 | Nee. De huidige remediation staat lokaal verder dan de laatst bevestigde live deploy. |
-| `Hazify-License-Service` | 2026-04-22 | `npm run --workspace @hazify/license-service test` en repo-brede build/checks | `61cc2fa6-9c98-41a2-8634-7eec84a93303` op 2026-04-19 | Nee. De huidige Railway-hardenings zijn lokaal geverifieerd, maar nog niet opnieuw live bevestigd. |
+| `Hazify-MCP-Remote` | 2026-04-22 | `npm run check:docs`, `npm run check:repo`, `npm run build`, `npm run --workspace @hazify/mcp-remote test`, plus gerichte matrix/regressies voor `crossThemeAcceptanceMatrix` en Liquid template placement | `a114fabe-96fd-4a64-9b47-03f6d2bf3045` op 2026-04-22 | Ja. Railway deploy is succesvol, deploy logs tonen startup, en `npm run release:postdeploy` is groen. |
+| `Hazify-License-Service` | 2026-04-22 | `npm run --workspace @hazify/license-service test` en repo-brede build/checks | `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22 | Ja. De crash op `81578f9a-b774-4126-90f1-1eb12f9ac0b2` is opgelost; de nieuwe Railway deploy start correct en `npm run release:postdeploy` is groen. |
 
 Releasewaarheid:
 - Lokaal groen betekent alleen dat de code en tests in deze repo op 2026-04-22 kloppen.
 - Live groen betekent pas iets nadat de relevante service is gepusht, gedeployed op Railway, gesmoked via `npm run smoke:prod` en gecontroleerd in Railway logs.
+- Op 2026-04-22 voldoet de huidige live stand daaraan voor beide services. De smoke bevatte live 200's op `/health`, `/v1/session/bootstrap` en de MCP well-known endpoints; `/v1/admin/readiness` en `/v1/billing/readiness` zijn in die run eerlijk als optioneel overgeslagen gemeld omdat de benodigde lokale keys/envs niet waren gezet.
 - `npm run check:git-sync` blijft een git-parity check; dit bewijst geen Railway deploy parity.
 
 De detailsecties hieronder zijn achtergrondcontext. Voor actuele status, blockers en de actieve leesvolgorde zijn de compacte status en de canonieke vervolgdocs leidend.
@@ -58,8 +59,8 @@ Deze audit is expliciet getoetst aan externe documentatie:
 De remote MCP is nu het sterkst op de theme/section-stack. `plan-theme-edit`, `create-theme-section`, `patch-theme-file` en `draft-theme-artifact` vormen samen een serieus geharde pipeline met planner-memory, verplichte reads, lokale inspectie, linting en verify-after-write.
 
 De grootste resterende risico’s zitten nu vooral in:
-- live Railway parity na commit/push/deploy/smoke/logreview
 - audit- en docs-drift buiten de auto-gesynchroniseerde toolcatalogus
+- niet-blokkerende Railway hygiene-signalen zoals `punycode` deprecation en `npm warn config production`
 
 ## Wat al aantoonbaar goed werkt
 - De server is registry-first opgezet met centrale tooldefinities, outputschema’s en aliassen in `apps/hazify-mcp-remote/src/tools/registry.js`.
@@ -84,7 +85,7 @@ De grootste resterende risico’s zitten nu vooral in:
 - Repo-brede verificatie op 2026-04-22 is groen: `npm run check:docs`, `npm run check:repo`, `npm run build`, `npm run --workspace @hazify/mcp-remote test`, `npm run --workspace @hazify/license-service test` en `npm run test:e2e`.
 
 ## Productiebewijs uit Railway
-De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` was `a220e440-5f9c-43c9-9e77-25e6aa4b407f` op 2026-04-21. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `61cc2fa6-9c98-41a2-8634-7eec84a93303` op 2026-04-19.
+De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `a114fabe-96fd-4a64-9b47-03f6d2bf3045` op 2026-04-22. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22.
 
 De logs laten een realistisch beeld zien:
 - de planner-, read- en write-pipeline wordt actief gebruikt op echte shops
@@ -92,17 +93,17 @@ De logs laten een realistisch beeld zien:
 - schemafouten zoals ongeldige range-defaults worden daadwerkelijk onderschept
 - er komen nog echte parse- en schemafouten terug op section-creatie en op bestaande product-sections
 
-Conclusie uit productie: de pipeline grijpt wel degelijk in, maar de huidige live Railway runtime loopt nog achter op de laatste lokale remediation. Daardoor mag deze audit lokaal veel groener zijn dan live; die kloof moet expliciet blijven totdat er een nieuwe Railway deploy + smoke/logreview is gedaan.
+Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live Railway runtime sluit nu aan op de lokale remediation van 2026-04-22. De eerdere license-service crash op ontbrekende `BACKUP_EXPORT_*` startup-validatie is opgeheven; backup-export blijft nu feature-gated op de admin-route in plaats van de hele service omver te trekken.
 
 ## Open blockers
-- `[P1] Live Railway parity is nog niet bevestigd op de nieuwste remediation.`
-  Lokaal en via Shopify Dev MCP is de tranche nu veel groener, maar de productie-deploys op Railway lopen nog achter tot commit, push, redeploy, smoke en logreview klaar zijn.
-
-- `[P2] Docs-drift wordt nog niet volledig automatisch tegengehouden.`
+- `[P1] Docs-drift wordt nog niet volledig automatisch tegengehouden.`
   `scripts/generate-tool-docs.mjs` synchroniseert alleen `AGENTS.md` en `docs/02-SYSTEM-FLOW.md`. `docs/03-THEME-SECTION-GENERATION.md`, `docs/04-MCP-REMOTE-AUDIT.md`, `docs/05-REMEDIATION-PLAN.md` en `apps/hazify-mcp-remote/README.md` blijven handmatig en daardoor driftgevoelig.
 
-- `[P3] Context-TTL documentatie is niet helemaal scherp geformuleerd.`
+- `[P2] Context-TTL documentatie is niet helemaal scherp geformuleerd.`
   `HAZIFY_MCP_CONTEXT_TTL_MS` klinkt in de docs als een volledige request-context cache, terwijl de code nog steeds per request introspecteert en pas daarna de gehydrateerde context/client cachet.
+
+- `[P3] Railway build/start hygiene heeft nog niet-blokkerende waarschuwingen.`
+  De huidige live deploys starten goed, maar de logs tonen nog `npm warn config production Use --omit=dev instead` en de `punycode` deprecation warning. Dat is geen functionele blocker meer, wel een ops-hygiene track.
 
 ## Wat we nu nog niet eerlijk mogen claimen
 We mogen nu nog niet claimen dat:
@@ -111,7 +112,7 @@ We mogen nu nog niet claimen dat:
 - screenshot- of image-driven replica’s op elk willekeurig Shopify 2.0 theme universeel exact en zonder handmatige nabehandeling slagen
 - alle non-theme tools volledig contractvast en audit-proof zijn
 
-De reden is niet dat de pipeline zwak is, maar dat de laatste bewijslaag nog ontbreekt: live Railway parity en verdere docs-driftbeheersing.
+De reden is niet dat de pipeline zwak is, maar dat "perfect op elk theme" nog steeds een grotere claim is dan het huidige acceptatiebewijs. Live Railway parity is nu rond; verdere eerlijkheid zit vooral in docs-driftbeheersing en het scherp houden van de claimgrenzen.
 
 ## Wanneer we wél mogen claimen dat LLMs “perfecte sections” kunnen maken
 Deze claim is pas verantwoord zodra alle onderstaande gates groen zijn:

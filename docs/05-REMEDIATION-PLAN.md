@@ -26,14 +26,14 @@ Dit document volgt de open remediation-tracks, release-gates en live-validatie. 
 ## Werkstroombord
 | Track | Owner | Status | Lokaal gereed | Commit nodig | Push nodig | Redeploy nodig | Post-deploy smoke nodig | Live bevestigd | Laatste verificatie | Opmerking |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Protocolcorrectheid MCP-errors | MCP maintainers | Afgerond | Ja | Ja | Na commit | `Hazify-MCP-Remote` na push | Ja | Nee | 2026-04-22 | `success: false` zet nu `isError: true`; live Railway draait nog niet op deze lokale stand. |
-| Strikt theme-targeting | MCP maintainers | Afgerond | Ja | Ja | Na commit | `Hazify-MCP-Remote` na push | Ja | Nee | 2026-04-22 | Geen stille `main`-fallback meer; sticky target alleen na expliciete eerdere keuze. |
-| Liquid template placement in edit-flow | MCP maintainers | Afgerond | Ja | Ja | Na commit | `Hazify-MCP-Remote` na push | Ja | Nee | 2026-04-22 | `draft-theme-artifact` accepteert nu ook `templates/*.liquid` naast `templates/*.json`. |
-| Snippet/native-block parity | MCP maintainers | Afgerond lokaal | Ja | Ja | Na commit | `Hazify-MCP-Remote` na push | Ja | Nee | 2026-04-22 | `plannerHandoff` draagt nu architecture mee; snippet-validatie checkt gerelateerd schema, onveilige optionele block-media, `@theme` routes en laat Shopify-conforme `@app`-schema entries ongemoeid. |
-| Cross-theme acceptatiematrix | MCP maintainers | Afgerond lokaal | Ja | Ja | Na commit | `Hazify-MCP-Remote` na push | Ja | Nee | 2026-04-22 | Vier archetypes + prompt-only create, screenshot-only exact create, image-backed exact create, existing edit, native-block write/preview en template placement zijn lokaal groen. |
-| Non-theme contract cleanup | MCP maintainers | Afgerond | Ja | Ja | Na commit | `Hazify-MCP-Remote` na push | Ja | Nee | 2026-04-22 | Refund idempotency, product-contract cleanup, tracking redirects en auditsporen lokaal groen. |
-| License-service/Railway hardening | License maintainers | Afgerond | Ja | Ja | Na commit | `Hazify-License-Service` na push | Ja | Nee | 2026-04-22 | Productieherkenning, env-validatie, persist-herstel en backup-policy lokaal groen. |
-| Docs/runbook waarheid | Maintainers | In uitvoering | Deels | Ja | Na commit | Geen code-based redeploy | Nee | N.v.t. | 2026-04-22 | Releasepolicy, impactmatrix en audit/live truth worden nu expliciet bijgehouden. |
+| Protocolcorrectheid MCP-errors | MCP maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | Live bevestigd op `Hazify-MCP-Remote` deployment `a114fabe-96fd-4a64-9b47-03f6d2bf3045` plus groene post-deploy smoke. |
+| Strikt theme-targeting | MCP maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | Geen stille `main`-fallback meer; sticky target alleen na expliciete eerdere keuze; live smoke is groen. |
+| Liquid template placement in edit-flow | MCP maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | `draft-theme-artifact` accepteert nu ook `templates/*.liquid` naast `templates/*.json`; current live runtime is bevestigd. |
+| Snippet/native-block parity | MCP maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | `plannerHandoff` draagt nu architecture mee; snippet-validatie checkt gerelateerd schema, onveilige optionele block-media, `@theme` routes en laat Shopify-conforme `@app`-schema entries ongemoeid. |
+| Cross-theme acceptatiematrix | MCP maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | Vier archetypes + prompt-only create, screenshot-only exact create, image-backed exact create, existing edit, native-block write/preview en template placement zijn lokaal groen; live runtime draait op de gevalideerde code. |
+| Non-theme contract cleanup | MCP maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | Refund idempotency, product-contract cleanup, tracking redirects en auditsporen zijn live bevestigd op de huidige MCP deploy. |
+| License-service/Railway hardening | License maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | Railway-crash op ontbrekende `BACKUP_EXPORT_*` startup-validatie is opgelost in commit `07d9e66` en live bevestigd op deployment `b9c84b4e-9aa5-48dc-973b-f1c157b00146`. |
+| Docs/runbook waarheid | Maintainers | Afgerond voor deze tranche | Ja | Ja | Na commit | Geen code-based redeploy | Nee | N.v.t. | 2026-04-22 | Audit/live truth en releasepolicy zijn bijgewerkt; resterende docs-drift blijft een handmatige onderhoudstrack. |
 
 ## Laatste lokale verificatie
 - `npm run release:status`
@@ -44,20 +44,24 @@ Dit document volgt de open remediation-tracks, release-gates en live-validatie. 
 - Shopify Dev MCP `validate_theme` op een representatieve tijdelijke OS 2.0 theme-fixture (`sections/exact-reference.liquid`, `sections/main-product.liquid`, `snippets/product-info.liquid`)
 - Shopify Dev MCP `validate_theme` op een representatieve tijdelijke native-block fixture (`sections/main-product.liquid`, `snippets/product-info.liquid`, `blocks/review-badge.liquid`)
 
+## Laatste live verificatie
+- Railway deploy `Hazify-MCP-Remote`: `a114fabe-96fd-4a64-9b47-03f6d2bf3045` (`SUCCESS`)
+- Railway deploy `Hazify-License-Service`: `b9c84b4e-9aa5-48dc-973b-f1c157b00146` (`SUCCESS`)
+- Railway deploy logs gecontroleerd: MCP start op `0.0.0.0:8080`; license-service start met `Storage: PostgreSQL (DATABASE_URL)` zonder backup-export startup crash.
+- `npm run release:postdeploy` groen op 2026-04-22
+- Optionele live-checks eerlijk overgeslagen in dezelfde smoke-run: `/v1/admin/readiness` zonder lokale `ADMIN_API_KEY`, `/v1/billing/readiness` zonder lokale billing envs.
+
 ## Laatste live Railway waarheid
 | Service | Laatste gecontroleerde success-deploy | Status live bevestigd |
 | --- | --- | --- |
-| `Hazify-MCP-Remote` | `a220e440-5f9c-43c9-9e77-25e6aa4b407f` op 2026-04-21 | Nee, huidige lokale remediation is nieuwer |
-| `Hazify-License-Service` | `61cc2fa6-9c98-41a2-8634-7eec84a93303` op 2026-04-19 | Nee, huidige lokale remediation is nieuwer |
+| `Hazify-MCP-Remote` | `a114fabe-96fd-4a64-9b47-03f6d2bf3045` op 2026-04-22 | Ja |
+| `Hazify-License-Service` | `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22 | Ja |
 
 ## Eerstvolgende gates
-1. Draai `npm run release:status` en bevestig dat de commit scope nog steeds beide runtime services raakt.
-2. Draai `npm run release:preflight` op de definitieve commit-kandidaat.
-3. Commit de bedoelde runtime/docs-wijzigingen.
-4. Push naar `origin/main`.
-5. Wacht op de code-based Railway deploys voor `Hazify-MCP-Remote` en `Hazify-License-Service`, of forceer alleen een handmatige redeploy als GitHub auto-deploy niet afgaat.
-6. Draai `npm run release:postdeploy`.
-7. Controleer Railway deployment metadata en logs en zet daarna pas `Live bevestigd` op `Ja`.
+1. Commit en push de bijgewerkte audit/runbook-docs zodat repo en Railway-status weer synchroon zijn.
+2. Blijf `npm run release:status` gebruiken als beslisser voor de volgende runtime-tranche: commit eerst, daarna pas push en Railway redeploy.
+3. Pak de handmatige docs-drift-track verder aan buiten `AGENTS.md` en `docs/02-SYSTEM-FLOW.md`.
+4. Evalueer de niet-blokkerende Railway warnings (`npm warn config production`, `punycode`) als aparte hygiene-tranche.
 
 ## Documentatie-afspraak
 - Audit = canonieke bron voor status, blockers en acceptatiecriteria.
