@@ -174,11 +174,13 @@ Status: afgerond lokaal op 2026-04-22.
 - Trek snippet-inspectie richting section/block-inspectie.
 - Voeg extra checks toe voor snippet-zware native block flows, Theme Editor-contracten, resource guards en precision-first fidelity-signalen.
 - Maak van echte productiefouten uit Railway vaste regressietests.
+- Native-block planning stuurt nu ook compacter: helper-snippets zonder `section.blocks`-renderer vallen uit de eerste read-pass, de planner geeft compacte search-anchors terug en de write-template is patch-first in plaats van full-rewrite-first.
 
 ### 4. Cross-theme acceptatiesuite
 Status: afgerond lokaal op 2026-04-22.
 - Bouw een vaste acceptatiematrix voor prompt-only, screenshot-only, image-backed exact-match, existing-edit, native-block en template-placement flows.
 - Meet niet alleen `preview_ready`, maar ook inhoudelijke kwaliteit, merchant-editability en theme-target-correctheid.
+- De native-block acceptance-route bewijst nu expliciet `plan-theme-edit -> search-theme-files -> draft-theme-artifact patches[]`, inclusief server-side auto-hydratie van planner-reads zonder verplichte full `get-theme-files` dump.
 
 ### 5. Non-theme contract cleanup
 Status: afgerond op 2026-04-22.

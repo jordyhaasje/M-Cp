@@ -300,6 +300,7 @@ export const matrixFixtures = [
       "sections/main-product.liquid": `
 <section class="main-product">
   {% render 'product-sections', product: product, section: section %}
+  {% render 'price-list', product: product %}
 </section>
 {% schema %}
 {
@@ -323,6 +324,9 @@ export const matrixFixtures = [
 `,
       "snippets/button.liquid": `
 <button class="button">{{ label }}</button>
+`,
+      "snippets/price-list.liquid": `
+<div class="price-list">{{ product.price | money }}</div>
 `,
       "snippets/product-sections.liquid": `
 {% for block in section.blocks %}
@@ -351,6 +355,7 @@ export const matrixFixtures = [
         usesThemeBlocks: false,
         sectionKey: "sections/main-product.liquid",
         snippetRendererKeys: ["snippets/product-sections.liquid"],
+        disallowedReadKeys: ["snippets/price-list.liquid"],
         hasBlockShopifyAttributes: true,
         writeProof: {
           mode: "snippet_renderer",

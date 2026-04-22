@@ -551,8 +551,10 @@ const pickBlockRendererSnippetKeys = (snippetFiles, snippetAnalyses) => {
     .filter(
       (entry) =>
         entry.analysis.hasSectionBlocksLoop ||
-        entry.analysis.referencesBlockType ||
-        entry.analysis.hasBlockShopifyAttributes
+        entry.analysis.hasBlockSwitch ||
+        entry.analysis.hasBlockShopifyAttributes ||
+        (entry.analysis.referencesBlockType &&
+          entry.analysis.caseBlockTypes.length > 0)
     )
     .map((entry) => byKey.get(entry.key))
     .filter(Boolean);
@@ -562,6 +564,61 @@ const pickBlockRendererSnippetKeys = (snippetFiles, snippetAnalyses) => {
   }
 
   return [];
+};
+
+const pickSharedBlockAnchor = (sectionAnalysis, snippetAnalyses = []) => {
+  const normalizedSectionTypes = uniqueStrings(
+    [
+      ...(sectionAnalysis?.schemaBlockTypes || []),
+      ...(sectionAnalysis?.caseBlockTypes || []),
+    ]
+      .map((entry) => String(entry || "").trim())
+      .filter((entry) => entry && !entry.startsWith("@"))
+  );
+  const normalizedSnippetTypes = uniqueStrings(
+    (snippetAnalyses || [])
+      .flatMap((entry) => [
+        ...(entry?.analysis?.caseBlockTypes || []),
+        ...(entry?.analysis?.staticThemeBlockTypes || []),
+      ])
+      .map((entry) => String(entry || "").trim())
+      .filter((entry) => entry && !entry.startsWith("@"))
+  );
+
+  const scoreAnchor = (entry) => {
+    const normalized = String(entry || "").trim().toLowerCase();
+    let score = normalized.length;
+
+    if (normalized.includes("_") || normalized.includes("-")) {
+      score += 20;
+    }
+
+    if (
+      /button|review|badge|price|inventory|variant|accordion|pickup|shipping/i.test(
+        normalized
+      )
+    ) {
+      score += 12;
+    }
+
+    if (/^(text|heading|image|caption|paragraph|richtext|subheading)$/.test(normalized)) {
+      score -= 30;
+    }
+
+    return score;
+  };
+
+  const sharedTypes = normalizedSectionTypes
+    .filter((entry) => normalizedSnippetTypes.includes(entry))
+    .sort((left, right) => scoreAnchor(right) - scoreAnchor(left));
+
+  return (
+    sharedTypes[0] ||
+    normalizedSectionTypes.sort((left, right) => scoreAnchor(right) - scoreAnchor(left))[0] ||
+    normalizedSectionTypes[0] ||
+    normalizedSnippetTypes[0] ||
+    null
+  );
 };
 
 const summarizeTemplateFile = (file) => ({
@@ -598,6 +655,7 @@ const buildPlanFromAnalysis = ({
   );
 
   const snippetRendererKeys = pickBlockRendererSnippetKeys(snippetFiles, snippetAnalyses);
+  const sharedBlockAnchor = pickSharedBlockAnchor(sectionAnalysis, snippetAnalyses);
   const warnings = [];
   let recommendedFlow = "manual-review";
   let shouldUse = "draft-theme-artifact";
@@ -748,6 +806,10 @@ const buildPlanFromAnalysis = ({
       );
     }
     nextReadKeys = uniqueStrings([sectionFile?.key]);
+    searchQueries.push("content_for 'blocks'");
+    if (sectionAnalysis?.schemaBlockTypes?.includes("@theme")) {
+      searchQueries.push("@theme");
+    }
   } else if (
     sectionAnalysis &&
     (sectionAnalysis.schemaBlockTypes.length > 0 ||
@@ -767,6 +829,15 @@ const buildPlanFromAnalysis = ({
     nextReadKeys = uniqueStrings(
       [sectionFile?.key, ...snippetRendererKeys].filter(Boolean)
     );
+    if (sharedBlockAnchor) {
+      searchQueries.push(sharedBlockAnchor);
+    }
+    if (snippetRendererKeys.length > 0) {
+      searchQueries.push("block.shopify_attributes");
+    }
+    if (sectionAnalysis.schemaBlockTypes.length > 0) {
+      searchQueries.push('"blocks": [');
+    }
   } else if (templateFile?.key) {
     recommendedFlow = "create-section";
     shouldUse = "create-theme-section";

@@ -530,6 +530,11 @@ const buildPlanInputError = ({
   ...(suggestedReplacement !== undefined ? { suggestedReplacement } : {}),
 });
 
+const compactSearchQuery = (value) =>
+  typeof value === "string" && value.trim()
+    ? value.trim().slice(0, 160)
+    : undefined;
+
 const buildPlanRepairResponse = ({
   status = "needs_input",
   message,
@@ -555,6 +560,34 @@ const buildPlanRepairResponse = ({
   warnings,
   errors,
 });
+
+const buildPatchTemplateEntry = (key) => ({
+  key,
+  patches: [
+    {
+      searchString: "<exact literal anchor from the current file>",
+      replaceString: "<updated markup/liquid>",
+    },
+  ],
+});
+
+const pickPlanSearchQuery = (input = {}, result = {}) => {
+  const resultQueries = Array.isArray(result?.searchQueries)
+    ? result.searchQueries.filter(
+        (entry) => typeof entry === "string" && entry.trim()
+      )
+    : [];
+  if (resultQueries.length > 0) {
+    return resultQueries[0];
+  }
+
+  const compactedQuery = compactSearchQuery(input?.query);
+  if (compactedQuery) {
+    return compactedQuery;
+  }
+
+  return getBasenameQueryFromTargetFile(input?.targetFile) || "block.type";
+};
 
 const buildPlanWriteArgsTemplate = (input = {}, result = {}) => {
   const explicitThemeTarget = buildExplicitThemeTarget(input);
@@ -589,6 +622,27 @@ const buildPlanWriteArgsTemplate = (input = {}, result = {}) => {
       result?.recommendedFlow === "rewrite-existing" ||
       result?.recommendedFlow === "template-placement" ||
       result?.recommendedFlow === "multi-file-edit";
+    const patchPreferredWriteKeys = Array.isArray(result?.nextWriteKeys)
+      ? result.nextWriteKeys.filter(Boolean)
+      : [];
+    const shouldPreferPatchTemplate =
+      isEditModeFlow &&
+      !preferFullRewrite &&
+      (
+        input?.intent === "native_block" ||
+        result?.recommendedFlow === "template-placement" ||
+        result?.recommendedFlow === "multi-file-edit"
+      ) &&
+      patchPreferredWriteKeys.length > 0;
+
+    if (shouldPreferPatchTemplate) {
+      return {
+        ...explicitThemeTarget,
+        mode: "edit",
+        files: patchPreferredWriteKeys.map((key) => buildPatchTemplateEntry(key)),
+      };
+    }
+
     return {
       ...explicitThemeTarget,
       mode: isEditModeFlow ? "edit" : "create",
@@ -609,6 +663,30 @@ const buildPlanWriteArgsTemplate = (input = {}, result = {}) => {
   return undefined;
 };
 
+const shouldPreferCompactSearchStep = (input = {}, result = {}, nextReadKeys = []) => {
+  if (nextReadKeys.length === 0) {
+    return false;
+  }
+
+  const hasStructuredSearchQueries =
+    Array.isArray(result?.searchQueries) &&
+    result.searchQueries.some(
+      (entry) => typeof entry === "string" && entry.trim()
+    );
+
+  if (
+    input?.intent === "native_block"
+  ) {
+    return true;
+  }
+
+  if (result?.recommendedFlow === "patch-existing" && hasStructuredSearchQueries) {
+    return true;
+  }
+
+  return false;
+};
+
 const buildPlanImmediateNextStep = (input = {}, result = {}) => {
   const explicitThemeTarget = buildExplicitThemeTarget(input);
   const nextReadKeys = Array.isArray(result?.nextReadKeys)
@@ -626,6 +704,19 @@ const buildPlanImmediateNextStep = (input = {}, result = {}) => {
         ...(getFileScopeFromKey(input.targetFile)
           ? { scope: getFileScopeFromKey(input.targetFile) }
           : {}),
+      },
+      requiresReadBeforeWrite: true,
+    };
+  }
+
+  if (shouldPreferCompactSearchStep(input, result, nextReadKeys)) {
+    return {
+      nextAction: "search_theme_context",
+      nextTool: "search-theme-files",
+      nextArgsTemplate: {
+        ...explicitThemeTarget,
+        query: pickPlanSearchQuery(input, result),
+        keys: nextReadKeys,
       },
       requiresReadBeforeWrite: true,
     };
@@ -695,6 +786,9 @@ const buildPlannerHandoff = ({
   requiredReads: Array.isArray(result?.sectionBlueprint?.requiredReads)
     ? result.sectionBlueprint.requiredReads
     : [],
+  searchQueries: Array.isArray(result?.searchQueries)
+    ? result.searchQueries
+    : [],
   relevantHelpers: Array.isArray(result?.sectionBlueprint?.relevantHelpers)
     ? result.sectionBlueprint.relevantHelpers
     : [],
@@ -718,9 +812,9 @@ const planThemeEditTool = {
   name: "plan-theme-edit",
   title: "Plan Theme Edit",
   description:
-    "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Gebruik plan-theme-edit voor native blocks, placement-vragen en andere theme-aware flows. Geef bij voorkeur intent plus themeId of themeRole mee. De planner retourneert de directe volgende stap: eerst lezen als nextReadKeys nodig zijn, pas daarna schrijven. Bredere refinements van bestaande sections/snippets gaan expliciet richting draft-theme-artifact; patch-theme-file blijft alleen voor kleine, gerichte fixes. Voor exacte screenshot/design-replica sections stuurt de planner nu op één precieze create-write met de finale styling in de eerste pass, niet op een veilige baseline gevolgd door een toestemming-vraag. Screenshot-only replica's zonder losse bron-assets markeert de planner nu apart zodat de write-flow demo-media of gestileerde media shells kan toestaan zonder de precision-first intent te verliezen. Bij comparison/shell replica's geeft de planner nu ook expliciet signalen terug voor desktop/mobile parity, decoratieve anchors zoals floating productmedia of badges, en het vermijden van dubbele background-shells.",
+    "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Gebruik plan-theme-edit voor native blocks, placement-vragen en andere theme-aware flows. Geef bij voorkeur intent plus themeId of themeRole mee. De planner retourneert de directe volgende stap: compacte search-theme-files anchoring wanneer dat veilig kan, en alleen nog get-theme-file(s) voor diepere contextreads. Bredere refinements van bestaande sections/snippets gaan expliciet richting draft-theme-artifact; patch-theme-file blijft alleen voor kleine, gerichte fixes. Voor exacte screenshot/design-replica sections stuurt de planner nu op één precieze create-write met de finale styling in de eerste pass, niet op een veilige baseline gevolgd door een toestemming-vraag. Screenshot-only replica's zonder losse bron-assets markeert de planner nu apart zodat de write-flow demo-media of gestileerde media shells kan toestaan zonder de precision-first intent te verliezen. Bij comparison/shell replica's geeft de planner nu ook expliciet signalen terug voor desktop/mobile parity, decoratieve anchors zoals floating productmedia of badges, en het vermijden van dubbele background-shells.",
   docsDescription:
-    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole`. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: `patch-existing`, `multi-file-edit`, `create-section` of `template-placement`, plus de exacte volgende read/write keys. `nextTool` en `nextArgsTemplate` beschrijven nu de onmiddellijke volgende stap: meestal eerst `get-theme-file` of `get-theme-files` voor verplichte contextreads, en pas daarna de uiteindelijke write-tool via `writeTool` en `writeArgsTemplate`. Langere `query`- of `description`-prompts zijn toegestaan; de planner compacteert die intern naar een korte query voor tokenzuinige planning, maar retourneert daarnaast ook een `plannerHandoff` met de volledige brief, archetype, native-block architecture, required reads, reference signals en requiredToolNames zodat write-tools en clients minder context verliezen. Voor native product-blocks analyseert de planner het relevante templatebestand al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand `targetFile`. Wanneer in dezelfde flow net een section is aangemaakt of exact is gepland, kunnen vervolgprompts zoals 'optimaliseer hem' of 'maak V2' automatisch blijven wijzen naar datzelfde target, maar alleen zolang het expliciete theme-target compatibel blijft. Een expliciete theme-switch verbreekt die sticky koppeling; alleen `themeRole='main'` mag nog veilig aan een eerder bevestigd `themeId` blijven hangen omdat Shopify daar maar één live theme tegelijk toestaat. Voor nieuwe sections retourneert de planner nu naast `themeContext` ook een `sectionBlueprint` met category, qualityTarget, generationMode, completionPolicy, required reads, relevante helpers, risky inherited classes, safe unit strategy, forbidden patterns, preflight checks, reference signals en write-strategy hints. Screenshot-only exacte replica's zonder losse bron-assets krijgen daarbij aparte reference-signals zoals previewMediaPolicy=\"best_effort_demo_media\" en allowStylizedPreviewFallbacks=true, terwijl expliciete bronmedia de strengere strict_renderable_media-route actief houden. Bij comparison/shell replica's geeft de planner daarnaast nu ook signalen terug voor desktop/mobile parity, decoratieve anchors zoals floating productmedia of badges, en het vermijden van dubbele background-shells wanneer theme wrappers zoals section-properties al een outer surface impliceren. Exacte screenshot/design-replica prompts krijgen verder precision-first guardrails: liever één sterke create-write met de finale styling in de eerste pass en daarna hooguit een volledige rewrite-edit, niet een baseline gevolgd door grote patch-batches of een extra toestemming-vraag voor pixel-perfect styling.",
+    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole`. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: `patch-existing`, `multi-file-edit`, `create-section` of `template-placement`, plus de exacte volgende read/write keys. `nextTool` en `nextArgsTemplate` beschrijven nu de onmiddellijke volgende stap: voor native blocks en patch-first edits liefst eerst `search-theme-files` op de exacte planner-keys voor compacte anchors, en alleen nog `get-theme-file` of `get-theme-files` wanneer diepere contextreads echt nodig zijn. Daarna volgt pas de uiteindelijke write-tool via `writeTool` en `writeArgsTemplate`. Langere `query`- of `description`-prompts zijn toegestaan; de planner compacteert die intern naar een korte query voor tokenzuinige planning, maar retourneert daarnaast ook een `plannerHandoff` met de volledige brief, archetype, native-block architecture, required reads, reference signals, searchQueries en requiredToolNames zodat write-tools en clients minder context verliezen. Voor native product-blocks analyseert de planner het relevante templatebestand al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand `targetFile`. Wanneer in dezelfde flow net een section is aangemaakt of exact is gepland, kunnen vervolgprompts zoals 'optimaliseer hem' of 'maak V2' automatisch blijven wijzen naar datzelfde target, maar alleen zolang het expliciete theme-target compatibel blijft. Een expliciete theme-switch verbreekt die sticky koppeling; alleen `themeRole='main'` mag nog veilig aan een eerder bevestigd `themeId` blijven hangen omdat Shopify daar maar één live theme tegelijk toestaat. Voor nieuwe sections retourneert de planner nu naast `themeContext` ook een `sectionBlueprint` met category, qualityTarget, generationMode, completionPolicy, required reads, relevante helpers, risky inherited classes, safe unit strategy, forbidden patterns, preflight checks, reference signals en write-strategy hints. Screenshot-only exacte replica's zonder losse bron-assets krijgen daarbij aparte reference-signals zoals previewMediaPolicy=\"best_effort_demo_media\" en allowStylizedPreviewFallbacks=true, terwijl expliciete bronmedia de strengere strict_renderable_media-route actief houden. Bij comparison/shell replica's geeft de planner daarnaast nu ook signalen terug voor desktop/mobile parity, decoratieve anchors zoals floating productmedia of badges, en het vermijden van dubbele background-shells wanneer theme wrappers zoals section-properties al een outer surface impliceren. Exacte screenshot/design-replica prompts krijgen verder precision-first guardrails: liever één sterke create-write met de finale styling in de eerste pass en daarna hooguit een volledige rewrite-edit, niet een baseline gevolgd door grote patch-batches of een extra toestemming-vraag voor pixel-perfect styling.",
   inputSchema: PlanThemeEditPublicObjectSchema,
   schema: PlanThemeEditInputSchema,
   execute: async (rawInput, context = {}) => {

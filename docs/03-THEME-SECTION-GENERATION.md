@@ -100,13 +100,16 @@ Maak de bestaande reviews-showcase compacter en verander de kaart-gap op mobiel.
 Gebruik wanneer de gebruiker een block in een bestaande productsection wil, bijvoorbeeld `main-product` of `product-info`.
 
 1. `plan-theme-edit` met `intent="native_block"`
-2. Lees alleen de door de planner voorgestelde section/snippet files
-3. `draft-theme-artifact mode="edit"` of `patch-theme-file`
+2. Volg in native-block flows eerst de planner `nextTool`: dat is nu bij voorkeur `search-theme-files` op exact `nextReadKeys`, zodat de client compacte schema/render-anchors ziet in plaats van volledige file dumps
+3. Gebruik daarna `draft-theme-artifact mode="edit"` met `patch`/`patches`; de write-pipeline kan planner-reads server-side auto-hydrateren als de planner-handoff aanwezig blijft
+4. Gebruik alleen nog een volledige read of `files[].value` rewrite als de architectuur echt breder is dan een block/schema patch
 
 Belangrijk:
 - Veel themes renderen product blocks via snippets
 - Dit is meestal geen `blocks/*.liquid` create-flow
 - Het planner-geselecteerde templatebestand hoeft na planning meestal niet opnieuw gelezen te worden tenzij placement expliciet gevraagd is
+- Helper-snippets die wel in de section worden gerenderd maar geen `section.blocks`-renderer zijn, zoals losse prijs- of helper-snippets, horen niet meer standaard in de eerste planner-read pass te belanden
+- Voor klassieke OS 2.0 productsections is de kleinste veilige wijziging meestal: section-schema patchen, block-rendering in de bestaande renderer-snippet patchen, en alleen bij echte `@theme`-architectuur naar `blocks/*.liquid` uitwijken
 
 Voorbeeldprompt:
 ```text
@@ -164,6 +167,7 @@ Maak een hero-video section en plaats hem daarna ook op de homepage van theme 12
 ## Token-Efficiënte Flow
 - Plan eerst, lees daarna alleen `nextReadKeys`
 - Gebruik `search-theme-files` voor compacte anchors
+- Native-block en andere patch-first editflows horen nu standaard via `search-theme-files` plus `patch`/`patches` te lopen; een volledige `get-theme-files includeContent=true` read is daar niet meer de voorkeursroute
 - Gebruik `patch` / `patches` voor kleine bestaande-file edits
 - Gebruik volledige rewrites alleen wanneer het doelbestand bewust volledig is ingelezen
 - Houd theme requests op maximaal 10 bestanden

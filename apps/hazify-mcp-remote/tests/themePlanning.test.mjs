@@ -187,6 +187,7 @@ const productBlockFiles = {
   ),
   "sections/main-product.liquid": makeTextAsset(`
     {% render 'product-info', product: product, section: section %}
+    {% render 'price-list', product: product %}
     {% schema %}
     {
       "name": "Main product",
@@ -217,6 +218,9 @@ const productBlockFiles = {
         {% endcase %}
       </div>
     {% endfor %}
+  `),
+  "snippets/price-list.liquid": makeTextAsset(`
+    <div class="price-list">{{ product.price | money }}</div>
   `),
 };
 
@@ -291,9 +295,18 @@ try {
     "native product block plan should include the snippet that renders section.blocks"
   );
   assert.equal(
+    productBlockPlan.nextReadKeys.includes("snippets/price-list.liquid"),
+    false,
+    "native product block plan should not force helper snippets that do not render section.blocks into the first read pass"
+  );
+  assert.equal(
     productBlockPlan.nextReadKeys.includes("templates/product.json"),
     false,
     "native product block plan should not ask the client to reread the template unless placement is requested"
+  );
+  assert.ok(
+    productBlockPlan.searchQueries.includes("buy_buttons"),
+    "native product block plan should expose a shared schema/render anchor that can be used in compact search-theme-files reads"
   );
   assert.ok(
     productBlockPlan.warnings.some((warning) => warning.includes("placement")),

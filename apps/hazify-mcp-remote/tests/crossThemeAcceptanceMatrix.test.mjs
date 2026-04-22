@@ -6,6 +6,7 @@ import { getThemeFileTool } from "../src/tools/getThemeFile.js";
 import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
 import { patchThemeFileTool } from "../src/tools/patchThemeFile.js";
 import { planThemeEditTool } from "../src/tools/planThemeEdit.js";
+import { searchThemeFilesTool } from "../src/tools/searchThemeFiles.js";
 import { clearThemeEditMemory } from "../src/lib/themeEditMemory.js";
 import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 import { createThemeFixtureFetch } from "./helpers/themeFixtureHarness.mjs";
@@ -368,6 +369,39 @@ function buildSnippetNativeBlockRendererValue(snippetValue, writeProof) {
   return nextValue;
 }
 
+function buildSnippetNativeBlockSectionPatch(sectionValue, writeProof) {
+  const originalSchemaMatch = sectionValue.match(/\{% schema %\}\s*([\s\S]*?)\s*\{% endschema %\}/);
+  assert.ok(originalSchemaMatch, "expected a {% schema %} block");
+  const updatedValue = buildSnippetNativeBlockSectionValue(sectionValue, writeProof);
+  const updatedSchemaMatch = updatedValue.match(/\{% schema %\}\s*([\s\S]*?)\s*\{% endschema %\}/);
+  assert.ok(updatedSchemaMatch, "expected an updated {% schema %} block");
+  return {
+    searchString: originalSchemaMatch[0],
+    replaceString: updatedSchemaMatch[0],
+  };
+}
+
+function buildSnippetNativeBlockRendererPatch(snippetValue, writeProof) {
+  if (snippetValue.includes(`when '${writeProof.blockType}'`)) {
+    return null;
+  }
+
+  const endcaseMatch = snippetValue.match(/\{%\s*endcase\s*%\}/);
+  assert.ok(
+    endcaseMatch,
+    "expected a native block renderer snippet with a {% case block.type %} branch"
+  );
+
+  return {
+    searchString: endcaseMatch[0],
+    replaceString: [
+      `      {% when '${writeProof.blockType}' %}`,
+      `        <div class="${writeProof.blockType.replace(/_/g, "-")}">{{ block.settings.${writeProof.settingId} }}</div>`,
+      endcaseMatch[0],
+    ].join("\n"),
+  };
+}
+
 function buildThemeBlockWriteValue(blockValue, writeProof) {
   const withSchema = replaceLiquidSchema(blockValue, (schema) => {
     const settings = Array.isArray(schema.settings) ? [...schema.settings] : [];
@@ -398,6 +432,13 @@ function buildThemeBlockWriteValue(blockValue, writeProof) {
 `;
 
   return `${markup}${schemaMatch[0]}\n`;
+}
+
+function buildThemeBlockWritePatch(blockValue, writeProof) {
+  return {
+    searchString: blockValue,
+    replaceString: buildThemeBlockWriteValue(blockValue, writeProof),
+  };
 }
 
 test(
@@ -694,6 +735,43 @@ test(
             nativeBlockPlan.plannerHandoff?.architecture?.snippetRendererKeys || [],
             fixture.expectations.nativeBlock.snippetRendererKeys
           );
+          assert.equal(
+            nativeBlockPlan.nextTool,
+            "search-theme-files",
+            "native block planning should steer clients to compact anchor search before write"
+          );
+          assert.deepEqual(
+            nativeBlockPlan.nextArgsTemplate?.keys || [],
+            nativeBlockPlan.nextReadKeys,
+            "the compact search step should stay inside the exact planner-selected files"
+          );
+          assert.ok(
+            Array.isArray(nativeBlockPlan.plannerHandoff?.searchQueries) &&
+              nativeBlockPlan.plannerHandoff.searchQueries.length > 0,
+            "planner handoff should preserve compact search anchors for downstream tools and clients"
+          );
+          if (fixture.expectations.nativeBlock.usesThemeBlocks) {
+            assert.ok(
+              nativeBlockPlan.writeArgsTemplate?.files?.every(
+                (file) => Array.isArray(file.patches) && file.patches.length === 1
+              ),
+              "theme-block native flows should still prefer patch-first write templates for existing files"
+            );
+          } else {
+            assert.ok(
+              nativeBlockPlan.writeArgsTemplate?.files?.every(
+                (file) => Array.isArray(file.patches) && file.patches.length === 1
+              ),
+              "snippet-renderer native flows should return patch-first write templates instead of full rewrites"
+            );
+          }
+          for (const disallowedKey of fixture.expectations.nativeBlock.disallowedReadKeys || []) {
+            assert.equal(
+              nativeBlockPlan.nextReadKeys.includes(disallowedKey),
+              false,
+              `native block planning should not force helper file '${disallowedKey}' into the first read pass`
+            );
+          }
 
           if (fixture.expectations.nativeBlock.usesThemeBlocks) {
             assert.ok(
@@ -720,53 +798,51 @@ test(
             requestContext
           );
 
-          await getThemeFilesTool.execute(
-            {
-              themeId: fixture.themeId,
-              keys: nativeBlockPlan.nextReadKeys,
-              includeContent: true,
-            },
+          const compactSearch = await searchThemeFilesTool.execute(
+            nativeBlockPlan.nextArgsTemplate,
             requestContext
           );
+          assert.ok(Array.isArray(compactSearch.hits));
+          assert.ok(compactSearch.hits.length >= 1);
 
           const writeProof = fixture.expectations.nativeBlock.writeProof;
           let files;
 
           if (writeProof.mode === "theme_block") {
-            await getThemeFileTool.execute(
-              {
-                themeId: fixture.themeId,
-                key: writeProof.blockKey,
-                includeContent: true,
-              },
-              requestContext
-            );
-
             files = [
               {
                 key: writeProof.blockKey,
-                value: buildThemeBlockWriteValue(
-                  themeFetch.getFileValue(writeProof.blockKey),
-                  writeProof
-                ),
+                patches: [
+                  buildThemeBlockWritePatch(
+                    themeFetch.getFileValue(writeProof.blockKey),
+                    writeProof
+                  ),
+                ],
               },
             ];
           } else {
+            const rendererPatch = buildSnippetNativeBlockRendererPatch(
+              themeFetch.getFileValue(writeProof.snippetKey),
+              writeProof
+            );
             files = [
               {
                 key: fixture.expectations.nativeBlock.sectionKey,
-                value: buildSnippetNativeBlockSectionValue(
-                  themeFetch.getFileValue(fixture.expectations.nativeBlock.sectionKey),
-                  writeProof
-                ),
+                patches: [
+                  buildSnippetNativeBlockSectionPatch(
+                    themeFetch.getFileValue(fixture.expectations.nativeBlock.sectionKey),
+                    writeProof
+                  ),
+                ],
               },
-              {
-                key: writeProof.snippetKey,
-                value: buildSnippetNativeBlockRendererValue(
-                  themeFetch.getFileValue(writeProof.snippetKey),
-                  writeProof
-                ),
-              },
+              ...(rendererPatch
+                ? [
+                    {
+                      key: writeProof.snippetKey,
+                      patches: [rendererPatch],
+                    },
+                  ]
+                : []),
             ];
           }
 
@@ -782,6 +858,14 @@ test(
 
           assert.equal(nativeBlockWrite.success, true);
           assert.equal(nativeBlockWrite.status, "preview_ready");
+          if (writeProof.mode !== "theme_block") {
+            assert.ok(
+              nativeBlockWrite.warnings?.some((entry) =>
+                entry.includes("Planner-required theme-context reads zijn automatisch opgehaald")
+              ),
+              "patch-first native block writes should still succeed from planner handoff via server-side auto-hydration"
+            );
+          }
 
           if (writeProof.mode === "theme_block") {
             const updatedBlock = await getThemeFileTool.execute(
