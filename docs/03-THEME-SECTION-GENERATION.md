@@ -183,4 +183,3 @@ Maak een hero-video section en plaats hem daarna ook op de homepage van theme 12
 - `docs/02-SYSTEM-FLOW.md`
 - `docs/04-MCP-REMOTE-AUDIT.md`
 - `docs/05-REMEDIATION-PLAN.md`
-- `docs/archive/codex-mcp-section-generation-tracker.md`

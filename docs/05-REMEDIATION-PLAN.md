@@ -2,10 +2,10 @@
 Doelgroep: maintainers, developers en coding agents.
 
 Versie: 2026-04-22.
-Status: actief voortgangsdocument voor de lopende remediation na de MCP-audit.
+Status: actief voortgangs- en release-document na de remediation-tranche van 2026-04-22.
 
 ## Doel
-Dit document volgt de open remediation-tracks, release-gates en live-validatie. `docs/04-MCP-REMOTE-AUDIT.md` blijft de canonieke auditbron; dit bestand is het werkbord.
+Dit document volgt de actuele release-gates, live-validatie en resterende onderhoudstracks. `docs/04-MCP-REMOTE-AUDIT.md` blijft de canonieke auditbron; dit bestand is het werkbord en de release-log.
 
 ## Releasepolicy
 - Gebruik altijd eerst `npm run release:status` om te bepalen of er nog een lokale commit nodig is, of er nog een push openstaat en welke Railway service(s) na push een redeploy nodig hebben.
@@ -33,7 +33,7 @@ Dit document volgt de open remediation-tracks, release-gates en live-validatie. 
 | Cross-theme acceptatiematrix | MCP maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | Vier archetypes + prompt-only create, screenshot-only exact create, image-backed exact create, existing edit, native-block write/preview en template placement zijn lokaal groen; live runtime draait op de gevalideerde code. |
 | Non-theme contract cleanup | MCP maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | Refund idempotency, product-contract cleanup, tracking redirects en auditsporen zijn live bevestigd op de huidige MCP deploy. |
 | License-service/Railway hardening | License maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | Ja | 2026-04-22 | Railway-crash op ontbrekende `BACKUP_EXPORT_*` startup-validatie is opgelost in commit `07d9e66` en live bevestigd op deployment `b9c84b4e-9aa5-48dc-973b-f1c157b00146`. |
-| Docs/runbook waarheid | Maintainers | Afgerond voor deze tranche | Ja | Ja | Na commit | Geen code-based redeploy | Nee | N.v.t. | 2026-04-22 | Audit/live truth en releasepolicy zijn bijgewerkt; resterende docs-drift blijft een handmatige onderhoudstrack. |
+| Docs/runbook waarheid | Maintainers | Afgerond | Ja | Nee | Nee | Nee | Nee | N.v.t. | 2026-04-22 | Audit/live truth en releasepolicy zijn bijgewerkt; resterende docs-drift blijft een handmatige onderhoudstrack. |
 
 ## Laatste lokale verificatie
 - `npm run release:status`
@@ -58,13 +58,12 @@ Dit document volgt de open remediation-tracks, release-gates en live-validatie. 
 | `Hazify-License-Service` | `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22 | Ja |
 
 ## Eerstvolgende gates
-1. Commit en push de bijgewerkte audit/runbook-docs zodat repo en Railway-status weer synchroon zijn.
-2. Blijf `npm run release:status` gebruiken als beslisser voor de volgende runtime-tranche: commit eerst, daarna pas push en Railway redeploy.
-3. Pak de handmatige docs-drift-track verder aan buiten `AGENTS.md` en `docs/02-SYSTEM-FLOW.md`.
-4. Evalueer de niet-blokkerende Railway warnings (`npm warn config production`, `punycode`) als aparte hygiene-tranche.
+1. Blijf `npm run release:status` gebruiken als beslisser voor de volgende runtime-tranche: commit eerst, daarna pas push en Railway redeploy.
+2. Pak de handmatige docs-drift-track verder aan buiten `AGENTS.md` en `docs/02-SYSTEM-FLOW.md`.
+3. Evalueer de niet-blokkerende Railway warnings (`npm warn config production`, `punycode`) als aparte hygiene-tranche.
+4. Voeg desgewenst nog een authenticated production MCP smoke toe als extra bewijslaag.
 
 ## Documentatie-afspraak
 - Audit = canonieke bron voor status, blockers en acceptatiecriteria.
 - Dit plan = canonieke bron voor voortgang, release-gates en live confirmatie.
-- Tracker in `docs/archive/` = historisch referentiemateriaal.
 - `scripts/generate-tool-docs.mjs` auto-synct alleen de toolcatalogus in `AGENTS.md` en `docs/02-SYSTEM-FLOW.md`; alle overige docs blijven handmatig.

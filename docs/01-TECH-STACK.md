@@ -22,13 +22,14 @@ Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazif
 - `HAZIFY_FREE_MODE=false`.
 - `ADMIN_API_KEY` en `MCP_API_KEY` (alias `HAZIFY_MCP_API_KEY`).
 - `PUBLIC_BASE_URL` en `MCP_PUBLIC_URL`.
+- Admin backup-export is in productie feature-gated: de service mag gewoon starten zonder backup-export-config, maar export werkt pas wanneer `BACKUP_EXPORT_KEY`, `BACKUP_EXPORT_DIRECTORY` en `BACKUP_EXPORT_POLICY=encrypted` expliciet zijn gezet.
 
 ### Remote MCP (Productievereisten)
 - `DATABASE_URL` is verplicht voor guarded theme draft/apply, `theme_drafts` persistence en PostgreSQL advisory locks.
 - `HAZIFY_MCP_INTROSPECTION_URL`
 - `HAZIFY_MCP_API_KEY` (moet sterke secret van >=16 tekens zijn)
 - `MCP_SESSION_MODE` is standaard **`stateless`**. Stateful deployment is alleen aanbevolen met sticky sessions (`MCP_STATEFUL_DEPLOYMENT_SAFE=true`).
-- In-memory context cache `HAZIFY_MCP_CONTEXT_TTL_MS` (standaard 120.000 ms over HTTP).
+- `HAZIFY_MCP_CONTEXT_TTL_MS` (standaard 120.000 ms) cachet alleen de gehydrateerde requestcontext en lazy Shopify client na succesvolle introspectie; token-introspectie zelf blijft per request gebeuren.
 
 ### Remote MCP observability
 - De remote MCP logt request-level JSON events naar stdout; Railway is daarmee de primaire bron voor runtime-diagnose.

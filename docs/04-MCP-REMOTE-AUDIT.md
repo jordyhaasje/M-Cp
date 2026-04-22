@@ -187,8 +187,7 @@ Status: afgerond op 2026-04-22.
 
 ### 6. Docs en waarheidshygiëne
 - Maak dit document leidend voor open blockers en acceptatiecriteria.
-- Behandel `docs/05-REMEDIATION-PLAN.md` als voortgangslog en niet als definitieve waarheid.
-- Behandel `docs/archive/codex-mcp-section-generation-tracker.md` alleen als historisch archief.
+- Behandel `docs/05-REMEDIATION-PLAN.md` als voortgangs- en release-log en niet als definitieve auditwaarheid.
 - Trek `docs/03-THEME-SECTION-GENERATION.md`, `apps/hazify-mcp-remote/README.md` en gegenereerde tooldocs na elke gedragswijziging meteen gelijk.
 
 ## Minimale testuitbreidingen
@@ -201,12 +200,12 @@ De recente suite dekt nu:
 - het blokkeren van `ACTIVE` in `clone-product-from-url`
 - persistente auditlogging voor destructieve productacties
 
-Nog open als extra bewijslaag:
+Optionele extra bewijslaag:
 
-- live Railway parity na commit, push, deploy, smoke en logreview
+- een authenticated production MCP smoke met een expliciete production token, bovenop de anonieme well-known en `/mcp` smoke die nu al groen is
 
 ## Werkwijze voor volgende fixes
-Gebruik dit document als auditbron, en gebruik de tracker alleen om afgevinkte of nieuwe deelstappen bij te houden.
+Gebruik dit document als auditbron, en gebruik `docs/05-REMEDIATION-PLAN.md` voor voortgang, release-gates en live bevestiging.
 
 De aanbevolen uitvoervolgorde is:
 1. protocolcorrectheid

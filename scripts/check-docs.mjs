@@ -171,18 +171,12 @@ async function main() {
   comparePathLists("docs/00-START-HERE.md", actualActiveDocs, readOrderDocs);
 
   const agentsIndex = orderedReadOrder.indexOf("AGENTS.md");
-  const runbookIndex = orderedReadOrder.indexOf("docs/04-AGENT-RUNBOOK.md");
-  const mcpSetupIndex = orderedReadOrder.indexOf("docs/10-MCP-SERVER-SETUP.md");
+  const systemFlowIndex = orderedReadOrder.indexOf("docs/02-SYSTEM-FLOW.md");
 
   if (agentsIndex === -1) {
     problems.push("docs/00-START-HERE.md: `AGENTS.md` ontbreekt in de leesvolgorde");
-  } else {
-    if (runbookIndex !== -1 && agentsIndex <= runbookIndex) {
-      problems.push("docs/00-START-HERE.md: `AGENTS.md` moet na `docs/04-AGENT-RUNBOOK.md` staan");
-    }
-    if (mcpSetupIndex !== -1 && agentsIndex >= mcpSetupIndex) {
-      problems.push("docs/00-START-HERE.md: `AGENTS.md` moet voor `docs/10-MCP-SERVER-SETUP.md` staan");
-    }
+  } else if (systemFlowIndex !== -1 && agentsIndex <= systemFlowIndex) {
+    problems.push("docs/00-START-HERE.md: `AGENTS.md` moet na `docs/02-SYSTEM-FLOW.md` staan");
   }
 
   const markdownFilesToCheck = [
