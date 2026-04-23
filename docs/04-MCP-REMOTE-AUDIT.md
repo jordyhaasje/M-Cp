@@ -18,19 +18,20 @@ Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve
 - Groen: de hero-wrappercontractlaag is vóór Batch E extra gehard. `requiresThemeWrapperMirror` volgt nu de afgeleide hero-shell-familie in plaats van representatieve `heroLike`-context, en de validator blokkeert nu ook media-first/full-bleed heroes waarvan de media-shell effectief boxed raakt via inner `page-width`, `container` of `section-properties`.
 - Groen: non-theme contract cleanup is aangescherpt voor refunds, product-contracten, tracking-redirects, destructieve auditsporen en eerste productimports.
 - Groen: de license-service herkent Railway-productie nu expliciet, valideert verplichte productie-envs hard en beschermt backup-export/smoke checks beter zonder startup op Railway te blokkeren wanneer backup-export bewust niet is geconfigureerd.
-- Groen: live Railway parity voor `Hazify-MCP-Remote` is opnieuw bevestigd via Railway deployment `b592ad92-07a4-4f7d-9ecf-6d3259cd48b4`, logreview en `npm run release:postdeploy` op 2026-04-23. De live smoke bleef tegelijk ook groen voor `Hazify-License-Service`.
+- Groen: live Railway parity voor `Hazify-MCP-Remote` is opnieuw bevestigd via Railway deployment `79119e1a-464c-49e2-8569-26b5bb7fdb7f`, logreview en `npm run release:postdeploy` op 2026-04-23. De live smoke bleef tegelijk ook groen voor `Hazify-License-Service`.
 - Geel: docs-drift is afgebakend; auto-sync geldt alleen voor `AGENTS.md` en `docs/02-SYSTEM-FLOW.md`.
 
 ## Verificatie- en release-ledger
 | Service | Laatst lokaal geverifieerd | Laatste lokale bewijsset | Laatst live op Railway | Live parity bevestigd |
 | --- | --- | --- | --- | --- |
-| `Hazify-MCP-Remote` | 2026-04-23 | `npm run release:preflight`, inclusief `check:docs`, `check:repo`, build, repo-brede tests, e2e, plus gerichte matrix/regressies voor `crossThemeAcceptanceMatrix`, `draftThemeArtifact`, de nieuwe media-first hero-checks, Batch D read-efficiency regressies en Liquid template placement | `b592ad92-07a4-4f7d-9ecf-6d3259cd48b4` op 2026-04-23 | Ja. Railway deploy is succesvol, build/runtime logs tonen een normale startup met alleen bekende niet-blokkerende warnings, en `npm run release:postdeploy` is groen. |
+| `Hazify-MCP-Remote` | 2026-04-23 | `npm run release:preflight`, inclusief `check:docs`, `check:repo`, build, repo-brede tests, e2e, plus gerichte matrix/regressies voor `crossThemeAcceptanceMatrix`, `draftThemeArtifact`, de nieuwe media-first hero-checks, Batch D read-efficiency regressies en Liquid template placement | `79119e1a-464c-49e2-8569-26b5bb7fdb7f` op 2026-04-23 | Ja. Railway deploy is succesvol, build/runtime logs tonen een normale startup met alleen bekende niet-blokkerende warnings, en `npm run release:postdeploy` is groen. |
 | `Hazify-License-Service` | 2026-04-23 | meegenomen in `npm run release:preflight` en live smoke via `npm run release:postdeploy` | `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22 | Ja. De crash op `81578f9a-b774-4126-90f1-1eb12f9ac0b2` is opgelost; de service bleef in de 2026-04-23 smoke-run ook groen. |
 
 Releasewaarheid:
 - Lokaal groen betekent alleen dat de code en tests in deze repo op 2026-04-23 kloppen.
 - Live groen betekent pas iets nadat de relevante service is gepusht, gedeployed op Railway, gesmoked via `npm run smoke:prod` en gecontroleerd in Railway logs.
 - Op 2026-04-23 voldoet de huidige live stand daaraan voor beide services. De smoke bevatte live 200's op `/health`, `/v1/session/bootstrap` en de MCP well-known endpoints; `/v1/admin/readiness` en `/v1/billing/readiness` zijn in die run eerlijk als optioneel overgeslagen gemeld omdat de benodigde lokale keys/envs niet waren gezet.
+- Tijdens de 2026-04-23 redeploy van `Hazify-MCP-Remote` gaf de eerste losse bootstrap-probe kort een transient `502 Application failed to respond`; een directe retry en de volledige `npm run release:postdeploy` run erna waren wel groen. Dit is dus geen open parity-blokkade, maar wel een reëel ops-signaal om in de gaten te houden.
 - `npm run check:git-sync` blijft een git-parity check; dit bewijst geen Railway deploy parity.
 
 De detailsecties hieronder zijn achtergrondcontext. Voor actuele status, blockers en de actieve leesvolgorde zijn de compacte status en de canonieke vervolgdocs leidend.
@@ -239,7 +240,7 @@ Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere impleme
 - Repo-brede verificatie op 2026-04-23 is groen: `npm run release:preflight`, inclusief `check:docs`, `check:repo`, build, workspace-tests en `npm run test:e2e`.
 
 ## Productiebewijs uit Railway
-De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `b592ad92-07a4-4f7d-9ecf-6d3259cd48b4` op 2026-04-23. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22.
+De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `79119e1a-464c-49e2-8569-26b5bb7fdb7f` op 2026-04-23. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22.
 
 De logs laten een realistisch beeld zien:
 - de planner-, read- en write-pipeline wordt actief gebruikt op echte shops

@@ -305,6 +305,7 @@ Afgeronde uitkomst:
 - prompt-only en screenshot-driven unboxed hero-prompts delen nu hetzelfde wrappercontract zonder screenshot-only uitzonderingsregel
 - validators keuren nu zowel een boxed outer root als een boxed media-shell af
 - Batch E kan hierdoor verder op review/video/PDP/blocks zonder de foutieve hero-wrapperdefault mee te nemen
+- live parity voor deze hardening is bevestigd op `Hazify-MCP-Remote` via Railway deployment `79119e1a-464c-49e2-8569-26b5bb7fdb7f`, Railway logreview en een groene `npm run release:postdeploy` na een directe retry op een transient bootstrap-502
 
 ### Batch E — Brede Coverage Buiten Hero’s
 Status: `pending`
