@@ -95,6 +95,21 @@ const CONSTRAINED_RESPONSIVE_EXISTING_EDIT_PATTERNS = [
   /\b(?:behoud|houd|keep|laat)\b.*\b(?:animat(?:ie|e|ion)|layout|markup)\b/i,
 ];
 
+const CHANGE_SCOPE_BY_FLOW = {
+  "patch-existing": "micro_patch",
+  "rewrite-existing": "bounded_rewrite",
+  "multi-file-edit": "multi_file_structural_edit",
+  "template-placement": "multi_file_structural_edit",
+  "create-section": "net_new_generation",
+};
+
+const PREFERRED_WRITE_MODE_BY_CHANGE_SCOPE = {
+  micro_patch: "patch",
+  bounded_rewrite: "value",
+  multi_file_structural_edit: "files",
+  net_new_generation: "liquid",
+};
+
 const uniqueStrings = (values) => Array.from(new Set(values.filter(Boolean)));
 
 const normalizeText = (value) =>
@@ -153,6 +168,65 @@ const getLiquidBlockContents = (value, tagName) => {
   }
 
   return contents;
+};
+
+const inferPlanChangeScope = ({
+  recommendedFlow,
+  likelyNeedsMultiFileEdit = false,
+  nextWriteKeys = [],
+  newFileSuggestions = [],
+} = {}) => {
+  if (CHANGE_SCOPE_BY_FLOW[recommendedFlow]) {
+    return CHANGE_SCOPE_BY_FLOW[recommendedFlow];
+  }
+
+  if (newFileSuggestions.length > 0) {
+    return "net_new_generation";
+  }
+
+  if (likelyNeedsMultiFileEdit || nextWriteKeys.length > 1) {
+    return "multi_file_structural_edit";
+  }
+
+  if (recommendedFlow === "manual-review" && nextWriteKeys.length === 1) {
+    return "bounded_rewrite";
+  }
+
+  return "multi_file_structural_edit";
+};
+
+const inferPlanPreferredWriteMode = (changeScope) =>
+  PREFERRED_WRITE_MODE_BY_CHANGE_SCOPE[changeScope] || null;
+
+const buildPlanAnchorCandidates = ({
+  searchQueries = [],
+  query,
+  limit = 3,
+} = {}) => {
+  const compactQuery =
+    typeof query === "string" && query.trim() ? query.trim().slice(0, 120) : null;
+  return uniqueStrings(
+    [...(Array.isArray(searchQueries) ? searchQueries : []), compactQuery].filter(Boolean)
+  ).slice(0, limit);
+};
+
+const buildPlanDiagnosticTargets = ({
+  nextWriteKeys = [],
+  newFileSuggestions = [],
+  changeScope,
+  preferredWriteMode,
+  searchQueries = [],
+  query,
+} = {}) => {
+  const anchorCandidates = buildPlanAnchorCandidates({ searchQueries, query });
+  const keys = nextWriteKeys.length > 0 ? nextWriteKeys : newFileSuggestions;
+  return keys.map((fileKey) => ({
+    fileKey,
+    path: [fileKey],
+    preferredWriteMode,
+    changeScope,
+    ...(anchorCandidates.length > 0 ? { anchorCandidates } : {}),
+  }));
 };
 
 const extractSchemaJson = (value) => {
@@ -906,15 +980,34 @@ const buildPlanFromAnalysis = ({
     searchQueries.push("block.type");
   }
 
+  const uniqueSearchQueries = uniqueStrings(searchQueries);
+  const changeScope = inferPlanChangeScope({
+    recommendedFlow,
+    likelyNeedsMultiFileEdit,
+    nextWriteKeys,
+    newFileSuggestions,
+  });
+  const preferredWriteMode = inferPlanPreferredWriteMode(changeScope);
+
   return {
     recommendedFlow,
+    changeScope,
+    preferredWriteMode,
     shouldUse,
     likelyNeedsMultiFileEdit,
     reason,
     nextReadKeys,
     nextWriteKeys,
     newFileSuggestions,
-    searchQueries: uniqueStrings(searchQueries),
+    searchQueries: uniqueSearchQueries,
+    diagnosticTargets: buildPlanDiagnosticTargets({
+      nextWriteKeys,
+      newFileSuggestions,
+      changeScope,
+      preferredWriteMode,
+      searchQueries: uniqueSearchQueries,
+      query,
+    }),
     warnings,
   };
 };
@@ -1083,6 +1176,8 @@ export const planThemeEdit = async (
         alternates: [],
       },
       recommendedFlow: preferStructuredEdit ? "rewrite-existing" : "patch-existing",
+      changeScope: preferStructuredEdit ? "bounded_rewrite" : "micro_patch",
+      preferredWriteMode: preferStructuredEdit ? "value" : "patch",
       shouldUse: preferStructuredEdit ? "draft-theme-artifact" : "patch-theme-file",
       likelyNeedsMultiFileEdit: preferStructuredEdit && snippetRendererKeys.length > 0,
       reason:
@@ -1106,6 +1201,11 @@ export const planThemeEdit = async (
       nextWriteKeys,
       newFileSuggestions: [],
       searchQueries: [],
+      diagnosticTargets: buildPlanDiagnosticTargets({
+        nextWriteKeys,
+        changeScope: preferStructuredEdit ? "bounded_rewrite" : "micro_patch",
+        preferredWriteMode: preferStructuredEdit ? "value" : "patch",
+      }),
       warnings: existingFile?.found
         ? warnings
         : [`Bestand '${targetFile}' bestaat niet op het doeltheme.`],
@@ -1176,6 +1276,8 @@ export const planThemeEdit = async (
         alternates: alternateTemplateFiles,
       },
       recommendedFlow: "manual-review",
+      changeScope: "bounded_rewrite",
+      preferredWriteMode: "value",
       shouldUse: "draft-theme-artifact",
       likelyNeedsMultiFileEdit: false,
       reason: `Geen herkenbaar ${templateSurface} template gevonden op het doeltheme.`,
@@ -1184,6 +1286,7 @@ export const planThemeEdit = async (
       nextWriteKeys: [],
       newFileSuggestions: [],
       searchQueries: getAlternateTemplatePatterns(templateSurface),
+      diagnosticTargets: [],
       warnings: [
         "Zonder herkenbaar template kan de planner geen veilige file-scope bepalen.",
       ],
@@ -1294,6 +1397,8 @@ export const planThemeEdit = async (
       alternates: alternateTemplateFiles,
     },
     recommendedFlow: plan.recommendedFlow,
+    changeScope: plan.changeScope,
+    preferredWriteMode: plan.preferredWriteMode,
     shouldUse: plan.shouldUse,
     likelyNeedsMultiFileEdit: plan.likelyNeedsMultiFileEdit,
     reason: plan.reason,
@@ -1315,6 +1420,7 @@ export const planThemeEdit = async (
     nextWriteKeys: plan.nextWriteKeys,
     newFileSuggestions: plan.newFileSuggestions,
     searchQueries: plan.searchQueries,
+    diagnosticTargets: plan.diagnosticTargets,
     warnings: plan.warnings,
     qualityTarget: sectionBlueprint?.qualityTarget || null,
     generationMode: sectionBlueprint?.generationMode || null,

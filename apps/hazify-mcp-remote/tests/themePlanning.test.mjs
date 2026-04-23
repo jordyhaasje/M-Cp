@@ -281,6 +281,8 @@ try {
     query: "review badge block",
   });
   assert.equal(productBlockPlan.recommendedFlow, "multi-file-edit");
+  assert.equal(productBlockPlan.changeScope, "multi_file_structural_edit");
+  assert.equal(productBlockPlan.preferredWriteMode, "files");
   assert.equal(productBlockPlan.shouldUse, "draft-theme-artifact");
   assert.equal(productBlockPlan.architecture.templateFormat, "json");
   assert.equal(productBlockPlan.architecture.primarySectionFile, "sections/main-product.liquid");
@@ -312,6 +314,15 @@ try {
     productBlockPlan.warnings.some((warning) => warning.includes("placement")),
     "native product block plan should warn that template reads after planning are only needed for explicit placement"
   );
+  assert.ok(
+    Array.isArray(productBlockPlan.diagnosticTargets) &&
+      productBlockPlan.diagnosticTargets.some(
+        (target) =>
+          target.fileKey === "sections/main-product.liquid" &&
+          target.preferredWriteMode === "files"
+      ),
+    "native product block plan should expose concrete multi-file write targets"
+  );
 
   const exactKeySearchResult = await searchThemeFilesWithSnippets(shopifyClient, "2026-01", {
     query: "buy_buttons",
@@ -340,6 +351,8 @@ try {
     query: "Pas deze section aan",
   });
   assert.equal(exactExistingEditPlan.recommendedFlow, "rewrite-existing");
+  assert.equal(exactExistingEditPlan.changeScope, "bounded_rewrite");
+  assert.equal(exactExistingEditPlan.preferredWriteMode, "value");
   assert.equal(exactExistingEditPlan.shouldUse, "draft-theme-artifact");
   assert.equal(exactExistingEditPlan.template.requested, null);
   assert.equal(exactExistingEditPlan.template.resolved, null);
@@ -355,7 +368,17 @@ try {
     query: "Verklein alleen de padding rond de buy button",
   });
   assert.equal(exactSurgicalEditPlan.recommendedFlow, "patch-existing");
+  assert.equal(exactSurgicalEditPlan.changeScope, "micro_patch");
+  assert.equal(exactSurgicalEditPlan.preferredWriteMode, "patch");
   assert.equal(exactSurgicalEditPlan.shouldUse, "patch-theme-file");
+  assert.ok(
+    exactSurgicalEditPlan.diagnosticTargets.some(
+      (target) =>
+        target.fileKey === "sections/main-product.liquid" &&
+        target.preferredWriteMode === "patch"
+    ),
+    "exact surgical edit plans should expose the patchable target file"
+  );
 
   const constrainedResponsiveEditPlan = await planThemeEdit(shopifyClient, "2026-01", {
     themeId: 123,
@@ -380,6 +403,8 @@ try {
     query: "Maak een nieuwe promo section",
   });
   assert.equal(newSectionPlan.recommendedFlow, "create-section");
+  assert.equal(newSectionPlan.changeScope, "net_new_generation");
+  assert.equal(newSectionPlan.preferredWriteMode, "liquid");
   assert.equal(
     newSectionPlan.shouldUse,
     "create-theme-section",

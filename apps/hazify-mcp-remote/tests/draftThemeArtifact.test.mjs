@@ -5303,6 +5303,17 @@ test("draftThemeArtifact - rejects ambiguous patch anchors before replacing mult
 
     assert.equal(result.success, false);
     assert.equal(result.errorCode, "patch_failed_ambiguous_match");
+    assert.equal(result.changeScope, "micro_patch");
+    assert.equal(result.preferredWriteMode, "patch");
+    assert.equal(
+      result.diagnosticTargets?.[0]?.fileKey,
+      "sections/main-product.liquid"
+    );
+    assert.equal(result.diagnosticTargets?.[0]?.searchString, "Promo");
+    assert.ok(
+      Array.isArray(result.diagnosticTargets?.[0]?.anchorCandidates) &&
+        result.diagnosticTargets[0].anchorCandidates.length > 0
+    );
     assert.match(result.message, /matchte 4 keer/i);
     assert.match(themeMock.getValue(), /<div class="demo">Promo<\/div>/);
   } finally {

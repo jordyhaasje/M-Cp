@@ -188,6 +188,81 @@ const countLiteralOccurrences = (source, needle) => {
 
 const countPatchLines = (value) => String(value || "").split(/\r?\n/).length;
 
+const buildLiteralAnchorCandidatesFromSource = (
+  source,
+  searchString,
+  { limit = 3 } = {}
+) => {
+  const haystack = String(source || "");
+  const needle = String(searchString || "").trim();
+  if (!haystack || !needle) {
+    return [];
+  }
+
+  const candidates = [];
+  let cursor = 0;
+  while (cursor <= haystack.length && candidates.length < limit) {
+    const matchIndex = haystack.indexOf(needle, cursor);
+    if (matchIndex === -1) {
+      break;
+    }
+    const start = Math.max(0, matchIndex - 60);
+    const end = Math.min(haystack.length, matchIndex + needle.length + 60);
+    const snippet = haystack.slice(start, end).trim();
+    if (snippet) {
+      candidates.push(snippet.slice(0, 180));
+    }
+    cursor = matchIndex + Math.max(needle.length, 1);
+  }
+
+  if (candidates.length === 0) {
+    const lineSeeds = needle
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length >= 6)
+      .slice(0, limit);
+    for (const seed of lineSeeds) {
+      const matchIndex = haystack.indexOf(seed);
+      if (matchIndex === -1) {
+        continue;
+      }
+      const start = Math.max(0, matchIndex - 60);
+      const end = Math.min(haystack.length, matchIndex + seed.length + 60);
+      const snippet = haystack.slice(start, end).trim();
+      if (snippet) {
+        candidates.push(snippet.slice(0, 180));
+      }
+      if (candidates.length >= limit) {
+        break;
+      }
+    }
+  }
+
+  return Array.from(new Set(candidates.filter(Boolean)));
+};
+
+const buildPatchDiagnosticTarget = ({
+  key,
+  path = [],
+  preferredWriteMode = "patch",
+  changeScope = "micro_patch",
+  patch = null,
+  source = "",
+} = {}) => {
+  const searchString = typeof patch?.searchString === "string" ? patch.searchString : undefined;
+  const replaceString = typeof patch?.replaceString === "string" ? patch.replaceString : undefined;
+  const anchorCandidates = buildLiteralAnchorCandidatesFromSource(source, searchString);
+  return {
+    fileKey: key || null,
+    path: Array.isArray(path) ? path : [],
+    preferredWriteMode,
+    changeScope,
+    ...(searchString ? { searchString } : {}),
+    ...(replaceString !== undefined ? { replaceString } : {}),
+    ...(anchorCandidates.length > 0 ? { anchorCandidates } : {}),
+  };
+};
+
 const looksLikeBroadThemePatch = (key, patches = []) => {
   const normalizedKey = String(key || "");
   if (!/^(sections|snippets|blocks)\//.test(normalizedKey)) {
@@ -229,6 +304,10 @@ const buildPatchThemeFailure = ({
   retryMode = "same_request_after_fix",
   errors = [],
   suggestedFixes = [],
+  changeScope = "micro_patch",
+  preferredWriteMode = "patch",
+  diagnosticTargets = [],
+  alternativeNextArgsTemplates,
 }) => ({
   success: false,
   status: "inspection_failed",
@@ -242,6 +321,10 @@ const buildPatchThemeFailure = ({
   normalizedArgs,
   errors,
   suggestedFixes,
+  changeScope,
+  preferredWriteMode,
+  ...(diagnosticTargets.length > 0 ? { diagnosticTargets } : {}),
+  ...(alternativeNextArgsTemplates ? { alternativeNextArgsTemplates } : {}),
   shouldNarrowScope: false,
 });
 
@@ -388,6 +471,14 @@ const patchThemeFileTool = {
           "Gebruik plan-theme-edit om eerst exact te bepalen welk bestand moet worden aangepast.",
           "Geef daarna patch-theme-file een expliciete key en een unieke literal searchString uit de echte filecontent.",
         ],
+        diagnosticTargets: [
+          {
+            fileKey: null,
+            path: ["key"],
+            preferredWriteMode: "patch",
+            changeScope: "micro_patch",
+          },
+        ],
       });
     }
 
@@ -451,6 +542,14 @@ const patchThemeFileTool = {
           "Gebruik eerst get-theme-file met includeContent=true op exact hetzelfde theme target.",
           "Kies daarna een unieke anchor uit de echte filecontent in plaats van een generieke term.",
         ],
+        diagnosticTargets: [
+          {
+            fileKey: effectiveKey,
+            path: [effectiveKey],
+            preferredWriteMode: "patch",
+            changeScope: "micro_patch",
+          },
+        ],
       });
     }
 
@@ -488,6 +587,20 @@ const patchThemeFileTool = {
           "Gebruik patch-theme-file alleen voor kleine, unieke literal vervangingen.",
           "Gebruik draft-theme-artifact mode='edit' zodra je CSS, JS, schema of bredere markup in één keer wilt herschrijven.",
         ],
+        changeScope: "bounded_rewrite",
+        preferredWriteMode: "value",
+        diagnosticTargets: patches
+          .slice(0, 2)
+          .map((patch) =>
+            buildPatchDiagnosticTarget({
+              key: effectiveKey,
+              path: input.patch ? ["patch"] : ["patches"],
+              preferredWriteMode: "value",
+              changeScope: "bounded_rewrite",
+              patch,
+              source: recentRead.content,
+            })
+          ),
       });
     }
 
@@ -498,6 +611,17 @@ const patchThemeFileTool = {
       const shortAnchor = `${patchValidation.searchString.slice(0, 60)}${
         patchValidation.searchString.length > 60 ? "..." : ""
       }`;
+      const failedPatch = patches[patchValidation.patchIndex] || null;
+      const diagnosticTarget = buildPatchDiagnosticTarget({
+        key: effectiveKey,
+        path: input.patch
+          ? ["patch", "searchString"]
+          : ["patches", patchValidation.patchIndex, "searchString"],
+        preferredWriteMode: "patch",
+        changeScope: "micro_patch",
+        patch: failedPatch,
+        source: recentRead.content,
+      });
       return buildPatchThemeFailure({
         message: ambiguous
           ? `Patch anchor '${shortAnchor}' is niet veilig uniek in '${effectiveKey}'.`
@@ -531,6 +655,19 @@ const patchThemeFileTool = {
               "Lees het bestand opnieuw in en controleer of de anchor nog exact overeenkomt.",
               "Gebruik desnoods search-theme-files om eerst een compact, uniek snippet te vinden.",
             ],
+        diagnosticTargets: [diagnosticTarget],
+        alternativeNextArgsTemplates: {
+          patchRetry: {
+            ...(effectiveThemeId !== undefined ? { themeId: effectiveThemeId } : {}),
+            ...(effectiveThemeRole ? { themeRole: effectiveThemeRole } : {}),
+            key: effectiveKey,
+            searchString:
+              diagnosticTarget.anchorCandidates?.[0] ||
+              "<exact literal anchor from the current file>",
+            replaceString:
+              failedPatch?.replaceString || "<updated markup/liquid>",
+          },
+        },
       });
     }
 

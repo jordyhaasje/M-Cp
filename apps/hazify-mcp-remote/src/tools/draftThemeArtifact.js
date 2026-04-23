@@ -3452,12 +3452,24 @@ function createInspectionIssue({
   fixSuggestion,
   suggestedReplacement,
   issueCode = "inspection_failed_local_validation",
+  fileKey,
+  preferredWriteMode,
+  searchString,
+  replaceString,
+  anchorCandidates,
 }) {
   return {
     path,
     problem,
     fixSuggestion,
     issueCode,
+    ...(fileKey ? { fileKey } : {}),
+    ...(preferredWriteMode ? { preferredWriteMode } : {}),
+    ...(searchString ? { searchString } : {}),
+    ...(replaceString !== undefined ? { replaceString } : {}),
+    ...(Array.isArray(anchorCandidates) && anchorCandidates.length > 0
+      ? { anchorCandidates: uniqueStrings(anchorCandidates) }
+      : {}),
     ...(suggestedReplacement !== undefined ? { suggestedReplacement } : {}),
   };
 }
@@ -4362,6 +4374,298 @@ function buildLiteralPatchRetryArgsTemplate({
   };
 }
 
+const THEME_FILE_KEY_PATTERN =
+  /^(?:sections|snippets|blocks|templates|layout|config|locales|assets)\//;
+
+function isThemeFileKey(value) {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    THEME_FILE_KEY_PATTERN.test(value.trim())
+  );
+}
+
+function extractThemeFileKeyFromPath(path = []) {
+  return (
+    (Array.isArray(path) ? path : []).find((segment) => isThemeFileKey(segment)) ||
+    null
+  );
+}
+
+function buildLiteralAnchorCandidatesFromSource(
+  source,
+  searchString,
+  { limit = 3 } = {}
+) {
+  const haystack = String(source || "");
+  const needle = String(searchString || "").trim();
+  if (!haystack || !needle) {
+    return [];
+  }
+
+  const candidates = [];
+  let cursor = 0;
+  while (cursor <= haystack.length && candidates.length < limit) {
+    const matchIndex = haystack.indexOf(needle, cursor);
+    if (matchIndex === -1) {
+      break;
+    }
+    const start = Math.max(0, matchIndex - 60);
+    const end = Math.min(haystack.length, matchIndex + needle.length + 60);
+    const snippet = haystack.slice(start, end).trim();
+    if (snippet) {
+      candidates.push(snippet.slice(0, 180));
+    }
+    cursor = matchIndex + Math.max(needle.length, 1);
+  }
+
+  if (candidates.length === 0) {
+    const lineSeeds = needle
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length >= 6)
+      .slice(0, limit);
+    for (const seed of lineSeeds) {
+      const matchIndex = haystack.indexOf(seed);
+      if (matchIndex === -1) {
+        continue;
+      }
+      const start = Math.max(0, matchIndex - 60);
+      const end = Math.min(haystack.length, matchIndex + seed.length + 60);
+      const snippet = haystack.slice(start, end).trim();
+      if (snippet) {
+        candidates.push(snippet.slice(0, 180));
+      }
+      if (candidates.length >= limit) {
+        break;
+      }
+    }
+  }
+
+  return uniqueStrings(candidates.filter(Boolean));
+}
+
+function inferPreferredWriteModeFromTemplate(nextArgsTemplate, normalizedArgs) {
+  if (Array.isArray(nextArgsTemplate?.files) && nextArgsTemplate.files.length > 0) {
+    if (nextArgsTemplate.files.length > 1) {
+      return "files";
+    }
+    const [file] = nextArgsTemplate.files;
+    if (file?.patch || (Array.isArray(file?.patches) && file.patches.length > 0)) {
+      return "patch";
+    }
+    if (file?.value !== undefined) {
+      return "value";
+    }
+    return "files";
+  }
+
+  if (
+    nextArgsTemplate?.searchString !== undefined ||
+    nextArgsTemplate?.replaceString !== undefined ||
+    nextArgsTemplate?.patch
+  ) {
+    return "patch";
+  }
+
+  if (nextArgsTemplate?.liquid !== undefined) {
+    return "liquid";
+  }
+
+  if (nextArgsTemplate?.value !== undefined) {
+    return "value";
+  }
+
+  const normalizedFiles = Array.isArray(normalizedArgs?.files)
+    ? normalizedArgs.files
+    : [];
+  if (normalizedFiles.length > 1) {
+    return "files";
+  }
+  if (normalizedFiles.length === 1) {
+    if (normalizedFiles[0]?.writeMode === "value") {
+      return normalizedArgs?.mode === "create" ? "liquid" : "value";
+    }
+    if (
+      normalizedFiles[0]?.writeMode === "patch" ||
+      normalizedFiles[0]?.writeMode === "patches"
+    ) {
+      return "patch";
+    }
+  }
+
+  if (normalizedArgs?.mode === "create") {
+    return "liquid";
+  }
+
+  return null;
+}
+
+function inferChangeScopeFromFailure({
+  changeScope,
+  preferredWriteMode,
+  nextTool,
+  nextArgsTemplate,
+  normalizedArgs,
+}) {
+  if (changeScope) {
+    return changeScope;
+  }
+
+  const effectivePreferredWriteMode =
+    preferredWriteMode ||
+    inferPreferredWriteModeFromTemplate(nextArgsTemplate, normalizedArgs);
+
+  if (nextTool === "create-theme-section" || effectivePreferredWriteMode === "liquid") {
+    return "net_new_generation";
+  }
+
+  if (
+    effectivePreferredWriteMode === "files" ||
+    (Array.isArray(nextArgsTemplate?.files) && nextArgsTemplate.files.length > 1) ||
+    (Array.isArray(normalizedArgs?.files) && normalizedArgs.files.length > 1)
+  ) {
+    return "multi_file_structural_edit";
+  }
+
+  if (effectivePreferredWriteMode === "patch") {
+    return "micro_patch";
+  }
+
+  if (effectivePreferredWriteMode === "value") {
+    return normalizedArgs?.mode === "create"
+      ? "net_new_generation"
+      : "bounded_rewrite";
+  }
+
+  if (nextTool === "draft-theme-artifact") {
+    return normalizedArgs?.mode === "create"
+      ? "net_new_generation"
+      : "bounded_rewrite";
+  }
+
+  return null;
+}
+
+function buildDiagnosticTargetsFromArgsTemplate(
+  nextArgsTemplate,
+  {
+    defaultChangeScope = null,
+    defaultPreferredWriteMode = null,
+  } = {}
+) {
+  if (!nextArgsTemplate || typeof nextArgsTemplate !== "object") {
+    return [];
+  }
+
+  if (Array.isArray(nextArgsTemplate.files) && nextArgsTemplate.files.length > 0) {
+    return nextArgsTemplate.files
+      .map((file) => {
+        const preferredWriteMode =
+          inferPreferredWriteModeFromTemplate({ files: [file] }, {}) ||
+          defaultPreferredWriteMode;
+        return {
+          fileKey: file.key || null,
+          path: file.key ? [file.key] : [],
+          preferredWriteMode,
+          ...(defaultChangeScope ? { changeScope: defaultChangeScope } : {}),
+          ...(file?.patch?.searchString
+            ? { searchString: file.patch.searchString }
+            : {}),
+          ...(file?.patch?.replaceString !== undefined
+            ? { replaceString: file.patch.replaceString }
+            : {}),
+        };
+      })
+      .filter((target) => target.fileKey);
+  }
+
+  if (typeof nextArgsTemplate.key === "string" && nextArgsTemplate.key.trim()) {
+    return [
+      {
+        fileKey: nextArgsTemplate.key.trim(),
+        path: [nextArgsTemplate.key.trim()],
+        preferredWriteMode:
+          inferPreferredWriteModeFromTemplate(nextArgsTemplate, {}) ||
+          defaultPreferredWriteMode,
+        ...(defaultChangeScope ? { changeScope: defaultChangeScope } : {}),
+        ...(nextArgsTemplate.searchString
+          ? { searchString: nextArgsTemplate.searchString }
+          : {}),
+        ...(nextArgsTemplate.replaceString !== undefined
+          ? { replaceString: nextArgsTemplate.replaceString }
+          : {}),
+      },
+    ];
+  }
+
+  return [];
+}
+
+function collectDiagnosticTargets({
+  diagnosticTargets = [],
+  errors = [],
+  nextArgsTemplate,
+  normalizedArgs,
+  changeScope,
+  preferredWriteMode,
+}) {
+  const baseTargets = Array.isArray(diagnosticTargets) ? diagnosticTargets : [];
+  const errorTargets = (errors || []).map((issue) => ({
+    fileKey: issue?.fileKey || extractThemeFileKeyFromPath(issue?.path),
+    path: Array.isArray(issue?.path) ? issue.path : [],
+    preferredWriteMode: issue?.preferredWriteMode || preferredWriteMode || null,
+    ...(changeScope ? { changeScope } : {}),
+    ...(issue?.searchString ? { searchString: issue.searchString } : {}),
+    ...(issue?.replaceString !== undefined
+      ? { replaceString: issue.replaceString }
+      : {}),
+    ...(Array.isArray(issue?.anchorCandidates) && issue.anchorCandidates.length > 0
+      ? { anchorCandidates: uniqueStrings(issue.anchorCandidates) }
+      : {}),
+  }));
+  const templateTargets = buildDiagnosticTargetsFromArgsTemplate(nextArgsTemplate, {
+    defaultChangeScope: changeScope,
+    defaultPreferredWriteMode: preferredWriteMode,
+  });
+
+  const allTargets = [...baseTargets, ...errorTargets, ...templateTargets].filter(
+    (target) =>
+      target &&
+      (
+        target.fileKey ||
+        (Array.isArray(target.path) && target.path.length > 0) ||
+        target.searchString
+      )
+  );
+
+  const seen = new Set();
+  return allTargets.reduce((accumulator, target) => {
+    const normalizedTarget = {
+      fileKey: target.fileKey || null,
+      path: Array.isArray(target.path) ? target.path : [],
+      preferredWriteMode: target.preferredWriteMode || preferredWriteMode || null,
+      ...(target.changeScope || changeScope
+        ? { changeScope: target.changeScope || changeScope }
+        : {}),
+      ...(target.searchString ? { searchString: target.searchString } : {}),
+      ...(target.replaceString !== undefined
+        ? { replaceString: target.replaceString }
+        : {}),
+      ...(Array.isArray(target.anchorCandidates) && target.anchorCandidates.length > 0
+        ? { anchorCandidates: uniqueStrings(target.anchorCandidates) }
+        : {}),
+    };
+    const fingerprint = JSON.stringify(normalizedTarget);
+    if (seen.has(fingerprint)) {
+      return accumulator;
+    }
+    seen.add(fingerprint);
+    accumulator.push(normalizedTarget);
+    return accumulator;
+  }, []);
+}
+
 function buildFailureResponse({
   status,
   message,
@@ -4386,7 +4690,28 @@ function buildFailureResponse({
   plannerHandoff,
   newFileSuggestions,
   alternativeNextArgsTemplates,
+  changeScope,
+  preferredWriteMode,
+  diagnosticTargets = [],
 }) {
+  const effectivePreferredWriteMode =
+    preferredWriteMode ||
+    inferPreferredWriteModeFromTemplate(nextArgsTemplate, normalizedArgs);
+  const effectiveChangeScope = inferChangeScopeFromFailure({
+    changeScope,
+    preferredWriteMode: effectivePreferredWriteMode,
+    nextTool,
+    nextArgsTemplate,
+    normalizedArgs,
+  });
+  const effectiveDiagnosticTargets = collectDiagnosticTargets({
+    diagnosticTargets,
+    errors,
+    nextArgsTemplate,
+    normalizedArgs,
+    changeScope: effectiveChangeScope,
+    preferredWriteMode: effectivePreferredWriteMode,
+  });
   return {
     success: false,
     status,
@@ -4400,6 +4725,10 @@ function buildFailureResponse({
     retryable,
     suggestedFixes: uniqueStrings(suggestedFixes),
     shouldNarrowScope,
+    ...(effectiveChangeScope ? { changeScope: effectiveChangeScope } : {}),
+    ...(effectivePreferredWriteMode
+      ? { preferredWriteMode: effectivePreferredWriteMode }
+      : {}),
     ...(nextAction ? { nextAction } : {}),
     ...(nextTool ? { nextTool } : {}),
     ...(nextArgsTemplate ? { nextArgsTemplate } : {}),
@@ -4412,6 +4741,9 @@ function buildFailureResponse({
     ...(themeContext ? { themeContext } : {}),
     ...(sectionBlueprint ? { sectionBlueprint } : {}),
     ...(plannerHandoff ? { plannerHandoff } : {}),
+    ...(effectiveDiagnosticTargets.length > 0
+      ? { diagnosticTargets: effectiveDiagnosticTargets }
+      : {}),
     ...(suggestedSchemaRewrites.length > 0
       ? { suggestedSchemaRewrites }
       : {}),
@@ -4578,12 +4910,24 @@ function buildDraftInputError({
   fixSuggestion,
   suggestedReplacement,
   issueCode,
+  fileKey,
+  preferredWriteMode,
+  searchString,
+  replaceString,
+  anchorCandidates,
 }) {
   return {
     path,
     problem,
     fixSuggestion,
     ...(issueCode ? { issueCode } : {}),
+    ...(fileKey ? { fileKey } : {}),
+    ...(preferredWriteMode ? { preferredWriteMode } : {}),
+    ...(searchString ? { searchString } : {}),
+    ...(replaceString !== undefined ? { replaceString } : {}),
+    ...(Array.isArray(anchorCandidates) && anchorCandidates.length > 0
+      ? { anchorCandidates: uniqueStrings(anchorCandidates) }
+      : {}),
     ...(suggestedReplacement !== undefined ? { suggestedReplacement } : {}),
   };
 }
@@ -5564,6 +5908,16 @@ export const draftThemeArtifact = {
                  errorCode: "patch_failed_missing",
                  retryable: false,
                  shouldNarrowScope: false,
+                 changeScope: "micro_patch",
+                 preferredWriteMode: "patch",
+                 diagnosticTargets: [
+                   {
+                     fileKey: file.key,
+                     path: [file.key],
+                     preferredWriteMode: "patch",
+                     changeScope: "micro_patch",
+                   },
+                 ],
                });
             }
             resolvedFiles.push({
@@ -5603,8 +5957,18 @@ export const draftThemeArtifact = {
                      problem: `De searchString voor '${file.key}' matchte niet in het huidige doelbestand.`,
                      fixSuggestion:
                        "Lees het doelbestand opnieuw of maak de anchor nauwkeuriger met unieke omliggende context.",
+                     fileKey: file.key,
+                     preferredWriteMode: "patch",
+                     searchString,
+                     replaceString: patch.replaceString,
+                     anchorCandidates: buildLiteralAnchorCandidatesFromSource(
+                       originalValue,
+                       searchString
+                     ),
                    }),
                  ],
+                 changeScope: "micro_patch",
+                 preferredWriteMode: "patch",
                 });
                }
                if (matchCount > 1) {
@@ -5628,8 +5992,18 @@ export const draftThemeArtifact = {
                       problem: `De searchString voor '${file.key}' matchte ${matchCount} keer en is daardoor niet veilig uniek.`,
                       fixSuggestion:
                         "Maak de anchor specifieker zodat deze exact één keer voorkomt.",
+                      fileKey: file.key,
+                      preferredWriteMode: "patch",
+                      searchString,
+                      replaceString: patch.replaceString,
+                      anchorCandidates: buildLiteralAnchorCandidatesFromSource(
+                        originalValue,
+                        searchString
+                      ),
                     }),
                   ],
+                  changeScope: "micro_patch",
+                  preferredWriteMode: "patch",
                 });
                }
                newValue = newValue.replace(searchString, patch.replaceString);
@@ -5676,8 +6050,12 @@ export const draftThemeArtifact = {
                       fixSuggestion:
                         "Stuur het volledige herschreven bestand terug of gebruik een letterlijke patch/patches op het bestaande bestand.",
                       issueCode: "inspection_failed_context_placeholder",
+                      fileKey: file.key,
+                      preferredWriteMode: "value",
                     }),
                   ],
+                  changeScope: "bounded_rewrite",
+                  preferredWriteMode: "value",
                 });
              }
 
@@ -5709,6 +6087,16 @@ export const draftThemeArtifact = {
                   },
                   retryMode: "same_request_after_fix",
                   normalizedArgs: getNormalizedArgs(),
+                  changeScope: "bounded_rewrite",
+                  preferredWriteMode: "value",
+                  diagnosticTargets: [
+                    {
+                      fileKey: file.key,
+                      path: [file.key],
+                      preferredWriteMode: "value",
+                      changeScope: "bounded_rewrite",
+                    },
+                  ],
                 });
              }
 

@@ -195,9 +195,27 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 - Plan eerst, lees daarna alleen `nextReadKeys`
 - Gebruik `search-theme-files` voor compacte anchors
 - Native-block en andere patch-first editflows horen nu standaard via `search-theme-files` plus `patch`/`patches` te lopen; een volledige `get-theme-files includeContent=true` read is daar niet meer de voorkeursroute
+- `plan-theme-edit` geeft nu ook expliciet terug welke wijzigingsscope bedoeld is:
+  - `micro_patch` -> kleine bestaande-file wijziging via `patch-theme-file` of `draft-theme-artifact mode="edit"` met `patch`
+  - `bounded_rewrite` -> volledige single-file rewrite via `draft-theme-artifact mode="edit"` met `value`
+  - `multi_file_structural_edit` -> gecoördineerde `files[]`-edit over meerdere bestaande bestanden
+  - `net_new_generation` -> nieuwe section of block-flow via `create-theme-section` of create-write
+- Gebruik `preferredWriteMode` als tweede beslissingslaag wanneer een client stateless is of weinig sessiecontext heeft
 - Gebruik `patch` / `patches` voor kleine bestaande-file edits
 - Gebruik volledige rewrites alleen wanneer het doelbestand bewust volledig is ingelezen
 - Houd theme requests op maximaal 10 bestanden
+
+## Patchbare Diagnostics
+- Repair- en validatorresponses horen nu waar mogelijk `diagnosticTargets` terug te geven met:
+  - `fileKey`
+  - `path`
+  - `preferredWriteMode`
+  - `searchString`
+  - `replaceString`
+  - `anchorCandidates`
+- Gebruik die targets als machine-leesbare brug tussen validate/planning en de uiteindelijke patch- of rewrite-call
+- Ambigue of verlopen literal patch-anchors horen niet alleen een tekstuele fout te geven, maar ook concrete `anchorCandidates` uit de laatst bekende exacte file-read
+- `patch-theme-file` mag bij anchor-fouten daarnaast een `alternativeNextArgsTemplates.patchRetry` teruggeven, zodat een client de retry direct kan richten zonder opnieuw breed te moeten plannen
 
 ## Validation Truth
 - Schema JSON moet geldig zijn

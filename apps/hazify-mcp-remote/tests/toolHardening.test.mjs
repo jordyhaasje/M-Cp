@@ -474,6 +474,63 @@ try {
   assert.equal(broadPatchThemeFileResult.success, false);
   assert.equal(broadPatchThemeFileResult.errorCode, "patch_scope_too_large");
   assert.equal(broadPatchThemeFileResult.nextTool, "draft-theme-artifact");
+  assert.equal(broadPatchThemeFileResult.changeScope, "bounded_rewrite");
+  assert.equal(broadPatchThemeFileResult.preferredWriteMode, "value");
+  assert.equal(
+    broadPatchThemeFileResult.diagnosticTargets?.[0]?.fileKey,
+    "sections/main-product.liquid"
+  );
+
+  rememberThemeRead(
+    { tokenHash: "patch-theme-ambiguous-hardening" },
+    {
+      themeRole: "main",
+      files: [
+        {
+          key: "sections/main-product.liquid",
+          hasContent: true,
+          checksumMd5: "checksum-ambiguous",
+          value: `
+<div class="promo">Promo</div>
+<div class="promo">Promo</div>
+<div class="promo">Promo</div>
+`,
+        },
+      ],
+    }
+  );
+  const ambiguousPatchThemeFileResult = await patchThemeFileTool.execute(
+    patchThemeFileTool.schema.parse({
+      themeRole: "main",
+      key: "sections/main-product.liquid",
+      patch: {
+        searchString: "Promo",
+        replaceString: "Review badge",
+      },
+    }),
+    { shopifyClient: mockShopifyClient, tokenHash: "patch-theme-ambiguous-hardening" }
+  );
+  assert.equal(ambiguousPatchThemeFileResult.success, false);
+  assert.equal(ambiguousPatchThemeFileResult.errorCode, "patch_failed_ambiguous_match");
+  assert.equal(ambiguousPatchThemeFileResult.changeScope, "micro_patch");
+  assert.equal(ambiguousPatchThemeFileResult.preferredWriteMode, "patch");
+  assert.equal(
+    ambiguousPatchThemeFileResult.diagnosticTargets?.[0]?.fileKey,
+    "sections/main-product.liquid"
+  );
+  assert.equal(
+    ambiguousPatchThemeFileResult.diagnosticTargets?.[0]?.searchString,
+    "Promo"
+  );
+  assert.ok(
+    Array.isArray(ambiguousPatchThemeFileResult.diagnosticTargets?.[0]?.anchorCandidates) &&
+      ambiguousPatchThemeFileResult.diagnosticTargets[0].anchorCandidates.length > 0,
+    "ambiguous patch failures should return concrete anchor candidates from the last exact read"
+  );
+  assert.ok(
+    ambiguousPatchThemeFileResult.alternativeNextArgsTemplates?.patchRetry?.searchString,
+    "ambiguous patch failures should suggest a concrete patch retry template"
+  );
 
   const createThemeSectionPayload = createThemeSectionTool.schema.safeParse({
     themeRole: "main",

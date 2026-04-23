@@ -155,7 +155,7 @@ Afgeronde uitkomst:
 - de cross-theme acceptance matrix blijft groen na deze hardening, dus bestaande create/edit/native-block/template-placement flows houden hun preview-ready pad
 
 ### Batch C — Change-Scope Classifier en Patchbare Diagnostics
-Status: `pending`
+Status: `completed`
 Prioriteit: `P1`
 
 Doel:
@@ -192,6 +192,24 @@ Docs die mee moeten wijzigen:
 - `docs/03-THEME-SECTION-GENERATION.md`
 - `docs/04-MCP-REMOTE-AUDIT.md`
 - dit document
+
+Lokaal geverifieerd:
+- `node --test apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/toolHardening.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/crossThemeAcceptanceMatrix.test.mjs`
+
+Afgeronde uitkomst:
+- `themePlanning` en `plan-theme-edit` geven nu expliciet `changeScope`, `preferredWriteMode` en `diagnosticTargets` terug, en dragen die ook mee in `plannerHandoff`
+- plannerflows classificeren nu voorspelbaar als:
+  - `micro_patch`
+  - `bounded_rewrite`
+  - `multi_file_structural_edit`
+  - `net_new_generation`
+- `patch-theme-file` repair-responses geven nu ook machine-leesbare targets terug voor broad-scope en anchor-failures, inclusief `diagnosticTargets` en `alternativeNextArgsTemplates.patchRetry`
+- `draft-theme-artifact` leidt nu ook voor patch- en rewrite-failures expliciet `changeScope`, `preferredWriteMode` en `diagnosticTargets` af, zodat vervolgpatches minder heuristisch worden
+- ambigue patch-anchors geven nu concrete `anchorCandidates` terug uit de laatst bekende exacte file-read in plaats van alleen tekstuele foutuitleg
 
 ### Batch D — Token-Efficiënte Reads en Memory Discipline
 Status: `pending`
@@ -274,19 +292,21 @@ Actieve regels:
 Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 
 ### Volgende aanbevolen patchbatch
-`Batch C — Change-Scope Classifier en Patchbare Diagnostics`
+`Batch D — Token-Efficiënte Reads en Memory Discipline`
 
 ### Waarom deze eerst
-- de planner- en validatorbasis is nu veel strakker, dus de volgende winst zit in kleinere patchtargets, scherpere rewrite-keuze en lagere tokenlast
-- dit maakt vervolgwerk ook sessiebestendiger: validatoruitvoer moet directer vertaalbaar worden naar concrete patch-anchors en write-modes
+- Batch C maakt write-scope en repair-targets nu expliciet, dus de grootste resterende winst zit in minder full-content reads en slankere memory/hydration
+- dit is de logische vervolgstap voor lagere tokenlast, snellere iteratie en betere kleine patchflows buiten de hero-cases
 
 ### Minimale files voor de volgende sessie
+- `apps/hazify-mcp-remote/src/tools/getThemeFile.js`
+- `apps/hazify-mcp-remote/src/tools/getThemeFiles.js`
+- `apps/hazify-mcp-remote/src/tools/searchThemeFiles.js`
 - `apps/hazify-mcp-remote/src/lib/themePlanning.js`
-- `apps/hazify-mcp-remote/src/tools/planThemeEdit.js`
-- `apps/hazify-mcp-remote/src/tools/patchThemeFile.js`
-- `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
+- `apps/hazify-mcp-remote/src/lib/themeReadHydration.js`
+- `apps/hazify-mcp-remote/src/lib/themeEditMemory.js`
+- `apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
 - `apps/hazify-mcp-remote/tests/toolHardening.test.mjs`
-- `apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
 
 ### Bekende harde waarheden
 - een hero met content links en media rechts is niet automatisch een split-layout
