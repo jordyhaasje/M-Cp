@@ -371,6 +371,11 @@ try {
   assert.equal(exactSurgicalEditPlan.changeScope, "micro_patch");
   assert.equal(exactSurgicalEditPlan.preferredWriteMode, "patch");
   assert.equal(exactSurgicalEditPlan.shouldUse, "patch-theme-file");
+  assert.deepEqual(
+    exactSurgicalEditPlan.nextReadKeys,
+    ["sections/main-product.liquid"],
+    "surgical existing_edit planning should not eagerly hydrate snippet renderer files"
+  );
   assert.ok(
     exactSurgicalEditPlan.diagnosticTargets.some(
       (target) =>

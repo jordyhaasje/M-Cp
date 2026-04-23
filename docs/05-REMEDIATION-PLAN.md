@@ -212,7 +212,7 @@ Afgeronde uitkomst:
 - ambigue patch-anchors geven nu concrete `anchorCandidates` terug uit de laatst bekende exacte file-read in plaats van alleen tekstuele foutuitleg
 
 ### Batch D — Token-Efficiënte Reads en Memory Discipline
-Status: `pending`
+Status: `completed`
 Prioriteit: `P2`
 
 Doel:
@@ -228,20 +228,43 @@ Files/tools:
 - `apps/hazify-mcp-remote/src/lib/themeEditMemory.js`
 
 Concrete wijzigingen:
-- heroverweeg `get-theme-file` default `includeContent=true`
-- verminder planner-snippetreads die nu eerst full content ophalen
-- bewaar in memory waar mogelijk samengevatte anchors/slices in plaats van altijd volledige content
-- houd planner-required hydration exact en smal
+- `get-theme-file` is nu metadata-first wanneer `includeContent` ontbreekt; alleen exacte planner-required single-file reads hydrateren automatisch content
+- `get-theme-files` hydrateert alleen nog automatisch content wanneer de gevraagde keyset exact overeenkomt met de planner `nextReadKeys`
+- metadata-only batch-reads strippen defensief `value`, `attachment` en `url`, zodat tooloutput niet per ongeluk full-content lekt
+- `themePlanning` leest surgical existing-edits minder eager:
+  - renderer-snippets worden niet meer standaard volledig ingelezen
+  - templatekeuze gebeurt eerst metadata-first; alleen het gekozen template wordt daarna met content gehydrateerd
+  - compacte snippet-search overfetcht minder agressief
+- `themeEditMemory` ruimt verlopen full-content reads actief op en geeft volledige filecontent een kortere TTL dan algemene flow-memory via `HAZIFY_MCP_THEME_EDIT_MEMORY_CONTENT_TTL_MS`
+- `themeReadHydration` bleef inhoudelijk al exact genoeg voor write-kritieke reads; de winst in Batch D zit daarom vooral in minder onnodige full reads vóór die hydratiestap
 
 Vereiste tests:
 - `apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
 - `apps/hazify-mcp-remote/tests/toolHardening.test.mjs`
-- eventuele nieuwe tests voor memory/readback scope
+- `apps/hazify-mcp-remote/tests/remediation.test.mjs`
+- `apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
+- `apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+- `apps/hazify-mcp-remote/tests/crossThemeAcceptanceMatrix.test.mjs`
 
 Docs die mee moeten wijzigen:
 - `docs/03-THEME-SECTION-GENERATION.md`
 - `docs/04-MCP-REMOTE-AUDIT.md`
 - dit document
+
+Lokaal geverifieerd:
+- `npm run release:preflight`
+- `node --test apps/hazify-mcp-remote/tests/toolHardening.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/remediation.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/crossThemeAcceptanceMatrix.test.mjs`
+
+Afgeronde uitkomst:
+- kleine bestaande single-file editflows trekken nu minder snel volledige filebodies mee
+- planner-reads voor writes blijven nog steeds exact genoeg voor `patch-theme-file`, `create-theme-section` en `draft-theme-artifact`
+- partial-overlap batch-reads blijven metadata-first, waardoor tokengebruik voorspelbaarder wordt in stateless en bijna-volle sessies
+- sessiememory bewaart niet langer automatisch urenlang volledige theme-filecontent als die niet meer write-kritiek is
 
 ### Batch E — Brede Coverage Buiten Hero’s
 Status: `pending`
@@ -292,21 +315,20 @@ Actieve regels:
 Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 
 ### Volgende aanbevolen patchbatch
-`Batch D — Token-Efficiënte Reads en Memory Discipline`
+`Batch E — Brede Coverage Buiten Hero’s`
 
 ### Waarom deze eerst
-- Batch C maakt write-scope en repair-targets nu expliciet, dus de grootste resterende winst zit in minder full-content reads en slankere memory/hydration
-- dit is de logische vervolgstap voor lagere tokenlast, snellere iteratie en betere kleine patchflows buiten de hero-cases
+- de hero/media-first en read-efficiency fundering staat nu, dus de grootste resterende kwaliteitswinst zit in review/video/PDP/blocks buiten de hero-cases
+- Batch E maakt de archetype- en validatorlogica breder toepasbaar op prompt-only generation, bestaande edits en non-hero sections
 
 ### Minimale files voor de volgende sessie
-- `apps/hazify-mcp-remote/src/tools/getThemeFile.js`
-- `apps/hazify-mcp-remote/src/tools/getThemeFiles.js`
-- `apps/hazify-mcp-remote/src/tools/searchThemeFiles.js`
+- `apps/hazify-mcp-remote/src/lib/themeSectionContext.js`
+- `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
+- `apps/hazify-mcp-remote/src/tools/createThemeSection.js`
 - `apps/hazify-mcp-remote/src/lib/themePlanning.js`
-- `apps/hazify-mcp-remote/src/lib/themeReadHydration.js`
-- `apps/hazify-mcp-remote/src/lib/themeEditMemory.js`
 - `apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
-- `apps/hazify-mcp-remote/tests/toolHardening.test.mjs`
+- `apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+- `apps/hazify-mcp-remote/tests/crossThemeAcceptanceMatrix.test.mjs`
 
 ### Bekende harde waarheden
 - een hero met content links en media rechts is niet automatisch een split-layout

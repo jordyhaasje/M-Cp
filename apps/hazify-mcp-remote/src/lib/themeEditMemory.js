@@ -1,6 +1,9 @@
 const DEFAULT_THEME_EDIT_MEMORY_TTL_MS = Number(
   process.env.HAZIFY_MCP_THEME_EDIT_MEMORY_TTL_MS || 4 * 60 * 60 * 1000
 );
+const DEFAULT_THEME_EDIT_MEMORY_CONTENT_TTL_MS = Number(
+  process.env.HAZIFY_MCP_THEME_EDIT_MEMORY_CONTENT_TTL_MS || 45 * 60 * 1000
+);
 
 const themeEditMemory = new Map();
 
@@ -79,6 +82,25 @@ const getThemeEditMemoryKey = (context = {}) =>
       context?.requestSessionId
   );
 
+const getThemeEditMemoryContentTtlMs = () =>
+  Math.max(DEFAULT_THEME_EDIT_MEMORY_CONTENT_TTL_MS, 5 * 60 * 1000);
+
+const pruneExpiredReadFiles = (readFiles = {}) => {
+  const minContentTtlMs = getThemeEditMemoryContentTtlMs();
+  const now = Date.now();
+  return Object.fromEntries(
+    Object.entries(readFiles || {}).filter(([, entry]) => {
+      const atMs = Number(entry?.atMs || 0);
+      return atMs > 0 && atMs + minContentTtlMs >= now;
+    })
+  );
+};
+
+const getPlannedReadKeys = (state = null) =>
+  Array.isArray(state?.lastPlan?.nextReadKeys)
+    ? uniqueStrings(state.lastPlan.nextReadKeys)
+    : [];
+
 const pruneExpiredThemeEditMemory = () => {
   const now = Date.now();
   for (const [key, entry] of themeEditMemory.entries()) {
@@ -106,6 +128,7 @@ const withThemeEditMemoryState = (context, updater) => {
       lastPlan: null,
       readFiles: {},
     };
+  current.readFiles = pruneExpiredReadFiles(current.readFiles);
 
   const nextState = updater(current) || current;
   themeEditMemory.set(key, {
@@ -271,6 +294,8 @@ const rememberThemeRead = (
         themeTarget,
         checksumMd5: file.checksumMd5,
         content: file.content,
+        contentLength:
+          typeof file.content === "string" ? file.content.length : null,
       };
     }
 
@@ -324,7 +349,11 @@ const getThemeEditMemory = (context) => {
     return null;
   }
   pruneExpiredThemeEditMemory();
-  return themeEditMemory.get(key)?.state || null;
+  const state = themeEditMemory.get(key)?.state || null;
+  if (state?.readFiles) {
+    state.readFiles = pruneExpiredReadFiles(state.readFiles);
+  }
+  return state;
 };
 
 const getRecentThemeRead = (
@@ -354,7 +383,7 @@ const getRecentThemeRead = (
 
   if (
     requireContent &&
-    Number(readEntry.atMs || 0) + Math.max(DEFAULT_THEME_EDIT_MEMORY_TTL_MS, 60 * 1000) <
+    Number(readEntry.atMs || 0) + getThemeEditMemoryContentTtlMs() <
       Date.now()
   ) {
     return null;
@@ -378,6 +407,44 @@ const haveRecentThemeReads = (
     )
   );
 
+const shouldAutoIncludePlannerReadContent = (
+  context,
+  { keys = [], themeId, themeRole, requireExactMatch = false } = {}
+) => {
+  const requestedKeys = uniqueStrings(keys);
+  if (requestedKeys.length === 0) {
+    return false;
+  }
+
+  const state = getThemeEditMemory(context);
+  const plannedReadKeys = getPlannedReadKeys(state);
+  if (plannedReadKeys.length === 0) {
+    return false;
+  }
+
+  if (
+    !themeTargetsCompatible(state?.themeTarget, {
+      themeId,
+      themeRole,
+    })
+  ) {
+    return false;
+  }
+
+  const requestedWithinPlan = requestedKeys.every((key) =>
+    plannedReadKeys.includes(key)
+  );
+  if (!requestedWithinPlan) {
+    return false;
+  }
+
+  if (requireExactMatch && requestedKeys.length !== plannedReadKeys.length) {
+    return false;
+  }
+
+  return true;
+};
+
 const clearThemeEditMemory = () => {
   themeEditMemory.clear();
 };
@@ -390,5 +457,6 @@ export {
   rememberThemePlan,
   rememberThemeRead,
   rememberThemeWrite,
+  shouldAutoIncludePlannerReadContent,
   themeTargetsCompatible,
 };

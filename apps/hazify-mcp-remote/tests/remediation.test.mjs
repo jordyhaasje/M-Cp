@@ -10,7 +10,11 @@ import { searchThemeFilesTool } from "../src/tools/searchThemeFiles.js";
 import { updateOrder } from "../src/tools/updateOrder.js";
 import { updateProduct } from "../src/tools/updateProduct.js";
 import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
-import { clearThemeEditMemory, rememberThemeRead } from "../src/lib/themeEditMemory.js";
+import {
+  clearThemeEditMemory,
+  rememberThemePlan,
+  rememberThemeRead,
+} from "../src/lib/themeEditMemory.js";
 import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
 process.env.NODE_ENV = "test";
@@ -207,6 +211,104 @@ try {
   );
   assert.equal(stickySearch.theme.id, 123);
   assert.ok(stickySearch.hits.some((hit) => hit.key === "snippets/product-info.liquid"));
+
+  const metadataFirstContext = {
+    shopifyClient: themeClient,
+    tokenHash: "metadata-first-theme-read",
+  };
+  rememberThemeRead(metadataFirstContext, {
+    themeId: 123,
+    themeRole: "main",
+    files: [],
+  });
+  const metadataFirstRead = await getThemeFileTool.execute(
+    getThemeFileTool.schema.parse({
+      key: "sections/demo.liquid",
+    }),
+    metadataFirstContext
+  );
+  assert.equal(metadataFirstRead.theme.id, 123);
+  assert.equal(
+    "value" in metadataFirstRead.asset,
+    false,
+    "get-theme-file should default to metadata-only outside exact planner-required reads"
+  );
+
+  const plannerSingleReadContext = {
+    shopifyClient: themeClient,
+    tokenHash: "planner-single-read",
+  };
+  rememberThemePlan(plannerSingleReadContext, {
+    themeId: 123,
+    themeRole: "main",
+    intent: "existing_edit",
+    targetFile: "sections/demo.liquid",
+    nextReadKeys: ["sections/demo.liquid"],
+  });
+  const plannerSingleRead = await getThemeFileTool.execute(
+    getThemeFileTool.schema.parse({
+      key: "sections/demo.liquid",
+    }),
+    plannerSingleReadContext
+  );
+  assert.equal(
+    plannerSingleRead.asset.value,
+    "<div>Demo</div>",
+    "get-theme-file should auto-hydrate content for exact planner-required single-file reads"
+  );
+  assert.ok(
+    plannerSingleRead.warnings?.some((warning) =>
+      warning.includes("Planner-required single-file read gedetecteerd")
+    ),
+    "planner-required single-file auto hydration should be surfaced as a warning"
+  );
+
+  const plannerBatchReadContext = {
+    shopifyClient: themeClient,
+    tokenHash: "planner-batch-read",
+  };
+  rememberThemePlan(plannerBatchReadContext, {
+    themeId: 123,
+    themeRole: "main",
+    intent: "existing_edit",
+    targetFile: "sections/main-product.liquid",
+    nextReadKeys: [
+      "sections/main-product.liquid",
+      "snippets/product-info.liquid",
+    ],
+  });
+  const partialPlannerBatchRead = await getThemeFilesTool.execute(
+    getThemeFilesTool.schema.parse({
+      keys: ["sections/main-product.liquid"],
+    }),
+    plannerBatchReadContext
+  );
+  assert.equal(
+    "value" in partialPlannerBatchRead.files[0],
+    false,
+    "get-theme-files should stay metadata-first when the requested keys are only a partial overlap with planner nextReadKeys"
+  );
+
+  const exactPlannerBatchRead = await getThemeFilesTool.execute(
+    getThemeFilesTool.schema.parse({
+      keys: [
+        "sections/main-product.liquid",
+        "snippets/product-info.liquid",
+      ],
+    }),
+    plannerBatchReadContext
+  );
+  assert.equal(
+    exactPlannerBatchRead.files[0].value,
+    "{% render 'product-info', section: section %}",
+    "get-theme-files should auto-hydrate content when the requested keys exactly match planner nextReadKeys"
+  );
+  assert.ok(
+    exactPlannerBatchRead.warnings?.some((warning) =>
+      warning.includes("Planner-required batch-read gedetecteerd")
+    ),
+    "exact planner batch auto hydration should be surfaced as a warning"
+  );
 
   let capturedRefundQuery = null;
   let capturedIdempotencyKeys = [];

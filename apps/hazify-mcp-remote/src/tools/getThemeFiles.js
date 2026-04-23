@@ -2,9 +2,8 @@ import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { getThemeFiles } from "../lib/themeFiles.js";
 import {
-  getThemeEditMemory,
   rememberThemeRead,
-  themeTargetsCompatible,
+  shouldAutoIncludePlannerReadContent,
 } from "../lib/themeEditMemory.js";
 import {
   buildExplicitThemeTargetRequiredResponse,
@@ -127,7 +126,7 @@ const getThemeFilesTool = {
   name: "get-theme-files",
   title: "Get Theme Files",
   description:
-    "Read EXACT files from a Shopify theme. GEEN GLOBBING. Geef in editflows expliciet themeId of themeRole mee zodat je read-context overeenkomt met plan-theme-edit en je write-call. Als dezelfde flow al eerder een theme target bevestigde, mag die sticky worden hergebruikt; anders blokkeert deze tool met een repair response. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path. Gebruik dit bij voorkeur na plan-theme-edit, zodat je alleen de exact voorgestelde files leest. Wanneer een planner-read content nodig heeft en includeContent ontbreekt, zet deze tool dat nu automatisch op true met een warning.",
+    "Read EXACT files from a Shopify theme. GEEN GLOBBING. Geef in editflows expliciet themeId of themeRole mee zodat je read-context overeenkomt met plan-theme-edit en je write-call. Als dezelfde flow al eerder een theme target bevestigde, mag die sticky worden hergebruikt; anders blokkeert deze tool met een repair response. Gebruik altijd search-theme-files als je niet 100% zeker bent van de file path. Gebruik dit bij voorkeur na plan-theme-edit, zodat je alleen de exact voorgestelde files leest. Wanneer includeContent ontbreekt blijft deze tool metadata-first, behalve wanneer de gevraagde keys exact overeenkomen met de planner nextReadKeys; dan wordt content automatisch gehydrateerd met een warning.",
   inputSchema: GetThemeFilesPublicObjectSchema,
   schema: GetThemeFilesInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -151,18 +150,14 @@ const getThemeFilesTool = {
         },
       });
     }
-    const themeEditState = getThemeEditMemory(context);
-    const plannedReadKeys = Array.isArray(themeEditState?.lastPlan?.nextReadKeys)
-      ? themeEditState.lastPlan.nextReadKeys.filter(Boolean)
-      : [];
     const shouldAutoIncludeContent =
       input.includeContent === undefined &&
-      plannedReadKeys.length > 0 &&
-      themeTargetsCompatible(themeEditState?.themeTarget, {
+      shouldAutoIncludePlannerReadContent(context, {
+        keys: input.keys,
         themeId: resolvedThemeTarget.themeId ?? undefined,
         themeRole: resolvedThemeTarget.themeRole ?? undefined,
-      }) &&
-      input.keys.every((key) => plannedReadKeys.includes(key));
+        requireExactMatch: true,
+      });
     const includeContent = shouldAutoIncludeContent
       ? true
       : input.includeContent === undefined
@@ -175,6 +170,16 @@ const getThemeFilesTool = {
         keys: input.keys,
         includeContent,
       });
+      const files = (result.files || []).map((file) => {
+        if (includeContent) {
+          return file;
+        }
+        const sanitized = { ...file };
+        delete sanitized.value;
+        delete sanitized.attachment;
+        delete sanitized.url;
+        return sanitized;
+      });
 
       rememberThemeRead(context, {
         themeId: result.theme.id,
@@ -182,7 +187,7 @@ const getThemeFilesTool = {
           result.theme.role?.toLowerCase?.() ||
           resolvedThemeTarget.themeRole ||
           undefined,
-        files: (result.files || []).map((file) => ({
+        files: files.map((file) => ({
           key: file.key,
           checksumMd5: file.checksumMd5 || file.checksum || null,
           found:
@@ -198,14 +203,14 @@ const getThemeFilesTool = {
       });
 
       const warnings = [];
-      const missingKeys = (result.files || [])
+      const missingKeys = files
         .filter((file) => file?.missing === true || file?.found === false)
         .map((file) => String(file.key || "").trim())
         .filter(Boolean);
       warnings.push(...(resolvedThemeTarget.warnings || []));
       if (shouldAutoIncludeContent) {
         warnings.push(
-          "Planner-required read gedetecteerd: includeContent is automatisch op true gezet zodat de volgende write-flow genoeg echte filecontext heeft."
+          "Planner-required batch-read gedetecteerd: includeContent is automatisch op true gezet omdat deze keys exact overeenkomen met de planner nextReadKeys."
         );
       }
       if (missingKeys.length > 0) {
@@ -220,7 +225,7 @@ const getThemeFilesTool = {
           name: result.theme.name,
           role: result.theme.role,
         },
-        files: result.files,
+        files,
         ...(missingKeys.length > 0 ? { missingKeys } : {}),
         ...(warnings.length > 0 ? { warnings } : {}),
       };

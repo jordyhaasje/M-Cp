@@ -136,6 +136,7 @@ try {
   });
   assert.equal(singleThemeReadPayload.success, true, "get-theme-file should accept exact keys without forcing a theme target");
   assert.equal(singleThemeReadPayload.data.themeRole, undefined, "get-theme-file should not silently inject main at schema level");
+  assert.equal(singleThemeReadPayload.data.includeContent, undefined, "get-theme-file should stay metadata-first at schema level unless includeContent is explicitly requested");
 
   const singleThemeReadAliasPayload = getThemeFileTool.schema.safeParse({
     theme_id: 123456789,

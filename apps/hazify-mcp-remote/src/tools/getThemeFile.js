@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { getThemeFile } from "../lib/themeFiles.js";
-import { rememberThemeRead } from "../lib/themeEditMemory.js";
+import {
+  rememberThemeRead,
+  shouldAutoIncludePlannerReadContent,
+} from "../lib/themeEditMemory.js";
 import {
   buildExplicitThemeTargetRequiredResponse,
   resolveThemeTargetFromInputOrMemory,
@@ -46,7 +49,7 @@ const GetThemeFileInputSchema = z.preprocess(
       themeId: z.coerce.number().int().positive().optional(),
       themeRole: ThemeRoleSchema.optional(),
       key: z.string().min(1),
-      includeContent: z.boolean().default(true),
+      includeContent: z.boolean().optional(),
     })
     .superRefine((input, ctx) => {
       if (input.themeId && input.themeRole) {
@@ -63,7 +66,7 @@ const GetThemeFileInputSchema = z.preprocess(
 const getThemeFileTool = {
   name: "get-theme-file",
   description:
-    "Read one exact file from a Shopify theme. Geef in editflows expliciet themeId of themeRole mee zodat je read-context overeenkomt met plan-theme-edit en je write-call. Als dezelfde flow al eerder een theme target bevestigde, mag die sticky worden hergebruikt; anders blokkeert deze tool met een repair response. Lees dit liefst na plan-theme-edit, en alleen de compacte exact keys die de planner voorstelt. Voor native product-block flows hoef je het planner-geselecteerde templatebestand daarna meestal niet opnieuw te lezen tenzij placement expliciet gevraagd is. Handige reads zijn bijvoorbeeld sections/main-product.liquid, snippets/product-info.liquid, templates/product.json of templates/index.liquid.",
+    "Read one exact file from a Shopify theme. Geef in editflows expliciet themeId of themeRole mee zodat je read-context overeenkomt met plan-theme-edit en je write-call. Als dezelfde flow al eerder een theme target bevestigde, mag die sticky worden hergebruikt; anders blokkeert deze tool met een repair response. Lees dit liefst na plan-theme-edit, en alleen de compacte exact keys die de planner voorstelt. Zonder expliciete includeContent blijft deze tool nu metadata-first; alleen een exacte planner-read mag automatisch content hydrateren. Voor native product-block flows hoef je het planner-geselecteerde templatebestand daarna meestal niet opnieuw te lezen tenzij placement expliciet gevraagd is. Handige reads zijn bijvoorbeeld sections/main-product.liquid, snippets/product-info.liquid, templates/product.json of templates/index.liquid.",
   inputSchema: GetThemeFilePublicObjectSchema,
   schema: GetThemeFileInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -88,6 +91,18 @@ const getThemeFileTool = {
       });
     }
     try {
+      const shouldAutoIncludeContent =
+        input.includeContent === undefined &&
+        shouldAutoIncludePlannerReadContent(context, {
+          keys: [input.key],
+          themeId: resolvedThemeTarget.themeId ?? undefined,
+          themeRole: resolvedThemeTarget.themeRole ?? undefined,
+        });
+      const includeContent = shouldAutoIncludeContent
+        ? true
+        : input.includeContent === undefined
+          ? false
+          : input.includeContent;
       const result = await getThemeFile(shopifyClient, API_VERSION, {
         themeId: resolvedThemeTarget.themeId ?? undefined,
         themeRole: resolvedThemeTarget.themeId ? undefined : resolvedThemeTarget.themeRole,
@@ -95,7 +110,7 @@ const getThemeFileTool = {
       });
 
       const asset = { ...result.asset };
-      if (!input.includeContent) {
+      if (!includeContent) {
         delete asset.value;
         delete asset.attachment;
       }
@@ -110,13 +125,20 @@ const getThemeFileTool = {
           {
             key: result.asset?.key || input.key,
             checksumMd5: result.asset?.checksumMd5 || result.asset?.checksum || null,
-            hasContent: input.includeContent !== false,
-            value: input.includeContent !== false ? result.asset?.value : undefined,
+            hasContent: includeContent === true,
+            value: includeContent === true ? result.asset?.value : undefined,
             attachment:
-              input.includeContent !== false ? result.asset?.attachment : undefined,
+              includeContent === true ? result.asset?.attachment : undefined,
           },
         ],
       });
+
+      const warnings = [...(resolvedThemeTarget.warnings || [])];
+      if (shouldAutoIncludeContent) {
+        warnings.push(
+          "Planner-required single-file read gedetecteerd: includeContent is automatisch op true gezet zodat de volgende write-flow genoeg echte filecontext heeft."
+        );
+      }
 
       return {
         theme: {
@@ -125,9 +147,7 @@ const getThemeFileTool = {
           role: result.theme.role,
         },
         asset,
-        ...(resolvedThemeTarget.warnings?.length
-          ? { warnings: resolvedThemeTarget.warnings }
-          : {}),
+        ...(warnings.length > 0 ? { warnings } : {}),
       };
     } catch (error) {
       console.error("Error reading theme file:", error);

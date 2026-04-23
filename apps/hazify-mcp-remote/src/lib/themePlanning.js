@@ -387,7 +387,7 @@ const scoreTemplateCandidate = (key, templateSurface) => {
 
 const choosePrimaryTemplateFile = (files, templateSurface) => {
   const candidates = (files || [])
-    .filter((file) => file && file.found && typeof file.value === "string")
+    .filter((file) => file && file.found)
     .slice()
     .sort(
       (left, right) =>
@@ -617,6 +617,20 @@ const shouldPreferStructuredExistingEdit = ({
   }
 
   return false;
+};
+
+const shouldInspectExistingEditSnippets = ({ query, sectionAnalysis }) => {
+  if (looksLikeBroadExistingEditQuery(query)) {
+    return true;
+  }
+
+  return Boolean(
+    sectionAnalysis?.supportsThemeBlocks ||
+      sectionAnalysis?.hasSectionBlocksLoop ||
+      sectionAnalysis?.hasBlockSwitch ||
+      (Array.isArray(sectionAnalysis?.schemaBlockTypes) &&
+        sectionAnalysis.schemaBlockTypes.length > 0)
+  );
 };
 
 const pickBlockRendererSnippetKeys = (snippetFiles, snippetAnalyses) => {
@@ -1037,10 +1051,13 @@ export const searchThemeFilesWithSnippets = async (
     patterns: patternList,
     keys: keyList,
     includeContent: true,
-    resultLimit: Math.min(
-      DEFAULT_THEME_SEARCH_LIMIT,
-      Math.max(resultLimit * 3, resultLimit)
-    ),
+    resultLimit:
+      keyList.length > 0
+        ? Math.min(DEFAULT_THEME_SEARCH_LIMIT, Math.max(keyList.length, resultLimit))
+        : Math.min(
+            DEFAULT_THEME_SEARCH_LIMIT,
+            Math.max(resultLimit + 2, resultLimit * 2)
+          ),
   });
 
   const hits = [];
@@ -1118,7 +1135,14 @@ export const planThemeEdit = async (
     let snippetFiles = [];
     let snippetAnalyses = [];
     let snippetRendererKeys = [];
-    if (existingFile?.found && existingAnalysis?.renderSnippets?.length > 0) {
+    const shouldInspectSnippets =
+      existingFile?.found &&
+      existingAnalysis?.renderSnippets?.length > 0 &&
+      shouldInspectExistingEditSnippets({
+        query,
+        sectionAnalysis: existingAnalysis,
+      });
+    if (shouldInspectSnippets) {
       const snippetNames = prioritizeSnippetNames(existingAnalysis.renderSnippets, {
         templateSurface: explicitTemplateSurface,
         query,
@@ -1238,7 +1262,7 @@ export const planThemeEdit = async (
     themeId,
     themeRole,
     keys: getExactTemplateKeys(templateSurface),
-    includeContent: true,
+    includeContent: false,
   });
 
   const exactTemplateFiles = exactTemplateResult.files || [];
@@ -1252,7 +1276,7 @@ export const planThemeEdit = async (
       themeId,
       themeRole,
       patterns: getAlternateTemplatePatterns(templateSurface),
-      includeContent: true,
+      includeContent: false,
       resultLimit: 6,
     });
     templateFile = choosePrimaryTemplateFile(fallbackSearch.files || [], templateSurface);
@@ -1305,6 +1329,17 @@ export const planThemeEdit = async (
       },
     };
   }
+
+  const templateReadback = await getThemeFiles(shopifyClient, apiVersion, {
+    themeId,
+    themeRole,
+    keys: [templateFile.key],
+    includeContent: true,
+  });
+  templateFile =
+    templateReadback.files.find(
+      (file) => file.key === templateFile?.key && file.found
+    ) || templateFile;
 
   const templateAnalysis = analyzeTemplateFile(templateFile, {
     templateSurface,

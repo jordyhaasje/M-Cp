@@ -190,6 +190,20 @@ Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere impleme
 - `plan-theme-edit` geeft bruikbare handoff-data terug, inclusief `plannerHandoff`, `nextReadKeys`, `writeTool` en `sectionBlueprint`.
 - `plan-theme-edit` en `themeSectionContext` onderscheiden nu ook first-class hero-archetypen voor `hero_media_first_overlay`, `hero_split_layout`, `hero_boxed_shell` en `hero_full_bleed_media`, inclusief aparte `layoutContract`- en `themeWrapperStrategy`-lagen in `sectionBlueprint` en `plannerHandoff`.
 - Batch C heeft daar nu ook een expliciete change-scope classifier bovenop gezet: `micro_patch`, `bounded_rewrite`, `multi_file_structural_edit` en `net_new_generation`, inclusief `preferredWriteMode` en `diagnosticTargets` in plannerresultaten en `plannerHandoff`.
+- Batch D heeft de readflow nu strikter metadata-first gemaakt:
+  - `get-theme-file` hydrateert zonder expliciete `includeContent` alleen nog content voor exacte planner-required single-file reads
+  - `get-theme-files` hydrateert alleen nog automatisch content wanneer de gevraagde keyset exact overeenkomt met de planner `nextReadKeys`
+  - metadata-only batch-reads strippen defensief `value`, `attachment` en `url`
+- Batch D maakt de planner ook tokenzuiniger:
+  - surgical existing-edits lezen niet meer standaard renderer-snippets volledig in
+  - templatekeuze gebeurt eerst metadata-first; alleen het gekozen template wordt daarna met content gehydrateerd
+  - compacte snippet-search overfetcht minder agressief dan voorheen
+- Batch D heeft daarnaast de full-content read-memory strakker gemaakt:
+  - verlopen volledige filecontent wordt actief uit `themeEditMemory` opgeschoond
+  - full-content reads krijgen een kortere TTL dan algemene flow-memory, standaard ongeveer 45 minuten via `HAZIFY_MCP_THEME_EDIT_MEMORY_CONTENT_TTL_MS`
+- Shopify Dev MCP en Context7 bevestigen deze richting:
+  - Shopify theme-surfaces zoals `sections`, `snippets`, `blocks` en `templates` zijn aparte implementatie-oppervlakken en hoeven dus niet standaard allemaal full-content mee in één plannerpass
+  - de MCP SDK-richtlijn blijft metadata/`structuredContent`-first voor tooloutputs; grote filebodies horen alleen mee te komen wanneer een vervolgstap daar echt op leunt
 - `plan-theme-edit` geeft voor native-block flows nu ook architectuur terug in `plannerHandoff`, zoals `primarySectionFile`, `usesThemeBlocks`, `snippetRendererKeys` en `hasBlockShopifyAttributes`.
 - `create-theme-section` kan verplichte planner-reads zelf hydrateren en kan alleen in een smalle, bewezen vervolgsituatie create veilig omzetten naar edit.
 - `patch-theme-file` is nu de feitelijke kleine existing-edit route voor exacte single-file fixes.
@@ -203,7 +217,7 @@ Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere impleme
 - Decoratieve inline SVG-iconen zoals sterren en quote marks veroorzaken niet meer standaard een generieke `image_picker` warning; alleen echte image/video/resource-markup telt daar nu nog voor mee.
 - `draft-theme-artifact` controleert native-block snippets nu ook tegen het gerelateerde section-schema: nieuwe block types en `block.settings.*` refs moeten echt bestaan, onveilige optionele block-media worden teruggestuurd, `@theme`/`content_for 'blocks'` routes vereisen een echt `blocks/*.liquid` bestand, en `@app`/`@theme` blocks in section-schema’s worden nu Shopify-conform niet meer onterecht op `name` afgekeurd.
 - Screenshot- en reference-driven flows zijn inhoudelijk veel sterker dan eerder: de planner en validator begrijpen nu precision-first signalen zoals decoratieve anchors, media shells, responsive parity en screenshot-only fallbackstrategieën, en de suite bewijst nu ook volledige screenshot-only en image-backed create/writes over vier archetypes.
-- De huidige lokale verificatie is groen: `npm run release:preflight` slaagt, `npm run --workspace @hazify/mcp-remote test` bevat nu ook de nieuwe native-block regressie rond `@app` schema-entries en de cross-theme acceptatiematrix bewijst nu native-block writes + preview-ready output over alle vier archetypes.
+- De huidige lokale verificatie is groen: `npm run release:preflight` slaagt op 2026-04-23 inclusief `check:docs`, `check:repo`, build, workspace-tests en `test:e2e`. Daarbovenop bewijzen de gerichte Batch D-regressies dat planner-aware metadata-reads, exact-match batch hydration en de slankere existing-edit planning blijven werken.
 - Shopify Dev MCP `validate_theme` heeft daarnaast representatieve tijdelijke theme-fixtures groen gevalideerd voor zowel section/snippet exact-reference flows als native-block files (`sections/main-product.liquid`, `snippets/product-info.liquid`, `blocks/review-badge.liquid`).
 - Tool-level domeinfouten worden nu als echte MCP tool errors teruggegeven: `apps/hazify-mcp-remote/src/index.js` leidt `isError` direct af van `success === false`, conform de MCP SDK-richtlijn.
 - Theme reads/searches/verifies doen geen stille `main`-fallback meer; zonder expliciet of sticky bevestigd target komt nu een gedeelde `explicit_theme_target_required` repair response terug.
@@ -213,7 +227,7 @@ Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere impleme
 - `get-order-by-id` houdt fulfillments als bron van waarheid en zet legacy tracking-signalen alleen nog in een expliciet gedepricieerde read-only substructuur.
 - `delete-product` en `delete-product-variants` schrijven nu een persistente auditlog naar PostgreSQL en geven `auditLogId`, `requestId`, `tenantId`, `shopDomain` en target IDs terug.
 - `clone-product-from-url` accepteert in eerste import-pass alleen nog `DRAFT` of `ARCHIVED`.
-- Repo-brede verificatie op 2026-04-22 is groen: `npm run check:docs`, `npm run check:repo`, `npm run build`, `npm run --workspace @hazify/mcp-remote test`, `npm run --workspace @hazify/license-service test` en `npm run test:e2e`.
+- Repo-brede verificatie op 2026-04-23 is groen: `npm run release:preflight`, inclusief `check:docs`, `check:repo`, build, workspace-tests en `npm run test:e2e`.
 
 ## Productiebewijs uit Railway
 De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `413c26cc-4316-4e4d-bab1-ef086eb58062` op 2026-04-23. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22.
@@ -230,9 +244,6 @@ Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live R
 ## Open blockers
 - `[P1] Docs-drift wordt nog niet volledig automatisch tegengehouden.`
   `scripts/generate-tool-docs.mjs` synchroniseert alleen `AGENTS.md` en `docs/02-SYSTEM-FLOW.md`. `docs/03-THEME-SECTION-GENERATION.md`, `docs/04-MCP-REMOTE-AUDIT.md`, `docs/05-REMEDIATION-PLAN.md` en `apps/hazify-mcp-remote/README.md` blijven handmatig en daardoor driftgevoelig.
-
-- `[P2] Context-TTL documentatie is niet helemaal scherp geformuleerd.`
-  `HAZIFY_MCP_CONTEXT_TTL_MS` klinkt in de docs als een volledige request-context cache, terwijl de code nog steeds per request introspecteert en pas daarna de gehydrateerde context/client cachet.
 
 - `[P3] Railway build/start hygiene heeft nog niet-blokkerende waarschuwingen.`
   De huidige live deploys starten goed, maar de logs tonen nog `npm warn config production Use --omit=dev instead` en de `punycode` deprecation warning. Dat is geen functionele blocker meer, wel een ops-hygiene track.

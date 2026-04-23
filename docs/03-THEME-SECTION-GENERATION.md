@@ -186,14 +186,20 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 - Full rewrites op bestaande bestanden moeten altijd het volledige nieuwe bestand meesturen; de MCP kan een placeholder-string nooit terugvertalen naar echte Liquid
 
 ## Read Semantics
+- `get-theme-file` blijft nu standaard metadata-first wanneer `includeContent` ontbreekt.
+- Alleen een exacte planner-required single-file read mag `includeContent` automatisch op `true` zetten, met een warning in de tooloutput.
 - `get-theme-files` of `read-theme-files` zetten `includeContent` niet blind automatisch aan.
 - Die auto-hydratie gebeurt alleen wanneer de gevraagde `keys` exact overeenkomen met de planner `nextReadKeys` op een compatibel theme-target.
 - Voor alle andere batch-reads blijft `includeContent` standaard `false` tenzij de client het expliciet meegeeft.
+- Metadata-only batch-reads strippen defensief `value`, `attachment` en `url`, ook als de onderliggende transportlaag die toch terugstuurt.
 - `apply-theme-draft` is alleen voor promote/apply van een bestaande draft, nooit voor de eerste create-write
 
 ## Token-Efficiënte Flow
 - Plan eerst, lees daarna alleen `nextReadKeys`
 - Gebruik `search-theme-files` voor compacte anchors
+- `plan-theme-edit` leest nu minder eager full-content mee:
+  - bestaande surgical existing-edits hydrateren niet meer standaard renderer-snippets
+  - templatekeuze gebeurt eerst metadata-first; alleen het gekozen template wordt daarna met content gehydrateerd
 - Native-block en andere patch-first editflows horen nu standaard via `search-theme-files` plus `patch`/`patches` te lopen; een volledige `get-theme-files includeContent=true` read is daar niet meer de voorkeursroute
 - `plan-theme-edit` geeft nu ook expliciet terug welke wijzigingsscope bedoeld is:
   - `micro_patch` -> kleine bestaande-file wijziging via `patch-theme-file` of `draft-theme-artifact mode="edit"` met `patch`
@@ -203,6 +209,9 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 - Gebruik `preferredWriteMode` als tweede beslissingslaag wanneer een client stateless is of weinig sessiecontext heeft
 - Gebruik `patch` / `patches` voor kleine bestaande-file edits
 - Gebruik volledige rewrites alleen wanneer het doelbestand bewust volledig is ingelezen
+- Full-content theme-read memory wordt nu sneller opgeschoond dan algemene flow-memory:
+  - standaard ongeveer 45 minuten voor volledige filecontent via `HAZIFY_MCP_THEME_EDIT_MEMORY_CONTENT_TTL_MS`
+  - theme-target, planner-handoff en andere lichtere sessiestate blijven onder de normale flow-TTL vallen
 - Houd theme requests op maximaal 10 bestanden
 
 ## Patchbare Diagnostics
