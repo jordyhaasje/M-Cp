@@ -265,6 +265,7 @@ Afgeronde uitkomst:
 - planner-reads voor writes blijven nog steeds exact genoeg voor `patch-theme-file`, `create-theme-section` en `draft-theme-artifact`
 - partial-overlap batch-reads blijven metadata-first, waardoor tokengebruik voorspelbaarder wordt in stateless en bijna-volle sessies
 - sessiememory bewaart niet langer automatisch urenlang volledige theme-filecontent als die niet meer write-kritiek is
+- live parity voor deze tranche is bevestigd op `Hazify-MCP-Remote` via Railway deployment `b592ad92-07a4-4f7d-9ecf-6d3259cd48b4` en `npm run release:postdeploy`
 
 ### Batch E — Brede Coverage Buiten Hero’s
 Status: `pending`

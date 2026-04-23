@@ -2,8 +2,8 @@
 Doelgroep: maintainers, developers en coding agents.
 
 Status: levende audit en bron van waarheid voor de actuele MCP-toolingstatus.
-Versie: 2026-04-22.
-Laatst geverifieerd: 2026-04-22.
+Versie: 2026-04-23.
+Laatst geverifieerd: 2026-04-23.
 
 Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve samenvatting; de detailsecties blijven beschikbaar als achtergrond en moeten altijd aansluiten op code of recente productieobservatie.
 
@@ -17,13 +17,13 @@ Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve
 - Groen: MCP domeinfouten komen nu protocolcorrect terug als `isError: true`, en read/search/verify vereisen nu een expliciet of sticky bevestigd theme target.
 - Groen: non-theme contract cleanup is aangescherpt voor refunds, product-contracten, tracking-redirects, destructieve auditsporen en eerste productimports.
 - Groen: de license-service herkent Railway-productie nu expliciet, valideert verplichte productie-envs hard en beschermt backup-export/smoke checks beter zonder startup op Railway te blokkeren wanneer backup-export bewust niet is geconfigureerd.
-- Groen: live Railway parity voor `Hazify-MCP-Remote` is opnieuw bevestigd via Railway redeploy `413c26cc-4316-4e4d-bab1-ef086eb58062`, logreview en `npm run release:postdeploy` op 2026-04-23. De live smoke bleef tegelijk ook groen voor `Hazify-License-Service`.
+- Groen: live Railway parity voor `Hazify-MCP-Remote` is opnieuw bevestigd via Railway deployment `b592ad92-07a4-4f7d-9ecf-6d3259cd48b4`, logreview en `npm run release:postdeploy` op 2026-04-23. De live smoke bleef tegelijk ook groen voor `Hazify-License-Service`.
 - Geel: docs-drift is afgebakend; auto-sync geldt alleen voor `AGENTS.md` en `docs/02-SYSTEM-FLOW.md`.
 
 ## Verificatie- en release-ledger
 | Service | Laatst lokaal geverifieerd | Laatste lokale bewijsset | Laatst live op Railway | Live parity bevestigd |
 | --- | --- | --- | --- | --- |
-| `Hazify-MCP-Remote` | 2026-04-23 | `npm run release:preflight`, inclusief `check:docs`, `check:repo`, build, repo-brede tests, e2e, plus gerichte matrix/regressies voor `crossThemeAcceptanceMatrix`, `draftThemeArtifact`, de nieuwe media-first hero-checks en Liquid template placement | `413c26cc-4316-4e4d-bab1-ef086eb58062` op 2026-04-23 | Ja. Railway redeploy is succesvol, build/runtime logs tonen een normale startup met alleen bekende niet-blokkerende warnings, en `npm run release:postdeploy` is groen. |
+| `Hazify-MCP-Remote` | 2026-04-23 | `npm run release:preflight`, inclusief `check:docs`, `check:repo`, build, repo-brede tests, e2e, plus gerichte matrix/regressies voor `crossThemeAcceptanceMatrix`, `draftThemeArtifact`, de nieuwe media-first hero-checks, Batch D read-efficiency regressies en Liquid template placement | `b592ad92-07a4-4f7d-9ecf-6d3259cd48b4` op 2026-04-23 | Ja. Railway deploy is succesvol, build/runtime logs tonen een normale startup met alleen bekende niet-blokkerende warnings, en `npm run release:postdeploy` is groen. |
 | `Hazify-License-Service` | 2026-04-23 | meegenomen in `npm run release:preflight` en live smoke via `npm run release:postdeploy` | `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22 | Ja. De crash op `81578f9a-b774-4126-90f1-1eb12f9ac0b2` is opgelost; de service bleef in de 2026-04-23 smoke-run ook groen. |
 
 Releasewaarheid:
@@ -230,7 +230,7 @@ Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere impleme
 - Repo-brede verificatie op 2026-04-23 is groen: `npm run release:preflight`, inclusief `check:docs`, `check:repo`, build, workspace-tests en `npm run test:e2e`.
 
 ## Productiebewijs uit Railway
-De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `413c26cc-4316-4e4d-bab1-ef086eb58062` op 2026-04-23. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22.
+De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `b592ad92-07a4-4f7d-9ecf-6d3259cd48b4` op 2026-04-23. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22.
 
 De logs laten een realistisch beeld zien:
 - de planner-, read- en write-pipeline wordt actief gebruikt op echte shops
@@ -239,7 +239,7 @@ De logs laten een realistisch beeld zien:
 - er komen nog echte parse- en schemafouten terug op section-creatie en op bestaande product-sections
 - Railway bevestigde op 2026-04-22 ook een echte bestaande-section foutketen op `sections/hero-v1.liquid`: eerst `inspection_failed_truncated`, daarna `inspection_failed_liquid_delimiter_balance`. Dat incident is lokaal gereproduceerd en nu afgedekt met regressies voor mobile-only CSS-patches op bestaande sections met inline animatie-CSS.
 
-Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live Railway runtime sluit nu aan op de lokale remediation van 2026-04-23, inclusief de fix voor bestaande mobile-only section-edits met inline animatie-CSS, de bredere desktop/mobile exact-match heuristieken, de review-wall double-shell guard, de composiet theme-scale check en de nieuwe Batch B-validatoren rond raw Shopify-media `<img>`, `block.shopify_attributes`, hosted video-setting mismatch en exacte media-first hero-shells. De recente build/runtime logs tonen alleen bekende niet-blokkerende waarschuwingen zoals `npm warn config production`, een `punycode` deprecation en een 0.0.0.0-bindingswaarschuwing. De eerdere license-service crash op ontbrekende `BACKUP_EXPORT_*` startup-validatie is opgeheven; backup-export blijft nu feature-gated op de admin-route in plaats van de hele service omver te trekken.
+Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live Railway runtime sluit nu aan op de lokale remediation van 2026-04-23, inclusief de fix voor bestaande mobile-only section-edits met inline animatie-CSS, de bredere desktop/mobile exact-match heuristieken, de review-wall double-shell guard, de composiet theme-scale check, de nieuwe Batch B-validatoren rond raw Shopify-media `<img>`, `block.shopify_attributes`, hosted video-setting mismatch en exacte media-first hero-shells, plus Batch D-hardening voor metadata-first theme reads, exact-match planner hydration en kortere full-content memory-retentie. De recente build/runtime logs tonen alleen bekende niet-blokkerende waarschuwingen zoals `npm warn config production`, een `punycode` deprecation en een 0.0.0.0-bindingswaarschuwing. De eerdere license-service crash op ontbrekende `BACKUP_EXPORT_*` startup-validatie is opgeheven; backup-export blijft nu feature-gated op de admin-route in plaats van de hele service omver te trekken.
 
 ## Open blockers
 - `[P1] Docs-drift wordt nog niet volledig automatisch tegengehouden.`
