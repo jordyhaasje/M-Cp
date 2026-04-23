@@ -49,10 +49,8 @@ Bij een nieuwe of bijna volle sessie is de aanbevolen herstartvolgorde:
 - Railway-logs bevestigen echte productiefouten rond schema labels, range-step limieten en image/media issues.
 
 ### Nog open
-- first-class archetypes voor media-first versus split-layout hero’s
-- hardere validators voor media-slot-consistentie, wrapper-correctheid en Theme Editor-contracten
-- expliciete change-scope classifier voor micro-patch versus rewrite
-- small-patch en token-efficiency verbeteringen in read/search/memory
+- bredere archetype-aware wrapperregels buiten de nu geharde media-first/full-bleed hero-familie
+- hardere validators voor wrapper-correctheid en Theme Editor-contracten buiten de hero fix
 - bredere regressietests voor review/video/blocks/prompt-only flows
 
 ## Concrete Patchbatches
@@ -267,6 +265,47 @@ Afgeronde uitkomst:
 - sessiememory bewaart niet langer automatisch urenlang volledige theme-filecontent als die niet meer write-kritiek is
 - live parity voor deze tranche is bevestigd op `Hazify-MCP-Remote` via Railway deployment `b592ad92-07a4-4f7d-9ecf-6d3259cd48b4` en `npm run release:postdeploy`
 
+### Pre-Batch-E Hardening — Hero Wrapper Contract
+Status: `completed`
+Prioriteit: `P1`
+
+Doel:
+- voorkom dat media-first/full-bleed heroes nog outer wrapper-mirroring erven vanuit representatieve theme-context
+- maak de wrapperbeslissing contract-aware per hero-shell-familie in plaats van screenshot-only of representatieve `heroLike` heuristiek
+- blokkeer ook subtiel boxed gedrag waarbij niet de root, maar wel de media-shell in `page-width`, `container` of `section-properties` vastloopt
+
+Files/tools:
+- `apps/hazify-mcp-remote/src/lib/themeSectionContext.js`
+- `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
+- `apps/hazify-mcp-remote/src/lib/themePlanning.js`
+
+Concrete wijzigingen:
+- `requiresThemeWrapperMirror` volgt nu de afgeleide `heroShellFamily` in plaats van representatieve `heroLike`-context voor media-first/full-bleed hero-shells
+- `hero_media_first_overlay` en `hero_full_bleed_media` behandelen de media-shell nu expliciet als outer bounds; `hero_banner` kan alleen nog naar die familie doorvallen wanneer de prompt/query echt op edge-to-edge/background-media/text-over-image wijst zonder boxed/split signalen
+- `layoutContract` en `themeWrapperStrategy` dragen nu explicieter dat de outer media-shell de bounds bezit en dat theme wrappers alleen op inner content/spacer-lagen thuishoren
+- `draft-theme-artifact` blokkeert nu ook `exact_match_media_shell_boxed_by_wrapper` wanneer een theme wrapper de media-shell effectief boxet zonder dat de root zelf boxed lijkt
+- plannerwarnings benoemen nu expliciet dat helpers zoals `page-width`, `container` en `section-properties` op een inner content- of spacer-laag thuishoren, niet op de outer media-shell
+- de fix voegt geen extra theme reads toe: hero-shell-familie gebruikt bestaande plannerinput en de nieuwe validatorcheck werkt volledig op lokaal gegenereerde Liquid/CSS-markup
+
+Vereiste tests:
+- `apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
+- `apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+
+Docs die mee moeten wijzigen:
+- `docs/03-THEME-SECTION-GENERATION.md`
+- `docs/04-MCP-REMOTE-AUDIT.md`
+- dit document
+
+Lokaal geverifieerd:
+- `node --test apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+
+Afgeronde uitkomst:
+- media-first/full-bleed hero-shells houden nu hun outer full-bleed bounds ook wanneer het doeltheme `page-width` of `section-properties` gebruikt
+- prompt-only en screenshot-driven unboxed hero-prompts delen nu hetzelfde wrappercontract zonder screenshot-only uitzonderingsregel
+- validators keuren nu zowel een boxed outer root als een boxed media-shell af
+- Batch E kan hierdoor verder op review/video/PDP/blocks zonder de foutieve hero-wrapperdefault mee te nemen
+
 ### Batch E — Brede Coverage Buiten Hero’s
 Status: `pending`
 Prioriteit: `P2`
@@ -319,7 +358,7 @@ Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 `Batch E — Brede Coverage Buiten Hero’s`
 
 ### Waarom deze eerst
-- de hero/media-first en read-efficiency fundering staat nu, dus de grootste resterende kwaliteitswinst zit in review/video/PDP/blocks buiten de hero-cases
+- de hero/media-first fundering bevat nu ook de pre-Batch-E wrappercontract-fix, dus de grootste resterende kwaliteitswinst zit in review/video/PDP/blocks buiten de hero-cases
 - Batch E maakt de archetype- en validatorlogica breder toepasbaar op prompt-only generation, bestaande edits en non-hero sections
 
 ### Minimale files voor de volgende sessie
@@ -336,6 +375,7 @@ Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 - media-first hero-architectuur hoort `media -> overlay -> content` te blijven
 - fallback en uploaded image moeten hetzelfde media-slot delen
 - full-bleed sections mogen niet blind door theme wrappers boxed worden
+- page-width, container en section-properties mogen bij media-first/full-bleed heroes alleen op inner content/spacer-lagen landen
 - `block.shopify_attributes` is functioneel belangrijk, niet alleen cosmetisch
 
 ## Documentatiebeheer

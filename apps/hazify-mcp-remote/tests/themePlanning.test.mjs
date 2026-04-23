@@ -752,11 +752,46 @@ try {
     fullBleedHeroPlan.sectionBlueprint?.themeWrapperStrategy?.allowOuterThemeContainer,
     false
   );
+  assert.equal(
+    fullBleedHeroPlan.sectionBlueprint?.referenceSignals?.heroShellFamily,
+    "media_first_unboxed"
+  );
+  assert.equal(
+    fullBleedHeroPlan.sectionBlueprint?.referenceSignals?.requiresThemeWrapperMirror,
+    false
+  );
   assert.ok(
     fullBleedHeroPlan.warnings.some((warning) =>
       warning.toLowerCase().includes("niet automatisch als split")
     ),
     "full-bleed hero plans should warn against split-layout degradation"
+  );
+  assert.ok(
+    fullBleedHeroPlan.warnings.some((warning) =>
+      warning.toLowerCase().includes("outer media-shell")
+    ),
+    "full-bleed hero plans should warn that theme helpers belong on an inner layer"
+  );
+
+  const promptOnlyFullBleedHeroPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query:
+      "Maak een edge-to-edge hero banner met tekst over de afbeelding, een donkere overlay en CTA links in beeld",
+  });
+  assert.equal(
+    promptOnlyFullBleedHeroPlan.sectionBlueprint?.archetype,
+    "hero_full_bleed_media",
+    "prompt-only full-width heroes with text-over-image cues should keep the media-first full-bleed archetype"
+  );
+  assert.equal(
+    promptOnlyFullBleedHeroPlan.sectionBlueprint?.referenceSignals?.heroShellFamily,
+    "media_first_unboxed"
+  );
+  assert.equal(
+    promptOnlyFullBleedHeroPlan.sectionBlueprint?.referenceSignals?.requiresThemeWrapperMirror,
+    false
   );
 
   const splitHeroPlan = await planThemeEdit(shopifyClient, "2026-01", {
@@ -799,6 +834,15 @@ try {
   assert.equal(
     boxedHeroPlan.sectionBlueprint?.layoutContract?.contentWidthStrategy,
     "boxed_shell"
+  );
+  assert.equal(
+    boxedHeroPlan.sectionBlueprint?.referenceSignals?.heroShellFamily,
+    "boxed"
+  );
+  assert.equal(
+    boxedHeroPlan.sectionBlueprint?.referenceSignals?.requiresThemeWrapperMirror,
+    false,
+    "boxed heroes should stay bounded via their own layout contract instead of forcing a generic exact-match wrapper mirror"
   );
 
   const templatePlacementPlan = await planThemeEdit(shopifyClient, "2026-01", {

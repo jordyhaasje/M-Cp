@@ -672,6 +672,66 @@ const inferSectionArchetype = ({
   return "content_section";
 };
 
+const inferHeroShellFamily = ({
+  archetype = "content_section",
+  query = "",
+  qualityTarget = "theme_consistent",
+} = {}) => {
+  if (archetype === "hero_media_first_overlay" || archetype === "hero_full_bleed_media") {
+    return "media_first_unboxed";
+  }
+
+  if (archetype === "hero_boxed_shell") {
+    return "boxed";
+  }
+
+  if (archetype === "hero_split_layout") {
+    return "split";
+  }
+
+  if (archetype !== "hero_banner") {
+    return "generic";
+  }
+
+  const haystack = normalizeText(query);
+  const wantsBoxed = HERO_BOXED_PATTERNS.some((pattern) => pattern.test(haystack));
+  const hasDirectionalMedia = HERO_DIRECTIONAL_MEDIA_PATTERNS.some((pattern) =>
+    pattern.test(haystack)
+  );
+  const wantsSplit =
+    HERO_SPLIT_LAYOUT_PATTERNS.some((pattern) => pattern.test(haystack)) ||
+    (hasDirectionalMedia &&
+      /\b(split|columns?|kolommen|side[-_ ]?by[-_ ]?side|inline|naast)\b/i.test(
+        haystack
+      ));
+  const wantsMediaFirst =
+    HERO_FULL_BLEED_PATTERNS.some((pattern) => pattern.test(haystack)) ||
+    HERO_OVERLAY_PATTERNS.some((pattern) => pattern.test(haystack)) ||
+    HERO_BACKGROUND_MEDIA_PATTERNS.some((pattern) => pattern.test(haystack)) ||
+    /\b(?:edge[-_ ]?to[-_ ]?edge|full[-_ ]?width|full[-_ ]?bleed|over\s+het\s+hele\s+vlak|text\s+on\s+(?:the\s+)?(?:image|media|photo)|tekst\s+(?:op|over)\s+(?:de\s+)?(?:afbeelding|foto|image|media)|image\s+as\s+background|beeld\s+als\s+achtergrond)\b/i.test(
+      query
+    );
+  const exactReplicaRequested = qualityTarget === "exact_match";
+
+  if (!wantsBoxed && !wantsSplit && wantsMediaFirst) {
+    return "media_first_unboxed";
+  }
+
+  if (
+    !wantsBoxed &&
+    !wantsSplit &&
+    exactReplicaRequested &&
+    /\b(?:hero|banner|masthead|cover)\b/i.test(haystack) &&
+    /\b(?:text|tekst|content|copy|headline)\b/i.test(haystack) &&
+    /\b(?:image|media|photo|visual|beeld|foto|afbeelding)\b/i.test(haystack) &&
+    /\b(?:behind|achter|background|achtergrond|overlay|over)\b/i.test(haystack)
+  ) {
+    return "media_first_unboxed";
+  }
+
+  return "generic";
+};
+
 const buildReferenceSignals = ({
   query = "",
   qualityTarget = "theme_consistent",
@@ -709,8 +769,14 @@ const buildReferenceSignals = ({
     );
   const boundedCardCompositionRequested =
     /\b(card|cards|wall|masonry|grid|quotes?)\b/i.test(query);
+  const heroShellFamily = inferHeroShellFamily({
+    archetype,
+    query,
+    qualityTarget,
+  });
   const exactReplicaWrapperMirror =
     exactReplicaRequested &&
+    heroShellFamily !== "media_first_unboxed" &&
     !heroLike &&
     Boolean(
       themeContext?.usesPageWidth || themeContext?.usesSectionPropertiesWrapper
@@ -754,6 +820,7 @@ const buildReferenceSignals = ({
     hasScreenshotLikeReference,
     hasDesktopMobileReferences,
     hasExplicitMediaSources,
+    heroShellFamily,
     requestedDecorativeMediaAnchors,
     requestedDecorativeBadgeAnchors,
     prefersRenderablePreviewMedia:
@@ -1107,14 +1174,18 @@ const buildLayoutContract = ({
   archetype = "content_section",
   referenceSignals = null,
 } = {}) => {
-  const isMediaFirstHero =
-    archetype === "hero_media_first_overlay" ||
-    archetype === "hero_full_bleed_media";
+  const heroShellFamily =
+    referenceSignals?.heroShellFamily ||
+    inferHeroShellFamily({
+      archetype,
+    });
+  const isMediaFirstHero = heroShellFamily === "media_first_unboxed";
   const isFullBleedHero = archetype === "hero_full_bleed_media";
-  const isSplitHero = archetype === "hero_split_layout";
-  const isBoxedHero = archetype === "hero_boxed_shell";
+  const isSplitHero = heroShellFamily === "split";
+  const isBoxedHero = heroShellFamily === "boxed";
 
   return {
+    heroShellFamily,
     outerShell: isFullBleedHero
       ? "full_bleed"
       : isBoxedHero
@@ -1157,20 +1228,28 @@ const buildLayoutContract = ({
     avoidOuterContainer: isMediaFirstHero,
     avoidSplitLayoutAssumption: isMediaFirstHero,
     allowOuterContainer: !isMediaFirstHero,
+    outerShellOwnsMediaBounds: isMediaFirstHero,
+    allowInnerContentWidthMirror: isMediaFirstHero,
+    forbidOuterThemeWrapperMirror: isMediaFirstHero,
   };
 };
 
 const buildThemeWrapperStrategy = ({
   archetype = "content_section",
   themeContext = null,
+  referenceSignals = null,
 } = {}) => {
-  const isMediaFirstHero =
-    archetype === "hero_media_first_overlay" ||
-    archetype === "hero_full_bleed_media";
-  const isBoxedHero = archetype === "hero_boxed_shell";
+  const heroShellFamily =
+    referenceSignals?.heroShellFamily ||
+    inferHeroShellFamily({
+      archetype,
+    });
+  const isMediaFirstHero = heroShellFamily === "media_first_unboxed";
+  const isBoxedHero = heroShellFamily === "boxed";
   const prefersThemeContentWidth = Boolean(themeContext?.usesPageWidth);
 
   return {
+    heroShellFamily,
     mirrorThemeSpacingSettings: true,
     mirrorThemeHelpers: true,
     usesPageWidth: prefersThemeContentWidth,
@@ -1185,9 +1264,11 @@ const buildThemeWrapperStrategy = ({
     preferredHelperPlacement: isMediaFirstHero
       ? "inner_content_or_spacing_layer"
       : isBoxedHero
-        ? "boxed_shell_or_inner_content"
-        : "theme_default",
+          ? "boxed_shell_or_inner_content"
+          : "theme_default",
     allowOuterThemeContainer: !isMediaFirstHero,
+    allowInnerContentWidthMirror: isMediaFirstHero || prefersThemeContentWidth,
+    forbidOuterThemeWrapperMirror: isMediaFirstHero,
   };
 };
 
@@ -1236,7 +1317,7 @@ const buildCategoryGuardrails = ({
 
   if (layoutContract?.avoidOuterContainer || themeWrapperStrategy?.allowOuterThemeContainer === false) {
     guardrails.push(
-      "Plaats theme containers of page-width wrappers bij full-bleed/media-first heroes alleen op een inner content-laag en niet blind op de outer hero-shell."
+      "Plaats theme helpers zoals page-width, container of section-properties bij full-bleed/media-first heroes alleen op een inner content- of spacer-laag en niet blind op de outer media-shell."
     );
   }
 
@@ -1458,6 +1539,7 @@ const buildSectionGenerationBlueprint = ({
   const themeWrapperStrategy = buildThemeWrapperStrategy({
     archetype,
     themeContext,
+    referenceSignals,
   });
   const contractPreflightChecks = [
     ...(layoutContract.requiresBackgroundMediaArchitecture

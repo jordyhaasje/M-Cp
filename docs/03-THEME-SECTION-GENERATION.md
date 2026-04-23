@@ -145,6 +145,10 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
   - content layer
 - Fallback-media en merchant-uploaded media moeten hetzelfde primaire media-slot en dezelfde wrapper-hiërarchie delen. Gebruik dus geen aparte DOM-architectuur voor placeholder/fallback versus geüploade media.
 - Full-width media-first heroes horen geen outer `.container`, `page-width` of vergelijkbare bounded shell te krijgen tenzij de referentie aantoonbaar boxed is.
+- Deze wrapperregel is nu hero-shell-family aware in plaats van screenshot-only:
+  - `hero_media_first_overlay` en `hero_full_bleed_media` behandelen de media-shell als outer bounds
+  - `hero_banner` mag alleen naar diezelfde unboxed familie doorvallen als de prompt/query echt wijst op edge-to-edge, background-media of text-over-image zonder boxed/split signalen
+  - `hero_boxed_shell` en `hero_split_layout` houden juist hun bounded contract
 - Theme conventions en section archetypes zijn twee aparte beslissingen:
   - theme conventions bepalen welke helpers, spacing-conventies, classes en wrappers beschikbaar zijn
   - het section archetype bepaalt of de outer shell full-bleed, boxed, media-first, split-layout of card-based hoort te zijn
@@ -152,6 +156,10 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
   - `layoutContract` voor shell-, media- en overlay-architectuur
   - `themeWrapperStrategy` voor theme-aware content-width, helperplaatsing en wrapper-mirroring
 - Theme wrappers/helpers mogen daarom niet als blanket rule worden gespiegeld. Een helper zoals `section-properties` of een theme container kan wel op een inner content-laag thuishoren zonder dat de outer hero-shell boxed wordt.
+- Voor media-first/full-bleed heroes geldt nu expliciet:
+  - `requiresThemeWrapperMirror = false` voor de outer shell
+  - theme helpers zoals `page-width`, `container` en `section-properties` mogen alleen op een inner content- of spacer-laag landen
+  - de validator keurt niet alleen een boxed root af, maar ook een “effectively boxed” media-shell die alsnog in zo'n theme wrapper opgesloten zit
 - Deze principes gelden niet alleen voor hero’s, maar ook voor review sections, video sections, media sections, blocks en bestaande edits waarbij dezelfde media/shell-keuzes opnieuw kunnen ontsporen.
 
 ### Social strips
@@ -247,12 +255,13 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
   - media-first versus split-layout DOM-mismatch
   - gedeeld media-slot tussen uploaded en fallback-media
   - onterechte outer `page-width` / `.container` op de hero-shell
+  - theme wrappers die de media-shell alsnog boxen terwijl alleen de inner contentlaag bounded mag zijn
 - Voor Shopify resource-media wordt raw `<img>` met `image_url`/`img_url` nu hard afgekeurd, ook als width/height al aanwezig zijn. Pure hardcoded demo-URLs met expliciete dimensies blijven toegestaan als fallbackpad.
 - Ontbrekende `block.shopify_attributes` is nu hard failure in relevante section-loops en native block-render snippets.
 - Hosted video-markup met alleen schema type `video_url` is nu hard failure; externe embedflows met `video_url` blijven toegestaan.
 - Wat nog open blijft:
   - de volledige `media layer -> overlay layer -> content layer` architectuur wordt nog niet op elk niet-exact hero/video-pad als generiek contract afgedwongen
-  - wrapper-correctheid buiten exacte media-first hero’s blijft deels theme-aware guidance in plaats van universele hard fail
+  - wrapper-correctheid buiten de media-first/full-bleed hero-familie blijft deels theme-aware guidance in plaats van universele hard fail
 
 ## Related Docs
 - `docs/00-START-HERE.md`

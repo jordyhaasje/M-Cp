@@ -313,6 +313,7 @@ function buildExactMediaFirstHeroBlueprint(overrides = {}) {
     hasScreenshotLikeReference: true,
     hasDesktopMobileReferences: true,
     hasExplicitMediaSources: false,
+    heroShellFamily: "media_first_unboxed",
     prefersRenderablePreviewMedia: true,
     requiresRenderablePreviewMedia: false,
     allowStylizedPreviewFallbacks: true,
@@ -343,6 +344,9 @@ function buildExactMediaFirstHeroBlueprint(overrides = {}) {
       avoidOuterContainer: true,
       avoidSplitLayoutAssumption: true,
       allowOuterContainer: false,
+      outerShellOwnsMediaBounds: true,
+      allowInnerContentWidthMirror: true,
+      forbidOuterThemeWrapperMirror: true,
     },
     themeWrapperStrategy: {
       mirrorThemeSpacingSettings: true,
@@ -352,6 +356,8 @@ function buildExactMediaFirstHeroBlueprint(overrides = {}) {
       preferredContentWidthLayer: "inner_content",
       preferredHelperPlacement: "inner_content_or_spacing_layer",
       allowOuterThemeContainer: false,
+      allowInnerContentWidthMirror: true,
+      forbidOuterThemeWrapperMirror: true,
     },
     referenceSignals: {
       ...referenceSignals,
@@ -1645,7 +1651,7 @@ test("draftThemeArtifact - rejects media-first exact heroes that box the outer s
 <style>
   .hero {
     position: relative;
-    min-height: 640px;
+    min-height: 360px;
     overflow: hidden;
   }
 
@@ -1664,6 +1670,17 @@ test("draftThemeArtifact - rejects media-first exact heroes that box the outer s
 
   .hero__overlay {
     background: linear-gradient(90deg, rgba(24, 18, 16, 0.72) 0%, rgba(24, 18, 16, 0.12) 72%);
+  }
+
+  @media screen and (max-width: 749px) {
+    .hero {
+      min-height: 320px;
+    }
+
+    .hero__content {
+      padding: 32px 20px;
+      max-width: 100%;
+    }
   }
 </style>
 <section class="hero page-width container">
@@ -1706,6 +1723,202 @@ test("draftThemeArtifact - rejects media-first exact heroes that box the outer s
   assert.ok(
     result.errors?.some((issue) => issue.issueCode === "exact_match_hero_outer_container")
   );
+});
+
+test("draftThemeArtifact - rejects media-first exact heroes whose media shell is boxed by an inner theme wrapper", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      themeId: 111,
+      mode: "create",
+      files: [
+        {
+          key: "sections/media-first-boxed-media-shell.liquid",
+          value: `
+<style>
+  .hero {
+    position: relative;
+    min-height: 640px;
+    overflow: hidden;
+  }
+
+  .hero__media,
+  .hero__overlay {
+    position: absolute;
+    inset: 0;
+  }
+
+  .hero__content {
+    position: relative;
+    z-index: 1;
+    padding: 48px;
+    max-width: 640px;
+  }
+
+  .hero__overlay {
+    background: linear-gradient(90deg, rgba(24, 18, 16, 0.72) 0%, rgba(24, 18, 16, 0.12) 72%);
+  }
+</style>
+<section class="hero">
+  <div class="page-width section-properties">
+    <div class="hero__media">
+      {% if section.settings.image != blank %}
+        {{ section.settings.image | image_url: width: 1600 | image_tag: alt: section.settings.heading }}
+      {% else %}
+        <img src="${demoCdnImageUrl}" width="1600" height="900" alt="Demo hero">
+      {% endif %}
+    </div>
+    <div class="hero__overlay"></div>
+  </div>
+  <div class="page-width hero__content">
+    <h2>{{ section.settings.heading }}</h2>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Media first boxed media shell",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Glow from the first sip" },
+    { "type": "image_picker", "id": "image", "label": "Image" }
+  ],
+  "presets": [{ "name": "Media first boxed media shell" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    {
+      shopifyClient: mockShopifyClient,
+      sectionBlueprint: buildExactMediaFirstHeroBlueprint(),
+      themeSectionContext: {
+        usesPageWidth: true,
+        usesSectionPropertiesWrapper: true,
+      },
+    }
+  );
+
+  assert.equal(result.success, false);
+  assert.ok(
+    result.errors?.some(
+      (issue) => issue.issueCode === "exact_match_media_shell_boxed_by_wrapper"
+    )
+  );
+});
+
+test("draftThemeArtifact - does not flag wrapper errors when media-first heroes keep page-width only on an inner content layer", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFileFetchMock({
+    key: "sections/media-first-inner-content-wrapper.liquid",
+    initialValue: "",
+    existing: false,
+  }).handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        files: [
+          {
+            key: "sections/media-first-inner-content-wrapper.liquid",
+            value: `
+<style>
+  .hero {
+    position: relative;
+    min-height: 640px;
+    overflow: hidden;
+  }
+
+  .hero__media,
+  .hero__overlay {
+    position: absolute;
+    inset: 0;
+  }
+
+  .hero__content-shell {
+    position: relative;
+    z-index: 1;
+  }
+
+  .hero__content {
+    padding: 48px;
+    max-width: 640px;
+  }
+
+  .hero__overlay {
+    background: linear-gradient(90deg, rgba(24, 18, 16, 0.72) 0%, rgba(24, 18, 16, 0.12) 72%);
+  }
+</style>
+<section class="hero">
+  <div class="hero__media">
+    {% if section.settings.image != blank %}
+      {{ section.settings.image | image_url: width: 1600 | image_tag: alt: section.settings.heading }}
+    {% else %}
+      <img src="${demoCdnImageUrl}" width="1600" height="900" alt="Demo hero">
+    {% endif %}
+  </div>
+  <div class="hero__overlay"></div>
+  <div class="page-width hero__content-shell">
+    <div class="hero__content">
+      <h2>{{ section.settings.heading }}</h2>
+    </div>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Media first hero",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Glow from the first sip" },
+    { "type": "image_picker", "id": "image", "label": "Image" }
+  ],
+  "presets": [{ "name": "Media first inner content wrapper" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        sectionBlueprint: buildExactMediaFirstHeroBlueprint(),
+        themeSectionContext: {
+          usesPageWidth: true,
+        },
+      }
+    );
+
+    assert.ok(
+      !result.errors?.some((issue) => issue.issueCode === "exact_match_missing_theme_wrapper")
+    );
+    assert.ok(
+      !result.errors?.some((issue) => issue.issueCode === "exact_match_hero_outer_container")
+    );
+    assert.ok(
+      !result.errors?.some(
+        (issue) => issue.issueCode === "exact_match_media_shell_boxed_by_wrapper"
+      )
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
 });
 
 test("draftThemeArtifact - rejects media-first exact heroes that degrade into split layouts", async () => {

@@ -15,6 +15,7 @@ Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve
 - Groen: `draft-theme-artifact mode="edit"` ondersteunt nu zowel `templates/*.json` als `templates/*.liquid`; JSON templates blijven JSON-valideren en Liquid templates krijgen Liquid safety-inspectie.
 - Groen: `plan-theme-edit` geeft native-block architectuur nu ook door via `plannerHandoff`, en `draft-theme-artifact` valideert native-block snippets nu tegen gerelateerde section-schema’s, blank-safe optionele resources en `@theme` block-routes, zonder Shopify-onjuiste `name`-eisen op `@app`/`@theme` schema entries af te dwingen.
 - Groen: MCP domeinfouten komen nu protocolcorrect terug als `isError: true`, en read/search/verify vereisen nu een expliciet of sticky bevestigd theme target.
+- Groen: de hero-wrappercontractlaag is vóór Batch E extra gehard. `requiresThemeWrapperMirror` volgt nu de afgeleide hero-shell-familie in plaats van representatieve `heroLike`-context, en de validator blokkeert nu ook media-first/full-bleed heroes waarvan de media-shell effectief boxed raakt via inner `page-width`, `container` of `section-properties`.
 - Groen: non-theme contract cleanup is aangescherpt voor refunds, product-contracten, tracking-redirects, destructieve auditsporen en eerste productimports.
 - Groen: de license-service herkent Railway-productie nu expliciet, valideert verplichte productie-envs hard en beschermt backup-export/smoke checks beter zonder startup op Railway te blokkeren wanneer backup-export bewust niet is geconfigureerd.
 - Groen: live Railway parity voor `Hazify-MCP-Remote` is opnieuw bevestigd via Railway deployment `b592ad92-07a4-4f7d-9ecf-6d3259cd48b4`, logreview en `npm run release:postdeploy` op 2026-04-23. De live smoke bleef tegelijk ook groen voor `Hazify-License-Service`.
@@ -64,8 +65,8 @@ Deze audit is expliciet getoetst aan externe documentatie:
 De remote MCP is nu het sterkst op de theme/section-stack. `plan-theme-edit`, `create-theme-section`, `patch-theme-file` en `draft-theme-artifact` vormen samen een serieus geharde pipeline met planner-memory, verplichte reads, lokale inspectie, linting en verify-after-write.
 
 De grootste resterende risico’s zitten nu vooral in:
-- semantische layout- en archetype-fidelity, vooral in validatorafdwinging voor screenshot-driven hero/media-sections; de planner onderscheidt media-first, split-layout, full-width en boxed hero’s nu wel first-class, maar de harde DOM- en media-slot-checks lopen daar nog op achter
-- validators die wrapper-, media-slot- en Theme Editor-contracten nog niet overal hard genoeg afdwingen
+- semantische layout- en archetype-fidelity buiten de nu geharde media-first/full-bleed hero-familie, vooral voor review/video/PDP/blocks en bredere prompt-only flows
+- validators die wrapper-, media-slot- en Theme Editor-contracten nog niet overal hard genoeg afdwingen buiten de exacte media-first hero-fix
 - audit- en docs-drift buiten de auto-gesynchroniseerde toolcatalogus
 - niet-blokkerende Railway hygiene-signalen zoals `punycode` deprecation en `npm warn config production`
 
@@ -127,6 +128,10 @@ Deze inventaris legt de actuele fase-1 audit structureel vast voor vervolgwerk. 
 - Die scheiding is in de planner nu expliciet gemaakt via aparte blueprintlagen voor shell/media-architectuur versus wrapper/helper-mirroring.
 - Batch B heeft nu harde validatorguardrails toegevoegd voor exacte media-first heroes die onterecht een outer `.container` of `page-width` krijgen.
 - Batch B heeft nu ook harde validatorchecks voor exacte media-first heroes waarbij fallback-media en merchant-uploaded media niet exact hetzelfde primaire media-slot en dezelfde wrapper-hiërarchie delen.
+- De pre-Batch-E hero-wrapper hardening trekt die lijn nu ook contractmatiger door:
+  - `requiresThemeWrapperMirror` wordt niet meer vanuit representatieve `heroLike` afgeleid voor media-first/full-bleed heroes
+  - prompt-only en screenshot-driven unboxed hero-shells houden hun outer media bounds
+  - validators blokkeren nu ook “effectively boxed media” wanneer theme wrappers de media-shell alsnog omsluiten
 
 ### Shopify / schema / Liquid / Theme Editor
 - Range settings met te veel discrete stappen blijven een echte foutklasse in gegenereerde output; de validator onderschept dit nu wel.
@@ -140,6 +145,7 @@ Deze inventaris legt de actuele fase-1 audit structureel vast voor vervolgwerk. 
 - Exacte media-first hero-validatie dekt nu hard af:
   - media-first versus split-layout DOM-mismatch
   - onterechte outer `page-width` / `.container`
+  - een media-shell die alsnog boxed raakt door een inner `page-width`, `container` of `section-properties` wrapper
   - gedeeld media-slot tussen fallback en uploaded image
 - Wat nog niet universeel hard afgedwongen is:
   - het volledige `media layer -> overlay layer -> content layer` contract buiten exacte media-first/reference-driven flows
@@ -198,6 +204,9 @@ Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere impleme
   - surgical existing-edits lezen niet meer standaard renderer-snippets volledig in
   - templatekeuze gebeurt eerst metadata-first; alleen het gekozen template wordt daarna met content gehydrateerd
   - compacte snippet-search overfetcht minder agressief dan voorheen
+- De pre-Batch-E hero-wrapper hardening voegt daar geen extra read-cost aan toe:
+  - de hero-shell-familie wordt afgeleid uit bestaande plannerinput (`query`, `archetype`, `qualityTarget`)
+  - de nieuwe boxed-media-shell validator werkt volledig op lokaal gegenereerde Liquid/CSS-markup en gebruikt geen extra theme reads
 - Batch D heeft daarnaast de full-content read-memory strakker gemaakt:
   - verlopen volledige filecontent wordt actief uit `themeEditMemory` opgeschoond
   - full-content reads krijgen een kortere TTL dan algemene flow-memory, standaard ongeveer 45 minuten via `HAZIFY_MCP_THEME_EDIT_MEMORY_CONTENT_TTL_MS`

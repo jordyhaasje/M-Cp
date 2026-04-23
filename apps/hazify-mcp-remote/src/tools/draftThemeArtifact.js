@@ -3114,6 +3114,10 @@ function collectExactMatchReferenceSafety(
   const rootUsesOuterContainer = rootClassTokens.some((className) =>
     /^(?:page-width|container|content-container)$/i.test(className)
   );
+  const hasThemeWrapperAroundMediaShell =
+    /<(?:div|section)\b[^>]*(?:class\s*=\s*["'][^"']*(?:page-width|container|content-container|section-properties)[^"']*["']|{%\s*render\s+['"]section-properties['"][^%]*%})[^>]*>[\s\S]{0,500}?<(?:div|figure|section)\b[^>]*class\s*=\s*["'][^"']*(?:hero__media|hero__overlay|media-layer|background-media|hero__background|hero__visual|image-layer)[^"']*["']/i.test(
+      source
+    );
   const hasSplitLayoutSignals =
     /grid-template-columns\s*:[^;]*(?:minmax\([^;]+?\)|\b1fr\b)[^;]*(?:minmax\([^;]+?\)|\b1fr\b)/i.test(
       source
@@ -3136,6 +3140,10 @@ function collectExactMatchReferenceSafety(
     /<([a-z]+)\b[^>]*class\s*=\s*["'][^"']*(?:media|visual|image|video|hero__media)[^"']*["'][^>]*>\s*{%\s*if[\s\S]*?{%\s*endif\s*%}\s*<\/\1>/i.test(
       source
     );
+  const shouldMirrorThemeWrapper =
+    referenceSignals.requiresThemeWrapperMirror &&
+    layoutContract?.forbidOuterThemeWrapperMirror !== true &&
+    themeWrapperStrategy?.forbidOuterThemeWrapperMirror !== true;
 
   if (
     referenceSignals.requiresRenderablePreviewMedia &&
@@ -3329,11 +3337,7 @@ function collectExactMatchReferenceSafety(
     );
   }
 
-  if (
-    referenceSignals.requiresThemeWrapperMirror &&
-    themeContext?.usesPageWidth &&
-    !scaleAnalysis.hasPageWidthClass
-  ) {
+  if (shouldMirrorThemeWrapper && themeContext?.usesPageWidth && !scaleAnalysis.hasPageWidthClass) {
     issues.push(
       createInspectionIssue({
         path: [fileKey],
@@ -3366,6 +3370,22 @@ function collectExactMatchReferenceSafety(
       );
       suggestedFixes.push(
         "Laat de outer hero-shell full-bleed en verplaats page-width/container alleen naar een inner content-laag."
+      );
+    }
+
+    if (!rootUsesOuterContainer && hasThemeWrapperAroundMediaShell) {
+      issues.push(
+        createInspectionIssue({
+          path: [fileKey],
+          problem:
+            "De exacte media-first/full-bleed hero houdt de root wel full-bleed, maar sluit de media-shell alsnog op in een theme wrapper zoals page-width, container of section-properties. Daardoor blijft de hero visueel boxed.",
+          fixSuggestion:
+            "Laat de media-shell de outer bounds bezitten en verplaats theme wrappers alleen naar een inner content- of spacer-laag.",
+          issueCode: "exact_match_media_shell_boxed_by_wrapper",
+        })
+      );
+      suggestedFixes.push(
+        "Laat de media-shell de outer bounds bezitten en verplaats page-width, container of section-properties alleen naar een inner content- of spacer-laag."
       );
     }
   }

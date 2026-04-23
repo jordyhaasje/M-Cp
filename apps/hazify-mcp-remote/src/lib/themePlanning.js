@@ -825,7 +825,7 @@ const buildPlanFromAnalysis = ({
     }
     if (layoutContract?.avoidOuterContainer || themeWrapperStrategy?.allowOuterThemeContainer === false) {
       warnings.push(
-        "Theme containers of page-width wrappers horen hier alleen op een inner content-laag thuis en niet blind op de outer hero-shell."
+        "Theme helpers zoals page-width, container of section-properties mogen hier alleen op een inner content- of spacer-laag landen en niet op de outer media-shell van de hero."
       );
     }
     if (precisionFirst) {
