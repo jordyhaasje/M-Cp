@@ -828,6 +828,24 @@ const buildPlanFromAnalysis = ({
         "Theme helpers zoals page-width, container of section-properties mogen hier alleen op een inner content- of spacer-laag landen en niet op de outer media-shell van de hero."
       );
     }
+    if (layoutContract?.requiresDedicatedInnerCard) {
+      warnings.push(
+        "Deze non-hero replica verwacht een bounded shell met een aparte inner card- of panel-surface. Maak er geen vlakke full-width section zonder kaartlaag van."
+      );
+    }
+    if (
+      sectionBlueprint?.archetype === "video_section" ||
+      sectionBlueprint?.archetype === "video_slider"
+    ) {
+      warnings.push(
+        "Gebruik setting type 'video' voor merchant-uploaded video en reserveer video_url alleen voor externe YouTube/Vimeo embeds."
+      );
+    }
+    if (layoutContract?.preferExistingCommerceScaffold) {
+      warnings.push(
+        "Behoud hier de bestaande product/PDP renderer scaffold van het theme en vervang product-info, buy_buttons of prijshelpers niet door losse marketing-markup."
+      );
+    }
     if (precisionFirst) {
       warnings.push(
         "De prompt lijkt op een exacte replica/screenshot-match. Vermijd een snelle baseline-first create; besteed extra aandacht aan typography, spacing, compositie en responsive rhythm vóór de eerste write."

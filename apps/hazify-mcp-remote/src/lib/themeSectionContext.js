@@ -732,6 +732,44 @@ const inferHeroShellFamily = ({
   return "generic";
 };
 
+const inferSectionShellFamily = ({
+  archetype = "content_section",
+  query = "",
+  qualityTarget = "theme_consistent",
+} = {}) => {
+  const heroShellFamily = inferHeroShellFamily({
+    archetype,
+    query,
+    qualityTarget,
+  });
+
+  if (heroShellFamily !== "generic") {
+    return heroShellFamily;
+  }
+
+  switch (archetype) {
+    case "comparison_table":
+    case "review_slider":
+      return "bounded_card_shell";
+    case "video_section":
+    case "video_slider":
+    case "image_slider":
+    case "social_strip":
+    case "social_slider":
+    case "collection_slider":
+    case "logo_slider":
+    case "logo_wall":
+    case "media_gallery":
+    case "media_carousel":
+      return "media_surface";
+    case "native_block":
+    case "commerce_section":
+      return "commerce_scaffold";
+    default:
+      return "theme_default";
+  }
+};
+
 const buildReferenceSignals = ({
   query = "",
   qualityTarget = "theme_consistent",
@@ -770,6 +808,11 @@ const buildReferenceSignals = ({
   const boundedCardCompositionRequested =
     /\b(card|cards|wall|masonry|grid|quotes?)\b/i.test(query);
   const heroShellFamily = inferHeroShellFamily({
+    archetype,
+    query,
+    qualityTarget,
+  });
+  const sectionShellFamily = inferSectionShellFamily({
     archetype,
     query,
     qualityTarget,
@@ -821,6 +864,7 @@ const buildReferenceSignals = ({
     hasDesktopMobileReferences,
     hasExplicitMediaSources,
     heroShellFamily,
+    sectionShellFamily,
     requestedDecorativeMediaAnchors,
     requestedDecorativeBadgeAnchors,
     prefersRenderablePreviewMedia:
@@ -1179,13 +1223,22 @@ const buildLayoutContract = ({
     inferHeroShellFamily({
       archetype,
     });
+  const sectionShellFamily =
+    referenceSignals?.sectionShellFamily ||
+    inferSectionShellFamily({
+      archetype,
+    });
   const isMediaFirstHero = heroShellFamily === "media_first_unboxed";
   const isFullBleedHero = archetype === "hero_full_bleed_media";
   const isSplitHero = heroShellFamily === "split";
   const isBoxedHero = heroShellFamily === "boxed";
+  const isBoundedCardShell = sectionShellFamily === "bounded_card_shell";
+  const isMediaSurface = sectionShellFamily === "media_surface";
+  const isCommerceScaffold = sectionShellFamily === "commerce_scaffold";
 
   return {
     heroShellFamily,
+    sectionShellFamily,
     outerShell: isFullBleedHero
       ? "full_bleed"
       : isBoxedHero
@@ -1194,6 +1247,12 @@ const buildLayoutContract = ({
           ? "bounded_split"
           : isMediaFirstHero
             ? "media_first"
+            : isBoundedCardShell
+              ? "bounded_card_shell"
+              : isMediaSurface
+                ? "media_surface"
+                : isCommerceScaffold
+                  ? "commerce_scaffold"
             : "theme_default",
     contentWidthStrategy: isFullBleedHero
       ? "inner_content_wrapper"
@@ -1201,6 +1260,12 @@ const buildLayoutContract = ({
         ? "boxed_shell"
         : isSplitHero
           ? "outer_content_wrapper"
+          : isBoundedCardShell
+            ? "outer_content_wrapper"
+            : isMediaSurface
+              ? "theme_media_wrapper"
+              : isCommerceScaffold
+                ? "existing_theme_scaffold"
           : "theme_default",
     mediaPlacement: isMediaFirstHero
       ? "background_layer"
@@ -1208,6 +1273,12 @@ const buildLayoutContract = ({
         ? "inline_end_column"
         : isBoxedHero
           ? "boxed_shell_media"
+          : isBoundedCardShell
+            ? "supporting_media_or_cards"
+            : isMediaSurface
+              ? "inline_media_or_slider"
+              : isCommerceScaffold
+                ? "theme_renderer"
           : "flexible",
     contentPlacement: isMediaFirstHero
       ? "overlay_layer"
@@ -1215,11 +1286,19 @@ const buildLayoutContract = ({
         ? "inline_start_column"
         : isBoxedHero
           ? "boxed_flow"
+          : isBoundedCardShell
+            ? "bounded_card_stack"
+            : isMediaSurface
+              ? "media_frame_or_copy_stack"
+              : isCommerceScaffold
+                ? "theme_renderer"
           : "flow",
     overlayRequired:
       isMediaFirstHero || Boolean(referenceSignals?.requiresOverlayTreatment),
     fallbackMediaStrategy: isMediaFirstHero
       ? "shared_primary_slot"
+      : isBoundedCardShell || isMediaSurface
+        ? "consistent_media_path"
       : referenceSignals?.prefersRenderablePreviewMedia
         ? "consistent_media_path"
         : "theme_default",
@@ -1229,8 +1308,12 @@ const buildLayoutContract = ({
     avoidSplitLayoutAssumption: isMediaFirstHero,
     allowOuterContainer: !isMediaFirstHero,
     outerShellOwnsMediaBounds: isMediaFirstHero,
-    allowInnerContentWidthMirror: isMediaFirstHero,
+    allowInnerContentWidthMirror: isMediaFirstHero || isBoundedCardShell,
     forbidOuterThemeWrapperMirror: isMediaFirstHero,
+    requiresDedicatedInnerCard: Boolean(referenceSignals?.requiresDedicatedInnerCard),
+    preferBoundedShell: isBoundedCardShell,
+    preferMediaSurface: isMediaSurface,
+    preferExistingCommerceScaffold: isCommerceScaffold,
   };
 };
 
@@ -1244,31 +1327,54 @@ const buildThemeWrapperStrategy = ({
     inferHeroShellFamily({
       archetype,
     });
+  const sectionShellFamily =
+    referenceSignals?.sectionShellFamily ||
+    inferSectionShellFamily({
+      archetype,
+    });
   const isMediaFirstHero = heroShellFamily === "media_first_unboxed";
   const isBoxedHero = heroShellFamily === "boxed";
+  const isBoundedCardShell = sectionShellFamily === "bounded_card_shell";
+  const isMediaSurface = sectionShellFamily === "media_surface";
+  const isCommerceScaffold = sectionShellFamily === "commerce_scaffold";
   const prefersThemeContentWidth = Boolean(themeContext?.usesPageWidth);
 
   return {
     heroShellFamily,
+    sectionShellFamily,
     mirrorThemeSpacingSettings: true,
     mirrorThemeHelpers: true,
     usesPageWidth: prefersThemeContentWidth,
     usesSectionPropertiesWrapper: Boolean(themeContext?.usesSectionPropertiesWrapper),
     preferredContentWidthLayer: isMediaFirstHero
       ? "inner_content"
+      : isBoundedCardShell
+        ? prefersThemeContentWidth
+          ? "outer_shell"
+          : "bounded_shell"
       : isBoxedHero
         ? "boxed_shell"
+        : isCommerceScaffold
+          ? "existing_renderer_shell"
         : prefersThemeContentWidth
           ? "outer_shell"
           : "theme_default",
     preferredHelperPlacement: isMediaFirstHero
       ? "inner_content_or_spacing_layer"
+      : isBoundedCardShell
+        ? "outer_shell_or_inner_card"
       : isBoxedHero
           ? "boxed_shell_or_inner_content"
+          : isCommerceScaffold
+            ? "existing_renderer_shell"
+            : isMediaSurface
+              ? "outer_shell_or_media_frame"
           : "theme_default",
     allowOuterThemeContainer: !isMediaFirstHero,
     allowInnerContentWidthMirror: isMediaFirstHero || prefersThemeContentWidth,
     forbidOuterThemeWrapperMirror: isMediaFirstHero,
+    preferBoundedShell: isBoundedCardShell,
+    preferExistingCommerceScaffold: isCommerceScaffold,
   };
 };
 
@@ -1321,6 +1427,12 @@ const buildCategoryGuardrails = ({
     );
   }
 
+  if (layoutContract?.requiresDedicatedInnerCard) {
+    guardrails.push(
+      "Behoud bij bounded review/comparison replica's zowel een bounded outer shell als een duidelijke inner card- of panel-surface. Degradeer niet naar een vlakke full-width sectie zonder kaartlaag."
+    );
+  }
+
   if (archetype === "hero_split_layout") {
     guardrails.push(
       "Behoud bij split heroes een echte inline media-kolom en degradeer die niet naar een background-media shell achter de content."
@@ -1337,6 +1449,25 @@ const buildCategoryGuardrails = ({
     guardrails.push(
       "Behoud bij comparison screenshot-replica's de bounded shell plus inner comparison card compositie uit de referentie, niet alleen een generieke tabel-layout.",
       "Als de referentie decoratieve anchors zoals een floating product-afbeelding of badge/seal toont, laat die niet weg in de eerste write; maak ze merchant-editable wanneer mogelijk."
+    );
+  }
+
+  if (archetype === "review_slider" && referenceSignals?.exactReplicaRequested) {
+    guardrails.push(
+      "Behoud bij review-slider replica's de bounded shell plus zichtbare review cards. Maak er geen generieke full-width quote-wall van tenzij de referentie dat echt toont."
+    );
+  }
+
+  if (archetype === "video_section" || archetype === "video_slider") {
+    guardrails.push(
+      "Gebruik setting type 'video' voor merchant-uploaded video en gebruik video_url alleen voor externe YouTube/Vimeo embeds.",
+      "Laat video sections merchant-editable en blank-safe renderen; combineer het video-contract niet met losse hardcoded embedlogica."
+    );
+  }
+
+  if (layoutContract?.preferExistingCommerceScaffold) {
+    guardrails.push(
+      "Behoud bij commerce/native-block flows de bestaande product-renderer scaffold van het theme. Vervang product-info, buy_buttons of price-renderers niet door een los marketing-shell."
     );
   }
 
@@ -1555,6 +1686,21 @@ const buildSectionGenerationBlueprint = ({
     ...(layoutContract.avoidOuterContainer
       ? [
           "Controleer dat full-bleed/media-first hero-shells geen onterechte outer page-width of container wrapper krijgen.",
+        ]
+      : []),
+    ...(layoutContract.requiresDedicatedInnerCard
+      ? [
+          "Controleer dat bounded review/comparison replica's een bounded shell plus een duidelijke inner card/panel-surface houden in plaats van een vlakke full-width sectie.",
+        ]
+      : []),
+    ...(archetype === "video_section" || archetype === "video_slider"
+      ? [
+          "Controleer dat merchant-uploaded video via type 'video' + video_tag loopt en externe embeds alleen via video_url + external_video_tag/url.",
+        ]
+      : []),
+    ...(layoutContract.preferExistingCommerceScaffold
+      ? [
+          "Controleer dat product/PDP flows bestaande theme renderers zoals product-info, buy_buttons en prijshelpers blijven spiegelen.",
         ]
       : []),
   ];

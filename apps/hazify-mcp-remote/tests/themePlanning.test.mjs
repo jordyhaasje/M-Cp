@@ -497,6 +497,11 @@ try {
     "video_slider",
     "video-slider prompts should surface a specific archetype"
   );
+  assert.equal(
+    mediaSectionPlan.sectionBlueprint?.layoutContract?.sectionShellFamily,
+    "media_surface",
+    "video-slider prompts should keep a media-surface layout contract outside the hero-only shell logic"
+  );
 
   const socialStripPlan = await planThemeEdit(shopifyClient, "2026-01", {
     themeId: 123,
@@ -619,6 +624,15 @@ try {
     true
   );
   assert.equal(
+    exactComparisonReplicaPlan.sectionBlueprint?.layoutContract?.sectionShellFamily,
+    "bounded_card_shell"
+  );
+  assert.equal(
+    exactComparisonReplicaPlan.sectionBlueprint?.layoutContract?.requiresDedicatedInnerCard,
+    true,
+    "comparison replicas with table-card references should keep a dedicated inner card contract"
+  );
+  assert.equal(
     exactComparisonReplicaPlan.sectionBlueprint?.referenceSignals?.requiresThemeEditorLifecycleHooks,
     false,
     "comparison-table exact replicas should not demand Theme Editor lifecycle hooks when the archetype is non-interactive"
@@ -659,8 +673,17 @@ try {
     true
   );
   assert.equal(
+    exactTrustpilotReviewPlan.sectionBlueprint?.referenceSignals?.sectionShellFamily,
+    "bounded_card_shell"
+  );
+  assert.equal(
     exactTrustpilotReviewPlan.sectionBlueprint?.referenceSignals?.requiresNavButtons,
     true
+  );
+  assert.equal(
+    exactTrustpilotReviewPlan.sectionBlueprint?.layoutContract?.requiresDedicatedInnerCard,
+    true,
+    "review slider replicas with explicit cards should keep a dedicated inner card contract"
   );
   assert.equal(
     exactTrustpilotReviewPlan.sectionBlueprint?.referenceSignals?.previewMediaPolicy,

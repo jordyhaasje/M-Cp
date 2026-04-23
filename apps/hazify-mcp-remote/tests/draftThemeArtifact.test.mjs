@@ -1283,6 +1283,256 @@ test("draftThemeArtifact - rejects exact comparison replicas that replace stars 
   }
 });
 
+test("draftThemeArtifact - rejects exact comparison replicas that miss the inner card surface", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFileFetchMock({
+    key: "sections/comparison-no-inner-card.liquid",
+    initialValue: "",
+    existing: false,
+  }).handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        files: [
+          {
+            key: "sections/comparison-no-inner-card.liquid",
+            value: `
+<style>
+  .comparison-shell {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    gap: 32px;
+    padding: 32px;
+  }
+
+  @media (min-width: 750px) {
+    .comparison-shell {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+  }
+</style>
+<section class="comparison-shell page-width">
+  <div>
+    <div aria-label="5 star rating">★★★★★</div>
+    <h2>{{ section.settings.heading }}</h2>
+  </div>
+  <div>
+    {% for block in section.blocks %}
+      <div {{ block.shopify_attributes }}>
+        <span>{{ block.settings.label }}</span>
+        <span aria-hidden="true">✓</span>
+        <span aria-hidden="true">✕</span>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Comparison no inner card",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Why choose us" }
+  ],
+  "blocks": [
+    {
+      "type": "row",
+      "name": "Row",
+      "settings": [
+        { "type": "text", "id": "label", "label": "Label", "default": "Clinically backed" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Comparison no inner card" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        sectionBlueprint: {
+          qualityTarget: "exact_match",
+          archetype: "comparison_table",
+          referenceSignals: {
+            exactReplicaRequested: true,
+            previewMediaPolicy: "best_effort_demo_media",
+            hasScreenshotLikeReference: true,
+            hasDesktopMobileReferences: true,
+            hasExplicitMediaSources: false,
+            prefersRenderablePreviewMedia: true,
+            requiresRenderablePreviewMedia: false,
+            allowStylizedPreviewFallbacks: true,
+            requiresResponsiveViewportParity: true,
+            requiresDecorativeMediaAnchors: false,
+            requiresDecorativeBadgeAnchors: false,
+            requiresRatingStars: true,
+            requiresComparisonIconography: true,
+            requestedDecorativeMediaAnchors: [],
+            requestedDecorativeBadgeAnchors: [],
+            requiresTitleAccent: false,
+            requiresNavButtons: false,
+            requiresThemeEditorLifecycleHooks: false,
+            requiresThemeWrapperMirror: true,
+            requiresTwoSurfaceComposition: true,
+            requiresDedicatedInnerCard: true,
+            avoidDoubleSectionShell: false,
+            sectionShellFamily: "bounded_card_shell",
+          },
+          layoutContract: {
+            sectionShellFamily: "bounded_card_shell",
+            preferBoundedShell: true,
+            requiresDedicatedInnerCard: true,
+          },
+          themeWrapperStrategy: {
+            sectionShellFamily: "bounded_card_shell",
+            allowOuterThemeContainer: true,
+          },
+        },
+        themeSectionContext: {
+          usesPageWidth: true,
+        },
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(
+      result.errors?.some(
+        (issue) => issue.issueCode === "exact_match_missing_inner_card_surface"
+      )
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects exact review replicas that drop the bounded shell", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const previousFetch = global.fetch;
+  global.fetch = createThemeFileFetchMock({
+    key: "sections/review-slider-no-bounded-shell.liquid",
+    initialValue: "",
+    existing: false,
+  }).handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        files: [
+          {
+            key: "sections/review-slider-no-bounded-shell.liquid",
+            value: `
+<style>
+  .review-slider {
+    display: grid;
+    gap: 24px;
+    padding: 32px;
+  }
+
+  .review-slider__card {
+    background: #ffffff;
+    border-radius: 24px;
+    padding: 24px;
+  }
+</style>
+<section class="review-slider">
+  <button type="button" aria-label="Previous review">Prev</button>
+  <article class="review-slider__card">
+    <div aria-label="5 star rating">★★★★★</div>
+    <p>{{ section.settings.quote }}</p>
+  </article>
+  <button type="button" aria-label="Next review">Next</button>
+</section>
+{% schema %}
+{
+  "name": "Review slider no bounded shell",
+  "settings": [
+    { "type": "text", "id": "quote", "label": "Quote", "default": "Snelle levering en top service." }
+  ],
+  "presets": [{ "name": "Review slider no bounded shell" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        sectionBlueprint: {
+          qualityTarget: "exact_match",
+          archetype: "review_slider",
+          referenceSignals: {
+            exactReplicaRequested: true,
+            previewMediaPolicy: "best_effort_demo_media",
+            hasScreenshotLikeReference: true,
+            hasDesktopMobileReferences: true,
+            hasExplicitMediaSources: false,
+            prefersRenderablePreviewMedia: true,
+            requiresRenderablePreviewMedia: false,
+            allowStylizedPreviewFallbacks: true,
+            requiresResponsiveViewportParity: true,
+            requiresDecorativeMediaAnchors: false,
+            requiresDecorativeBadgeAnchors: false,
+            requiresRatingStars: true,
+            requiresComparisonIconography: false,
+            requestedDecorativeMediaAnchors: [],
+            requestedDecorativeBadgeAnchors: [],
+            requiresTitleAccent: false,
+            requiresNavButtons: true,
+            requiresThemeEditorLifecycleHooks: false,
+            requiresThemeWrapperMirror: true,
+            requiresTwoSurfaceComposition: true,
+            requiresDedicatedInnerCard: true,
+            avoidDoubleSectionShell: false,
+            sectionShellFamily: "bounded_card_shell",
+          },
+          layoutContract: {
+            sectionShellFamily: "bounded_card_shell",
+            preferBoundedShell: true,
+            requiresDedicatedInnerCard: true,
+          },
+          themeWrapperStrategy: {
+            sectionShellFamily: "bounded_card_shell",
+            allowOuterThemeContainer: true,
+          },
+        },
+        themeSectionContext: {
+          usesPageWidth: true,
+        },
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "exact_match_missing_bounded_shell")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("draftThemeArtifact - flags missing viewport parity on exact replicas with explicit desktop/mobile references", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -3020,6 +3270,95 @@ test("draftThemeArtifact - rejects unguarded optional media in theme blocks", as
   );
 });
 
+test("draftThemeArtifact - rejects theme blocks without block.shopify_attributes on the block wrapper", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "blocks/review-badge.liquid",
+          value: `
+{% doc %}
+  @param {string} label
+{% enddoc %}
+<div class="review-badge">
+  {{ block.settings.label }}
+</div>
+{% schema %}
+{
+  "name": "Review badge",
+  "settings": [
+    { "type": "text", "id": "label", "label": "Label", "default": "4.9/5 verified" }
+  ]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.ok(
+    result.errors?.some(
+      (issue) => issue.issueCode === "inspection_failed_block_shopify_attributes"
+    )
+  );
+});
+
+test("draftThemeArtifact - rejects incomplete theme blocks without renderable block markup", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "blocks/review-badge-empty.liquid",
+          value: `
+{% doc %}
+  @param {string} label
+{% enddoc %}
+{% schema %}
+{
+  "name": "Review badge empty",
+  "settings": [
+    { "type": "text", "id": "label", "label": "Label", "default": "4.9/5 verified" }
+  ]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "inspection_failed_incomplete_block")
+  );
+});
+
 test("draftThemeArtifact - rejects sections without presets", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -4057,6 +4396,63 @@ test("draftThemeArtifact - allows external video_url embeds when no hosted video
   } finally {
     global.fetch = previousFetch;
   }
+});
+
+test("draftThemeArtifact - rejects external video embeds in video sections without a video_url setting", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/video-embed-mismatch.liquid",
+          value: `
+<section class="video-section">
+  {% if section.settings.video != blank %}
+    {{
+      section.settings.video
+      | external_video_url
+      | external_video_tag: class: 'video-section__embed'
+    }}
+  {% endif %}
+</section>
+{% schema %}
+{
+  "name": "Video embed mismatch",
+  "settings": [
+    { "type": "video", "id": "video", "label": "Hosted video" }
+  ],
+  "presets": [{ "name": "Video embed mismatch" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    {
+      shopifyClient: mockShopifyClient,
+      sectionBlueprint: {
+        archetype: "video_section",
+      },
+    }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some(
+      (issue) => issue.issueCode === "inspection_failed_video_embed_setting_mismatch"
+    )
+  );
 });
 
 test("draftThemeArtifact - rejects range settings that exceed Shopify's step-count limit", async () => {

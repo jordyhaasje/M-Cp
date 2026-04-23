@@ -2959,11 +2959,19 @@ function collectInteractiveSectionSafety(value, fileKey) {
   };
 }
 
-function collectMediaSectionSafety(value, fileKey, settingTypes) {
+function collectMediaSectionSafety(
+  value,
+  fileKey,
+  settingTypes,
+  { sectionBlueprint = null } = {}
+) {
   const issues = [];
   const warnings = [];
   const suggestedFixes = [];
   const source = String(value || "");
+  const archetype = String(sectionBlueprint?.archetype || "").trim();
+  const strictVideoArchetype =
+    archetype === "video_section" || archetype === "video_slider";
   const hasHostedVideoMarkup = /<video\b|video_tag\b/i.test(source);
   const hasIframeEmbed = /<iframe\b|external_video_url\b|external_video_tag\b/i.test(source);
   const hasMediaMarkup =
@@ -2992,18 +3000,44 @@ function collectMediaSectionSafety(value, fileKey, settingTypes) {
   }
 
   if (hasHostedVideoMarkup && !settingTypes.has("video") && !settingTypes.has("video_url")) {
-    warnings.push(
-      `De media-heavy section '${fileKey}' rendert video markup, maar schema mist een video of video_url setting.`
-    );
+    if (strictVideoArchetype) {
+      issues.push(
+        createInspectionIssue({
+          path: [fileKey, "schema", "settings"],
+          problem:
+            `Building Inspection Failed: de ${archetype} '${fileKey}' rendert video markup, maar schema mist een video of video_url setting.`,
+          fixSuggestion:
+            "Gebruik type 'video' voor merchant-uploaded videobestanden of video_url voor externe YouTube/Vimeo embeds.",
+          issueCode: "inspection_failed_video_setting_missing",
+        })
+      );
+    } else {
+      warnings.push(
+        `De media-heavy section '${fileKey}' rendert video markup, maar schema mist een video of video_url setting.`
+      );
+    }
     suggestedFixes.push(
       "Gebruik type 'video' voor merchant-uploaded videobestanden of video_url voor externe YouTube/Vimeo embeds."
     );
   }
 
   if (hasIframeEmbed && !settingTypes.has("video_url")) {
-    warnings.push(
-      `De media-heavy section '${fileKey}' gebruikt een iframe embed zonder video_url setting.`
-    );
+    if (strictVideoArchetype) {
+      issues.push(
+        createInspectionIssue({
+          path: [fileKey, "schema", "settings"],
+          problem:
+            `Building Inspection Failed: de ${archetype} '${fileKey}' gebruikt een externe iframe/embed-render zonder video_url setting.`,
+          fixSuggestion:
+            "Gebruik een video_url setting voor externe video-embeds en reserveer type 'video' voor Shopify-hosted uploadvideo.",
+          issueCode: "inspection_failed_video_embed_setting_mismatch",
+        })
+      );
+    } else {
+      warnings.push(
+        `De media-heavy section '${fileKey}' gebruikt een iframe embed zonder video_url setting.`
+      );
+    }
     suggestedFixes.push(
       "Gebruik een video_url setting voor externe video-embeds zodat merchants de bron veilig kunnen beheren."
     );
@@ -3026,6 +3060,66 @@ function collectMediaSectionSafety(value, fileKey, settingTypes) {
   return {
     issues,
     warnings,
+    suggestedFixes,
+  };
+}
+
+function collectThemeBlockRenderContractSafety(value, fileKey) {
+  const source = String(value || "");
+  const issues = [];
+  const suggestedFixes = [];
+  const renderBody = removeLiquidBlock(
+    removeLiquidBlock(
+      removeLiquidBlock(removeLiquidBlock(source, "schema"), "doc"),
+      "stylesheet"
+    ),
+    "javascript"
+  );
+  const usesThemeBlockContext =
+    /\bblock\.settings\b|\bblock\.type\b|content_for\s+['"]blocks['"]|content_for\s+['"]block['"]/i.test(
+      source
+    );
+  const hasRenderableMarkup =
+    /<(?:div|section|article|aside|span|button|p|h[1-6]|img|picture|video|iframe|ul|ol|li|a|svg)\b/i.test(
+      renderBody
+    ) ||
+    /content_for\s+['"]blocks['"]|{%\s*render\s+['"][^'"]+['"]/i.test(renderBody) ||
+    /{{\s*block\.settings\.[^}]+}}/i.test(renderBody);
+
+  if (usesThemeBlockContext && !/block\.shopify_attributes/.test(source)) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          `Building Inspection Failed: theme block '${fileKey}' mist block.shopify_attributes op de block-wrapper. Daardoor werkt selectie in de Theme Editor niet betrouwbaar.`,
+        fixSuggestion:
+          "Zet {{ block.shopify_attributes }} op het top-level element of de block-wrapper van dit theme block.",
+        issueCode: "inspection_failed_block_shopify_attributes",
+      })
+    );
+    suggestedFixes.push(
+      "Zet {{ block.shopify_attributes }} op het top-level element of de block-wrapper van dit theme block."
+    );
+  }
+
+  if (!hasRenderableMarkup) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          `Building Inspection Failed: theme block '${fileKey}' bevat geen renderbare block-markup buiten schema/doc/style blocks.`,
+        fixSuggestion:
+          "Voeg echte block-markup toe, bijvoorbeeld een wrapper met block.settings-output, content_for 'blocks' of een renderpad naar een snippet.",
+        issueCode: "inspection_failed_incomplete_block",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg renderbare block-markup toe buiten schema/doc/style blocks."
+    );
+  }
+
+  return {
+    issues,
     suggestedFixes,
   };
 }
@@ -3116,6 +3210,23 @@ function collectExactMatchReferenceSafety(
   );
   const hasThemeWrapperAroundMediaShell =
     /<(?:div|section)\b[^>]*(?:class\s*=\s*["'][^"']*(?:page-width|container|content-container|section-properties)[^"']*["']|{%\s*render\s+['"]section-properties['"][^%]*%})[^>]*>[\s\S]{0,500}?<(?:div|figure|section)\b[^>]*class\s*=\s*["'][^"']*(?:hero__media|hero__overlay|media-layer|background-media|hero__background|hero__visual|image-layer)[^"']*["']/i.test(
+      source
+    );
+  const hasBoundedShellSignals =
+    rootUsesOuterContainer ||
+    scaleAnalysis.hasPageWidthClass ||
+    /<(?:div|section)\b[^>]*class\s*=\s*["'][^"']*(?:page-width|container|content-container|section-properties)[^"']*["']/i.test(
+      source
+    ) ||
+    /max-width\s*:\s*(?:[3-9]\d{2,4}px|\d{2,3}(?:\.\d+)?rem)[^}]*margin(?:-inline)?\s*:\s*(?:0\s+auto|auto)/i.test(
+      source
+    );
+  const hasDedicatedInnerCardSurface =
+    /<(?:article|div|section)\b[^>]*class\s*=\s*["'][^"']*(?:card|panel|surface|review[-_ ][^"']*card|comparison[-_ ][^"']*card|quote[-_ ][^"']*card)[^"']*["']/i.test(
+      source
+    ) ||
+    /(?:__card|--card|__panel|--panel|__surface|--surface)\b/i.test(source) ||
+    /\.(?:[A-Za-z0-9_-]*(?:card|panel|surface)[A-Za-z0-9_-]*)\b[^{}]*\{[^}]*background[^}]*border-radius/i.test(
       source
     );
   const hasSplitLayoutSignals =
@@ -3444,6 +3555,38 @@ function collectExactMatchReferenceSafety(
     suggestedFixes.push(
       "Vermijd een dubbele outer shell wanneer section-properties al een background-helper krijgt.",
       "Plaats de decoratieve reference-shell op een bounded inner container of maak de root background transparant."
+    );
+  }
+
+  if (layoutContract?.preferBoundedShell && !hasBoundedShellSignals) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "De exacte non-hero replica mist een duidelijke bounded outer shell of content-width wrapper. Daardoor kan een review/comparison compositie onterecht full-width of losser uitpakken dan de referentie.",
+        fixSuggestion:
+          "Gebruik een bounded outer shell of content-width wrapper, zoals page-width, container, section-properties of een equivalente max-width shell uit het doeltheme.",
+        issueCode: "exact_match_missing_bounded_shell",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg een bounded outer shell of content-width wrapper toe zodat review/comparison composities niet onbedoeld full-width worden."
+    );
+  }
+
+  if (layoutContract?.requiresDedicatedInnerCard && !hasDedicatedInnerCardSurface) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "De exacte bounded replica mist een duidelijke inner card- of panel-surface. Daardoor degradeert een review/comparison referentie naar een vlakke sectie zonder herkenbare kaartlaag.",
+        fixSuggestion:
+          "Voeg binnen de bounded shell een expliciete card/panel/surface-laag toe met eigen background, radius of panel-structuur die de referentiekaart draagt.",
+        issueCode: "exact_match_missing_inner_card_surface",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg binnen de bounded shell een duidelijke inner card- of panel-surface toe in plaats van alleen vlakke root-markup."
     );
   }
 
@@ -3946,11 +4089,9 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
   }
 
   if (isMediaHeavySection) {
-    const mediaInspection = collectMediaSectionSafety(
-      value,
-      file.key,
-      settingTypes
-    );
+    const mediaInspection = collectMediaSectionSafety(value, file.key, settingTypes, {
+      sectionBlueprint,
+    });
     issues.push(...(mediaInspection.issues || []));
     warnings.push(...(mediaInspection.warnings || []));
     suggestedFixes.push(...(mediaInspection.suggestedFixes || []));
@@ -4143,6 +4284,13 @@ function inspectThemeBlockFile(file) {
   issues.push(...(mediaInspection.issues || []));
   warnings.push(...(mediaInspection.warnings || []));
   suggestedFixes.push(...(mediaInspection.suggestedFixes || []));
+
+  const themeBlockContractInspection = collectThemeBlockRenderContractSafety(
+    value,
+    file.key
+  );
+  issues.push(...(themeBlockContractInspection.issues || []));
+  suggestedFixes.push(...(themeBlockContractInspection.suggestedFixes || []));
 
   const rawImgInspection = collectRawImgSafetyIssues(value, file.key, {
     surfaceLabel: "Shopify blocks",

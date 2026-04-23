@@ -308,7 +308,7 @@ Afgeronde uitkomst:
 - live parity voor deze hardening is bevestigd op `Hazify-MCP-Remote` via Railway deployment `79119e1a-464c-49e2-8569-26b5bb7fdb7f`, Railway logreview en een groene `npm run release:postdeploy` na een directe retry op een transient bootstrap-502
 
 ### Batch E — Brede Coverage Buiten Hero’s
-Status: `pending`
+Status: `active`
 Prioriteit: `P2`
 
 Doel:
@@ -325,12 +325,43 @@ Concrete wijzigingen:
 - native blocks en `blocks/*.liquid` routes dezelfde Theme Editor- en media-correctheid geven
 - bestaande edits op review/video/PDP explicieter naar patch of bounded rewrite sturen
 
+Tranche 1 afgerond:
+- `themeSectionContext` kent nu ook non-hero shell-families:
+  - `bounded_card_shell` voor exacte review/comparison card-surfaces
+  - `media_surface` voor video/social/media sliders en galleries
+  - `commerce_scaffold` voor `native_block` en commerce-sections
+- `themePlanning` geeft nu expliciet warnings voor:
+  - bounded shell + inner card requirements bij review/comparison replica’s
+  - strikt `video` versus `video_url` gebruik voor `video_section` / `video_slider`
+  - behoud van bestaande product/PDP scaffold in commerce/native-block flows
+- `draft-theme-artifact` faalt nu hard op:
+  - `video_section` / `video_slider` met externe embeds zonder `video_url`
+  - `blocks/*.liquid` zonder `block.shopify_attributes`
+  - `blocks/*.liquid` zonder renderbare block-markup
+  - exacte review/comparison replicas zonder bounded shell of zonder inner card/panel surface
+
+Nog open binnen Batch E:
+- prompt-only review/video/PDP fidelity verder verharden buiten exact-reference flows
+- `create-theme-section` prompt-only planning rijker maken voor non-hero archetypen
+- bredere PDP/native-block renderer-contracten toevoegen buiten de huidige schema/block-wrapper checks
+- acceptance- en create-suite uitbreiden voor review/video/PDP prompt-only regressies
+
 Vereiste tests:
 - prompt-only review/video generatie
 - non-hero `video_section` / `video_slider`
 - review sections met wrapper/rating/badge anchors
 - native `blocks/*.liquid` positive path
 - bestaande edit regressies voor review/video/PDP
+
+Lokaal geverifieerd voor tranche 1:
+- `node --test apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+
+Afgeronde uitkomst van tranche 1:
+- non-hero exact replicas krijgen nu niet meer alleen hero- of generieke content-contracten mee
+- strikte video-archetypen blokkeren nu schema/render-mismatches harder
+- theme blocks hebben nu ook een minimale render- en Theme Editor-contractlaag
+- Batch E kan nu verder op prompt-only review/video/PDP coverage zonder deze basischecks opnieuw te ontwerpen
 
 Docs die mee moeten wijzigen:
 - `docs/03-THEME-SECTION-GENERATION.md`
@@ -356,7 +387,7 @@ Actieve regels:
 Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 
 ### Volgende aanbevolen patchbatch
-`Batch E — Brede Coverage Buiten Hero’s`
+`Batch E — tranche 2: prompt-only review/video/PDP coverage`
 
 ### Waarom deze eerst
 - de hero/media-first fundering bevat nu ook de pre-Batch-E wrappercontract-fix, dus de grootste resterende kwaliteitswinst zit in review/video/PDP/blocks buiten de hero-cases

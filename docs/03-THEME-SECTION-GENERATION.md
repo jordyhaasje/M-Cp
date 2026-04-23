@@ -171,6 +171,24 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 - Gebruik schema type `video` voor merchant-uploaded Shopify video
 - Gebruik `video_url` alleen voor externe embeds
 - Interactieve video carousels vereisen Theme Editor lifecycle hooks en veilig pausestop-gedrag voor inactieve slides
+- `video_section` en `video_slider` vallen nu ook onder een expliciete `media_surface` shell-familie:
+  - hou de media-oppervlakte leidend
+  - laat externe iframe/embed-routes alleen toe wanneer schema echt `video_url` aanbiedt
+  - laat hosted Shopify-video alleen via type `video` + `video_tag` lopen
+
+### Review, comparison en card-walls
+- Exacte review- en comparison-replica's vallen nu onder een expliciete `bounded_card_shell` familie in plaats van een generieke content-section fallback.
+- Die familie verwacht:
+  - een bounded outer shell
+  - een aparte inner card/panel/surface
+  - theme wrappers alleen waar ze de bounded compositie ondersteunen
+- Maak van review walls, testimonial grids en comparison shells dus geen vlakke full-width tekstsecties zonder kaartlaag wanneer de referentie duidelijk card-based is.
+
+### Commerce scaffold sections
+- `native_block` en bredere `commerce_section` flows vallen nu onder een expliciete `commerce_scaffold` familie.
+- Behoud in zulke flows de bestaande product/PDP renderer scaffold van het theme:
+  - vervang `product-info`, `buy_buttons`, prijshelpers of block-slots niet door losse marketing-markup
+  - spiegel wrappers en helpers alleen voor zover ze de bestaande commerce-renderflow intact laten
 
 ### Sliders en carousels
 - Scope JS altijd per section instance
@@ -238,6 +256,15 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 - Schema JSON moet geldig zijn
 - Verplichte schema-velden zoals setting/block `label`, `type`, `id`, `name` en `content` waar relevant moeten al in lokale inspectie slagen, niet pas in `theme-check`
 - Range settings moeten binnen min/max en step-grid vallen
+- `video_section` en `video_slider` moeten nu ook hard falen wanneer:
+  - een externe iframe/embed-render geen `video_url` setting heeft
+  - video-rendering helemaal geen `video` of `video_url` schema-pad heeft
+- `blocks/*.liquid` moeten nu ook hard falen wanneer:
+  - `block.shopify_attributes` op de block-wrapper ontbreekt
+  - buiten schema/doc/style/javascript geen renderbare block-markup aanwezig is
+- Exacte review/comparison card-surfaces moeten nu ook hard falen wanneer:
+  - de bounded shell ontbreekt
+  - de inner card/panel surface ontbreekt
 - Raw `<img>` met Shopify `image_url`/`img_url` als src horen hard te falen; gebruik daar `image_url | image_tag`
 - `block.shopify_attributes` hoort hard aanwezig te zijn op gedeelde block wrappers in loops over `section.blocks` en native block-render snippets
 - Hosted `<video>`/`video_tag` markup met alleen schema type `video_url` hoort hard te falen; gebruik `video` voor merchant-uploaded video en `video_url` voor externe embeds

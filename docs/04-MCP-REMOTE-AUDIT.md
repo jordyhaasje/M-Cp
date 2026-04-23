@@ -16,6 +16,7 @@ Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve
 - Groen: `plan-theme-edit` geeft native-block architectuur nu ook door via `plannerHandoff`, en `draft-theme-artifact` valideert native-block snippets nu tegen gerelateerde section-schema’s, blank-safe optionele resources en `@theme` block-routes, zonder Shopify-onjuiste `name`-eisen op `@app`/`@theme` schema entries af te dwingen.
 - Groen: MCP domeinfouten komen nu protocolcorrect terug als `isError: true`, en read/search/verify vereisen nu een expliciet of sticky bevestigd theme target.
 - Groen: de hero-wrappercontractlaag is vóór Batch E extra gehard. `requiresThemeWrapperMirror` volgt nu de afgeleide hero-shell-familie in plaats van representatieve `heroLike`-context, en de validator blokkeert nu ook media-first/full-bleed heroes waarvan de media-shell effectief boxed raakt via inner `page-width`, `container` of `section-properties`.
+- Groen: Batch E tranche 1 verbreedt contracten buiten hero’s. Review/comparison exact replicas krijgen nu expliciet een `bounded_card_shell` met verplichte inner card-surface, `video_section`/`video_slider` krijgen strengere `video` versus `video_url` checks, en `blocks/*.liquid` falen nu ook hard op ontbrekende `block.shopify_attributes` of ontbrekende renderbare block-markup.
 - Groen: non-theme contract cleanup is aangescherpt voor refunds, product-contracten, tracking-redirects, destructieve auditsporen en eerste productimports.
 - Groen: de license-service herkent Railway-productie nu expliciet, valideert verplichte productie-envs hard en beschermt backup-export/smoke checks beter zonder startup op Railway te blokkeren wanneer backup-export bewust niet is geconfigureerd.
 - Groen: live Railway parity voor `Hazify-MCP-Remote` is opnieuw bevestigd via Railway deployment `79119e1a-464c-49e2-8569-26b5bb7fdb7f`, logreview en `npm run release:postdeploy` op 2026-04-23. De live smoke bleef tegelijk ook groen voor `Hazify-License-Service`.
@@ -67,7 +68,7 @@ De remote MCP is nu het sterkst op de theme/section-stack. `plan-theme-edit`, `c
 
 De grootste resterende risico’s zitten nu vooral in:
 - semantische layout- en archetype-fidelity buiten de nu geharde media-first/full-bleed hero-familie, vooral voor review/video/PDP/blocks en bredere prompt-only flows
-- validators die wrapper-, media-slot- en Theme Editor-contracten nog niet overal hard genoeg afdwingen buiten de exacte media-first hero-fix
+- validators die wrapper-, media-slot- en Theme Editor-contracten nog niet overal hard genoeg afdwingen buiten de nu geharde hero-, exact review/comparison- en strikte video/theme-block checks
 - audit- en docs-drift buiten de auto-gesynchroniseerde toolcatalogus
 - niet-blokkerende Railway hygiene-signalen zoals `punycode` deprecation en `npm warn config production`
 
@@ -148,9 +149,15 @@ Deze inventaris legt de actuele fase-1 audit structureel vast voor vervolgwerk. 
   - onterechte outer `page-width` / `.container`
   - een media-shell die alsnog boxed raakt door een inner `page-width`, `container` of `section-properties` wrapper
   - gedeeld media-slot tussen fallback en uploaded image
+- Batch E tranche 1 dekt daar nu aanvullend hard af:
+  - `video_section` / `video_slider` met externe embeds zonder `video_url`
+  - `blocks/*.liquid` zonder `block.shopify_attributes`
+  - `blocks/*.liquid` zonder renderbare block-markup
+  - exacte review/comparison replicas zonder bounded shell of zonder inner card/panel surface
 - Wat nog niet universeel hard afgedwongen is:
   - het volledige `media layer -> overlay layer -> content layer` contract buiten exacte media-first/reference-driven flows
   - bredere background-media versus inline-image checks voor generieke prompt-only hero/video generation
+  - prompt-only review/video/PDP fidelity buiten exact-reference flows
 - De acceptatiesuite bewijst nog geen echte full-bleed media-first hero. De huidige exact-reference fixture blijft een boxed split-shell voorbeeld.
 
 ## Fase-1 validatorstatus: sterk versus nog niet afgedwongen
@@ -164,7 +171,8 @@ Deze inventaris legt de actuele fase-1 audit structureel vast voor vervolgwerk. 
 ### Nog niet hard genoeg
 - first-class hero/media archetype-correctheid buiten exact-match/reference-driven media-first flows
 - volledige `media layer -> overlay layer -> content layer` contractvalidatie buiten exacte hero/media-fixes
-- archetype-aware wrapperregels voor bredere review/video/blocks/PDP flows
+- archetype-aware wrapperregels voor bredere prompt-only review/video/blocks/PDP flows
+- volwaardige PDP/native-block renderer-contracten buiten de huidige schema- en block-wrapperchecks
 
 ## Concrete Shopify/theme fouten die fase 1 expliciet heeft bevestigd
 - Productieruntime op Railway toonde op 2026-04-22 onder meer:
@@ -214,6 +222,9 @@ Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere impleme
 - Shopify Dev MCP en Context7 bevestigen deze richting:
   - Shopify theme-surfaces zoals `sections`, `snippets`, `blocks` en `templates` zijn aparte implementatie-oppervlakken en hoeven dus niet standaard allemaal full-content mee in één plannerpass
   - de MCP SDK-richtlijn blijft metadata/`structuredContent`-first voor tooloutputs; grote filebodies horen alleen mee te komen wanneer een vervolgstap daar echt op leunt
+- Batch E tranche 1 blijft tokenzuinig binnen die lijn:
+  - non-hero shell-families (`bounded_card_shell`, `media_surface`, `commerce_scaffold`) worden uit bestaande plannerinput afgeleid in plaats van uit extra theme reads
+  - de nieuwe review/video/block validatorchecks werken volledig op het pre-write artifact en niet via extra theme-hydration
 - `plan-theme-edit` geeft voor native-block flows nu ook architectuur terug in `plannerHandoff`, zoals `primarySectionFile`, `usesThemeBlocks`, `snippetRendererKeys` en `hasBlockShopifyAttributes`.
 - `create-theme-section` kan verplichte planner-reads zelf hydrateren en kan alleen in een smalle, bewezen vervolgsituatie create veilig omzetten naar edit.
 - `patch-theme-file` is nu de feitelijke kleine existing-edit route voor exacte single-file fixes.
