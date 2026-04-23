@@ -362,6 +362,12 @@ Afgeronde uitkomst van tranche 1:
 - strikte video-archetypen blokkeren nu schema/render-mismatches harder
 - theme blocks hebben nu ook een minimale render- en Theme Editor-contractlaag
 - Batch E kan nu verder op prompt-only review/video/PDP coverage zonder deze basischecks opnieuw te ontwerpen
+- codegedeelte van tranche 1 is live gedeployed op `Hazify-MCP-Remote` via Railway deployment `7b4b947c-7630-45cc-a1c9-de2078dbe460`
+- publieke MCP endpoint-checks zijn daar groen:
+  - `/.well-known/oauth-protected-resource` -> `200`
+  - `/.well-known/oauth-authorization-server` -> `200`
+  - anonieme `POST /mcp` -> `401`
+- repo-brede `release:postdeploy` parity bleef na deze redeploy wel rood door een terugkerende `502 Application failed to respond` op `Hazify-License-Service /health`
 
 Docs die mee moeten wijzigen:
 - `docs/03-THEME-SECTION-GENERATION.md`
@@ -388,6 +394,14 @@ Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 
 ### Volgende aanbevolen patchbatch
 `Batch E — tranche 2: prompt-only review/video/PDP coverage`
+
+### Open release- en ops-signalen
+- `Hazify-MCP-Remote` redeploy `7b4b947c-7630-45cc-a1c9-de2078dbe460` is gezond en live
+- buildlog toont alleen bekende niet-blokkerende waarschuwingen:
+  - `npm warn config production`
+  - `inflight` / `glob` deprecations tijdens `npm ci`
+  - `punycode` deprecation tijdens docs/build
+- volledige `release:postdeploy` parity is nu tijdelijk geblokkeerd door `Hazify-License-Service /health -> 502`
 
 ### Waarom deze eerst
 - de hero/media-first fundering bevat nu ook de pre-Batch-E wrappercontract-fix, dus de grootste resterende kwaliteitswinst zit in review/video/PDP/blocks buiten de hero-cases
