@@ -27,6 +27,22 @@ import { createHazifyToolRegistry, registerHazifyTools } from "./tools/registry.
 const argv = minimist(process.argv.slice(2));
 // Load environment variables from .env file (if it exists)
 dotenv.config();
+const normalizeAllowedHostname = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) {
+        return null;
+    }
+    try {
+        const parsed = new URL(raw.includes("://") ? raw : `http://${raw}`);
+        return parsed.hostname ? parsed.hostname.toLowerCase() : null;
+    }
+    catch {
+        return raw.replace(/:\d+$/, "").toLowerCase() || null;
+    }
+};
+const normalizeAllowedHostnames = (values) => Array.from(new Set((Array.isArray(values) ? values : [])
+    .map(normalizeAllowedHostname)
+    .filter(Boolean)));
 const HTTP_HOST = argv.host || process.env.HAZIFY_MCP_HTTP_HOST || "0.0.0.0";
 const HTTP_PORT = Number(argv.port || process.env.PORT || process.env.HAZIFY_MCP_HTTP_PORT || 8788);
 const HAZIFY_MCP_INTROSPECTION_URL = argv.mcpIntrospectionUrl || process.env.HAZIFY_MCP_INTROSPECTION_URL;
@@ -38,6 +54,15 @@ const HAZIFY_MCP_CONTEXT_TTL_MS = Number(
 const HAZIFY_MCP_PUBLIC_URL = argv.mcpPublicUrl || process.env.HAZIFY_MCP_PUBLIC_URL || "";
 const HAZIFY_MCP_AUTH_SERVER_URL = argv.oauthAuthServerUrl || process.env.HAZIFY_MCP_AUTH_SERVER_URL || "";
 const HAZIFY_MCP_ALLOWED_ORIGINS = parseCommaSeparatedList(argv.allowedOrigins || process.env.HAZIFY_MCP_ALLOWED_ORIGINS || "");
+const HAZIFY_MCP_ALLOWED_HOSTS = normalizeAllowedHostnames([
+    ...parseCommaSeparatedList(argv.allowedHosts || process.env.HAZIFY_MCP_ALLOWED_HOSTS || ""),
+    HAZIFY_MCP_PUBLIC_URL,
+    process.env.RAILWAY_PUBLIC_DOMAIN || "",
+    process.env.RAILWAY_STATIC_URL || "",
+    "localhost",
+    "127.0.0.1",
+    "[::1]",
+]);
 const MCP_SESSION_MODE = String(argv.sessionMode || process.env.MCP_SESSION_MODE || "stateless").trim().toLowerCase();
 const MCP_STATEFUL_DEPLOYMENT_SAFE = String(argv.statefulDeploymentSafe || process.env.MCP_STATEFUL_DEPLOYMENT_SAFE || "")
     .trim()
@@ -776,7 +801,10 @@ const isRequestOriginAllowed = (req) => {
     });
 };
 {
-    const app = createMcpExpressApp({ host: HTTP_HOST });
+    const app = createMcpExpressApp({
+        host: HTTP_HOST,
+        allowedHosts: HAZIFY_MCP_ALLOWED_HOSTS,
+    });
     app.use((req, res, next) => {
         const forwardedRequestId = typeof req.headers["x-request-id"] === "string" && req.headers["x-request-id"].trim()
             ? req.headers["x-request-id"].trim().slice(0, 200)

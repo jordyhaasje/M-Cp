@@ -157,6 +157,7 @@ const previousEnv = {
   HAZIFY_MCP_INTROSPECTION_URL: process.env.HAZIFY_MCP_INTROSPECTION_URL,
   HAZIFY_MCP_API_KEY: process.env.HAZIFY_MCP_API_KEY,
   HAZIFY_MCP_PUBLIC_URL: process.env.HAZIFY_MCP_PUBLIC_URL,
+  HAZIFY_MCP_ALLOWED_HOSTS: process.env.HAZIFY_MCP_ALLOWED_HOSTS,
   HAZIFY_MCP_ALLOWED_ORIGINS: process.env.HAZIFY_MCP_ALLOWED_ORIGINS,
   MCP_SESSION_MODE: process.env.MCP_SESSION_MODE,
 };
@@ -201,6 +202,43 @@ try {
   assert.equal(missingTokenResponse.status, 401, "missing token should be unauthorized");
   const missingTokenAuthHeader = missingTokenResponse.headers.get("www-authenticate") || "";
   assert.match(missingTokenAuthHeader, /resource_metadata=/, "WWW-Authenticate should expose resource metadata");
+
+  const disallowedHostResponse = await new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        hostname: "127.0.0.1",
+        port: mcpPort,
+        path: "/mcp",
+        method: "POST",
+        headers: {
+          host: "evil.example",
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          authorization: "Bearer valid-token",
+        },
+      },
+      (response) => {
+        let raw = "";
+        response.on("data", (chunk) => {
+          raw += chunk.toString();
+        });
+        response.on("end", () => {
+          resolve({
+            status: response.statusCode,
+            body: raw ? JSON.parse(raw) : null,
+          });
+        });
+      }
+    );
+    request.on("error", reject);
+    request.end(JSON.stringify(initializeBody));
+  });
+  assert.equal(disallowedHostResponse.status, 403, "unexpected Host headers should be rejected");
+  assert.match(
+    disallowedHostResponse.body?.error?.message || "",
+    /invalid host/i,
+    "host rejection should be a JSON-RPC error"
+  );
 
   const compatibilityMetadataResponse = await fetch(
     `http://127.0.0.1:${mcpPort}/mcp/.well-known/oauth-protected-resource`

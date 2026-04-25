@@ -28,6 +28,9 @@ Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazif
 - `DATABASE_URL` is verplicht voor guarded theme draft/apply, `theme_drafts` persistence en PostgreSQL advisory locks.
 - `HAZIFY_MCP_INTROSPECTION_URL`
 - `HAZIFY_MCP_API_KEY` (moet sterke secret van >=16 tekens zijn)
+- `HAZIFY_MCP_PUBLIC_URL` hoort de publieke MCP base URL te bevatten. De remote gebruikt deze URL ook om de toegestane Host-header voor de MCP SDK DNS-rebinding bescherming af te leiden.
+- `HAZIFY_MCP_ALLOWED_HOSTS` is optioneel voor extra domeinen of custom domains. Waarden zijn comma-separated hostnames of URLs; poorten worden genegeerd. `localhost`, `127.0.0.1`, `[::1]`, `HAZIFY_MCP_PUBLIC_URL` en Railway public domain envs worden automatisch toegevoegd.
+- `HAZIFY_MCP_ALLOWED_ORIGINS` is optioneel voor browser/native-client Origin allowlisting. Gebruik dit niet als Host-header allowlist; dat is `HAZIFY_MCP_ALLOWED_HOSTS`.
 - `MCP_SESSION_MODE` is standaard **`stateless`**. Stateful deployment is alleen aanbevolen met sticky sessions (`MCP_STATEFUL_DEPLOYMENT_SAFE=true`).
 - `HAZIFY_MCP_CONTEXT_TTL_MS` (standaard 120.000 ms) cachet alleen de gehydrateerde requestcontext en lazy Shopify client na succesvolle introspectie; token-introspectie zelf blijft per request gebeuren.
 
