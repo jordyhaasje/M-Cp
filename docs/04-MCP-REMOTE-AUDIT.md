@@ -21,6 +21,7 @@ Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve
 - Groen: `get-supported-tracking-companies` heeft nu ook een expliciet `outputSchema`, zodat alle registry-kritieke toolcontracten machine-leesbaar zijn.
 - Groen: de hero-wrappercontractlaag is vóór Batch E extra gehard. `requiresThemeWrapperMirror` volgt nu de afgeleide hero-shell-familie in plaats van representatieve `heroLike`-context, en de validator blokkeert nu ook media-first/full-bleed heroes waarvan de media-shell effectief boxed raakt via inner `page-width`, `container` of `section-properties`.
 - Groen: Batch E tranche 1 verbreedt contracten buiten hero’s. Review/comparison exact replicas krijgen nu expliciet een `bounded_card_shell` met verplichte inner card-surface, `video_section`/`video_slider` krijgen strengere `video` versus `video_url` checks, en `blocks/*.liquid` falen nu ook hard op ontbrekende `block.shopify_attributes` of ontbrekende renderbare block-markup.
+- Groen: Batch E tranche 2 is lokaal afgerond voor prompt-only review/video/PDP flows. `plan-theme-edit` geeft nu `promptContract` requirements mee voor review cards/rating, video source/renderpad en PDP productbron/commerce action; `create-theme-section` draagt die contracten door; `draft-theme-artifact` blokkeert generieke of fake-output vóór preview-write.
 - Groen: non-theme contract cleanup is aangescherpt voor refunds, product-contracten, tracking-redirects, destructieve auditsporen en eerste productimports.
 - Groen: de license-service herkent Railway-productie nu expliciet, valideert verplichte productie-envs hard en beschermt backup-export/smoke checks beter zonder startup op Railway te blokkeren wanneer backup-export bewust niet is geconfigureerd.
 - Groen: `Hazify-MCP-Remote` is opnieuw live gedeployed via Railway deployment `7b4b947c-7630-45cc-a1c9-de2078dbe460` op 2026-04-23. Build en runtime-logreview zijn gezond, en de publieke MCP endpoints (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, anonieme `POST /mcp -> 401`) antwoorden correct.
@@ -30,7 +31,7 @@ Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve
 ## Verificatie- en release-ledger
 | Service | Laatst lokaal geverifieerd | Laatste lokale bewijsset | Laatst live op Railway | Live parity bevestigd |
 | --- | --- | --- | --- | --- |
-| `Hazify-MCP-Remote` | 2026-04-25 | `npm run release:preflight`; gerichte regressies voor `toolHardening`, `toolRegistry`, `runtimeExecutionBehavior` en `remediation`; Shopify Dev MCP validatie van de aangepaste order/fulfillment GraphQL-shapes; Context7 validatie van MCP tool-level errorgedrag | `7b4b947c-7630-45cc-a1c9-de2078dbe460` op 2026-04-23 | Publieke endpoints zijn groen via `npm run smoke:prod`; deze codewijziging vereist nog push + Railway redeploy voordat live parity voor de nieuwe query- en errorcontracten bevestigd kan worden. |
+| `Hazify-MCP-Remote` | 2026-04-25 | `npm run release:preflight`; gerichte regressies voor `themePlanning`, `createThemeSection`, `draftThemeArtifact`, `crossThemeAcceptanceMatrix`, `toolHardening`, `toolRegistry`, `runtimeExecutionBehavior` en `remediation`; Shopify Dev MCP validatie van theme/Liquid conventions en order/fulfillment GraphQL-shapes; Context7 validatie van MCP tool-level errorgedrag | `7b4b947c-7630-45cc-a1c9-de2078dbe460` op 2026-04-23 | Publieke endpoints zijn groen via `npm run smoke:prod`; Batch G en Batch E tranche 2 vereisen nog push + Railway redeploy voordat live parity voor deze codewijzigingen bevestigd kan worden. |
 | `Hazify-License-Service` | 2026-04-25 | publieke production smoke via `npm run smoke:prod` | `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22 | Ja voor publieke health/bootstrap-smoke: `/health -> 200`, `/v1/session/bootstrap -> 200`. Admin- en billing-readiness zijn niet getest omdat de vereiste lokale secrets niet aanwezig waren. |
 
 Releasewaarheid:
@@ -72,8 +73,8 @@ Deze audit is expliciet getoetst aan externe documentatie:
 De remote MCP is nu het sterkst op de theme/section-stack. `plan-theme-edit`, `create-theme-section`, `patch-theme-file` en `draft-theme-artifact` vormen samen een serieus geharde pipeline met planner-memory, verplichte reads, lokale inspectie, linting en verify-after-write.
 
 De grootste resterende risico’s zitten nu vooral in:
-- semantische layout- en archetype-fidelity buiten de nu geharde media-first/full-bleed hero-familie, vooral voor review/video/PDP/blocks en bredere prompt-only flows
-- validators die wrapper-, media-slot- en Theme Editor-contracten nog niet overal hard genoeg afdwingen buiten de nu geharde hero-, exact review/comparison- en strikte video/theme-block checks
+- semantische layout- en archetype-fidelity buiten de nu geharde media-first/full-bleed hero-familie, vooral voor blocks/native product renderer-varianten en bredere theme-wrapper situaties
+- validators die wrapper-, media-slot- en Theme Editor-contracten nog niet overal hard genoeg afdwingen buiten de nu geharde hero-, prompt-only review/video/PDP-, exact review/comparison- en strikte video/theme-block checks
 - audit- en docs-drift buiten de auto-gesynchroniseerde toolcatalogus
 - niet-blokkerende Railway hygiene-signalen zoals `punycode` deprecation en `npm warn config production`
 
@@ -159,10 +160,14 @@ Deze inventaris legt de actuele fase-1 audit structureel vast voor vervolgwerk. 
   - `blocks/*.liquid` zonder `block.shopify_attributes`
   - `blocks/*.liquid` zonder renderbare block-markup
   - exacte review/comparison replicas zonder bounded shell of zonder inner card/panel surface
+- Batch E tranche 2 dekt daar nu aanvullend hard af:
+  - prompt-only review/testimonial sections zonder review-signalen, herhaalbare review cards, rating/quote-signalen of card/panel surface
+  - prompt-only video sections zonder merchant-editable `video`/`video_url` setting of blank-safe renderpad
+  - prompt-only PDP/product sections zonder productbron of commerce action/helper
 - Wat nog niet universeel hard afgedwongen is:
   - het volledige `media layer -> overlay layer -> content layer` contract buiten exacte media-first/reference-driven flows
   - bredere background-media versus inline-image checks voor generieke prompt-only hero/video generation
-  - prompt-only review/video/PDP fidelity buiten exact-reference flows
+  - volwaardige native product-block renderer-contracten voor alle theme-architecturen buiten de huidige schema/snippet/block-wrapper checks
 - De acceptatiesuite bewijst nog geen echte full-bleed media-first hero. De huidige exact-reference fixture blijft een boxed split-shell voorbeeld.
 
 ## Fase-1 validatorstatus: sterk versus nog niet afgedwongen
@@ -176,7 +181,7 @@ Deze inventaris legt de actuele fase-1 audit structureel vast voor vervolgwerk. 
 ### Nog niet hard genoeg
 - first-class hero/media archetype-correctheid buiten exact-match/reference-driven media-first flows
 - volledige `media layer -> overlay layer -> content layer` contractvalidatie buiten exacte hero/media-fixes
-- archetype-aware wrapperregels voor bredere prompt-only review/video/blocks/PDP flows
+- archetype-aware wrapperregels voor bredere native-block en theme-wrapper varianten
 - volwaardige PDP/native-block renderer-contracten buiten de huidige schema- en block-wrapperchecks
 
 ## Concrete Shopify/theme fouten die fase 1 expliciet heeft bevestigd
@@ -230,6 +235,9 @@ Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere impleme
 - Batch E tranche 1 blijft tokenzuinig binnen die lijn:
   - non-hero shell-families (`bounded_card_shell`, `media_surface`, `commerce_scaffold`) worden uit bestaande plannerinput afgeleid in plaats van uit extra theme reads
   - de nieuwe review/video/block validatorchecks werken volledig op het pre-write artifact en niet via extra theme-hydration
+- Batch E tranche 2 blijft ook tokenzuinig:
+  - `promptContract` wordt afgeleid uit de bestaande prompt/archetype/context en reist mee in `sectionBlueprint` en `plannerHandoff`
+  - de nieuwe prompt-only review/video/PDP validatorchecks inspecteren alleen het pre-write artifact en doen geen extra Shopify theme reads
 - `plan-theme-edit` geeft voor native-block flows nu ook architectuur terug in `plannerHandoff`, zoals `primarySectionFile`, `usesThemeBlocks`, `snippetRendererKeys` en `hasBlockShopifyAttributes`.
 - `create-theme-section` kan verplichte planner-reads zelf hydrateren en kan alleen in een smalle, bewezen vervolgsituatie create veilig omzetten naar edit.
 - `patch-theme-file` is nu de feitelijke kleine existing-edit route voor exacte single-file fixes.
@@ -256,6 +264,8 @@ Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere impleme
 - Non-theme Shopify `userErrors` worden nu in de tool-laag genormaliseerd naar `success=false`, `status="shopify_user_error"` en concrete `errors[]` met `path`, `problem` en `fixSuggestion`. Daarmee kunnen MCP-clients dezelfde toolcall herstellen zonder dat een Shopify validatiefout als protocol-/runtimecrash eindigt.
 - `get-order-by-id` en `update-fulfillment-tracking` starten niet meer met een inmiddels ongeldige `fulfillments(first: ...){ nodes }` query. De actuele lijstvorm is lokaal geregressietest en met Shopify Dev MCP gevalideerd.
 - `get-supported-tracking-companies` is nu contractmatig gelijkgetrokken met de andere kritieke tools via een expliciet output schema.
+- Prompt-only review/video/PDP generation heeft nu een eigen contractlaag. De planner classificeert review/testimonial prompts als `review_section` of `review_slider`, PDP/product prompts als `pdp_section`, en video prompts als `video_section` of `video_slider`. De validator faalt vóór preview-write wanneer de gegenereerde section generiek blijft, video zonder bron/renderpad schrijft of PDP-commerce zonder echte productbron faked.
+- Gerichte Batch E tranche 2 verificatie is groen: `node --test apps/hazify-mcp-remote/tests/themePlanning.test.mjs`, `node --test apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`, `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs` en `node --test apps/hazify-mcp-remote/tests/crossThemeAcceptanceMatrix.test.mjs`.
 - Gerichte verificatie op 2026-04-25 is groen: `node --test apps/hazify-mcp-remote/tests/toolHardening.test.mjs`, `node --test apps/hazify-mcp-remote/tests/toolRegistry.test.mjs`, `node --test apps/hazify-mcp-remote/tests/runtimeExecutionBehavior.test.mjs`, `node --test apps/hazify-mcp-remote/tests/remediation.test.mjs`, Shopify Dev MCP GraphQL-validatie, `npm run smoke:prod` en daarna de volledige `npm run release:preflight`.
 
 ## Productiebewijs uit Railway
@@ -268,7 +278,7 @@ De logs laten een realistisch beeld zien:
 - er komen nog echte parse- en schemafouten terug op section-creatie en op bestaande product-sections
 - Railway bevestigde op 2026-04-22 ook een echte bestaande-section foutketen op `sections/hero-v1.liquid`: eerst `inspection_failed_truncated`, daarna `inspection_failed_liquid_delimiter_balance`. Dat incident is lokaal gereproduceerd en nu afgedekt met regressies voor mobile-only CSS-patches op bestaande sections met inline animatie-CSS.
 
-Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live Railway runtime van `Hazify-MCP-Remote` sluit aan op de lokale remediation van 2026-04-23 voor de theme-stack. De productie-smoke van 2026-04-25 bevestigt daarnaast dat de eerder gemelde `Hazify-License-Service /health -> 502` geen actuele publieke blocker meer is. De codewijzigingen van 2026-04-25 rond order/fulfillment query-shapes, non-theme `userErrors` en het tracking-carrier outputschema zijn lokaal en extern gevalideerd, maar vereisen nog push + Railway redeploy voordat ze live parity hebben.
+Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live Railway runtime van `Hazify-MCP-Remote` sluit aan op de lokale remediation van 2026-04-23 voor de theme-stack. De productie-smoke van 2026-04-25 bevestigt daarnaast dat de eerder gemelde `Hazify-License-Service /health -> 502` geen actuele publieke blocker meer is. De codewijzigingen van 2026-04-25 rond order/fulfillment query-shapes, non-theme `userErrors`, het tracking-carrier outputschema en Batch E tranche 2 prompt-only review/video/PDP coverage zijn lokaal en extern gevalideerd, maar vereisen nog push + Railway redeploy voordat ze live parity hebben.
 
 ## Open blockers
 - `[P1] Docs-drift wordt nog niet volledig automatisch tegengehouden.`

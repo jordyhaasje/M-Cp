@@ -147,7 +147,11 @@ const SECTION_CATEGORY_PATTERNS = {
     /slideshow/i,
   ],
   commerce: [
+    /\bpdp\b/i,
     /product/i,
+    /product[-_ ]?page/i,
+    /productpagina/i,
+    /product[-_ ]?detail/i,
     /collection/i,
     /price/i,
     /variant/i,
@@ -620,6 +624,13 @@ const inferSectionArchetype = ({
     return "comparison_table";
   }
   if (
+    /\b(pdp|product[-_ ]?page|productpagina|product[-_ ]?detail|product[-_ ]?story|product[-_ ]?benefits?|buy[-_ ]?box|conversion[-_ ]?block)\b/.test(
+      haystack
+    )
+  ) {
+    return "pdp_section";
+  }
+  if (
     /(logo[-_ ]?wall|brand[-_ ]?wall|logo[-_ ]?(?:grid|list)|logo showcase)/.test(
       haystack
     )
@@ -640,6 +651,9 @@ const inferSectionArchetype = ({
     /(slider|carousel)/.test(haystack)
   ) {
     return "review_slider";
+  }
+  if (/(review|testimonial|trustpilot|quote|klant(?:en)?|beoordeling(?:en)?|ervaring(?:en)?)/.test(haystack)) {
+    return "review_section";
   }
   if (/(collection)/.test(haystack) && /(slider|carousel)/.test(haystack)) {
     return "collection_slider";
@@ -750,6 +764,7 @@ const inferSectionShellFamily = ({
   switch (archetype) {
     case "comparison_table":
     case "review_slider":
+    case "review_section":
       return "bounded_card_shell";
     case "video_section":
     case "video_slider":
@@ -763,6 +778,7 @@ const inferSectionShellFamily = ({
     case "media_carousel":
       return "media_surface";
     case "native_block":
+    case "pdp_section":
     case "commerce_section":
       return "commerce_scaffold";
     default:
@@ -1378,6 +1394,87 @@ const buildThemeWrapperStrategy = ({
   };
 };
 
+const buildPromptOnlyContract = ({
+  query = "",
+  qualityTarget = "theme_consistent",
+  archetype = "content_section",
+} = {}) => {
+  if (qualityTarget === "exact_match") {
+    return {
+      promptOnly: false,
+      requiredMarkupSignals: [],
+      requiredSchemaSignals: [],
+      hints: [],
+    };
+  }
+
+  const haystack = normalizeText(query);
+  const singleReviewRequested =
+    /\b(?:single|one|1|een enkele|één)\b.{0,40}\b(?:review|testimonial|quote|beoordeling)\b/.test(
+      haystack
+    ) ||
+    /\b(?:review|testimonial|quote|beoordeling)\b.{0,40}\b(?:single|one|1|een enkele|één)\b/.test(
+      haystack
+    );
+  const reviewLike =
+    archetype === "review_slider" || archetype === "review_section";
+  const videoLike =
+    archetype === "video_section" || archetype === "video_slider";
+  const commerceLike =
+    archetype === "pdp_section" ||
+    archetype === "commerce_section" ||
+    archetype === "native_block";
+
+  return {
+    promptOnly: true,
+    requiresReviewContentSignals: reviewLike,
+    requiresReviewCardSurface: reviewLike,
+    requiresBlockBasedCards: reviewLike && !singleReviewRequested,
+    requiresRatingOrQuoteSignal: reviewLike,
+    requiresSliderControls:
+      archetype === "review_slider" || archetype === "video_slider",
+    requiresThemeEditorSafeInteractivity:
+      archetype === "review_slider" || archetype === "video_slider",
+    requiresVideoSourceSetting: videoLike,
+    requiresVideoRenderablePath: videoLike,
+    requiresProductContextOrSetting: commerceLike,
+    requiresCommerceActionSignal: commerceLike,
+    requiredMarkupSignals: uniqueStrings([
+      ...(reviewLike ? ["review_card_or_quote_markup", "rating_or_quote_signal"] : []),
+      ...(archetype === "review_slider" ? ["slider_controls_or_scroll_snap"] : []),
+      ...(videoLike ? ["video_or_external_embed_render_path"] : []),
+      ...(commerceLike
+        ? ["product_context_or_product_setting", "commerce_action_or_product_helper"]
+        : []),
+    ]),
+    requiredSchemaSignals: uniqueStrings([
+      ...(reviewLike && !singleReviewRequested ? ["review_blocks"] : []),
+      ...(videoLike ? ["video_or_video_url_setting"] : []),
+      ...(commerceLike ? ["product_setting_or_product_context"] : []),
+    ]),
+    hints: uniqueStrings([
+      ...(reviewLike
+        ? [
+            "Gebruik voor prompt-only review/testimonial sections herhaalbare review cards of blocks met quote, naam en rating-signalen.",
+            "Behoud een bounded card/panel surface zodat reviews niet degraderen naar één vlak richtext-blok.",
+          ]
+        : []),
+      ...(videoLike
+        ? [
+            "Gebruik een merchant-editable video of video_url setting en render die blank-safe in de eerste write.",
+            "Geef video sliders echte controls of een scroll-snap/slide structuur met Theme Editor-veilige initialisatie.",
+          ]
+        : []),
+      ...(commerceLike
+        ? [
+            "Gebruik product context, een product setting of bestaande theme product helpers; schrijf geen statische fake prijs/CTA als PDP-output.",
+            "Behoud PDP/product flows als commerce scaffold in plaats van een losse marketing-card zonder productbron.",
+          ]
+        : []),
+    ]),
+  };
+};
+
 const buildCategoryGuardrails = ({
   category,
   archetype = "content_section",
@@ -1385,6 +1482,7 @@ const buildCategoryGuardrails = ({
   referenceSignals = null,
   layoutContract = null,
   themeWrapperStrategy = null,
+  promptContract = null,
 }) => {
   const guardrails = [...(themeContext?.guardrails || [])];
 
@@ -1458,10 +1556,30 @@ const buildCategoryGuardrails = ({
     );
   }
 
+  if (
+    promptContract?.promptOnly &&
+    (archetype === "review_slider" || archetype === "review_section")
+  ) {
+    guardrails.push(
+      "Prompt-only review/testimonial sections moeten direct review-card fidelity hebben: herhaalbare cards of blocks, quote/rating/signalen en een duidelijke bounded card/panel surface.",
+      "Maak van een reviewprompt geen generieke richtext section met alleen heading/copy/CTA."
+    );
+  }
+
   if (archetype === "video_section" || archetype === "video_slider") {
     guardrails.push(
       "Gebruik setting type 'video' voor merchant-uploaded video en gebruik video_url alleen voor externe YouTube/Vimeo embeds.",
       "Laat video sections merchant-editable en blank-safe renderen; combineer het video-contract niet met losse hardcoded embedlogica."
+    );
+  }
+
+  if (
+    promptContract?.promptOnly &&
+    (archetype === "pdp_section" || archetype === "commerce_section")
+  ) {
+    guardrails.push(
+      "Prompt-only PDP/product sections moeten een echte productbron of productcontext gebruiken en mogen niet eindigen als statische marketingkaart met fake prijs of fake add-to-cart.",
+      "Spiegel bestaande product helpers voor prijs, knoppen en variantcontext wanneer het doeltheme die al heeft."
     );
   }
 
@@ -1663,6 +1781,11 @@ const buildSectionGenerationBlueprint = ({
     heroLike: profile.heroLike,
     themeContext,
   });
+  const promptContract = buildPromptOnlyContract({
+    query,
+    qualityTarget,
+    archetype,
+  });
   const layoutContract = buildLayoutContract({
     archetype,
     referenceSignals,
@@ -1703,6 +1826,26 @@ const buildSectionGenerationBlueprint = ({
           "Controleer dat product/PDP flows bestaande theme renderers zoals product-info, buy_buttons en prijshelpers blijven spiegelen.",
         ]
       : []),
+    ...(promptContract.requiresReviewContentSignals
+      ? [
+          "Controleer dat prompt-only review/testimonial sections echte review-card of quote/rating-signalen bevatten en niet alleen generieke heading/copy/CTA.",
+        ]
+      : []),
+    ...(promptContract.requiresBlockBasedCards
+      ? [
+          "Controleer dat review/testimonial content via schema.blocks en een section.blocks renderer merchant-editable blijft.",
+        ]
+      : []),
+    ...(promptContract.requiresVideoRenderablePath
+      ? [
+          "Controleer dat prompt-only video sections een video/video_url setting en een renderbaar, blank-safe video-pad hebben.",
+        ]
+      : []),
+    ...(promptContract.requiresProductContextOrSetting
+      ? [
+          "Controleer dat PDP/product sections een echte productcontext of product setting gebruiken en geen statische fake commerce-markup schrijven.",
+        ]
+      : []),
   ];
 
   return {
@@ -1714,6 +1857,7 @@ const buildSectionGenerationBlueprint = ({
       qualityTarget === "exact_match" ? "precision_first" : "theme_aware_baseline",
     completionPolicy,
     referenceSignals,
+    promptContract,
     layoutContract,
     themeWrapperStrategy,
     requiredReads,
@@ -1734,6 +1878,7 @@ const buildSectionGenerationBlueprint = ({
       referenceSignals,
       layoutContract,
       themeWrapperStrategy,
+      promptContract,
     }),
     forbiddenPatterns: uniqueStrings([
       ...CATEGORY_FORBIDDEN_PATTERNS.universal,

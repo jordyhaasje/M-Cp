@@ -6471,6 +6471,429 @@ test("draftThemeArtifact - missing batch-read files do not satisfy required read
   }
 });
 
+test("draftThemeArtifact - rejects prompt-only review sections that degrade to generic content", async () => {
+  const key = "sections/review-cards.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "review_section",
+            category: "static",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              requiresReviewContentSignals: true,
+              requiresReviewCardSurface: true,
+              requiresBlockBasedCards: true,
+              requiresRatingOrQuoteSignal: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .review-cards {
+    display: grid;
+    gap: 20px;
+    padding: 24px;
+  }
+</style>
+<section class="review-cards page-width">
+  <h2>{{ section.settings.heading }}</h2>
+  <div class="rte">{{ section.settings.body }}</div>
+</section>
+{% schema %}
+{
+  "name": "Review cards",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Loved by customers" },
+    { "type": "textarea", "id": "body", "label": "Body", "default": "A generic content section." }
+  ],
+  "presets": [{ "name": "Review cards" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "prompt_review_missing_block_cards")
+    );
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "prompt_review_missing_card_surface")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects prompt-only video sections without a video source and render path", async () => {
+  const key = "sections/prompt-video.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "video_section",
+            category: "media",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              requiresVideoSourceSetting: true,
+              requiresVideoRenderablePath: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .prompt-video {
+    display: grid;
+    gap: 24px;
+    padding: 32px;
+  }
+</style>
+<section class="prompt-video page-width">
+  <h2>{{ section.settings.heading }}</h2>
+  <p>{{ section.settings.copy }}</p>
+</section>
+{% schema %}
+{
+  "name": "Prompt video",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Watch the story" },
+    { "type": "text", "id": "copy", "label": "Copy", "default": "A text-only baseline." }
+  ],
+  "presets": [{ "name": "Prompt video" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "prompt_video_missing_source_setting")
+    );
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "prompt_video_missing_render_path")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects prompt-only PDP sections without product context", async () => {
+  const key = "sections/pdp-conversion.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          template: "product",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "pdp_section",
+            category: "commerce",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              requiresProductContextOrSetting: true,
+              requiresCommerceActionSignal: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .pdp-conversion {
+    display: grid;
+    gap: 24px;
+    padding: 32px;
+    border-radius: 20px;
+    background: #ffffff;
+  }
+</style>
+<section class="pdp-conversion page-width">
+  <h2>{{ section.settings.heading }}</h2>
+  <p class="pdp-conversion__price">$49.00</p>
+  <button type="button">Add to cart</button>
+</section>
+{% schema %}
+{
+  "name": "PDP conversion",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Complete your routine" }
+  ],
+  "presets": [{ "name": "PDP conversion" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "prompt_pdp_missing_product_source")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - accepts prompt-only video sections with blank-safe video source rendering", async () => {
+  const key = "sections/prompt-video.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "video_section",
+            category: "media",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              requiresVideoSourceSetting: true,
+              requiresVideoRenderablePath: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .prompt-video {
+    display: grid;
+    gap: 24px;
+    padding: 32px 0;
+  }
+
+  #shopify-section-{{ section.id }} .prompt-video__media {
+    border-radius: 20px;
+    overflow: hidden;
+  }
+</style>
+<section class="prompt-video page-width">
+  <h2>{{ section.settings.heading }}</h2>
+  <div class="prompt-video__media">
+    {% if section.settings.video != blank %}
+      {{ section.settings.video | video_tag: controls: true, muted: false, loop: false }}
+    {% endif %}
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Prompt video",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Watch the story" },
+    { "type": "video", "id": "video", "label": "Video" },
+    { "type": "range", "id": "padding_top", "label": "Padding top", "min": 0, "max": 80, "step": 4, "default": 32 }
+  ],
+  "presets": [{ "name": "Prompt video" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+    assert.match(themeMock.getValue(), /video_tag/);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - accepts prompt-only PDP sections with product setting and product form", async () => {
+  const key = "sections/pdp-conversion.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          template: "product",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "pdp_section",
+            category: "commerce",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              requiresProductContextOrSetting: true,
+              requiresCommerceActionSignal: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .pdp-conversion {
+    display: grid;
+    gap: 20px;
+    padding: 32px;
+    border-radius: 20px;
+    background: #ffffff;
+  }
+</style>
+{% assign featured_product = section.settings.product %}
+<section class="pdp-conversion page-width">
+  {% if featured_product != blank %}
+    <h2>{{ featured_product.title }}</h2>
+    <p>{{ featured_product.price | money }}</p>
+    {% form 'product', featured_product %}
+      <input type="hidden" name="id" value="{{ featured_product.selected_or_first_available_variant.id }}">
+      <button type="submit">{{ section.settings.button_label }}</button>
+    {% endform %}
+  {% endif %}
+</section>
+{% schema %}
+{
+  "name": "PDP conversion",
+  "settings": [
+    { "type": "product", "id": "product", "label": "Product" },
+    { "type": "text", "id": "button_label", "label": "Button label", "default": "Add to cart" },
+    { "type": "range", "id": "padding_top", "label": "Padding top", "min": 0, "max": 80, "step": 4, "default": 32 }
+  ],
+  "presets": [{ "name": "PDP conversion" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+    assert.match(themeMock.getValue(), /\{% form 'product', featured_product %\}/);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("draftThemeArtifact - flags nested Liquid delimiters inside a single output tag", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",

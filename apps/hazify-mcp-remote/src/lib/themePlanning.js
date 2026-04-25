@@ -794,6 +794,7 @@ const buildPlanFromAnalysis = ({
     const referenceSignals = sectionBlueprint?.referenceSignals || null;
     const layoutContract = sectionBlueprint?.layoutContract || null;
     const themeWrapperStrategy = sectionBlueprint?.themeWrapperStrategy || null;
+    const promptContract = sectionBlueprint?.promptContract || null;
     recommendedFlow = "create-section";
     shouldUse = "create-theme-section";
     likelyNeedsMultiFileEdit = false;
@@ -839,6 +840,21 @@ const buildPlanFromAnalysis = ({
     ) {
       warnings.push(
         "Gebruik setting type 'video' voor merchant-uploaded video en reserveer video_url alleen voor externe YouTube/Vimeo embeds."
+      );
+    }
+    if (promptContract?.requiresReviewContentSignals) {
+      warnings.push(
+        "Prompt-only review/testimonial sections moeten meteen echte review-card fidelity hebben: blocks of cards, quote/rating-signalen en een bounded card/panel surface."
+      );
+    }
+    if (promptContract?.requiresVideoRenderablePath) {
+      warnings.push(
+        "Prompt-only video sections moeten in de eerste write een merchant-editable video/video_url bron plus blank-safe renderpad hebben; een tekst-only baseline is hier onvoldoende."
+      );
+    }
+    if (promptContract?.requiresProductContextOrSetting) {
+      warnings.push(
+        "Prompt-only PDP/product sections moeten productcontext, een product setting of bestaande product helpers gebruiken en mogen geen statische fake prijs/add-to-cart markup schrijven."
       );
     }
     if (layoutContract?.preferExistingCommerceScaffold) {

@@ -647,6 +647,16 @@ test("createThemeSection - forwards media-oriented blueprint hints for hero/vide
     ["media", "hybrid"].includes(capturedContext.sectionBlueprint?.category),
     "hero/video-like sections should get media-oriented planning metadata"
   );
+  assert.equal(
+    capturedContext.sectionBlueprint?.promptContract?.requiresVideoSourceSetting,
+    true,
+    "prompt-only video sections should carry the video source contract into create validation"
+  );
+  assert.equal(
+    capturedContext.sectionBlueprint?.promptContract?.requiresVideoRenderablePath,
+    true,
+    "prompt-only video sections should carry the renderable video path contract into create validation"
+  );
   assert.ok(
     capturedContext.sectionBlueprint?.optionalReads?.some(
       (entry) => entry.key === "layout/theme.liquid"
@@ -657,6 +667,89 @@ test("createThemeSection - forwards media-oriented blueprint hints for hero/vide
     result.sectionBlueprint?.forbiddenPatterns?.some((entry) =>
       entry.includes("video_url")
     )
+  );
+});
+
+test("createThemeSection - forwards prompt-only review contracts for non-exact review sections", serial, async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let capturedContext = null;
+  draftThemeArtifact.execute = async (_input, context) => {
+    capturedContext = context;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const requestContext = { shopifyClient, tokenHash: "create-theme-review-prompt-only" };
+  const planResult = await planThemeEditTool.execute(
+    {
+      themeId: 123,
+      intent: "new_section",
+      template: "homepage",
+      query: "Maak een review section met 3 kaarten, klantnamen en sterrenrating",
+    },
+    requestContext
+  );
+
+  await getThemeFilesTool.execute(planResult.nextArgsTemplate, requestContext);
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/review-cards.liquid",
+      liquid: `
+<style>
+  #shopify-section-{{ section.id }} .review-cards {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<section class="review-cards page-width">
+  {% for block in section.blocks %}
+    <article class="review-cards__card" {{ block.shopify_attributes }}>
+      <div class="review-cards__stars" aria-label="{{ block.settings.rating }} star rating">★★★★★</div>
+      <blockquote>{{ block.settings.quote }}</blockquote>
+      <p>{{ block.settings.author }}</p>
+    </article>
+  {% endfor %}
+</section>
+{% schema %}
+{
+  "name": "Review cards",
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "text", "id": "quote", "label": "Quote", "default": "Great quality." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Verified customer" },
+        { "type": "range", "id": "rating", "label": "Rating", "min": 1, "max": 5, "step": 1, "default": 5 }
+      ]
+    }
+  ],
+  "presets": [
+    { "name": "Review cards", "blocks": [{ "type": "review" }, { "type": "review" }, { "type": "review" }] }
+  ]
+}
+{% endschema %}
+`,
+      plannerHandoff: planResult.plannerHandoff,
+    },
+    requestContext
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(capturedContext.sectionBlueprint?.archetype, "review_section");
+  assert.equal(
+    capturedContext.sectionBlueprint?.promptContract?.requiresBlockBasedCards,
+    true
+  );
+  assert.equal(
+    result.plannerHandoff?.sectionBlueprint?.promptContract?.requiresReviewCardSurface,
+    true
   );
 });
 

@@ -3609,6 +3609,227 @@ function collectExactMatchReferenceSafety(
   };
 }
 
+function collectPromptOnlyArchetypeSafety(
+  value,
+  fileKey,
+  { sectionBlueprint = null } = {}
+) {
+  const promptContract = sectionBlueprint?.promptContract || null;
+  if (!promptContract?.promptOnly) {
+    return {
+      issues: [],
+      warnings: [],
+      suggestedFixes: [],
+    };
+  }
+
+  const source = String(value || "");
+  const { schema } = parseSectionSchema(source);
+  const settings = collectSchemaSettings(schema);
+  const blocks = Array.isArray(schema?.blocks) ? schema.blocks : [];
+  const issues = [];
+  const warnings = [];
+  const suggestedFixes = [];
+  const schemaText = JSON.stringify(schema || {});
+  const hasBlockLoop = /for\s+block\s+in\s+section\.blocks/i.test(source);
+  const hasBlockShopifyAttributes = /block\.shopify_attributes/i.test(source);
+  const hasReviewSignals =
+    /\b(review|testimonial|quote|trustpilot|rating|stars?|beoordeling|ervaring|klant)\b|[★☆]/i.test(
+      `${source} ${schemaText}`
+    );
+  const hasRatingOrQuoteSignal =
+    /\b(rating|stars?|trustpilot|quote|testimonial|review_score|score|author|customer|klant|naam)\b|[★☆]/i.test(
+      `${source} ${schemaText}`
+    );
+  const hasReviewCardSurface =
+    /<(?:article|li|div|section)\b[^>]*class\s*=\s*["'][^"']*(?:__card|--card|[-_]card\b|[-_]panel\b|[-_]surface\b|\bcard\b|\bpanel\b|\bsurface\b|review[-_ ]?(?:item|slide)|testimonial[-_ ]?(?:item|slide)|quote[-_ ]?(?:item|slide))[^"']*["']/i.test(
+      source
+    );
+  const hasSliderControls =
+    /<button\b|scroll-snap-type|data-(?:slider|carousel)|aria-label\s*=\s*["'][^"']*(?:next|previous|prev|volgende|vorige)|shopify:section:load|Shopify\.designMode/i.test(
+      source
+    );
+  const hasVideoSetting = settings.some((setting) =>
+    ["video", "video_url"].includes(String(setting?.type || "").trim())
+  );
+  const hasVideoMarkup =
+    /<video\b|video_tag\b|<iframe\b|external_video_url\b|external_video_tag\b/i.test(
+      source
+    );
+  const hasProductSetting = settings.some(
+    (setting) => String(setting?.type || "").trim() === "product"
+  );
+  const hasProductContext =
+    /\bproduct\.[A-Za-z_]|section\.settings\.[A-Za-z0-9_]+\s*!=\s*blank[\s\S]{0,240}section\.settings\.[A-Za-z0-9_]+\.|assign\s+\w+\s*=\s*section\.settings\.[A-Za-z0-9_]+|all_products\[/i.test(
+      source
+    );
+  const hasCommerceAction =
+    /buy_buttons|product_form|form\s+['"]product['"]|add[-_ ]?to[-_ ]?cart|cart|price\s*\|\s*money|product\.price|product\.selected_or_first_available_variant|section\.settings\.[A-Za-z0-9_]+\.price/i.test(
+      source
+    );
+
+  if (promptContract.requiresReviewContentSignals && !hasReviewSignals) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Prompt-only review/testimonial sections mogen niet als generieke content section worden geschreven. Er ontbreken herkenbare review-, testimonial-, quote- of rating-signalen.",
+        fixSuggestion:
+          "Voeg review/testimonial content toe met quote, klantnaam en rating- of trust-signalen die merchants kunnen aanpassen.",
+        issueCode: "prompt_review_missing_content_signals",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg quote-, klantnaam- en rating/trust-signalen toe aan de review section."
+    );
+  }
+
+  if (promptContract.requiresBlockBasedCards) {
+    const hasReviewBlocks = blocks.length > 0 && hasBlockLoop && hasBlockShopifyAttributes;
+    if (!hasReviewBlocks) {
+      issues.push(
+        createInspectionIssue({
+          path: [fileKey, "schema", "blocks"],
+          problem:
+            "Prompt-only review/testimonial sections moeten herhaalbare, merchant-editable review cards gebruiken. Schema blocks, een section.blocks loop of block.shopify_attributes ontbreekt.",
+          fixSuggestion:
+            "Gebruik schema.blocks voor reviews/testimonials en render iedere block in een wrapper met {{ block.shopify_attributes }}.",
+          issueCode: "prompt_review_missing_block_cards",
+        })
+      );
+      suggestedFixes.push(
+        "Gebruik schema.blocks plus een section.blocks renderer met {{ block.shopify_attributes }} voor review cards."
+      );
+    }
+  }
+
+  if (promptContract.requiresReviewCardSurface && !hasReviewCardSurface) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Prompt-only review/testimonial sections moeten een duidelijke review-card, panel of quote surface hebben. De huidige markup oogt als vlakke generieke content.",
+        fixSuggestion:
+          "Voeg een zichtbare card/panel/surface-laag toe voor reviews, met eigen class, spacing en visual treatment.",
+        issueCode: "prompt_review_missing_card_surface",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg een review-card, testimonial-card of quote-panel surface toe."
+    );
+  }
+
+  if (promptContract.requiresRatingOrQuoteSignal && !hasRatingOrQuoteSignal) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Prompt-only review/testimonial sections missen rating-, quote- of klant-signalen die de promptinhoud dragen.",
+        fixSuggestion:
+          "Gebruik settings of blocks voor quote, author/customer label en optioneel rating/sterren.",
+        issueCode: "prompt_review_missing_rating_or_quote",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg quote-, author/customer- en ratingvelden toe aan de review/testimonial schema."
+    );
+  }
+
+  if (promptContract.requiresSliderControls && !hasSliderControls) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Deze prompt-only slider/carousel mist duidelijke slider-controls, scroll-snap of Theme Editor-veilige initialisatie.",
+        fixSuggestion:
+          "Voeg semantische prev/next buttons, scroll-snap of component-scoped slider-JS met Shopify Theme Editor lifecycle support toe.",
+        issueCode: "prompt_slider_missing_controls",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg prev/next buttons of scroll-snap/carousel gedrag toe voor slider-prompts."
+    );
+  }
+
+  if (promptContract.requiresVideoSourceSetting && !hasVideoSetting) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey, "schema", "settings"],
+        problem:
+          "Prompt-only video sections moeten een merchant-editable video of video_url setting hebben. Een tekst-only of hardcoded baseline is onvoldoende.",
+        fixSuggestion:
+          "Gebruik type 'video' voor Shopify-hosted uploads of type 'video_url' voor externe YouTube/Vimeo embeds.",
+        issueCode: "prompt_video_missing_source_setting",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg een video of video_url setting toe aan prompt-only video sections."
+    );
+  }
+
+  if (promptContract.requiresVideoRenderablePath && !hasVideoMarkup) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Prompt-only video sections moeten in de eerste write een renderbaar video/embed-pad bevatten.",
+        fixSuggestion:
+          "Render de video/video_url blank-safe via video_tag of external_video_tag/url, met een veilige fallback-state wanneer de merchant nog niets heeft ingevuld.",
+        issueCode: "prompt_video_missing_render_path",
+      })
+    );
+    suggestedFixes.push(
+      "Render een blank-safe video_tag of external_video_tag/url pad in de eerste write."
+    );
+  }
+
+  if (
+    promptContract.requiresProductContextOrSetting &&
+    !hasProductSetting &&
+    !hasProductContext
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey, "schema", "settings"],
+        problem:
+          "Prompt-only PDP/product sections moeten een echte productbron gebruiken. Er is geen product setting of product context gedetecteerd.",
+        fixSuggestion:
+          "Gebruik een product setting, de product template context of bestaande product helpers voordat prijs, CTA of productbenefits worden gerenderd.",
+        issueCode: "prompt_pdp_missing_product_source",
+      })
+    );
+    suggestedFixes.push(
+      "Gebruik een product setting of de product template context voor PDP/product sections."
+    );
+  }
+
+  if (promptContract.requiresCommerceActionSignal && !hasCommerceAction) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Prompt-only PDP/product sections missen commerce-acties of product helper-signalen zoals price, buy_buttons, product_form of add-to-cart.",
+        fixSuggestion:
+          "Spiegel bestaande product helpers of render productprijs/CTA vanuit een echte productbron in plaats van statische fake commerce-markup.",
+        issueCode: "prompt_pdp_missing_commerce_action",
+      })
+    );
+    suggestedFixes.push(
+      "Gebruik bestaande product helpers of een product_form/prijsrender vanuit echte productdata."
+    );
+  }
+
+  if (promptContract.hints?.length > 0) {
+    warnings.push(...promptContract.hints);
+  }
+
+  return {
+    issues,
+    warnings,
+    suggestedFixes,
+  };
+}
+
 function createInspectionIssue({
   path = [],
   problem,
@@ -4104,6 +4325,13 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
   issues.push(...(exactMatchInspection.issues || []));
   warnings.push(...(exactMatchInspection.warnings || []));
   suggestedFixes.push(...(exactMatchInspection.suggestedFixes || []));
+
+  const promptOnlyInspection = collectPromptOnlyArchetypeSafety(value, file.key, {
+    sectionBlueprint,
+  });
+  issues.push(...(promptOnlyInspection.issues || []));
+  warnings.push(...(promptOnlyInspection.warnings || []));
+  suggestedFixes.push(...(promptOnlyInspection.suggestedFixes || []));
 
   if (settingTypes.has("color_scheme_group")) {
     issues.push(

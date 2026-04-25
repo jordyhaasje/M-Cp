@@ -174,6 +174,23 @@ const homepageLiquidFiles = {
   "sections/testimonials.liquid": homepageJsonFiles["sections/testimonials.liquid"],
 };
 
+const mediaEditFiles = {
+  ...homepageJsonFiles,
+  "sections/video-story.liquid": makeTextAsset(`
+    <section class="video-story page-width">
+      {% if section.settings.video != blank %}
+        {{ section.settings.video | video_tag: controls: true }}
+      {% endif %}
+    </section>
+    {% schema %}
+    {"name":"Video story","settings":[
+      {"type":"video","id":"video","label":"Video"},
+      {"type":"range","id":"overlay_opacity","label":"Overlay opacity","min":0,"max":100,"step":5,"default":40}
+    ],"presets":[{"name":"Video story"}]}
+    {% endschema %}
+  `),
+};
+
 const productBlockFiles = {
   "templates/product.json": makeTextAsset(
     `/* Product template */
@@ -399,7 +416,61 @@ try {
     "constrained mobile-only reorders should stay in the patch flow instead of being escalated to a rewrite"
   );
 
+  const existingPdpEditPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "existing_edit",
+    targetFile: "sections/main-product.liquid",
+    query:
+      "Pas alleen de PDP prijs-spacing rond de product price aan en laat buy_buttons ongewijzigd.",
+  });
+  assert.equal(existingPdpEditPlan.recommendedFlow, "patch-existing");
+  assert.equal(existingPdpEditPlan.changeScope, "micro_patch");
+  assert.equal(existingPdpEditPlan.preferredWriteMode, "patch");
+  assert.deepEqual(existingPdpEditPlan.nextReadKeys, ["sections/main-product.liquid"]);
+
+  const promptOnlyPdpPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "product",
+    query:
+      "Maak een PDP conversion block met productprijs, review proof en add-to-cart CTA",
+  });
+  assert.equal(
+    promptOnlyPdpPlan.sectionBlueprint?.archetype,
+    "pdp_section",
+    "prompt-only PDP/product prompts should surface a dedicated commerce scaffold archetype"
+  );
+  assert.equal(
+    promptOnlyPdpPlan.sectionBlueprint?.layoutContract?.sectionShellFamily,
+    "commerce_scaffold"
+  );
+  assert.equal(
+    promptOnlyPdpPlan.sectionBlueprint?.promptContract?.requiresProductContextOrSetting,
+    true
+  );
+  assert.equal(
+    promptOnlyPdpPlan.sectionBlueprint?.promptContract?.requiresCommerceActionSignal,
+    true
+  );
+  assert.ok(
+    promptOnlyPdpPlan.warnings.some((warning) =>
+      warning.toLowerCase().includes("productcontext")
+    ),
+    "PDP prompt-only plans should warn against fake static commerce markup"
+  );
+
   global.fetch = createGraphqlFetch(homepageJsonFiles);
+
+  const existingReviewEditPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "existing_edit",
+    targetFile: "sections/testimonials.liquid",
+    query: "Verklein alleen de review-card gap op mobiel en laat desktop hetzelfde.",
+  });
+  assert.equal(existingReviewEditPlan.recommendedFlow, "patch-existing");
+  assert.equal(existingReviewEditPlan.changeScope, "micro_patch");
+  assert.equal(existingReviewEditPlan.preferredWriteMode, "patch");
+  assert.deepEqual(existingReviewEditPlan.nextReadKeys, ["sections/testimonials.liquid"]);
 
   const newSectionPlan = await planThemeEdit(shopifyClient, "2026-01", {
     themeId: 123,
@@ -498,9 +569,68 @@ try {
     "video-slider prompts should surface a specific archetype"
   );
   assert.equal(
+    mediaSectionPlan.sectionBlueprint?.promptContract?.requiresVideoSourceSetting,
+    true,
+    "prompt-only video sections should require a merchant-editable video source"
+  );
+  assert.equal(
+    mediaSectionPlan.sectionBlueprint?.promptContract?.requiresVideoRenderablePath,
+    true,
+    "prompt-only video sections should require a renderable video path"
+  );
+  assert.equal(
     mediaSectionPlan.sectionBlueprint?.layoutContract?.sectionShellFamily,
     "media_surface",
     "video-slider prompts should keep a media-surface layout contract outside the hero-only shell logic"
+  );
+
+  global.fetch = createGraphqlFetch(mediaEditFiles);
+
+  const existingVideoEditPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "existing_edit",
+    targetFile: "sections/video-story.liquid",
+    query: "Verklein alleen op mobiel de video gap en laat desktop ongewijzigd.",
+  });
+  assert.equal(existingVideoEditPlan.recommendedFlow, "patch-existing");
+  assert.equal(existingVideoEditPlan.changeScope, "micro_patch");
+  assert.equal(existingVideoEditPlan.preferredWriteMode, "patch");
+  assert.deepEqual(existingVideoEditPlan.nextReadKeys, ["sections/video-story.liquid"]);
+
+  global.fetch = createGraphqlFetch(homepageJsonFiles);
+
+  const promptOnlyReviewPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak een review section met 3 kaarten, klantnamen en sterrenrating",
+  });
+  assert.equal(
+    promptOnlyReviewPlan.sectionBlueprint?.archetype,
+    "review_section",
+    "prompt-only review prompts without slider language should not collapse to generic content_section"
+  );
+  assert.equal(
+    promptOnlyReviewPlan.sectionBlueprint?.qualityTarget,
+    "theme_consistent"
+  );
+  assert.equal(
+    promptOnlyReviewPlan.sectionBlueprint?.layoutContract?.sectionShellFamily,
+    "bounded_card_shell"
+  );
+  assert.equal(
+    promptOnlyReviewPlan.sectionBlueprint?.promptContract?.requiresBlockBasedCards,
+    true
+  );
+  assert.equal(
+    promptOnlyReviewPlan.sectionBlueprint?.promptContract?.requiresReviewCardSurface,
+    true
+  );
+  assert.ok(
+    promptOnlyReviewPlan.sectionBlueprint?.preflightChecks?.some((entry) =>
+      entry.toLowerCase().includes("review-card")
+    ),
+    "prompt-only review plans should expose review-card preflight checks"
   );
 
   const socialStripPlan = await planThemeEdit(shopifyClient, "2026-01", {

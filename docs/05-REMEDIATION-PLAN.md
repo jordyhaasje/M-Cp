@@ -51,7 +51,7 @@ Bij een nieuwe of bijna volle sessie is de aanbevolen herstartvolgorde:
 ### Nog open
 - bredere archetype-aware wrapperregels buiten de nu geharde media-first/full-bleed hero-familie
 - hardere validators voor wrapper-correctheid en Theme Editor-contracten buiten de hero fix
-- bredere regressietests voor review/video/blocks/prompt-only flows
+- bredere native-block/theme-wrapper regressietests buiten de huidige schema/snippet/block-wrapper checks
 - authenticated production MCP smoke met expliciet productie-token
 
 ## Concrete Patchbatches
@@ -341,22 +341,49 @@ Tranche 1 afgerond:
   - `blocks/*.liquid` zonder renderbare block-markup
   - exacte review/comparison replicas zonder bounded shell of zonder inner card/panel surface
 
-Nog open binnen Batch E:
-- prompt-only review/video/PDP fidelity verder verharden buiten exact-reference flows
-- `create-theme-section` prompt-only planning rijker maken voor non-hero archetypen
-- bredere PDP/native-block renderer-contracten toevoegen buiten de huidige schema/block-wrapper checks
-- acceptance- en create-suite uitbreiden voor review/video/PDP prompt-only regressies
+Tranche 2 afgerond:
+- `themeSectionContext` bouwt nu `promptContract` metadata voor prompt-only review/video/PDP flows:
+  - review/testimonial prompts vereisen review-signalen, review-card/panel surface, rating/quote-signalen en herhaalbare blocks wanneer meerdere reviews gevraagd worden
+  - video prompts vereisen een merchant-editable `video` of `video_url` setting plus renderbaar blank-safe video-pad
+  - PDP/product prompts vereisen productcontext of een `product` setting plus echte commerce action/helper signalen
+- `review_section` en `pdp_section` zijn nu expliciete archetypen naast de bestaande slider/video/commerce families.
+- `themePlanning` waarschuwt in `plan-theme-edit` direct wanneer een prompt-only review/video/PDP write geen generieke baseline mag worden.
+- `create-theme-section` draagt de prompt-only contracten via `plannerHandoff.sectionBlueprint.promptContract` door naar de write-pipeline.
+- `draft-theme-artifact` faalt vóór preview-write op:
+  - `prompt_review_missing_content_signals`
+  - `prompt_review_missing_block_cards`
+  - `prompt_review_missing_card_surface`
+  - `prompt_review_missing_rating_or_quote`
+  - `prompt_slider_missing_controls`
+  - `prompt_video_missing_source_setting`
+  - `prompt_video_missing_render_path`
+  - `prompt_pdp_missing_product_source`
+  - `prompt_pdp_missing_commerce_action`
+- De cross-theme acceptance matrix gebruikt voor review-archetypen nu een echte review-card fixture met blocks, `block.shopify_attributes`, rating/sterren, quote/author en blank-safe `image_picker`.
+- Bestaande review/video/PDP edits hebben planner-regressies die surgical mobile/single-file prompts in `patch-existing` houden.
 
-Vereiste tests:
-- prompt-only review/video generatie
-- non-hero `video_section` / `video_slider`
-- review sections met wrapper/rating/badge anchors
-- native `blocks/*.liquid` positive path
-- bestaande edit regressies voor review/video/PDP
+Nog open binnen Batch E:
+- bredere native product-block renderer-contracten toevoegen voor theme-architecturen buiten de huidige schema/snippet/block-wrapper checks
+- wrapper-correctheid buiten media-first/full-bleed heroes en exacte bounded card-surfaces verder universeler maken zonder theme-conventies te breken
+
+Vereiste tests voor tranche 2:
+- prompt-only review/video generatie: afgerond
+- non-hero `video_section` / `video_slider`: afgerond
+- review sections met wrapper/rating/badge anchors: afgerond voor review-card/rating en merchant-media anchors
+- native `blocks/*.liquid` positive path: al gedekt in tranche 1
+- bestaande edit regressies voor review/video/PDP: afgerond voor surgical plannerflows
 
 Lokaal geverifieerd voor tranche 1:
 - `node --test apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
 - `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+
+Lokaal geverifieerd voor tranche 2:
+- `node --test apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/crossThemeAcceptanceMatrix.test.mjs`
+- Shopify Dev MCP `liquid` documentatiecheck voor sections/blocks, `block.shopify_attributes`, image filters, video-rendering conventies en product forms
+- Context7 MCP SDK check voor herstelbare tool-level errors via `isError: true`, `structuredContent` en output schema gedrag
 
 Afgeronde uitkomst van tranche 1:
 - non-hero exact replicas krijgen nu niet meer alleen hero- of generieke content-contracten mee
@@ -369,6 +396,11 @@ Afgeronde uitkomst van tranche 1:
   - `/.well-known/oauth-authorization-server` -> `200`
   - anonieme `POST /mcp` -> `401`
 - repo-brede `release:postdeploy` parity bleef na deze redeploy destijds rood door een terugkerende `502 Application failed to respond` op `Hazify-License-Service /health`; publieke smoke is op 2026-04-25 opnieuw groen, dus dit is geen actuele blocker meer
+
+Afgeronde uitkomst van tranche 2:
+- prompt-only review/video/PDP generation heeft nu dezelfde eerste-write discipline als exacte flows: onvolledige of generieke output wordt lokaal geblokkeerd voordat naar het theme geschreven wordt
+- de nieuwe checks voegen geen extra Shopify reads toe en blijven tokenzuinig doordat ze alleen het plannercontract en het pre-write artifact inspecteren
+- live parity voor tranche 2 is nog niet bevestigd; deze wijziging moet na commit/push nog op `Hazify-MCP-Remote` worden gedeployed en gesmoked
 
 Docs die mee moeten wijzigen:
 - `docs/03-THEME-SECTION-GENERATION.md`
@@ -452,11 +484,11 @@ Actieve regels:
 Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 
 ### Volgende aanbevolen patchbatch
-`Batch E — tranche 2: prompt-only review/video/PDP coverage`
+`Release/Ops — push, Railway redeploy en authenticated MCP smoke`
 
 ### Open release- en ops-signalen
 - `Hazify-MCP-Remote` redeploy `7b4b947c-7630-45cc-a1c9-de2078dbe460` is gezond en live
-- codewijzigingen uit Batch G raken `apps/hazify-mcp-remote/src/**` en vereisen na commit/push een Railway redeploy van `Hazify-MCP-Remote`
+- codewijzigingen uit Batch G en Batch E tranche 2 raken `apps/hazify-mcp-remote/src/**` en vereisen na commit/push een Railway redeploy van `Hazify-MCP-Remote`
 - buildlog toont alleen bekende niet-blokkerende waarschuwingen:
   - `npm warn config production`
   - `inflight` / `glob` deprecations tijdens `npm ci`
@@ -471,17 +503,15 @@ Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 - authenticated production MCP tool-smoke met expliciet productie-token blijft open
 
 ### Waarom deze eerst
-- de hero/media-first fundering bevat nu ook de pre-Batch-E wrappercontract-fix, dus de grootste resterende kwaliteitswinst zit in review/video/PDP/blocks buiten de hero-cases
-- Batch E maakt de archetype- en validatorlogica breder toepasbaar op prompt-only generation, bestaande edits en non-hero sections
+- de belangrijkste lokale open punten voor Batch G en Batch E tranche 2 zijn nu gerepareerd
+- de grootste resterende onzekerheid zit niet in lokale code, maar in productiepariteit: push, Railway redeploy, publieke smoke/logreview en daarna een authenticated MCP tool-smoke met expliciet productie-token
 
 ### Minimale files voor de volgende sessie
-- `apps/hazify-mcp-remote/src/lib/themeSectionContext.js`
-- `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
-- `apps/hazify-mcp-remote/src/tools/createThemeSection.js`
-- `apps/hazify-mcp-remote/src/lib/themePlanning.js`
-- `apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
-- `apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
-- `apps/hazify-mcp-remote/tests/crossThemeAcceptanceMatrix.test.mjs`
+- `docs/04-MCP-REMOTE-AUDIT.md`
+- `docs/05-REMEDIATION-PLAN.md`
+- `scripts/release-status.mjs`
+- Railway service `Hazify-MCP-Remote`
+- productie-token/tenantconfig voor authenticated MCP smoke
 
 ### Bekende harde waarheden
 - een hero met content links en media rechts is niet automatisch een split-layout

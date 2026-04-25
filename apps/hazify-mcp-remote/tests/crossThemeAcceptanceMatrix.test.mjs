@@ -118,6 +118,94 @@ function buildMerchantEditableSectionLiquid({ label }) {
 `;
 }
 
+function buildPromptOnlyReviewSectionLiquid({ label }) {
+  const schemaName = "Matrix review cards";
+  const defaultHeading = String(label || "Review cards").slice(0, 48);
+
+  return `
+<style>
+  #shopify-section-{{ section.id }} .matrix-reviews {
+    display: grid;
+    gap: 24px;
+    padding: 24px 0;
+  }
+
+  #shopify-section-{{ section.id }} .matrix-reviews__grid {
+    display: grid;
+    gap: 16px;
+  }
+
+  #shopify-section-{{ section.id }} .matrix-reviews__card {
+    display: grid;
+    gap: 12px;
+    padding: 20px;
+    border-radius: 16px;
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+  }
+
+  #shopify-section-{{ section.id }} .matrix-reviews__stars {
+    letter-spacing: 0;
+  }
+
+  #shopify-section-{{ section.id }} .matrix-reviews__avatar {
+    width: 56px;
+    height: 56px;
+    border-radius: 999px;
+    object-fit: cover;
+  }
+
+  @media screen and (min-width: 750px) {
+    #shopify-section-{{ section.id }} .matrix-reviews__grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+</style>
+
+<section class="matrix-reviews page-width">
+  <h2>{{ section.settings.heading }}</h2>
+  <div class="matrix-reviews__grid">
+    {% for block in section.blocks %}
+      <article class="matrix-reviews__card" {{ block.shopify_attributes }}>
+        {% if block.settings.avatar != blank %}
+          {{ block.settings.avatar | image_url: width: 160 | image_tag: class: 'matrix-reviews__avatar', loading: 'lazy', widths: '80, 120, 160' }}
+        {% endif %}
+        <div class="matrix-reviews__stars" aria-label="{{ block.settings.rating }} star rating">★★★★★</div>
+        <blockquote>{{ block.settings.quote }}</blockquote>
+        <p>{{ block.settings.author }}</p>
+      </article>
+    {% endfor %}
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "${schemaName}",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "${defaultHeading}" },
+    { "type": "range", "id": "padding_top", "label": "Padding top", "min": 0, "max": 80, "step": 4, "default": 24 },
+    { "type": "range", "id": "padding_bottom", "label": "Padding bottom", "min": 0, "max": 80, "step": 4, "default": 24 }
+  ],
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "image_picker", "id": "avatar", "label": "Avatar" },
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Excellent support and product quality." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Verified customer" },
+        { "type": "range", "id": "rating", "label": "Rating", "min": 1, "max": 5, "step": 1, "default": 5 }
+      ]
+    }
+  ],
+  "presets": [
+    { "name": "${schemaName}", "blocks": [{ "type": "review" }, { "type": "review" }, { "type": "review" }] }
+  ]
+}
+{% endschema %}
+`;
+}
+
 function buildExactReplicaSectionLiquid({ label, strictRenderableMedia = false }) {
   const schemaName = strictRenderableMedia
     ? "Image backed reference"
@@ -497,7 +585,11 @@ test(
             {
               themeId: fixture.themeId,
               key: createdSectionKey,
-              liquid: buildMerchantEditableSectionLiquid({ label: `${fixture.label} matrix` }),
+              liquid:
+                planResult.sectionBlueprint?.archetype === "review_section" ||
+                planResult.sectionBlueprint?.archetype === "review_slider"
+                  ? buildPromptOnlyReviewSectionLiquid({ label: `${fixture.label} matrix` })
+                  : buildMerchantEditableSectionLiquid({ label: `${fixture.label} matrix` }),
               plannerHandoff: planResult.plannerHandoff,
             },
             requestContext
