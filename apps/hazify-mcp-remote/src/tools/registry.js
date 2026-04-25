@@ -156,6 +156,20 @@ const updateFulfillmentTrackingOutputSchema = z
   })
   .passthrough();
 
+const getSupportedTrackingCompaniesOutputSchema = z
+  .object({
+    totalAvailable: z.number(),
+    returned: z.array(z.string()),
+    uiLocation: z
+      .object({
+        orderPagePath: z.string(),
+        fieldNames: passthroughObject(),
+      })
+      .passthrough(),
+    notes: z.array(z.string()),
+  })
+  .passthrough();
+
 const setOrderTrackingOutputSchema = z
   .object({
     order: z
@@ -517,7 +531,10 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
     idempotent: false,
     outputSchema: setOrderTrackingOutputSchema,
   }),
-  defineToolManifest(getSupportedTrackingCompanies, { requiresShopifyClient: false }),
+  defineToolManifest(getSupportedTrackingCompanies, {
+    requiresShopifyClient: false,
+    outputSchema: getSupportedTrackingCompaniesOutputSchema,
+  }),
   defineToolManifest(getCustomerOrders, { outputSchema: getCustomerOrdersOutputSchema }),
   defineToolManifest(updateCustomer, {
     writeScopeRequired: true,

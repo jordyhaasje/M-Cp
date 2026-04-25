@@ -1,6 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
-import { assertNoUserErrors } from "@hazify/shopify-core";
+import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
 import { z } from "zod";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
 
@@ -360,7 +360,24 @@ const updateOrder = {
           ...orderFields,
         },
       });
-      assertNoUserErrors(orderUpdateResponse.orderUpdate.userErrors, "Failed to update order");
+      const userErrorResponse = buildShopifyUserErrorResponse(
+        orderUpdateResponse.orderUpdate.userErrors,
+        {
+          actionMessage: "Failed to update order",
+          operation: "orderUpdate",
+        }
+      );
+      if (userErrorResponse) {
+        return {
+          ...userErrorResponse,
+          resolvedOrder: {
+            input: input.id,
+            resolvedId: resolvedOrderId,
+            source: resolvedOrder.source,
+            matchedByQuery: resolvedOrder.matchedByQuery || null,
+          },
+        };
+      }
 
       return {
         order: formatOrderResponse(orderUpdateResponse.orderUpdate.order),

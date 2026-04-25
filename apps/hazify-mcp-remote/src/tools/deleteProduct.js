@@ -1,6 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
-import { assertNoUserErrors } from "@hazify/shopify-core";
+import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
 import { z } from "zod";
 import { createMutationAuditLog } from "../lib/db.js";
 
@@ -47,7 +47,13 @@ const deleteProduct = {
             const data = (await shopifyClient.request(query, {
                 input: { id: input.id },
             }));
-            assertNoUserErrors(data.productDelete.userErrors, "Failed to delete product");
+            const userErrorResponse = buildShopifyUserErrorResponse(data.productDelete.userErrors, {
+                actionMessage: "Failed to delete product",
+                operation: "productDelete",
+            });
+            if (userErrorResponse) {
+                return userErrorResponse;
+            }
             const auditLog = await createMutationAuditLog({
                 toolName: "delete-product",
                 tenantId: context?.tenantId || null,

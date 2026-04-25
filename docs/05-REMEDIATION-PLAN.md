@@ -1,7 +1,7 @@
 # Remediation Plan
 Doelgroep: maintainers, developers en coding agents.
 
-Versie: 2026-04-22.
+Versie: 2026-04-25.
 Status: actieve tracker voor Shopify theme-toolchain remediation, sessie-handoff en releasevolgorde.
 
 ## Doel
@@ -52,6 +52,7 @@ Bij een nieuwe of bijna volle sessie is de aanbevolen herstartvolgorde:
 - bredere archetype-aware wrapperregels buiten de nu geharde media-first/full-bleed hero-familie
 - hardere validators voor wrapper-correctheid en Theme Editor-contracten buiten de hero fix
 - bredere regressietests voor review/video/blocks/prompt-only flows
+- authenticated production MCP smoke met expliciet productie-token
 
 ## Concrete Patchbatches
 Deze batches zijn bewust klein genoeg gehouden om gericht te patchen zonder opnieuw brede context op te halen.
@@ -367,12 +368,70 @@ Afgeronde uitkomst van tranche 1:
   - `/.well-known/oauth-protected-resource` -> `200`
   - `/.well-known/oauth-authorization-server` -> `200`
   - anonieme `POST /mcp` -> `401`
-- repo-brede `release:postdeploy` parity bleef na deze redeploy wel rood door een terugkerende `502 Application failed to respond` op `Hazify-License-Service /health`
+- repo-brede `release:postdeploy` parity bleef na deze redeploy destijds rood door een terugkerende `502 Application failed to respond` op `Hazify-License-Service /health`; publieke smoke is op 2026-04-25 opnieuw groen, dus dit is geen actuele blocker meer
 
 Docs die mee moeten wijzigen:
 - `docs/03-THEME-SECTION-GENERATION.md`
 - `docs/04-MCP-REMOTE-AUDIT.md`
 - dit document
+
+### Batch G — MCP/Shopify Contract Cleanup
+Status: `completed`
+Prioriteit: `P1/P2`
+
+Doel:
+- los de niet-Batch-E open punten uit de audit op voordat de bredere theme-fidelity tranche verdergaat
+- voorkom voorspelbare Shopify GraphQL errors vóór reads/writes
+- maak non-theme toolfouten herstelbaar voor MCP-clients
+- trek het laatste ontbrekende kritieke outputcontract gelijk
+
+Files/tools:
+- `apps/hazify-mcp-remote/src/tools/getOrderById.js`
+- `apps/hazify-mcp-remote/src/tools/updateFulfillmentTracking.js`
+- `apps/hazify-mcp-remote/src/lib/shopifyToolErrors.js`
+- `apps/hazify-mcp-remote/src/tools/createProduct.js`
+- `apps/hazify-mcp-remote/src/tools/updateProduct.js`
+- `apps/hazify-mcp-remote/src/tools/manageProductVariants.js`
+- `apps/hazify-mcp-remote/src/tools/manageProductOptions.js`
+- `apps/hazify-mcp-remote/src/tools/deleteProduct.js`
+- `apps/hazify-mcp-remote/src/tools/deleteProductVariants.js`
+- `apps/hazify-mcp-remote/src/tools/refundOrder.js`
+- `apps/hazify-mcp-remote/src/tools/updateCustomer.js`
+- `apps/hazify-mcp-remote/src/tools/updateOrder.js`
+- `apps/hazify-mcp-remote/src/tools/registry.js`
+- `apps/hazify-mcp-remote/tests/toolHardening.test.mjs`
+- `apps/hazify-mcp-remote/tests/toolRegistry.test.mjs`
+- `apps/hazify-mcp-remote/tests/runtimeExecutionBehavior.test.mjs`
+
+Concrete wijzigingen:
+- `get-order-by-id` gebruikt niet meer de verouderde eerste queryvorm `fulfillments(first: ...){ nodes }`; de primaire query gebruikt nu `fulfillments { ... }`.
+- `get-order-by-id` leest customer email/phone nu via `defaultEmailAddress.emailAddress` en `defaultPhoneNumber.phoneNumber` in plaats van de gedepricieerde `Customer.email` en `Customer.phone`.
+- `update-fulfillment-tracking` gebruikt voor order tracking context direct de actuele `Order.fulfillments` lijstvorm en triggert niet langer eerst een voorspelbare GraphQL schemafout.
+- Shopify `userErrors` uit product-, order-, customer-, refund- en fulfillment-mutaties worden genormaliseerd naar `success=false`, `status="shopify_user_error"`, `operation`, `errors[]` en `suggestedFixes[]`.
+- `get-supported-tracking-companies` heeft nu een expliciet `outputSchema`.
+
+Bronvalidatie:
+- Shopify Dev MCP valideerde de aangepaste `GetOrderById`, `getOrderTrackingContext`, `fulfillmentTrackingInfoUpdate` en `fulfillmentCreate` GraphQL operations als geldig tegen de actuele Admin GraphQL schema.
+- Context7 voor de MCP TypeScript SDK bevestigt dat tool-level failures via `isError: true` zichtbaar en herstelbaar zijn voor LLM-clients en dat output schema-validatie bij `isError` wordt overgeslagen.
+- De code is leidend boven eerdere documentatiestatus: de oude 502- en query-shape-notities zijn bijgewerkt nadat ze tegen code, tests en productie-smoke zijn getoetst.
+
+Vereiste tests:
+- `node --test apps/hazify-mcp-remote/tests/toolHardening.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/toolRegistry.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/runtimeExecutionBehavior.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/remediation.test.mjs`
+- `npm run release:preflight`
+
+Docs die mee moeten wijzigen:
+- `docs/04-MCP-REMOTE-AUDIT.md`
+- dit document
+
+Afgeronde uitkomst:
+- non-Batch-E P1/P2 contractpunten zijn lokaal gerepareerd
+- voorspelbare Shopify schema-errors rond fulfillment reads zijn vóór uitvoering weggehaald
+- LLM-clients krijgen meer herstelbare, machine-leesbare toolresultaten bij Shopify validatiefouten
+- lokale verificatie is groen via de gerichte regressietests en de volledige `npm run release:preflight`
+- publieke productie-smoke op 2026-04-25 is groen voor License Service health/bootstrap en MCP metadata/anonieme auth-check; authenticated MCP tool-smoke blijft apart open
 
 ### Batch F — Docs Waarheid en Opschoning
 Status: `active`
@@ -397,11 +456,19 @@ Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 
 ### Open release- en ops-signalen
 - `Hazify-MCP-Remote` redeploy `7b4b947c-7630-45cc-a1c9-de2078dbe460` is gezond en live
+- codewijzigingen uit Batch G raken `apps/hazify-mcp-remote/src/**` en vereisen na commit/push een Railway redeploy van `Hazify-MCP-Remote`
 - buildlog toont alleen bekende niet-blokkerende waarschuwingen:
   - `npm warn config production`
   - `inflight` / `glob` deprecations tijdens `npm ci`
   - `punycode` deprecation tijdens docs/build
-- volledige `release:postdeploy` parity is nu tijdelijk geblokkeerd door `Hazify-License-Service /health -> 502`
+- publieke productie-smoke is op 2026-04-25 groen:
+  - `Hazify-License-Service /health` -> `200`
+  - `Hazify-License-Service /v1/session/bootstrap` -> `200`
+  - MCP protected-resource metadata -> `200`
+  - MCP authorization-server metadata -> `200`
+  - anonieme `POST /mcp` -> `401`
+- admin- en billing-readiness zijn in de lokale smoke overgeslagen omdat de vereiste secrets niet aanwezig waren
+- authenticated production MCP tool-smoke met expliciet productie-token blijft open
 
 ### Waarom deze eerst
 - de hero/media-first fundering bevat nu ook de pre-Batch-E wrappercontract-fix, dus de grootste resterende kwaliteitswinst zit in review/video/PDP/blocks buiten de hero-cases

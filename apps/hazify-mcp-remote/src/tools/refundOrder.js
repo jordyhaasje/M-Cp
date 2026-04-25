@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
-import { assertNoUserErrors } from "@hazify/shopify-core";
+import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
 import { z } from "zod";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
 
@@ -140,7 +140,23 @@ const refundOrder = {
       });
       const payload = data.refundCreate;
 
-      assertNoUserErrors(payload.userErrors, "Failed to create refund");
+      const userErrorResponse = buildShopifyUserErrorResponse(payload.userErrors, {
+        actionMessage: "Failed to create refund",
+        operation: "refundCreate",
+      });
+      if (userErrorResponse) {
+        return {
+          ...userErrorResponse,
+          resolvedOrder: {
+            input: input.orderId,
+            resolvedId: resolvedOrderId,
+            source: resolvedOrder.source,
+            matchedByQuery: resolvedOrder.matchedByQuery || null,
+          },
+          audit: input.audit,
+          idempotencyKey,
+        };
+      }
 
       return {
         refund: {

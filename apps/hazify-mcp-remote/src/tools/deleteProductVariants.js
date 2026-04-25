@@ -1,6 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
-import { assertNoUserErrors } from "@hazify/shopify-core";
+import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
 import { z } from "zod";
 import { createMutationAuditLog } from "../lib/db.js";
 
@@ -73,7 +73,16 @@ const deleteProductVariants = {
                 productId,
                 variantsIds: variantIds,
             }));
-            assertNoUserErrors(data.productVariantsBulkDelete.userErrors, "Failed to delete variants");
+            const userErrorResponse = buildShopifyUserErrorResponse(
+                data.productVariantsBulkDelete.userErrors,
+                {
+                    actionMessage: "Failed to delete variants",
+                    operation: "productVariantsBulkDelete",
+                }
+            );
+            if (userErrorResponse) {
+                return userErrorResponse;
+            }
             const product = data.productVariantsBulkDelete.product;
             const auditLog = await createMutationAuditLog({
                 toolName: "delete-product-variants",

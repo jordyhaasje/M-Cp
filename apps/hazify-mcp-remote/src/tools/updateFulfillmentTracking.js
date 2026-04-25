@@ -1,6 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
-import { assertNoUserErrors } from "@hazify/shopify-core";
+import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
 import { z } from "zod";
 import { isSupportedTrackingCompany, assertSupportedTrackingCompany } from "../lib/trackingCompanies.js";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
@@ -12,10 +12,6 @@ const UpdateFulfillmentTrackingInputSchema = z.object({
     notifyCustomer: z.boolean().default(false).describe("Send shipping update email to customer"),
     fulfillmentId: z.string().optional().describe("Optional explicit fulfillment GID. If omitted, latest non-cancelled fulfillment is used"),
 });
-const isNodesShapeError = (error) => {
-    const message = error instanceof Error ? error.message : String(error);
-    return message.includes("Field 'nodes' doesn't exist on type");
-};
 const normalizeGraphQLList = (value) => {
     if (Array.isArray(value)) {
         return value;
@@ -28,39 +24,7 @@ const normalizeGraphQLList = (value) => {
     }
     return [];
 };
-const ORDER_TRACKING_CONTEXT_QUERY_CONNECTION = gql `
-  query getOrderTrackingContext($id: ID!) {
-    order(id: $id) {
-      id
-      name
-      fulfillments(first: 50) {
-        nodes {
-          id
-          status
-          createdAt
-          trackingInfo {
-            company
-            number
-            url
-          }
-        }
-      }
-      fulfillmentOrders(first: 50) {
-        nodes {
-          id
-          status
-          lineItems(first: 50) {
-            nodes {
-              id
-              remainingQuantity
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-const ORDER_TRACKING_CONTEXT_QUERY_LIST_FULFILLMENTS = gql `
+const ORDER_TRACKING_CONTEXT_QUERY = gql `
   query getOrderTrackingContext($id: ID!) {
     order(id: $id) {
       id
@@ -85,32 +49,6 @@ const ORDER_TRACKING_CONTEXT_QUERY_LIST_FULFILLMENTS = gql `
               remainingQuantity
             }
           }
-        }
-      }
-    }
-  }
-`;
-const ORDER_TRACKING_CONTEXT_QUERY_LIST_ALL = gql `
-  query getOrderTrackingContext($id: ID!) {
-    order(id: $id) {
-      id
-      name
-      fulfillments {
-        id
-        status
-        createdAt
-        trackingInfo {
-          company
-          number
-          url
-        }
-      }
-      fulfillmentOrders {
-        id
-        status
-        lineItems {
-          id
-          remainingQuantity
         }
       }
     }
@@ -197,23 +135,7 @@ const buildFulfillmentCreateLineItems = (fulfillmentOrders) => {
 };
 const fetchOrderTrackingContext = async (shopifyClient, orderId) => {
     const variables = { id: orderId };
-    try {
-        return await shopifyClient.request(ORDER_TRACKING_CONTEXT_QUERY_CONNECTION, variables);
-    }
-    catch (firstError) {
-        if (!isNodesShapeError(firstError)) {
-            throw firstError;
-        }
-        try {
-            return await shopifyClient.request(ORDER_TRACKING_CONTEXT_QUERY_LIST_FULFILLMENTS, variables);
-        }
-        catch (secondError) {
-            if (!isNodesShapeError(secondError)) {
-                throw secondError;
-            }
-            return await shopifyClient.request(ORDER_TRACKING_CONTEXT_QUERY_LIST_ALL, variables);
-        }
-    }
+    return shopifyClient.request(ORDER_TRACKING_CONTEXT_QUERY, variables);
 };
 const updateFulfillmentTracking = {
     name: "update-fulfillment-tracking",
@@ -255,7 +177,16 @@ const updateFulfillmentTracking = {
                     trackingInfoInput,
                     notifyCustomer: input.notifyCustomer
                 }));
-                assertNoUserErrors(response.fulfillmentTrackingInfoUpdate.userErrors, "Failed to update fulfillment tracking");
+                const userErrorResponse = buildShopifyUserErrorResponse(
+                    response.fulfillmentTrackingInfoUpdate.userErrors,
+                    {
+                        actionMessage: "Failed to update fulfillment tracking",
+                        operation: "fulfillmentTrackingInfoUpdate",
+                    }
+                );
+                if (userErrorResponse) {
+                    return userErrorResponse;
+                }
                 fulfillment = response.fulfillmentTrackingInfoUpdate.fulfillment;
                 action = "updated_existing_fulfillment";
             }
@@ -271,7 +202,16 @@ const updateFulfillmentTracking = {
                         trackingInfo: trackingInfoInput
                     }
                 }));
-                assertNoUserErrors(response.fulfillmentCreate.userErrors, "Failed to create fulfillment with tracking");
+                const userErrorResponse = buildShopifyUserErrorResponse(
+                    response.fulfillmentCreate.userErrors,
+                    {
+                        actionMessage: "Failed to create fulfillment with tracking",
+                        operation: "fulfillmentCreate",
+                    }
+                );
+                if (userErrorResponse) {
+                    return userErrorResponse;
+                }
                 fulfillment = response.fulfillmentCreate.fulfillment;
                 action = "created_fulfillment_with_tracking";
             }

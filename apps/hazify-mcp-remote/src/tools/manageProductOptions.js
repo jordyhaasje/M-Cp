@@ -1,6 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
-import { assertNoUserErrors } from "@hazify/shopify-core";
+import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
 import { z } from "zod";
 const ProductOptionCreateSchema = z.object({
     name: z.string().describe("Option name, e.g. 'Size' or 'Color'"),
@@ -121,7 +121,16 @@ const manageProductOptions = {
                     productId,
                     options,
                 }));
-                assertNoUserErrors(data.productOptionsCreate.userErrors, "Failed to create options");
+                const userErrorResponse = buildShopifyUserErrorResponse(
+                    data.productOptionsCreate.userErrors,
+                    {
+                        actionMessage: "Failed to create options",
+                        operation: "productOptionsCreate",
+                    }
+                );
+                if (userErrorResponse) {
+                    return userErrorResponse;
+                }
                 return formatProductResponse(data.productOptionsCreate.product);
             }
             if (action === "update") {
@@ -168,7 +177,16 @@ const manageProductOptions = {
                     variables.optionValuesToDelete = input.valuesToDelete;
                 }
                 const data = (await shopifyClient.request(query, variables));
-                assertNoUserErrors(data.productOptionUpdate.userErrors, "Failed to update option");
+                const userErrorResponse = buildShopifyUserErrorResponse(
+                    data.productOptionUpdate.userErrors,
+                    {
+                        actionMessage: "Failed to update option",
+                        operation: "productOptionUpdate",
+                    }
+                );
+                if (userErrorResponse) {
+                    return userErrorResponse;
+                }
                 return formatProductResponse(data.productOptionUpdate.product);
             }
             if (action === "delete") {
@@ -200,7 +218,16 @@ const manageProductOptions = {
                     productId,
                     options: input.optionIds,
                 }));
-                assertNoUserErrors(data.productOptionsDelete.userErrors, "Failed to delete options");
+                const userErrorResponse = buildShopifyUserErrorResponse(
+                    data.productOptionsDelete.userErrors,
+                    {
+                        actionMessage: "Failed to delete options",
+                        operation: "productOptionsDelete",
+                    }
+                );
+                if (userErrorResponse) {
+                    return userErrorResponse;
+                }
                 return formatProductResponse(data.productOptionsDelete.product);
             }
             throw new Error(`Unknown action: ${action}`);

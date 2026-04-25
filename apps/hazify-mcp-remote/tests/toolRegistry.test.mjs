@@ -66,6 +66,7 @@ for (const criticalToolName of [
   "get-theme-files",
   "get-license-status",
   "plan-theme-edit",
+  "get-supported-tracking-companies",
   "set-order-tracking",
   "update-fulfillment-tracking",
 ]) {
@@ -107,6 +108,19 @@ registry.byName.get("manage-product-variants").outputSchema.parse({
     },
   ],
   updated: [],
+});
+
+registry.byName.get("get-supported-tracking-companies").outputSchema.parse({
+  totalAvailable: 2,
+  returned: ["UPS", "FedEx"],
+  uiLocation: {
+    orderPagePath: "Shopify Admin > Orders",
+    fieldNames: {
+      trackingNumber: "Tracking number",
+      company: "Carrier",
+    },
+  },
+  notes: ["Pick an exact carrier value."],
 });
 
 registry.byName.get("delete-product-variants").outputSchema.parse({

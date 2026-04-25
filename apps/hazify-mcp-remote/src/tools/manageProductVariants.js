@@ -1,6 +1,6 @@
 import { gql } from "graphql-request";
 import { requireShopifyClient } from "./_context.js";
-import { assertNoUserErrors } from "@hazify/shopify-core";
+import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
 import { z } from "zod";
 // Input schema for manageProductVariants
 const VariantOptionSchema = z.object({
@@ -102,7 +102,16 @@ const manageProductVariants = {
                     variants: createVariants,
                     ...(input.strategy && { strategy: input.strategy }),
                 }));
-                assertNoUserErrors(createData.productVariantsBulkCreate.userErrors, "Failed to create variants");
+                const createUserErrorResponse = buildShopifyUserErrorResponse(
+                    createData.productVariantsBulkCreate.userErrors,
+                    {
+                        actionMessage: "Failed to create variants",
+                        operation: "productVariantsBulkCreate",
+                    }
+                );
+                if (createUserErrorResponse) {
+                    return createUserErrorResponse;
+                }
                 results.created =
                     createData.productVariantsBulkCreate.productVariants.map((v) => ({
                         id: v.id,
@@ -169,7 +178,16 @@ const manageProductVariants = {
                     productId,
                     variants: updateVariants,
                 }));
-                assertNoUserErrors(updateData.productVariantsBulkUpdate.userErrors, "Failed to update variants");
+                const updateUserErrorResponse = buildShopifyUserErrorResponse(
+                    updateData.productVariantsBulkUpdate.userErrors,
+                    {
+                        actionMessage: "Failed to update variants",
+                        operation: "productVariantsBulkUpdate",
+                    }
+                );
+                if (updateUserErrorResponse) {
+                    return updateUserErrorResponse;
+                }
                 results.updated =
                     updateData.productVariantsBulkUpdate.productVariants.map((v) => ({
                         id: v.id,

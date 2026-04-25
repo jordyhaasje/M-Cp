@@ -6,10 +6,6 @@ import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
 const GetOrderByIdInputSchema = z.object({
     orderId: z.string().min(1)
 });
-const isNodesShapeError = (error) => {
-    const message = error instanceof Error ? error.message : String(error);
-    return message.includes("Field 'nodes' doesn't exist on type");
-};
 const normalizeGraphQLList = (value) => {
     if (Array.isArray(value)) {
         return value;
@@ -22,7 +18,7 @@ const normalizeGraphQLList = (value) => {
     }
     return [];
 };
-const GET_ORDER_BY_ID_QUERY_CONNECTION = gql `
+const GET_ORDER_BY_ID_QUERY = gql `
   query GetOrderById($id: ID!) {
     order(id: $id) {
       id
@@ -58,108 +54,12 @@ const GET_ORDER_BY_ID_QUERY_CONNECTION = gql `
         id
         firstName
         lastName
-        email
-        phone
-      }
-      shippingAddress {
-        address1
-        address2
-        city
-        provinceCode
-        zip
-        country
-        phone
-      }
-      lineItems(first: 20) {
-        edges {
-          node {
-            id
-            title
-            quantity
-            originalTotalSet {
-              shopMoney {
-                amount
-                currencyCode
-              }
-            }
-            variant {
-              id
-              title
-              sku
-            }
-          }
+        defaultEmailAddress {
+          emailAddress
         }
-      }
-      fulfillments(first: 20) {
-        nodes {
-          id
-          status
-          createdAt
-          trackingInfo {
-            company
-            number
-            url
-          }
+        defaultPhoneNumber {
+          phoneNumber
         }
-      }
-      tags
-      note
-      customAttributes {
-        key
-        value
-      }
-      metafields(first: 20) {
-        edges {
-          node {
-            id
-            namespace
-            key
-            value
-            type
-          }
-        }
-      }
-    }
-  }
-`;
-const GET_ORDER_BY_ID_QUERY_LIST = gql `
-  query GetOrderById($id: ID!) {
-    order(id: $id) {
-      id
-      name
-      createdAt
-      displayFinancialStatus
-      displayFulfillmentStatus
-      totalPriceSet {
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
-      subtotalPriceSet {
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
-      totalShippingPriceSet {
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
-      totalTaxSet {
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
-      customer {
-        id
-        firstName
-        lastName
-        email
-        phone
       }
       shippingAddress {
         address1
@@ -235,15 +135,7 @@ const getOrderById = {
                 id: resolvedOrder.id
             };
             let data;
-            try {
-                data = (await shopifyClient.request(GET_ORDER_BY_ID_QUERY_CONNECTION, variables));
-            }
-            catch (error) {
-                if (!isNodesShapeError(error)) {
-                    throw error;
-                }
-                data = (await shopifyClient.request(GET_ORDER_BY_ID_QUERY_LIST, variables));
-            }
+            data = (await shopifyClient.request(GET_ORDER_BY_ID_QUERY, variables));
             if (!data.order) {
                 throw new Error(`Order with ID ${orderId} not found`);
             }
@@ -299,8 +191,8 @@ const getOrderById = {
                         id: order.customer.id,
                         firstName: order.customer.firstName,
                         lastName: order.customer.lastName,
-                        email: order.customer.email,
-                        phone: order.customer.phone
+                        email: order.customer.defaultEmailAddress?.emailAddress || null,
+                        phone: order.customer.defaultPhoneNumber?.phoneNumber || null
                     }
                     : null,
                 shippingAddress: order.shippingAddress,

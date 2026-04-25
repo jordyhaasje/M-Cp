@@ -1,7 +1,9 @@
 import assert from "assert";
 import dns from "dns/promises";
 import { cloneProductFromUrl } from "../src/tools/cloneProductFromUrl.js";
+import { createProduct } from "../src/tools/createProduct.js";
 import { getCustomerOrders } from "../src/tools/getCustomerOrders.js";
+import { getOrderById } from "../src/tools/getOrderById.js";
 import { refundOrder } from "../src/tools/refundOrder.js";
 import { updateCustomer } from "../src/tools/updateCustomer.js";
 import { updateFulfillmentTracking } from "../src/tools/updateFulfillmentTracking.js";
@@ -129,6 +131,36 @@ try {
   );
   assert.equal(cloneResult.variantMediaMapping.summary.totalVariants, 1);
   assert.equal(cloneResult.variantMediaMapping.summary.verified, 1);
+
+  const createProductUserErrorResult = await createProduct.execute(
+    createProduct.schema.parse({
+      title: "Broken product",
+    }),
+    {
+      shopifyClient: {
+        request: async () => ({
+          productCreate: {
+            product: null,
+            userErrors: [
+              {
+                field: ["product", "title"],
+                message: "Title has already been taken",
+              },
+            ],
+          },
+        }),
+      },
+    }
+  );
+  assert.equal(createProductUserErrorResult.success, false);
+  assert.equal(createProductUserErrorResult.status, "shopify_user_error");
+  assert.equal(createProductUserErrorResult.operation, "productCreate");
+  assert.deepEqual(createProductUserErrorResult.errors?.[0]?.path, ["product", "title"]);
+  assert.match(
+    createProductUserErrorResult.message,
+    /Title has already been taken/,
+    "Shopify userErrors should come back as structured tool-level failures"
+  );
 
 
   const singleThemeReadPayload = getThemeFileTool.schema.safeParse({
@@ -1172,22 +1204,25 @@ try {
     request: async (query, variables) => {
       const queryText = String(query);
       if (queryText.includes("query getOrderTrackingContext")) {
+        assert.doesNotMatch(
+          queryText,
+          /fulfillments\s*\(\s*first/i,
+          "update-fulfillment-tracking should not issue the deprecated connection-shaped fulfillments query first"
+        );
         trackingContextCalls.push("context");
         return {
           order: {
             id: "gid://shopify/Order/1",
             name: "#1001",
             customAttributes: [],
-            fulfillments: {
-              nodes: [
-                {
-                  id: "gid://shopify/Fulfillment/1",
-                  status: "SUCCESS",
-                  createdAt: "2026-03-13T12:00:00Z",
-                  trackingInfo: [],
-                },
-              ],
-            },
+            fulfillments: [
+              {
+                id: "gid://shopify/Fulfillment/1",
+                status: "SUCCESS",
+                createdAt: "2026-03-13T12:00:00Z",
+                trackingInfo: [],
+              },
+            ],
             fulfillmentOrders: {
               nodes: [],
             },
@@ -1263,6 +1298,114 @@ try {
     true,
     "update-fulfillment-tracking should still execute an order tracking context fetch"
   );
+
+  const fulfillmentUserErrorResult = await updateFulfillmentTracking.execute(
+    updateFulfillmentTracking.schema.parse({
+      orderId: "gid://shopify/Order/1",
+      trackingNumber: "TRACK-USER-ERROR",
+      trackingCompany: "UPS",
+    }),
+    {
+      shopifyClient: {
+        request: async (query) => {
+          const queryText = String(query);
+          if (queryText.includes("query getOrderTrackingContext")) {
+            return {
+              order: {
+                id: "gid://shopify/Order/1",
+                name: "#1001",
+                fulfillments: [
+                  {
+                    id: "gid://shopify/Fulfillment/1",
+                    status: "SUCCESS",
+                    createdAt: "2026-03-13T12:00:00Z",
+                    trackingInfo: [],
+                  },
+                ],
+                fulfillmentOrders: {
+                  nodes: [],
+                },
+              },
+            };
+          }
+          if (queryText.includes("mutation fulfillmentTrackingInfoUpdate")) {
+            return {
+              fulfillmentTrackingInfoUpdate: {
+                fulfillment: null,
+                userErrors: [
+                  {
+                    field: ["trackingInfoInput", "number"],
+                    message: "Tracking number is invalid",
+                  },
+                ],
+              },
+            };
+          }
+          throw new Error(`Unexpected fulfillment user error request: ${queryText.slice(0, 80)}`);
+        },
+      },
+    }
+  );
+  assert.equal(fulfillmentUserErrorResult.success, false);
+  assert.equal(fulfillmentUserErrorResult.operation, "fulfillmentTrackingInfoUpdate");
+  assert.match(fulfillmentUserErrorResult.message, /Tracking number is invalid/);
+
+  let capturedGetOrderByIdQuery = "";
+  const orderReadResult = await getOrderById.execute(
+    getOrderById.schema.parse({
+      orderId: "gid://shopify/Order/1",
+    }),
+    {
+      shopifyClient: {
+        request: async (query) => {
+          const queryText = String(query);
+          capturedGetOrderByIdQuery = queryText;
+          assert.doesNotMatch(
+            queryText,
+            /fulfillments\s*\(\s*first/i,
+            "get-order-by-id should not issue the deprecated connection-shaped fulfillments query first"
+          );
+          return {
+            order: {
+              id: "gid://shopify/Order/1",
+              name: "#1001",
+              createdAt: "2026-03-13T12:00:00Z",
+              displayFinancialStatus: "PAID",
+              displayFulfillmentStatus: "FULFILLED",
+              totalPriceSet: { shopMoney: { amount: "10.00", currencyCode: "EUR" } },
+              subtotalPriceSet: { shopMoney: { amount: "8.00", currencyCode: "EUR" } },
+              totalShippingPriceSet: { shopMoney: { amount: "1.00", currencyCode: "EUR" } },
+              totalTaxSet: { shopMoney: { amount: "1.00", currencyCode: "EUR" } },
+              customer: {
+                id: "gid://shopify/Customer/1",
+                firstName: "Ada",
+                lastName: "Lovelace",
+                defaultEmailAddress: { emailAddress: "ada@example.com" },
+                defaultPhoneNumber: { phoneNumber: "+31600000000" },
+              },
+              shippingAddress: null,
+              lineItems: { edges: [] },
+              fulfillments: [
+                {
+                  id: "gid://shopify/Fulfillment/1",
+                  status: "SUCCESS",
+                  createdAt: "2026-03-13T12:00:00Z",
+                  trackingInfo: [{ company: "UPS", number: "TRACK-1", url: null }],
+                },
+              ],
+              tags: [],
+              note: null,
+              customAttributes: [],
+              metafields: { edges: [] },
+            },
+          };
+        },
+      },
+    }
+  );
+  assert.match(capturedGetOrderByIdQuery, /defaultEmailAddress/);
+  assert.equal(orderReadResult.order.customer.email, "ada@example.com");
+  assert.equal(orderReadResult.order.tracking.shipments[0].number, "TRACK-1");
 
   await assert.rejects(
     () =>

@@ -2,8 +2,8 @@
 Doelgroep: maintainers, developers en coding agents.
 
 Status: levende audit en bron van waarheid voor de actuele MCP-toolingstatus.
-Versie: 2026-04-23.
-Laatst geverifieerd: 2026-04-23.
+Versie: 2026-04-25.
+Laatst geverifieerd: 2026-04-25.
 
 Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve samenvatting; de detailsecties blijven beschikbaar als achtergrond en moeten altijd aansluiten op code of recente productieobservatie.
 
@@ -15,25 +15,29 @@ Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve
 - Groen: `draft-theme-artifact mode="edit"` ondersteunt nu zowel `templates/*.json` als `templates/*.liquid`; JSON templates blijven JSON-valideren en Liquid templates krijgen Liquid safety-inspectie.
 - Groen: `plan-theme-edit` geeft native-block architectuur nu ook door via `plannerHandoff`, en `draft-theme-artifact` valideert native-block snippets nu tegen gerelateerde section-schema’s, blank-safe optionele resources en `@theme` block-routes, zonder Shopify-onjuiste `name`-eisen op `@app`/`@theme` schema entries af te dwingen.
 - Groen: MCP domeinfouten komen nu protocolcorrect terug als `isError: true`, en read/search/verify vereisen nu een expliciet of sticky bevestigd theme target.
+- Groen: non-theme Shopify `userErrors` voor product-, order-, customer-, refund- en fulfillment-mutaties komen nu ook als gestructureerde `success=false` / `shopify_user_error` tool-resultaten terug. Dit houdt ChatGPT, Claude en andere MCP-clients in een herstelbare toolflow in plaats van een generieke exception-flow.
+- Groen: order- en fulfillment-tracking reads gebruiken nu de actuele Shopify Admin GraphQL shape voor `Order.fulfillments` als lijstveld. De oude eerste poging via `fulfillments(first: ...){ nodes }` is verwijderd en de nieuwe queryvorm is met Shopify Dev MCP gevalideerd.
+- Groen: `get-order-by-id` gebruikt nu `defaultEmailAddress.emailAddress` en `defaultPhoneNumber.phoneNumber` in plaats van de inmiddels gedepricieerde `Customer.email` en `Customer.phone` velden.
+- Groen: `get-supported-tracking-companies` heeft nu ook een expliciet `outputSchema`, zodat alle registry-kritieke toolcontracten machine-leesbaar zijn.
 - Groen: de hero-wrappercontractlaag is vóór Batch E extra gehard. `requiresThemeWrapperMirror` volgt nu de afgeleide hero-shell-familie in plaats van representatieve `heroLike`-context, en de validator blokkeert nu ook media-first/full-bleed heroes waarvan de media-shell effectief boxed raakt via inner `page-width`, `container` of `section-properties`.
 - Groen: Batch E tranche 1 verbreedt contracten buiten hero’s. Review/comparison exact replicas krijgen nu expliciet een `bounded_card_shell` met verplichte inner card-surface, `video_section`/`video_slider` krijgen strengere `video` versus `video_url` checks, en `blocks/*.liquid` falen nu ook hard op ontbrekende `block.shopify_attributes` of ontbrekende renderbare block-markup.
 - Groen: non-theme contract cleanup is aangescherpt voor refunds, product-contracten, tracking-redirects, destructieve auditsporen en eerste productimports.
 - Groen: de license-service herkent Railway-productie nu expliciet, valideert verplichte productie-envs hard en beschermt backup-export/smoke checks beter zonder startup op Railway te blokkeren wanneer backup-export bewust niet is geconfigureerd.
 - Groen: `Hazify-MCP-Remote` is opnieuw live gedeployed via Railway deployment `7b4b947c-7630-45cc-a1c9-de2078dbe460` op 2026-04-23. Build en runtime-logreview zijn gezond, en de publieke MCP endpoints (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, anonieme `POST /mcp -> 401`) antwoorden correct.
-- Geel: repo-brede `release:postdeploy` is op 2026-04-23 niet volledig groen door een terugkerende `502 Application failed to respond` op `Hazify-License-Service /health`. Dat blokkeert niet de zojuist bevestigde MCP-redeploy zelf, maar wel de volledige cross-service smoke parity.
+- Geel: authenticated production MCP tool smoke vereist nog een expliciet productie-token. De publieke productie-smoke is groen, maar echte `tools/list` en `tools/call` met live tenant-token zijn nog niet opnieuw bevestigd voor deze wijzigingsset.
 - Geel: docs-drift is afgebakend; auto-sync geldt alleen voor `AGENTS.md` en `docs/02-SYSTEM-FLOW.md`.
 
 ## Verificatie- en release-ledger
 | Service | Laatst lokaal geverifieerd | Laatste lokale bewijsset | Laatst live op Railway | Live parity bevestigd |
 | --- | --- | --- | --- | --- |
-| `Hazify-MCP-Remote` | 2026-04-23 | `npm run release:preflight`, inclusief `check:docs`, `check:repo`, build, repo-brede tests, e2e, plus gerichte matrix/regressies voor `crossThemeAcceptanceMatrix`, `draftThemeArtifact`, de nieuwe media-first hero-checks, Batch D read-efficiency regressies en Liquid template placement | `7b4b947c-7630-45cc-a1c9-de2078dbe460` op 2026-04-23 | Ja, op service-niveau. Railway deploy is succesvol, build/runtime logs tonen alleen bekende niet-blokkerende warnings, en de publieke MCP endpoints antwoorden correct. |
-| `Hazify-License-Service` | 2026-04-23 | meegenomen in `npm run release:preflight`; live smoke retried via `npm run release:postdeploy` | `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22 | Nee, momenteel niet volledig bevestigd. De live `/health` smoke gaf op 2026-04-23 herhaald `502 Application failed to respond`; dit is nu een open ops-signaal buiten de MCP-redeploy zelf. |
+| `Hazify-MCP-Remote` | 2026-04-25 | `npm run release:preflight`; gerichte regressies voor `toolHardening`, `toolRegistry`, `runtimeExecutionBehavior` en `remediation`; Shopify Dev MCP validatie van de aangepaste order/fulfillment GraphQL-shapes; Context7 validatie van MCP tool-level errorgedrag | `7b4b947c-7630-45cc-a1c9-de2078dbe460` op 2026-04-23 | Publieke endpoints zijn groen via `npm run smoke:prod`; deze codewijziging vereist nog push + Railway redeploy voordat live parity voor de nieuwe query- en errorcontracten bevestigd kan worden. |
+| `Hazify-License-Service` | 2026-04-25 | publieke production smoke via `npm run smoke:prod` | `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22 | Ja voor publieke health/bootstrap-smoke: `/health -> 200`, `/v1/session/bootstrap -> 200`. Admin- en billing-readiness zijn niet getest omdat de vereiste lokale secrets niet aanwezig waren. |
 
 Releasewaarheid:
-- Lokaal groen betekent alleen dat de code en tests in deze repo op 2026-04-23 kloppen.
+- Lokaal groen betekent alleen dat de code en tests in deze repo op 2026-04-25 kloppen.
 - Live groen betekent pas iets nadat de relevante service is gepusht, gedeployed op Railway, gesmoked via `npm run smoke:prod` en gecontroleerd in Railway logs.
-- Op 2026-04-23 is de huidige live stand voor `Hazify-MCP-Remote` opnieuw bevestigd via deployment `7b4b947c-7630-45cc-a1c9-de2078dbe460`, logreview en een expliciete endpoint-check op `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server` en anonieme `POST /mcp`.
-- De repo-brede `npm run release:postdeploy` run is op 2026-04-23 na deze redeploy twee keer gestopt op `Hazify-License-Service /health` met `502 Application failed to respond`. Dit is dus geen MCP-runtimefout, maar wel een open parity-blokkade voor de volledige cross-service smoke.
+- Op 2026-04-25 is de publieke productie-smoke opnieuw groen: `Hazify-License-Service /health -> 200`, `/v1/session/bootstrap -> 200`, MCP protected-resource metadata -> `200`, MCP authorization-server metadata -> `200`, en anonieme `POST /mcp -> 401`.
+- De eerdere `Hazify-License-Service /health -> 502` observatie van 2026-04-23 is daarmee niet langer een actuele blocker. De resterende productie-gap is een authenticated MCP smoke met expliciet productie-token, plus redeploy van de nieuwe MCP Remote code zodra deze commit gepusht is.
 - `npm run check:git-sync` blijft een git-parity check; dit bewijst geen Railway deploy parity.
 
 De detailsecties hieronder zijn achtergrondcontext. Voor actuele status, blockers en de actieve leesvolgorde zijn de compacte status en de canonieke vervolgdocs leidend.
@@ -239,7 +243,7 @@ Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere impleme
 - Decoratieve inline SVG-iconen zoals sterren en quote marks veroorzaken niet meer standaard een generieke `image_picker` warning; alleen echte image/video/resource-markup telt daar nu nog voor mee.
 - `draft-theme-artifact` controleert native-block snippets nu ook tegen het gerelateerde section-schema: nieuwe block types en `block.settings.*` refs moeten echt bestaan, onveilige optionele block-media worden teruggestuurd, `@theme`/`content_for 'blocks'` routes vereisen een echt `blocks/*.liquid` bestand, en `@app`/`@theme` blocks in section-schema’s worden nu Shopify-conform niet meer onterecht op `name` afgekeurd.
 - Screenshot- en reference-driven flows zijn inhoudelijk veel sterker dan eerder: de planner en validator begrijpen nu precision-first signalen zoals decoratieve anchors, media shells, responsive parity en screenshot-only fallbackstrategieën, en de suite bewijst nu ook volledige screenshot-only en image-backed create/writes over vier archetypes.
-- De huidige lokale verificatie is groen: `npm run release:preflight` slaagt op 2026-04-23 inclusief `check:docs`, `check:repo`, build, workspace-tests en `test:e2e`. Daarbovenop bewijzen de gerichte Batch D-regressies dat planner-aware metadata-reads, exact-match batch hydration en de slankere existing-edit planning blijven werken.
+- De huidige lokale verificatie is groen: `npm run release:preflight` slaagt op 2026-04-25 inclusief `check:docs`, `check:repo`, build, workspace-tests en `test:e2e`. Daarbovenop bewijzen de gerichte Batch D-regressies dat planner-aware metadata-reads, exact-match batch hydration en de slankere existing-edit planning blijven werken.
 - Shopify Dev MCP `validate_theme` heeft daarnaast representatieve tijdelijke theme-fixtures groen gevalideerd voor zowel section/snippet exact-reference flows als native-block files (`sections/main-product.liquid`, `snippets/product-info.liquid`, `blocks/review-badge.liquid`).
 - Tool-level domeinfouten worden nu als echte MCP tool errors teruggegeven: `apps/hazify-mcp-remote/src/index.js` leidt `isError` direct af van `success === false`, conform de MCP SDK-richtlijn.
 - Theme reads/searches/verifies doen geen stille `main`-fallback meer; zonder expliciet of sticky bevestigd target komt nu een gedeelde `explicit_theme_target_required` repair response terug.
@@ -249,7 +253,10 @@ Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere impleme
 - `get-order-by-id` houdt fulfillments als bron van waarheid en zet legacy tracking-signalen alleen nog in een expliciet gedepricieerde read-only substructuur.
 - `delete-product` en `delete-product-variants` schrijven nu een persistente auditlog naar PostgreSQL en geven `auditLogId`, `requestId`, `tenantId`, `shopDomain` en target IDs terug.
 - `clone-product-from-url` accepteert in eerste import-pass alleen nog `DRAFT` of `ARCHIVED`.
-- Repo-brede verificatie op 2026-04-23 is groen: `npm run release:preflight`, inclusief `check:docs`, `check:repo`, build, workspace-tests en `npm run test:e2e`.
+- Non-theme Shopify `userErrors` worden nu in de tool-laag genormaliseerd naar `success=false`, `status="shopify_user_error"` en concrete `errors[]` met `path`, `problem` en `fixSuggestion`. Daarmee kunnen MCP-clients dezelfde toolcall herstellen zonder dat een Shopify validatiefout als protocol-/runtimecrash eindigt.
+- `get-order-by-id` en `update-fulfillment-tracking` starten niet meer met een inmiddels ongeldige `fulfillments(first: ...){ nodes }` query. De actuele lijstvorm is lokaal geregressietest en met Shopify Dev MCP gevalideerd.
+- `get-supported-tracking-companies` is nu contractmatig gelijkgetrokken met de andere kritieke tools via een expliciet output schema.
+- Gerichte verificatie op 2026-04-25 is groen: `node --test apps/hazify-mcp-remote/tests/toolHardening.test.mjs`, `node --test apps/hazify-mcp-remote/tests/toolRegistry.test.mjs`, `node --test apps/hazify-mcp-remote/tests/runtimeExecutionBehavior.test.mjs`, `node --test apps/hazify-mcp-remote/tests/remediation.test.mjs`, Shopify Dev MCP GraphQL-validatie, `npm run smoke:prod` en daarna de volledige `npm run release:preflight`.
 
 ## Productiebewijs uit Railway
 De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `7b4b947c-7630-45cc-a1c9-de2078dbe460` op 2026-04-23. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22.
@@ -261,7 +268,7 @@ De logs laten een realistisch beeld zien:
 - er komen nog echte parse- en schemafouten terug op section-creatie en op bestaande product-sections
 - Railway bevestigde op 2026-04-22 ook een echte bestaande-section foutketen op `sections/hero-v1.liquid`: eerst `inspection_failed_truncated`, daarna `inspection_failed_liquid_delimiter_balance`. Dat incident is lokaal gereproduceerd en nu afgedekt met regressies voor mobile-only CSS-patches op bestaande sections met inline animatie-CSS.
 
-Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live Railway runtime van `Hazify-MCP-Remote` sluit nu aan op de lokale remediation van 2026-04-23, inclusief de fix voor bestaande mobile-only section-edits met inline animatie-CSS, de bredere desktop/mobile exact-match heuristieken, de review-wall double-shell guard, de composiet theme-scale check, de nieuwe Batch B-validatoren rond raw Shopify-media `<img>`, `block.shopify_attributes`, hosted video-setting mismatch en exacte media-first hero-shells, plus Batch D-hardening voor metadata-first theme reads, exact-match planner hydration en kortere full-content memory-retentie. De recente build/runtime logs tonen alleen bekende niet-blokkerende waarschuwingen zoals `npm warn config production`, `inflight`/`glob` deprecations en een `punycode` deprecation. De volledige cross-service smoke parity is op dit moment wel weer deels open omdat `Hazify-License-Service /health` op 2026-04-23 herhaald `502` gaf.
+Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live Railway runtime van `Hazify-MCP-Remote` sluit aan op de lokale remediation van 2026-04-23 voor de theme-stack. De productie-smoke van 2026-04-25 bevestigt daarnaast dat de eerder gemelde `Hazify-License-Service /health -> 502` geen actuele publieke blocker meer is. De codewijzigingen van 2026-04-25 rond order/fulfillment query-shapes, non-theme `userErrors` en het tracking-carrier outputschema zijn lokaal en extern gevalideerd, maar vereisen nog push + Railway redeploy voordat ze live parity hebben.
 
 ## Open blockers
 - `[P1] Docs-drift wordt nog niet volledig automatisch tegengehouden.`
@@ -270,17 +277,17 @@ Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live R
 - `[P3] Railway build/start hygiene heeft nog niet-blokkerende waarschuwingen.`
   De huidige live deploys starten goed, maar de logs tonen nog `npm warn config production Use --omit=dev instead` en de `punycode` deprecation warning. Dat is geen functionele blocker meer, wel een ops-hygiene track.
 
-- `[P2] Repo-brede postdeploy parity is momenteel geblokkeerd door de license-service.`
-  De MCP-redeploy zelf is gezond, maar `npm run release:postdeploy` faalt nu op `GET https://hazify-license-service-production.up.railway.app/health -> 502 Application failed to respond`. Dit moet in een aparte ops/herstelstap voor `Hazify-License-Service` worden opgepakt.
+- `[P2] Authenticated production MCP smoke ontbreekt nog.`
+  Publieke productie-smoke is groen, maar een echte `tools/list` plus minimaal één read-only en één write-scope-gated `tools/call` met productie-token is nog niet opnieuw uitgevoerd.
 
 ## Wat we nu nog niet eerlijk mogen claimen
 We mogen nu nog niet claimen dat:
 
 - elke MCP-client automatisch perfecte sections kan maken op elk Shopify 2.0 theme
 - screenshot- of image-driven replica’s op elk willekeurig Shopify 2.0 theme universeel exact en zonder handmatige nabehandeling slagen
-- alle non-theme tools volledig contractvast en audit-proof zijn
+- alle non-theme tools volledig contractvast en audit-proof zijn voor elke edgecase
 
-De reden is niet dat de pipeline zwak is, maar dat "perfect op elk theme" nog steeds een grotere claim is dan het huidige acceptatiebewijs. Live Railway parity is nu rond; verdere eerlijkheid zit vooral in docs-driftbeheersing en het scherp houden van de claimgrenzen.
+De reden is niet dat de pipeline zwak is, maar dat "perfect op elk theme" nog steeds een grotere claim is dan het huidige acceptatiebewijs. De publieke live-smoke is nu rond; verdere eerlijkheid zit vooral in authenticated production MCP-smoke, docs-driftbeheersing en het scherp houden van de claimgrenzen.
 
 ## Wanneer we wél mogen claimen dat LLMs “perfecte sections” kunnen maken
 Deze claim is pas verantwoord zodra alle onderstaande gates groen zijn:
@@ -348,12 +355,15 @@ Status: afgerond lokaal op 2026-04-22.
 - De native-block acceptance-route bewijst nu expliciet `plan-theme-edit -> search-theme-files -> draft-theme-artifact patches[]`, inclusief server-side auto-hydratie van planner-reads zonder verplichte full `get-theme-files` dump.
 
 ### 5. Non-theme contract cleanup
-Status: afgerond op 2026-04-22.
+Status: afgerond op 2026-04-22; aangevuld op 2026-04-25.
 - Maak `refund-order` conform de actuele Shopify GraphQL-shape met idempotency.
 - Verwijder of implementeer de extra `update-product` velden echt.
 - Bouw legacy tracking in `update-order` af of maak het expliciet opt-in met duidelijke deprecation-output.
 - Maak audit-redenen bij destructieve product-acties duurzaam zichtbaar.
 - Blokkeer `clone-product-from-url` op `ACTIVE` totdat mediaverificatie aantoonbaar klaar is.
+- Verwijder de voorspelbare GraphQL schema-drift rond `Order.fulfillments` door de actuele lijstvorm primair te gebruiken.
+- Geef Shopify `userErrors` uit non-theme mutaties terug als gestructureerde MCP tool-fouten (`success=false`), niet als generieke runtime exceptions.
+- Geef ook contextvrije helpertools zoals `get-supported-tracking-companies` een expliciet outputcontract.
 
 ### 6. Docs en waarheidshygiëne
 - Maak dit document leidend voor open blockers en acceptatiecriteria.
