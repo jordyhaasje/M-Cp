@@ -400,7 +400,7 @@ Afgeronde uitkomst van tranche 1:
 Afgeronde uitkomst van tranche 2:
 - prompt-only review/video/PDP generation heeft nu dezelfde eerste-write discipline als exacte flows: onvolledige of generieke output wordt lokaal geblokkeerd voordat naar het theme geschreven wordt
 - de nieuwe checks voegen geen extra Shopify reads toe en blijven tokenzuinig doordat ze alleen het plannercontract en het pre-write artifact inspecteren
-- live parity voor tranche 2 is nog niet bevestigd; deze wijziging moet na commit/push nog op `Hazify-MCP-Remote` worden gedeployed en gesmoked
+- live parity voor tranche 2 is bevestigd op `Hazify-MCP-Remote` via Railway deployment `06a69e4e-5505-47fc-95a4-931122a926a7`, runtime-logreview en groene `npm run smoke:prod`
 
 Docs die mee moeten wijzigen:
 - `docs/03-THEME-SECTION-GENERATION.md`
@@ -484,15 +484,16 @@ Actieve regels:
 Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 
 ### Volgende aanbevolen patchbatch
-`Release/Ops — push, Railway redeploy en authenticated MCP smoke`
+`Release/Ops — authenticated MCP smoke en niet-blokkerende warning cleanup`
 
 ### Open release- en ops-signalen
-- `Hazify-MCP-Remote` redeploy `7b4b947c-7630-45cc-a1c9-de2078dbe460` is gezond en live
-- codewijzigingen uit Batch G en Batch E tranche 2 raken `apps/hazify-mcp-remote/src/**` en vereisen na commit/push een Railway redeploy van `Hazify-MCP-Remote`
+- `Hazify-MCP-Remote` redeploy `06a69e4e-5505-47fc-95a4-931122a926a7` is gezond en live
+- codewijzigingen uit Batch G, Batch E tranche 2 en Host-header hardening zijn gepusht en live gedeployed op `Hazify-MCP-Remote`
 - buildlog toont alleen bekende niet-blokkerende waarschuwingen:
   - `npm warn config production`
   - `inflight` / `glob` deprecations tijdens `npm ci`
   - `punycode` deprecation tijdens docs/build
+- de eerdere MCP SDK `0.0.0.0` / DNS-rebinding warning is opgelost via `allowedHosts` Host-header validatie
 - publieke productie-smoke is op 2026-04-25 groen:
   - `Hazify-License-Service /health` -> `200`
   - `Hazify-License-Service /v1/session/bootstrap` -> `200`
@@ -504,13 +505,12 @@ Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 
 ### Waarom deze eerst
 - de belangrijkste lokale open punten voor Batch G en Batch E tranche 2 zijn nu gerepareerd
-- de grootste resterende onzekerheid zit niet in lokale code, maar in productiepariteit: push, Railway redeploy, publieke smoke/logreview en daarna een authenticated MCP tool-smoke met expliciet productie-token
+- de grootste resterende onzekerheid zit niet in lokale code of publieke productiepariteit, maar in een authenticated MCP tool-smoke met expliciet productie-token
 
 ### Minimale files voor de volgende sessie
 - `docs/04-MCP-REMOTE-AUDIT.md`
 - `docs/05-REMEDIATION-PLAN.md`
 - `scripts/release-status.mjs`
-- Railway service `Hazify-MCP-Remote`
 - productie-token/tenantconfig voor authenticated MCP smoke
 
 ### Bekende harde waarheden

@@ -23,22 +23,23 @@ Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve
 - Groen: Batch E tranche 1 verbreedt contracten buiten hero’s. Review/comparison exact replicas krijgen nu expliciet een `bounded_card_shell` met verplichte inner card-surface, `video_section`/`video_slider` krijgen strengere `video` versus `video_url` checks, en `blocks/*.liquid` falen nu ook hard op ontbrekende `block.shopify_attributes` of ontbrekende renderbare block-markup.
 - Groen: Batch E tranche 2 is lokaal afgerond voor prompt-only review/video/PDP flows. `plan-theme-edit` geeft nu `promptContract` requirements mee voor review cards/rating, video source/renderpad en PDP productbron/commerce action; `create-theme-section` draagt die contracten door; `draft-theme-artifact` blokkeert generieke of fake-output vóór preview-write.
 - Groen: non-theme contract cleanup is aangescherpt voor refunds, product-contracten, tracking-redirects, destructieve auditsporen en eerste productimports.
+- Groen: de Remote MCP gebruikt nu de MCP SDK `allowedHosts` Host-header validatie, afgeleid uit `HAZIFY_MCP_PUBLIC_URL`, Railway public domain envs en optioneel `HAZIFY_MCP_ALLOWED_HOSTS`. De eerdere `0.0.0.0` zonder DNS-rebinding bescherming waarschuwing is in de nieuwste deployment verdwenen.
 - Groen: de license-service herkent Railway-productie nu expliciet, valideert verplichte productie-envs hard en beschermt backup-export/smoke checks beter zonder startup op Railway te blokkeren wanneer backup-export bewust niet is geconfigureerd.
-- Groen: `Hazify-MCP-Remote` is opnieuw live gedeployed via Railway deployment `7b4b947c-7630-45cc-a1c9-de2078dbe460` op 2026-04-23. Build en runtime-logreview zijn gezond, en de publieke MCP endpoints (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, anonieme `POST /mcp -> 401`) antwoorden correct.
+- Groen: `Hazify-MCP-Remote` is opnieuw live gedeployed via Railway deployment `06a69e4e-5505-47fc-95a4-931122a926a7` op 2026-04-25. Build en runtime-logreview zijn gezond, en de publieke MCP endpoints (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, anonieme `POST /mcp -> 401`) antwoorden correct.
 - Geel: authenticated production MCP tool smoke vereist nog een expliciet productie-token. De publieke productie-smoke is groen, maar echte `tools/list` en `tools/call` met live tenant-token zijn nog niet opnieuw bevestigd voor deze wijzigingsset.
 - Geel: docs-drift is afgebakend; auto-sync geldt alleen voor `AGENTS.md` en `docs/02-SYSTEM-FLOW.md`.
 
 ## Verificatie- en release-ledger
 | Service | Laatst lokaal geverifieerd | Laatste lokale bewijsset | Laatst live op Railway | Live parity bevestigd |
 | --- | --- | --- | --- | --- |
-| `Hazify-MCP-Remote` | 2026-04-25 | `npm run release:preflight`; gerichte regressies voor `themePlanning`, `createThemeSection`, `draftThemeArtifact`, `crossThemeAcceptanceMatrix`, `toolHardening`, `toolRegistry`, `runtimeExecutionBehavior` en `remediation`; Shopify Dev MCP validatie van theme/Liquid conventions en order/fulfillment GraphQL-shapes; Context7 validatie van MCP tool-level errorgedrag | `7b4b947c-7630-45cc-a1c9-de2078dbe460` op 2026-04-23 | Publieke endpoints zijn groen via `npm run smoke:prod`; Batch G en Batch E tranche 2 vereisen nog push + Railway redeploy voordat live parity voor deze codewijzigingen bevestigd kan worden. |
+| `Hazify-MCP-Remote` | 2026-04-25 | `npm run release:preflight`; gerichte regressies voor `themePlanning`, `createThemeSection`, `draftThemeArtifact`, `crossThemeAcceptanceMatrix`, `mcpHttpAuth`, `toolHardening`, `toolRegistry`, `runtimeExecutionBehavior` en `remediation`; Shopify Dev MCP validatie van theme/Liquid conventions en order/fulfillment GraphQL-shapes; Context7 validatie van MCP tool-level errorgedrag | `06a69e4e-5505-47fc-95a4-931122a926a7` op 2026-04-25 | Ja voor publieke production smoke en runtime-logreview: Batch G, Batch E tranche 2 en Host-header hardening staan live. Authenticated MCP tool-smoke blijft apart open omdat lokaal geen productie-token beschikbaar is. |
 | `Hazify-License-Service` | 2026-04-25 | publieke production smoke via `npm run smoke:prod` | `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22 | Ja voor publieke health/bootstrap-smoke: `/health -> 200`, `/v1/session/bootstrap -> 200`. Admin- en billing-readiness zijn niet getest omdat de vereiste lokale secrets niet aanwezig waren. |
 
 Releasewaarheid:
 - Lokaal groen betekent alleen dat de code en tests in deze repo op 2026-04-25 kloppen.
 - Live groen betekent pas iets nadat de relevante service is gepusht, gedeployed op Railway, gesmoked via `npm run smoke:prod` en gecontroleerd in Railway logs.
 - Op 2026-04-25 is de publieke productie-smoke opnieuw groen: `Hazify-License-Service /health -> 200`, `/v1/session/bootstrap -> 200`, MCP protected-resource metadata -> `200`, MCP authorization-server metadata -> `200`, en anonieme `POST /mcp -> 401`.
-- De eerdere `Hazify-License-Service /health -> 502` observatie van 2026-04-23 is daarmee niet langer een actuele blocker. De resterende productie-gap is een authenticated MCP smoke met expliciet productie-token, plus redeploy van de nieuwe MCP Remote code zodra deze commit gepusht is.
+- De eerdere `Hazify-License-Service /health -> 502` observatie van 2026-04-23 is daarmee niet langer een actuele blocker. De resterende productie-gap is een authenticated MCP smoke met expliciet productie-token.
 - `npm run check:git-sync` blijft een git-parity check; dit bewijst geen Railway deploy parity.
 
 De detailsecties hieronder zijn achtergrondcontext. Voor actuele status, blockers en de actieve leesvolgorde zijn de compacte status en de canonieke vervolgdocs leidend.
@@ -266,10 +267,11 @@ Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere impleme
 - `get-supported-tracking-companies` is nu contractmatig gelijkgetrokken met de andere kritieke tools via een expliciet output schema.
 - Prompt-only review/video/PDP generation heeft nu een eigen contractlaag. De planner classificeert review/testimonial prompts als `review_section` of `review_slider`, PDP/product prompts als `pdp_section`, en video prompts als `video_section` of `video_slider`. De validator faalt vóór preview-write wanneer de gegenereerde section generiek blijft, video zonder bron/renderpad schrijft of PDP-commerce zonder echte productbron faked.
 - Gerichte Batch E tranche 2 verificatie is groen: `node --test apps/hazify-mcp-remote/tests/themePlanning.test.mjs`, `node --test apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`, `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs` en `node --test apps/hazify-mcp-remote/tests/crossThemeAcceptanceMatrix.test.mjs`.
+- Host-header hardening is groen via `node apps/hazify-mcp-remote/tests/mcpHttpAuth.test.mjs`; een request met `Host: evil.example` wordt vóór auth afgewezen als JSON-RPC `Invalid Host`.
 - Gerichte verificatie op 2026-04-25 is groen: `node --test apps/hazify-mcp-remote/tests/toolHardening.test.mjs`, `node --test apps/hazify-mcp-remote/tests/toolRegistry.test.mjs`, `node --test apps/hazify-mcp-remote/tests/runtimeExecutionBehavior.test.mjs`, `node --test apps/hazify-mcp-remote/tests/remediation.test.mjs`, Shopify Dev MCP GraphQL-validatie, `npm run smoke:prod` en daarna de volledige `npm run release:preflight`.
 
 ## Productiebewijs uit Railway
-De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `7b4b947c-7630-45cc-a1c9-de2078dbe460` op 2026-04-23. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22.
+De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `06a69e4e-5505-47fc-95a4-931122a926a7` op 2026-04-25. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `b9c84b4e-9aa5-48dc-973b-f1c157b00146` op 2026-04-22.
 
 De logs laten een realistisch beeld zien:
 - de planner-, read- en write-pipeline wordt actief gebruikt op echte shops
@@ -278,14 +280,14 @@ De logs laten een realistisch beeld zien:
 - er komen nog echte parse- en schemafouten terug op section-creatie en op bestaande product-sections
 - Railway bevestigde op 2026-04-22 ook een echte bestaande-section foutketen op `sections/hero-v1.liquid`: eerst `inspection_failed_truncated`, daarna `inspection_failed_liquid_delimiter_balance`. Dat incident is lokaal gereproduceerd en nu afgedekt met regressies voor mobile-only CSS-patches op bestaande sections met inline animatie-CSS.
 
-Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live Railway runtime van `Hazify-MCP-Remote` sluit aan op de lokale remediation van 2026-04-23 voor de theme-stack. De productie-smoke van 2026-04-25 bevestigt daarnaast dat de eerder gemelde `Hazify-License-Service /health -> 502` geen actuele publieke blocker meer is. De codewijzigingen van 2026-04-25 rond order/fulfillment query-shapes, non-theme `userErrors`, het tracking-carrier outputschema en Batch E tranche 2 prompt-only review/video/PDP coverage zijn lokaal en extern gevalideerd, maar vereisen nog push + Railway redeploy voordat ze live parity hebben.
+Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live Railway runtime van `Hazify-MCP-Remote` sluit aan op de lokale remediation van 2026-04-25 voor de theme-stack en non-theme contracten. De productie-smoke van 2026-04-25 bevestigt daarnaast dat de eerder gemelde `Hazify-License-Service /health -> 502` geen actuele publieke blocker meer is. De codewijzigingen rond order/fulfillment query-shapes, non-theme `userErrors`, het tracking-carrier outputschema, Batch E tranche 2 prompt-only review/video/PDP coverage en Host-header hardening zijn live bevestigd voor publieke endpoints en runtime-opstart. Alleen authenticated MCP tool-smoke met productie-token blijft open.
 
 ## Open blockers
 - `[P1] Docs-drift wordt nog niet volledig automatisch tegengehouden.`
   `scripts/generate-tool-docs.mjs` synchroniseert alleen `AGENTS.md` en `docs/02-SYSTEM-FLOW.md`. `docs/03-THEME-SECTION-GENERATION.md`, `docs/04-MCP-REMOTE-AUDIT.md`, `docs/05-REMEDIATION-PLAN.md` en `apps/hazify-mcp-remote/README.md` blijven handmatig en daardoor driftgevoelig.
 
 - `[P3] Railway build/start hygiene heeft nog niet-blokkerende waarschuwingen.`
-  De huidige live deploys starten goed, maar de logs tonen nog `npm warn config production Use --omit=dev instead` en de `punycode` deprecation warning. Dat is geen functionele blocker meer, wel een ops-hygiene track.
+  De huidige live deploys starten goed, maar de logs tonen nog `npm warn config production Use --omit=dev instead` en de `punycode` deprecation warning. De eerdere MCP SDK `0.0.0.0` / DNS-rebinding warning is opgelost. De resterende waarschuwingen zijn geen functionele blocker meer, wel een ops-hygiene track.
 
 - `[P2] Authenticated production MCP smoke ontbreekt nog.`
   Publieke productie-smoke is groen, maar een echte `tools/list` plus minimaal één read-only en één write-scope-gated `tools/call` met productie-token is nog niet opnieuw uitgevoerd.
