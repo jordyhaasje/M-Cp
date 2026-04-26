@@ -4,18 +4,19 @@ Doelgroep: maintainers, reviewers en coding agents.
 Deze audit is de compacte bron van waarheid voor de Hazify Remote MCP. Code blijft leidend; wanneer deze audit afwijkt van runtime-code of tests, moet de documentatie in dezelfde wijziging worden aangepast.
 
 ## Production Readiness Status
-- Status op 2026-04-26: de eerder gemelde P1/P2 review findings zijn in code opgelost en lokaal gevalideerd.
+- Status op 2026-04-26: de eerder gemelde P1/P2 review findings zijn in code opgelost, lokaal gevalideerd en opnieuw gedeployed.
 - Authenticated MCP read-smoke is live groen: `initialize`, `tools/list` met 35 tools en `get-license-status` werken op productie met een geldige MCP credential.
-- Laatste bevestigde productie-baseline op `main` voor deze opschoonbranch:
-  - MCP Remote deployment ID: `aea4e656-b98b-4427-b833-a70e28c0e9e4`
-  - License Service deployment ID: `94bb86f2-cb3a-4726-93e2-661b144f7d04`
+- Laatste bevestigde productie-baseline op `main`:
+  - Commit: `158d0f3`
+  - MCP Remote deployment ID: `2a47d680-5ecb-4c8f-a81e-d25c87e57d74`
+  - License Service deployment ID: `301768ee-8860-494e-8e37-e89ea4a84ce3`
 - Railway runtime-start gebruikt direct Node via `railway.json` en `scripts/start-service.mjs`; de MCP start bouwt `dist/` direct uit `src/` en root `start:mcp`/`start:license` mogen niet terug naar geneste `npm run` starts.
 - De runtime is multi-tenant: Shopify store-context komt uit de License Service token-exchange en wordt per request aan de MCP toolcontext gekoppeld.
 
 ## Externe Validatie
 - Context7 is gebruikt voor actuele MCP TypeScript SDK-waarheid: Streamable HTTP gebruikt `initialize`, `tools/list`, `tools/call`, tool-level `isError` en Host-header bescherming tegen DNS rebinding.
 - Shopify Dev MCP is gebruikt voor actuele Admin API-waarheid: Admin GraphQL gebruikt `X-Shopify-Access-Token`; theme writes lopen via `themeFilesUpsert`; Shopify vraagt naast `write_themes` ook theme file write access/exemption; fulfillment-order reads vereisen expliciete read fulfillment-order scopes.
-- Railway MCP is gebruikt voor productie-observability: de actuele logs toonden geen nieuwe protocol- of toolcall-foutreeks; de overgebleven runtime-hygiene was de oude `npm warn config production` startwaarschuwing, opgelost door direct Node te starten.
+- Railway MCP is gebruikt voor productie-observability: de actuele runtime-logfilters voor MCP Remote en License Service zijn leeg voor `npm warn` en nieuwe errorreeksen. Buildlogs kunnen nog Railpack/npm install-waarschuwingen tonen, maar de runtime start nu via `node scripts/start-service.mjs`.
 
 ## Wat De MCP Kan
 - Shopify producten lezen, zoeken, aanmaken, wijzigen, verwijderen en varianten/options beheren.
@@ -59,7 +60,6 @@ Deze audit is de compacte bron van waarheid voor de Hazify Remote MCP. Code blij
 
 ## Actuele Open Punten
 - Een echte read-only MCP smoke-token is nog nodig om live te bewijzen dat write-tools met alleen `mcp:tools:read` worden geweigerd. De code en tests borgen dit al; de productie-smoke vereist aparte credential-aanmaak.
-- Na merge en Railway redeploy moeten deployment metadata, `npm run smoke:prod` en Railway logs bevestigen dat direct Node de oude `npm warn config production` runtime-startwaarschuwing heeft verwijderd.
 - `@shopify/theme-check-node` kan upstream nog een `punycode` waarschuwing tonen wanneer de lint-route wordt geladen. Dat is geen startup- of toolcontractblocker; monitoren blijft genoeg zolang er geen tool failure ontstaat.
 
 ## Code Map

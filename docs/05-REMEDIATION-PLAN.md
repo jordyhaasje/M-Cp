@@ -7,11 +7,11 @@ Dit document is geen historische changelog meer. Het is de actuele releasekaart 
 - De acht bekende P1/P2 review findings zijn opgelost in code en beschreven in `docs/04-MCP-REMOTE-AUDIT.md`.
 - De repo draait met een Postgres-only License Service en een HTTP-only Remote MCP.
 - De MCP Remote gebruikt PostgreSQL voor `theme_drafts` en advisory locks.
-- Railway runtime-start gebruikt direct Node via `railway.json` en `scripts/start-service.mjs`.
+- Railway runtime-start gebruikt direct Node via `railway.json` en `scripts/start-service.mjs`; dit is live bevestigd op MCP Remote deployment `2a47d680-5ecb-4c8f-a81e-d25c87e57d74` en License Service deployment `301768ee-8860-494e-8e37-e89ea4a84ce3`.
 - Er wordt nu geen document verwijderd.
 
 ## Actieve Patch
-Deze branch maakt de repo productieklaar op de resterende operationele en documentatiepunten:
+De production-readiness patch op commit `158d0f3` heeft de resterende operationele en documentatiepunten afgehandeld:
 
 - Root Railway startcommand vastleggen in `railway.json`.
 - Root start scripts laten wijzen naar `scripts/start-service.mjs` zonder geneste `npm run`.
@@ -51,7 +51,6 @@ Deze branch maakt de repo productieklaar op de resterende operationele en docume
 
 ## Open Punten
 - Maak een aparte read-only MCP smoke-token aan en verifieer live dat write-tools met alleen `mcp:tools:read` worden geweigerd.
-- Bevestig na de volgende Railway deploy dat de oude `npm warn config production` runtime-startwaarschuwing verdwenen is.
 - Blijf de upstream `punycode` waarschuwing vanuit `@shopify/theme-check-node` monitoren wanneer theme linting actief is.
 
 ## Productie Waarheid
