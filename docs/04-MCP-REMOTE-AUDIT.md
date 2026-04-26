@@ -4,11 +4,11 @@ Doelgroep: maintainers, reviewers en coding agents.
 Deze audit is de compacte bron van waarheid voor de Hazify Remote MCP. Code blijft leidend; wanneer deze audit afwijkt van runtime-code of tests, moet de documentatie in dezelfde wijziging worden aangepast.
 
 ## Production Readiness Status
-- Status op 2026-04-26: de MCP theme edit pipeline is gehard tegen lossy rewrites, lokaal gevalideerd over meerdere OS 2.0 theme-archetypen en opnieuw gedeployed.
+- Status op 2026-04-26: de MCP theme edit pipeline is gehard tegen lossy rewrites, lokaal gevalideerd over meerdere OS 2.0 theme-archetypen en opnieuw gedeployed. De planner/handoff geeft nu ook een generiek `implementationContract` mee voor schema-, render-, media-, interactieve en preserve-on-edit regels, zodat clients niet op use-case-specifieke promptworkarounds hoeven te leunen.
 - Authenticated MCP read-smoke is live groen: `initialize`, `tools/list` met 35 tools en `get-license-status` werken op productie met een geldige MCP credential.
 - Laatste bevestigde productie-baseline op `main`:
-  - Commit: `47834a8`
-  - MCP Remote deployment ID: `13abcaa2-335d-4cce-ab89-d8620e760a87`
+  - Commit: `553cdce`
+  - MCP Remote deployment ID: `2d3eb307-cd8b-40b5-9bff-25163ddd0124`
   - License Service deployment ID: `301768ee-8860-494e-8e37-e89ea4a84ce3`
 - Railway runtime-start gebruikt direct Node via `railway.json` en `scripts/start-service.mjs`; de MCP start bouwt `dist/` direct uit `src/` en root `start:mcp`/`start:license` mogen niet terug naar geneste `npm run` starts.
 - De runtime is multi-tenant: Shopify store-context komt uit de License Service token-exchange en wordt per request aan de MCP toolcontext gekoppeld.

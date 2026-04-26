@@ -7,8 +7,8 @@ Dit document is geen historische changelog meer. Het is de actuele releasekaart 
 - De acht bekende P1/P2 review findings zijn opgelost in code en beschreven in `docs/04-MCP-REMOTE-AUDIT.md`.
 - De repo draait met een Postgres-only License Service en een HTTP-only Remote MCP.
 - De MCP Remote gebruikt PostgreSQL voor `theme_drafts` en advisory locks.
-- Railway runtime-start gebruikt direct Node via `railway.json` en `scripts/start-service.mjs`; dit is live bevestigd op MCP Remote deployment `13abcaa2-335d-4cce-ab89-d8620e760a87` en License Service deployment `301768ee-8860-494e-8e37-e89ea4a84ce3`.
-- MCP theme edit hardening voor preserve-on-edit rewrites is live op commit `47834a8`.
+- Railway runtime-start gebruikt direct Node via `railway.json` en `scripts/start-service.mjs`; dit is live bevestigd op MCP Remote deployment `2d3eb307-cd8b-40b5-9bff-25163ddd0124` en License Service deployment `301768ee-8860-494e-8e37-e89ea4a84ce3`.
+- MCP theme edit hardening voor preserve-on-edit rewrites en generieke section authoring contracts is live op commit `553cdce`.
 - Er wordt nu geen document verwijderd.
 
 ## Actieve Patch
