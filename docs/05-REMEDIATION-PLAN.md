@@ -1,7 +1,7 @@
 # Remediation Plan
 Doelgroep: maintainers, developers en coding agents.
 
-Versie: 2026-04-25.
+Versie: 2026-04-26.
 Status: actieve tracker voor Shopify theme-toolchain remediation, sessie-handoff en releasevolgorde.
 
 ## Doel
@@ -52,7 +52,6 @@ Bij een nieuwe of bijna volle sessie is de aanbevolen herstartvolgorde:
 - bredere archetype-aware wrapperregels buiten de nu geharde media-first/full-bleed hero-familie
 - hardere validators voor wrapper-correctheid en Theme Editor-contracten buiten de hero fix
 - bredere native-block/theme-wrapper regressietests buiten de huidige schema/snippet/block-wrapper checks
-- redeploy van Batch H runtime hardening na commit/push
 - authenticated production MCP smoke met expliciet productie-token
 
 ## Concrete Patchbatches
@@ -514,9 +513,15 @@ Docs die mee gewijzigd zijn:
 - app READMEs en gegenereerde tooldocs via `npm run generate:docs`
 
 Open na Batch H:
-- volledige `npm run release:preflight`
-- commit, push en redeploy van `Hazify-License-Service` en `Hazify-MCP-Remote`
 - authenticated production MCP smoke met expliciet productie-token
+
+Release/live bewijs:
+- volledige `npm run release:preflight` is groen op 2026-04-26
+- commit `8e3c114` is gepusht naar `origin/codex/harden-mcp-truth`
+- `Hazify-MCP-Remote` is live gedeployed via Railway deployment `05a12c2a-203f-4191-b350-99284dd79e62`
+- `Hazify-License-Service` is live gedeployed via Railway deployment `9977e9d5-390b-485f-a743-701e723a27c2`
+- `npm run release:postdeploy` is groen: License `/health -> 200`, License `/v1/session/bootstrap -> 200`, MCP metadata endpoints -> `200`, anonieme `POST /mcp -> 401`
+- Railway runtime-logreview toont geen nieuw foutpatroon; alleen bestaande `npm warn config production`, MCP `punycode` warning en verwachte anonieme `/mcp` unauthorized log
 
 ### Batch F — Docs Waarheid en Opschoning
 Status: `active`
