@@ -15,6 +15,8 @@ Canonical shared packages staan in `packages/`. Voor Railway app-only deploys wo
 ## 2. Deploy Platform & Env Vars
 Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazify-MCP-Remote`).
 
+Railway gebruikt root `railway.json` met `node scripts/start-service.mjs`. `HAZIFY_SERVICE_MODE` bepaalt welke service start. Voor de MCP Remote kopieert dit script `src/` direct naar `dist/` voordat de runtime start. Deze directe Node-start voorkomt runtime-waarschuwingen door geneste npm-startscripts en wordt bewaakt door `npm run check:repo`.
+
 ### License Service (Productievereisten)
 - `DATABASE_URL` en `DATA_ENCRYPTION_KEY` zijn verplicht.
 - `DB_SINGLE_WRITER_ENFORCED=true` (actief als enkele writer wegens lock/persistence model).
@@ -40,6 +42,7 @@ Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazif
 - Voor merchant-created custom apps in de Shopify Admin is de Admin API access token het primaire onboardingpad.
 - `shopClientId` + `shopClientSecret` blijft ondersteund voor trusted app-achtige setups, maar is niet de standaardinstructie voor merchant-created custom apps.
 - Verplichte Admin API scopes volgen `REQUIRED_SHOPIFY_ADMIN_SCOPES` in `packages/shopify-core/src/index.js` en de Railway mirrors. De actuele lijst bevat onder meer `read_themes`, `write_themes`, `read_fulfillments`, `read_merchant_managed_fulfillment_orders` en `write_merchant_managed_fulfillment_orders`.
+- Theme file writes via Shopify Admin GraphQL vereisen naast `write_themes` ook Shopify-toegang/exemption voor theme file writes. De remote vertaalt die blokkade naar `theme_write_exemption_required`.
 - De fulfillment tracking tools lezen `fulfillmentOrders`; Shopify vereist daarvoor expliciete fulfillment-order read scopes. Alleen write-scope is niet genoeg.
 
 ### Remote MCP observability

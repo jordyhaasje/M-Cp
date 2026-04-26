@@ -225,6 +225,7 @@ async function main() {
         "`X-Shopify-Access-Token`",
         "`read_merchant_managed_fulfillment_orders`",
         "Onbekende `mcp:*` scopes worden geweigerd",
+        "`theme_write_exemption_required`",
       ],
     ],
     [
@@ -233,6 +234,7 @@ async function main() {
         "Admin API access token",
         "`X-Shopify-Access-Token`",
         "`read_merchant_managed_fulfillment_orders`",
+        "`theme_write_exemption_required`",
       ],
     ],
     [
@@ -246,19 +248,19 @@ async function main() {
     [
       path.join(repoRoot, "docs/04-MCP-REMOTE-AUDIT.md"),
       [
-        "Batch H",
-        "`aea4e656-b98b-4427-b833-a70e28c0e9e4`",
-        "`94bb86f2-cb3a-4726-93e2-661b144f7d04`",
+        "Production Readiness Status",
         "Authenticated MCP read-smoke is live groen",
+        "Railway runtime-start gebruikt direct Node",
+        "read-only MCP smoke-token",
       ],
     ],
     [
       path.join(repoRoot, "docs/05-REMEDIATION-PLAN.md"),
       [
-        "Release/live bewijs",
-        "`aea4e656-b98b-4427-b833-a70e28c0e9e4`",
-        "`94bb86f2-cb3a-4726-93e2-661b144f7d04`",
+        "Release Checklist",
+        "Railway runtime-start gebruikt direct Node",
         "Er wordt nu geen document verwijderd.",
+        "read-only MCP smoke-token",
       ],
     ],
   ]);

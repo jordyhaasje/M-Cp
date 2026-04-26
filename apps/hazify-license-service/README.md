@@ -3,17 +3,19 @@ Doelgroep: maintainers, developers en coding agents.
 
 Auth, onboarding, OAuth, token-introspectie, interne token-exchange, billing en admin operations voor Hazify MCP.
 
-## Start
+## Start (repo root)
 ```bash
-npm run --workspace @hazify/license-service start
+HAZIFY_SERVICE_MODE=license node scripts/start-service.mjs
 ```
 
 Runtime: Node.js `>=22.12.0`.
 
-Repo-root variant:
+Lokale service-only debugging:
 ```bash
-HAZIFY_SERVICE_MODE=license npm start
+npm run --workspace @hazify/license-service start
 ```
+
+Railway gebruikt root `railway.json` met dezelfde directe Node-start via `scripts/start-service.mjs`. De workspace-start `npm run --workspace @hazify/license-service start` blijft alleen voor lokale service-only debugging.
 
 ## Belangrijkste endpoints
 - `POST /v1/account/signup`
@@ -46,6 +48,7 @@ OAuth-notitie:
 De MCP remote gebruikt de gekoppelde Admin API access token daarna uitsluitend server-side richting Shopify Admin GraphQL en stuurt die als `X-Shopify-Access-Token` header. Deze token wordt niet teruggegeven in introspection of toolresultaten.
 
 Vereiste Shopify scopes volgen `REQUIRED_SHOPIFY_ADMIN_SCOPES`, inclusief `read_themes`, `write_themes`, `read_fulfillments`, `read_merchant_managed_fulfillment_orders` en `write_merchant_managed_fulfillment_orders`.
+Theme file edits via Shopify Admin GraphQL vereisen daarnaast Shopify-toegang/exemption voor theme file writes. Als Shopify dit blokkeert, geeft de MCP Remote `theme_write_exemption_required` terug in plaats van een blinde retry.
 
 Introspection (`/v1/mcp/token/introspect`) geeft alleen minimale metadata terug en geen Shopify secrets.
 Interne service-to-service token exchange (`/v1/mcp/token/exchange`) levert de Shopify access token voor de remote MCP service.

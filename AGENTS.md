@@ -139,13 +139,14 @@ Use <style> or markup-level CSS variables for section.id scoping
 1. **De gebruiker bepaalt altijd op welk thema geschreven wordt.**
 2. **Als de gebruiker geen thema opgeeft, VRAAG dit expliciet.** Gebruik nooit een stille default.
    Alleen `themeRole='main'` mag zonder `themeId`; gebruik voor `development`, `unpublished` en `demo` altijd een exact `themeId`.
-3. Gebruik `mode="edit"` voor wijzigingen aan bestaande bestanden (CSS fixes, spacing, kleuren, settings).
-4. Gebruik voor nieuwe sections bij voorkeur `create-theme-section`; `draft-theme-artifact mode="create"` blijft de generieke advanced route (volledige inspectie: schema, presets, CSS kwaliteit).
-5. Voor placement op homepage/producttemplate: maak eerst de section, en patch daarna alleen bij expliciete gebruikersvraag het juiste `templates/*.json` of `templates/*.liquid` bestand op hetzelfde thema.
-6. Gebruik `apply-theme-draft` alleen wanneer een eerder bestaand draft expliciet naar een ander theme gepromoot moet worden; dit is nooit de eerste write-tool voor een nieuwe section.
-7. Gebruik `delete-theme-file` alleen na expliciete validatie van het target-bestand. themeRole/themeId is verplicht.
-8. Verifieer writes direct via de `verify` output van `draft-theme-artifact` of aanvullend met `get-theme-file`, `get-theme-files` of `verify-theme-files`.
-9. Om Railway te beschermen is er een harde limiet van maximaal 10 bestanden per theme-request.
+3. Theme file writes vereisen Shopify theme file write access/exemption naast `write_themes`. Bij `theme_write_exemption_required` moet de gebruiker Shopify app-toegang corrigeren; herhaal niet blind dezelfde write.
+4. Gebruik `mode="edit"` voor wijzigingen aan bestaande bestanden (CSS fixes, spacing, kleuren, settings).
+5. Gebruik voor nieuwe sections bij voorkeur `create-theme-section`; `draft-theme-artifact mode="create"` blijft de generieke advanced route (volledige inspectie: schema, presets, CSS kwaliteit).
+6. Voor placement op homepage/producttemplate: maak eerst de section, en patch daarna alleen bij expliciete gebruikersvraag het juiste `templates/*.json` of `templates/*.liquid` bestand op hetzelfde thema.
+7. Gebruik `apply-theme-draft` alleen wanneer een eerder bestaand draft expliciet naar een ander theme gepromoot moet worden; dit is nooit de eerste write-tool voor een nieuwe section.
+8. Gebruik `delete-theme-file` alleen na expliciete validatie van het target-bestand. themeRole/themeId is verplicht.
+9. Verifieer writes direct via de `verify` output van `draft-theme-artifact` of aanvullend met `get-theme-file`, `get-theme-files` of `verify-theme-files`.
+10. Om Railway te beschermen is er een harde limiet van maximaal 10 bestanden per theme-request.
 
 ## Shopify-conforme file policy
 

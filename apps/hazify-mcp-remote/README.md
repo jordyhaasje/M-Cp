@@ -11,8 +11,16 @@ Runtime: Node.js `>=22.12.0`.
 - Niet: automatische JSON template placement of blind live import.
 - Niet: browser automation binnen de hoofd-MCP runtime.
 
-## Start (remote)
+## Start (repo root)
 ```bash
+HAZIFY_SERVICE_MODE=mcp node scripts/start-service.mjs
+```
+
+Railway gebruikt dezelfde directe Node-start via root `railway.json`. Het root startscript kopieert `src/` direct naar `dist/` voordat de MCP runtime start. De workspace-start blijft beschikbaar voor lokale service-only debugging na een build, maar productie mag niet via een geneste `npm run` starten.
+
+Lokale service-only debugging:
+```bash
+npm run --workspace @hazify/mcp-remote build
 npm run --workspace @hazify/mcp-remote start:remote
 ```
 
@@ -40,6 +48,7 @@ npm run --workspace @hazify/mcp-remote start:remote
 - `failureSummary` is bewust compact en veilig: denk aan `primaryIssueCode`, `primaryPath`, `lintChecks`, `warningCount` en beperkte `failedKeys`, zonder file content of secrets te loggen.
 - `npm run check:git-sync` bevestigt alleen lokale git parity tegen `origin/main`; het controleert niet welke Railway deploy live draait.
 - Bevestig local-vs-remote parity daarom altijd apart via Railway deploy metadata/logs, zeker voordat je een fix als “live” beschouwt.
+- Root `railway.json` start beide Railway services via `node scripts/start-service.mjs`; `HAZIFY_SERVICE_MODE` bepaalt of de MCP Remote of License Service start.
 
 ## Theme edit flow
 - Canonical agent flow: gebruik `get-themes` alleen voor theme discovery wanneer de gebruiker nog geen expliciet `themeId` of `themeRole` heeft gegeven; daarna `plan-theme-edit` -> compacte read/preflight -> `create-theme-section` voor nieuwe sections -> optioneel aparte `mode="edit"` of `patch-theme-file` voor vervolgfixes.

@@ -7,7 +7,8 @@ Dit document beschrijft hoe requests, authenticatie, theme editing en store-inte
 1. Een gebruiker registreert zich op de License Service en koppelt Shopify primair via een Shopify Admin API access token (`shopAccessToken`) uit een merchant-created custom app.
 2. `shopClientId` / `shopClientSecret` blijft ondersteund voor trusted app-achtige setups, maar is niet de standaardinstructie voor merchant-created custom apps.
 3. Validatie controleert op `REQUIRED_SHOPIFY_ADMIN_SCOPES`, inclusief `read_themes`, `write_themes`, `read_fulfillments`, `read_merchant_managed_fulfillment_orders` en `write_merchant_managed_fulfillment_orders`.
-4. Credentials en secrets blijven server-side op de License Service en worden nooit aan de MCP client doorgegeven.
+4. Theme file writes kunnen alsnog door Shopify worden geweigerd wanneer de app geen theme file write access/exemption heeft. De MCP geeft dan `theme_write_exemption_required` terug.
+5. Credentials en secrets blijven server-side op de License Service en worden nooit aan de MCP client doorgegeven.
 
 ## 2. Authenticatie: OAuth PKCE & Fallback
 Vanaf 2026 ondersteunt Hazify native OAuth 2.0 PKCE.

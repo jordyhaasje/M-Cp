@@ -2288,8 +2288,12 @@ export function renderDashboardPage() {
             return {
               client,
               title: 'Shopify Custom App setup',
-              intro: 'Gebruik voor een merchant-created Shopify custom app de Admin API access token. Client credentials zijn alleen voor trusted apps die daarvoor geschikt zijn.',
-              steps: [],
+              intro: 'Gebruik voor een merchant-created Shopify custom app de Admin API access token. Client credentials zijn alleen voor trusted apps die daarvoor geschikt zijn. Theme file edits vereisen daarnaast write_themes en Shopify-toegang/exemption voor theme file writes.',
+              steps: [
+                'Maak of open de custom app in Shopify Admin.',
+                'Geef de app de scopes hieronder en installeer of herautoriseer de app.',
+                'Kopieer de Admin API access token naar Hazify. Voor theme file edits moet Shopify theme file write access voor de app toestaan.',
+              ],
               formats: [
                 { key: 'scopes', label: 'Scopes (comma separated)', snippet: CUSTOM_APP_SCOPES },
               ],

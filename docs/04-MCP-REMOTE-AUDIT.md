@@ -1,430 +1,81 @@
 # MCP Remote Audit
-Doelgroep: maintainers, developers en coding agents.
+Doelgroep: maintainers, reviewers en coding agents.
 
-Status: levende audit en bron van waarheid voor de actuele MCP-toolingstatus.
-Versie: 2026-04-26.
-Laatst geverifieerd: 2026-04-26.
+Deze audit is de compacte bron van waarheid voor de Hazify Remote MCP. Code blijft leidend; wanneer deze audit afwijkt van runtime-code of tests, moet de documentatie in dezelfde wijziging worden aangepast.
 
-Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve samenvatting; de detailsecties blijven beschikbaar als achtergrond en moeten altijd aansluiten op code of recente productieobservatie.
+## Production Readiness Status
+- Status op 2026-04-26: de eerder gemelde P1/P2 review findings zijn in code opgelost en lokaal gevalideerd.
+- Authenticated MCP read-smoke is live groen: `initialize`, `tools/list` met 35 tools en `get-license-status` werken op productie met een geldige MCP credential.
+- Laatste bevestigde productie-baseline op `main` voor deze opschoonbranch:
+  - MCP Remote deployment ID: `aea4e656-b98b-4427-b833-a70e28c0e9e4`
+  - License Service deployment ID: `94bb86f2-cb3a-4726-93e2-661b144f7d04`
+- Railway runtime-start gebruikt direct Node via `railway.json` en `scripts/start-service.mjs`; de MCP start bouwt `dist/` direct uit `src/` en root `start:mcp`/`start:license` mogen niet terug naar geneste `npm run` starts.
+- De runtime is multi-tenant: Shopify store-context komt uit de License Service token-exchange en wordt per request aan de MCP toolcontext gekoppeld.
 
-## Compacte status
-- Groen: de theme/section-pipeline (`plan-theme-edit`, `create-theme-section`, `patch-theme-file`, `draft-theme-artifact`) is gehard met planner-memory, verplichte reads, lokale preflight en verify-after-write.
-- Groen: screenshot-only fallback, schema-preflight en refinement-recovery zijn bruikbaar voor normale stateless clients.
-- Groen: screenshot-driven exact replicas bewaren nu ook langere plannerbriefing buiten de compacte `query`, zodat desktop/mobile-, screenshot- en exact-match-signalen niet meer verloren gaan in `description`- of summary-rijke prompts.
-- Groen: de cross-theme acceptatiematrix dekt nu vier 2.0-theme archetypes voor prompt-only create, screenshot-only exact create, image-backed exact create, existing edit, template placement en native-block write/preview flows.
-- Groen: `draft-theme-artifact mode="edit"` ondersteunt nu zowel `templates/*.json` als `templates/*.liquid`; JSON templates blijven JSON-valideren en Liquid templates krijgen Liquid safety-inspectie.
-- Groen: `plan-theme-edit` geeft native-block architectuur nu ook door via `plannerHandoff`, en `draft-theme-artifact` valideert native-block snippets nu tegen gerelateerde section-schema’s, blank-safe optionele resources en `@theme` block-routes, zonder Shopify-onjuiste `name`-eisen op `@app`/`@theme` schema entries af te dwingen.
-- Groen: MCP domeinfouten komen nu protocolcorrect terug als `isError: true`, en read/search/verify vereisen nu een expliciet of sticky bevestigd theme target.
-- Groen: non-theme Shopify `userErrors` voor product-, order-, customer-, refund- en fulfillment-mutaties komen nu ook als gestructureerde `success=false` / `shopify_user_error` tool-resultaten terug. Dit houdt ChatGPT, Claude en andere MCP-clients in een herstelbare toolflow in plaats van een generieke exception-flow.
-- Groen: order- en fulfillment-tracking reads gebruiken nu de actuele Shopify Admin GraphQL shape voor `Order.fulfillments` als lijstveld. De oude eerste poging via `fulfillments(first: ...){ nodes }` is verwijderd en de nieuwe queryvorm is met Shopify Dev MCP gevalideerd.
-- Groen: `get-order-by-id` gebruikt nu `defaultEmailAddress.emailAddress` en `defaultPhoneNumber.phoneNumber` in plaats van de inmiddels gedepricieerde `Customer.email` en `Customer.phone` velden.
-- Groen: `get-supported-tracking-companies` heeft nu ook een expliciet `outputSchema`, zodat alle registry-kritieke toolcontracten machine-leesbaar zijn.
-- Groen: de hero-wrappercontractlaag is vóór Batch E extra gehard. `requiresThemeWrapperMirror` volgt nu de afgeleide hero-shell-familie in plaats van representatieve `heroLike`-context, en de validator blokkeert nu ook media-first/full-bleed heroes waarvan de media-shell effectief boxed raakt via inner `page-width`, `container` of `section-properties`.
-- Groen: Batch E tranche 1 verbreedt contracten buiten hero’s. Review/comparison exact replicas krijgen nu expliciet een `bounded_card_shell` met verplichte inner card-surface, `video_section`/`video_slider` krijgen strengere `video` versus `video_url` checks, en `blocks/*.liquid` falen nu ook hard op ontbrekende `block.shopify_attributes` of ontbrekende renderbare block-markup.
-- Groen: Batch E tranche 2 is lokaal afgerond voor prompt-only review/video/PDP flows. `plan-theme-edit` geeft nu `promptContract` requirements mee voor review cards/rating, video source/renderpad en PDP productbron/commerce action; `create-theme-section` draagt die contracten door; `draft-theme-artifact` blokkeert generieke of fake-output vóór preview-write.
-- Groen: non-theme contract cleanup is aangescherpt voor refunds, product-contracten, tracking-redirects, destructieve auditsporen en eerste productimports.
-- Groen: de Remote MCP gebruikt nu de MCP SDK `allowedHosts` Host-header validatie, afgeleid uit `HAZIFY_MCP_PUBLIC_URL`, Railway public domain envs en optioneel `HAZIFY_MCP_ALLOWED_HOSTS`. De eerdere `0.0.0.0` zonder DNS-rebinding bescherming waarschuwing is in de nieuwste deployment verdwenen.
-- Groen live: Batch H hardent auth en tenant-isolatie. Onbekende MCP scopes falen dicht, OAuth resource/audience wordt met de publieke `/mcp` resource vergeleken, alias-tools erven canonieke entitlements, theme drafts zijn shop-gebonden bij apply, verify-mismatch blokkeert preview/apply, en role-only theme targets zijn beperkt tot `main`.
-- Groen: de license-service herkent Railway-productie nu expliciet, valideert verplichte productie-envs hard en beschermt backup-export/smoke checks beter zonder startup op Railway te blokkeren wanneer backup-export bewust niet is geconfigureerd.
-- Groen: `Hazify-MCP-Remote` is opnieuw live gedeployed via Railway deployment `aea4e656-b98b-4427-b833-a70e28c0e9e4` op 2026-04-26. Build en runtime-logreview zijn gezond, en de publieke MCP endpoints (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, anonieme `POST /mcp -> 401`) antwoorden correct.
-- Groen: `Hazify-License-Service` is opnieuw live gedeployed via Railway deployment `94bb86f2-cb3a-4726-93e2-661b144f7d04` op 2026-04-26. Publieke health/bootstrap-smoke blijft groen.
-- Groen live: authenticated MCP smoke is op 2026-04-26 met een echt productie-token uitgevoerd. Productie accepteerde `initialize`, retourneerde 35 tools via `tools/list`, en `get-license-status` gaf tenantcontext terug.
-- Geel credential-afhankelijk: read-only write-scope gate is nog niet live uitgevoerd omdat hiervoor een aparte read-only smoke-token nodig is. De smoke ondersteunt dit via `HAZIFY_MCP_SMOKE_READ_ONLY_TOKEN`.
-- Groen lokaal: docs-drift op de handmatige kernwaarheden wordt nu door `scripts/check-docs.mjs` bewaakt naast de gegenereerde tooldocs. Auto-sync blijft bewust beperkt tot `AGENTS.md` en `docs/02-SYSTEM-FLOW.md`, maar `check:docs` faalt nu wanneer de audit-, theme- of README-waarheid de Batch H beveiligingsregels mist.
-- Groen lokaal: `npm audit --omit=dev` meldt 0 kwetsbaarheden na het verwijderen van `graphql-request` en lockfile-updates voor Hono, `@hono/node-server`, `path-to-regexp` en `lodash`.
+## Externe Validatie
+- Context7 is gebruikt voor actuele MCP TypeScript SDK-waarheid: Streamable HTTP gebruikt `initialize`, `tools/list`, `tools/call`, tool-level `isError` en Host-header bescherming tegen DNS rebinding.
+- Shopify Dev MCP is gebruikt voor actuele Admin API-waarheid: Admin GraphQL gebruikt `X-Shopify-Access-Token`; theme writes lopen via `themeFilesUpsert`; Shopify vraagt naast `write_themes` ook theme file write access/exemption; fulfillment-order reads vereisen expliciete read fulfillment-order scopes.
+- Railway MCP is gebruikt voor productie-observability: de actuele logs toonden geen nieuwe protocol- of toolcall-foutreeks; de overgebleven runtime-hygiene was de oude `npm warn config production` startwaarschuwing, opgelost door direct Node te starten.
 
-## Verificatie- en release-ledger
-| Service | Laatst lokaal geverifieerd | Laatste lokale bewijsset | Laatst live op Railway | Live parity bevestigd |
-| --- | --- | --- | --- | --- |
-| `Hazify-MCP-Remote` | 2026-04-26 | `npm run release:preflight`; `npm audit --omit=dev`; gerichte auth/theme regressies; Shopify Dev MCP validatie van `ThemeRole.MAIN`, fulfillment-order scopes en Admin API token-auth; Context7 validatie van MCP tool-level errors en HTTP Host-header bescherming; live authenticated read-smoke met productie-token | `aea4e656-b98b-4427-b833-a70e28c0e9e4` op 2026-04-26 | Ja voor publieke production smoke, authenticated `initialize`/`tools/list`/`get-license-status`, en runtime-logreview. Read-only write-scope gate vereist nog een aparte read-only smoke-token. |
-| `Hazify-License-Service` | 2026-04-26 | `npm run release:preflight` en publieke production smoke via `npm run release:postdeploy` | `94bb86f2-cb3a-4726-93e2-661b144f7d04` op 2026-04-26 | Ja voor publieke health/bootstrap-smoke: `/health -> 200`, `/v1/session/bootstrap -> 200`. Admin- en billing-readiness zijn niet getest omdat de vereiste lokale secrets niet aanwezig waren. |
+## Wat De MCP Kan
+- Shopify producten lezen, zoeken, aanmaken, wijzigen, verwijderen en varianten/options beheren.
+- Shopify klanten en orders lezen en ordergegevens wijzigen binnen de toolcontracten.
+- Tracking bijwerken via fulfillment tracking-tools en direct verifiëren via order readback.
+- Refunds aanmaken met expliciete bevestiging en scope.
+- Themes ontdekken, exact zoeken/lezen/verifiëren en guarded theme file writes uitvoeren.
+- Nieuwe sections genereren via `plan-theme-edit` en `create-theme-section`.
+- Bestaande sections/snippets/templates/config wijzigen via `search-theme-files`, `get-theme-file`, `patch-theme-file` en `draft-theme-artifact mode="edit"`.
+- Eerder opgeslagen theme drafts expliciet promoveren via `apply-theme-draft`, met confirmation, reason, shop-binding en verify-after-write.
+- Compat-aliassen ondersteunen voor clients die toolnamen gokken, zonder entitlements of security gates te omzeilen.
 
-Releasewaarheid:
-- Lokaal groen betekent alleen dat de code en tests in deze repo op 2026-04-26 kloppen.
-- Live groen betekent pas iets nadat de relevante service is gepusht, gedeployed op Railway, gesmoked via `npm run smoke:prod` en gecontroleerd in Railway logs.
-- Op 2026-04-26 is de publieke productie-smoke opnieuw groen: `Hazify-License-Service /health -> 200`, `/v1/session/bootstrap -> 200`, MCP protected-resource metadata -> `200`, MCP authorization-server metadata -> `200`, en anonieme `POST /mcp -> 401`.
-- De eerdere `Hazify-License-Service /health -> 502` observatie van 2026-04-23 is daarmee niet langer een actuele blocker. De resterende productieactie is alleen nog een read-only write-scope gate met expliciete read-only smoke-token.
-- `npm run check:git-sync` blijft een git-parity check; dit bewijst geen Railway deploy parity.
+## Opgeloste Review Findings
+- Onbekende MCP scopes falen dicht: alleen `mcp:tools`, `mcp:tools:read` en `mcp:tools:write` zijn geldig.
+- Alias-tools erven canonieke entitlements: aliasnamen zoals tracking- en read-theme aliassen kunnen de license gate niet omzeilen.
+- Theme drafts zijn shop-bound bij apply: een draft ID van shop A kan niet op shop B worden toegepast.
+- Verify mismatch, missing of verify-errors blokkeren `preview_ready` en `applied`.
+- Non-main theme roles vereisen `themeId`; alleen `themeRole="main"` mag role-only omdat Shopify maar een live main theme heeft.
+- Fulfillment scopes bevatten zowel read als write fulfillment-order scopes voor trackinggedrag.
+- OAuth resource/audience wordt aan de publieke `/mcp` resource gebonden.
+- Custom-app onboarding stuurt primair op Admin API access token; app key/secret blijft alleen voor trusted app-achtige setups.
+- Theme-write blokkades door ontbrekende Shopify theme file access/exemption worden als `theme_write_exemption_required` teruggegeven.
 
-De detailsecties hieronder zijn achtergrondcontext. Voor actuele status, blockers en de actieve leesvolgorde zijn de compacte status en de canonieke vervolgdocs leidend.
+## Theme Tool Waarheid
+- De gebruiker kiest altijd het doelthema. Zonder expliciete keuze moet de client om `themeId` of `themeRole="main"` vragen.
+- Theme file writes vereisen Shopify theme file write access/exemption naast `write_themes`; ontbreekt die, dan is dat een onboarding/app-permission issue en geen retrybare Liquid-fout.
+- Nieuwe sections: eerst plannen met `plan-theme-edit`; schrijven met `create-theme-section` of `draft-theme-artifact mode="create"`.
+- Bestaande single-file edit: `search-theme-files` -> `get-theme-file` -> `patch-theme-file` of `draft-theme-artifact mode="edit"`.
+- Native product-blocks, theme blocks en template placement starten met `plan-theme-edit`; schrijf daarna alleen de exact voorgestelde bestanden.
+- `create-theme-section` is niet bedoeld om bestaande section-bestanden te wijzigen. Refinements op bestaande files horen via edit-mode of patch flow.
+- Templates en config zijn alleen toegestaan in `mode="edit"` en krijgen JSON/JSONC-validatie.
+- Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.
+- `layout/theme.liquid` mag `content_for_header` en `content_for_layout` nooit verliezen.
+- Screenshot-only replica's zonder losse bronassets mogen renderbare demo-media of een gestileerde media shell gebruiken; expliciete bronmedia blijft strenger.
 
-## Externe waarheid
-Deze audit is expliciet getoetst aan externe documentatie:
+## Claimgrens
+- De MCP kan ChatGPT, Claude en andere MCP-clients tools geven om store- en theme-taken gericht uit te voeren wanneer de client remote MCP met bearer token of API key ondersteunt.
+- De MCP garandeert geen pixel-perfect theme output in één poging. De pipeline verhoogt betrouwbaarheid met planning, compact reads, linting, schema-validatie, verify-after-write en repair responses.
+- Financiële en destructieve acties blijven confirmation-gated.
+- Live plaatsing van sections in templates gebeurt alleen op expliciete gebruikersvraag en op hetzelfde gekozen theme.
 
-- Shopify Liquid docs bevestigen dat Liquid niet wordt gerenderd binnen `{% stylesheet %}` en `{% javascript %}`.
-  Bron: <https://shopify.dev/docs/api/liquid/tags/stylesheet>, <https://shopify.dev/docs/api/liquid/tags/javascript>
-- Shopify Liquid docs bevestigen dat `block.shopify_attributes` editor-data-attributen levert en buiten de theme editor geen waarde teruggeeft.
-  Bron: <https://shopify.dev/docs/api/liquid/objects/block>
-- Shopify Liquid docs bevestigen dat Shopify-images canoniek via `image_url` plus `image_tag` horen te lopen, dat `image_url` een expliciete `width` of `height` verwacht, en dat `image_tag` standaard width/height-attributen mee kan geven.
-  Bron: <https://shopify.dev/docs/api/liquid/filters/image_url>, <https://shopify.dev/docs/api/liquid/filters/image_tag>
-- Shopify Liquid docs bevestigen dat `content_for 'blocks'` de aangewezen renderzone is voor theme blocks en dat `content_for 'block'` een statisch block van een gegeven type/id rendert.
-  Bron: <https://shopify.dev/docs/api/liquid/tags/content_for>
-- Shopify theme docs bevestigen dat snippets via `render` named parameters ontvangen, buiten de theme editor blijven, en dat LiquidDoc parameter-validatie en toolfeedback toevoegt voor snippets en blocks.
-  Bron: <https://shopify.dev/docs/storefronts/themes/architecture/snippets>, <https://shopify.dev/docs/storefronts/themes/tools/liquid-doc>
-- Shopify theme docs bevestigen dat sections en theme blocks app/theme blocks ondersteunen via generieke schema entries zoals `{ "type": "@app" }` en `{ "type": "@theme" }`, plus `content_for 'blocks'` of `{% render block %}` voor rendering.
-  Bron: <https://shopify.dev/docs/storefronts/themes/architecture/blocks/app-blocks>, <https://shopify.dev/docs/storefronts/themes/architecture/blocks>, <https://shopify.dev/docs/storefronts/themes/architecture/blocks/ai-generated-theme-blocks>
-- Shopify Liquid docs bevestigen dat `section.id` dynamisch kan zijn voor JSON-template sections.
-  Bron: <https://shopify.dev/docs/api/liquid/objects/section>
-- Shopify Admin docs bevestigen dat alleen `ThemeRole.MAIN` uniek is.
-  Bron: <https://shopify.dev/docs/api/admin-graphql/latest/enums/ThemeRole>
-- Shopify Admin docs bevestigen dat `FulfillmentOrder` reads expliciete fulfillment-order read scopes vereisen, waaronder `read_merchant_managed_fulfillment_orders` voor merchant-managed locaties.
-  Bron: <https://shopify.dev/docs/api/admin-graphql/latest/objects/FulfillmentOrder>
-- Shopify Admin docs bevestigen dat Admin API requests een geldige Shopify access token vereisen via `X-Shopify-Access-Token`, en dat custom apps gemaakt in Shopify Admin in Shopify Admin worden geauthenticeerd.
-  Bron: <https://shopify.dev/docs/api/admin-graphql/latest>
-- Shopify Admin docs bevestigen dat `productCreate` alleen de initiële variant ondersteunt en dat extra varianten via `productVariantsBulkCreate` horen te lopen.
-  Bron: <https://shopify.dev/docs/api/admin-graphql/latest/mutations/productVariantsBulkCreate>
-- Shopify Admin docs bevestigen dat `refundCreate` in `2026-04` een verplichte `@idempotent` directive vereist.
-  Bron: <https://shopify.dev/docs/api/admin-graphql/latest/mutations/refundCreate>
-- Context7 voor de MCP TypeScript SDK bevestigt dat tool-level failures als `isError: true` moeten worden teruggegeven en dat output-schema-validatie dan wordt overgeslagen.
-  Bron: `/modelcontextprotocol/typescript-sdk`, docs `server.md` en `client.md`
-- Context7 voor de MCP TypeScript SDK bevestigt dat Host-header validatie hoort bij DNS-rebinding bescherming voor HTTP MCP servers.
-  Bron: `/modelcontextprotocol/typescript-sdk`, package middleware docs
+## Actuele Open Punten
+- Een echte read-only MCP smoke-token is nog nodig om live te bewijzen dat write-tools met alleen `mcp:tools:read` worden geweigerd. De code en tests borgen dit al; de productie-smoke vereist aparte credential-aanmaak.
+- Na merge en Railway redeploy moeten deployment metadata, `npm run smoke:prod` en Railway logs bevestigen dat direct Node de oude `npm warn config production` runtime-startwaarschuwing heeft verwijderd.
+- `@shopify/theme-check-node` kan upstream nog een `punycode` waarschuwing tonen wanneer de lint-route wordt geladen. Dat is geen startup- of toolcontractblocker; monitoren blijft genoeg zolang er geen tool failure ontstaat.
 
-## Huidige hoofdconclusie
-De remote MCP is nu het sterkst op de theme/section-stack. `plan-theme-edit`, `create-theme-section`, `patch-theme-file` en `draft-theme-artifact` vormen samen een serieus geharde pipeline met planner-memory, verplichte reads, lokale inspectie, linting en verify-after-write.
+## Code Map
+- MCP entry en auth gates: `apps/hazify-mcp-remote/src/index.js`
+- Toolregistry en contracts: `apps/hazify-mcp-remote/src/tools/registry.js`
+- Theme planning/writes: `apps/hazify-mcp-remote/src/tools/planThemeEdit.js`, `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`, `apps/hazify-mcp-remote/src/tools/createThemeSection.js`, `apps/hazify-mcp-remote/src/tools/applyThemeDraft.js`
+- Theme resolving en read/write helpers: `apps/hazify-mcp-remote/src/lib/themeFiles.js`
+- OAuth scope utilities: `packages/mcp-common/src/index.js` plus Railway mirrors
+- Shopify required scopes: `packages/shopify-core/src/index.js` plus Railway mirrors
+- License onboarding en token routes: `apps/hazify-license-service/src/server.js`, `apps/hazify-license-service/src/routes/*`
+- Railway startup: `railway.json`, `scripts/start-service.mjs`
 
-De grootste resterende risico’s zitten nu vooral in:
-- semantische layout- en archetype-fidelity buiten de nu geharde media-first/full-bleed hero-familie, vooral voor blocks/native product renderer-varianten en bredere theme-wrapper situaties
-- validators die wrapper-, media-slot- en Theme Editor-contracten nog niet overal hard genoeg afdwingen buiten de nu geharde hero-, prompt-only review/video/PDP-, exact review/comparison- en strikte video/theme-block checks
-- toekomstige audit- en docs-drift buiten de nu bewaakte kernwaarheden
-- niet-blokkerende Railway hygiene-signalen zoals `npm warn config production`; de remote gebruikt nu een native-fetch Shopify GraphQL client en laadt `@shopify/theme-check-node` lazy zodat de oude `graphql-request`/`cross-fetch` en theme-check dependency routes docs/build/startup niet meer onnodig raken
-
-De acht review findings van 2026-04-25 zijn lokaal opgelost en gedocumenteerd:
-- onbekende MCP scopes krijgen geen full-access fallback
-- alias-tools worden tegen aliasnaam én canonieke toolnaam gegated
-- `apply-theme-draft` valideert `theme_drafts.shop_domain` tegen de request-shop
-- verify-after-write mismatch/missing/error blokkeert `preview_ready` en apply-succes
-- non-main `themeRole` mag niet role-only resolven; gebruik `themeId`
-- fulfillment-order read scope is toegevoegd aan de vereiste Shopify scopes
-- introspection resource/audience wordt gebonden aan de publieke MCP resource
-- custom-app onboarding stuurt merchant-created apps primair naar Admin API access token in plaats van niet-bestaande redirect URLs
-
-## Fase-1 auditinventaris voor Shopify theme generation
-Deze inventaris legt de actuele fase-1 audit structureel vast voor vervolgwerk. Het doel is niet om elk bestand uitputtend te documenteren, maar om de relevante theme-tooling en verantwoordelijkheden helder te groeperen.
-
-### Screenshot-interpretatie en archetype-selectie
-- `apps/hazify-mcp-remote/src/lib/themeSectionContext.js`
-  - inferentie van `category`, `sectionBlueprint.archetype`, reference signals, theme wrapper hints en scale guardrails
-- `apps/hazify-mcp-remote/src/lib/themePlanning.js`
-  - vertaalt template/section/snippet-analyse naar `recommendedFlow`, `nextReadKeys`, `nextWriteKeys`, `sectionBlueprint` en planner-handoff
-- `apps/hazify-mcp-remote/src/tools/planThemeEdit.js`
-  - publieke planner-ingang voor `new_section`, `existing_edit`, `native_block` en `template_placement`
-
-### Section-creatie, editflow en guarded writes
-- `apps/hazify-mcp-remote/src/tools/createThemeSection.js`
-  - nieuwe standalone sections, planner-memory, exact required reads, veilige create->edit follow-up recovery
-- `apps/hazify-mcp-remote/src/tools/patchThemeFile.js`
-  - kleine single-file literal patches met exacte anchor- en readvereisten
-- `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
-  - kern van create/edit inspectie, preview-write, schema/Liquid/media checks en verify-after-write
-
-### Block- en native-block flows
-- `apps/hazify-mcp-remote/src/lib/themePlanning.js`
-  - detectie van section block loops, snippet renderers, `@theme`/`content_for 'blocks'` routes en multi-file noodzaak
-- `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
-  - validatie van related schema refs, native block renderer contracts, block media safety en `blocks/*.liquid` eisen
-
-### Schema-, Liquid- en Theme Editor-validatie
-- `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
-  - verplichte schema fields
-  - range-validatie en step-count limieten
-  - raw `<img>` checks
-  - blank-safe optionele media
-  - exact-match fidelity checks
-  - Theme Editor warnings rond `block.shopify_attributes`
-
-### Read/search/preview/apply infrastructuur
-- `apps/hazify-mcp-remote/src/lib/themeReadHydration.js`
-- `apps/hazify-mcp-remote/src/lib/themeEditMemory.js`
-- `apps/hazify-mcp-remote/src/lib/themeFiles.js`
-- `apps/hazify-mcp-remote/src/tools/getThemeFile.js`
-- `apps/hazify-mcp-remote/src/tools/getThemeFiles.js`
-- `apps/hazify-mcp-remote/src/tools/searchThemeFiles.js`
-- `apps/hazify-mcp-remote/src/tools/verifyThemeFiles.js`
-- `apps/hazify-mcp-remote/src/tools/applyThemeDraft.js`
-
-## Fase-1 confirmed issues en structurele gaten
-### Architectuur en screenshot-interpretatie
-- Fase 1 identificeerde het ontbreken van first-class hero-archetypen voor:
-  - `hero_media_first_overlay`
-  - `hero_split_layout`
-  - `hero_boxed_shell`
-  - `hero_full_bleed_media`
-- Die plannerlaag is nu hersteld: `themeSectionContext` en `plan-theme-edit` onderscheiden deze archetypen nu expliciet en geven daarnaast `layoutContract` plus `themeWrapperStrategy` mee in `sectionBlueprint` en `plannerHandoff`.
-- Theme conventions en section archetypes zijn nog niet scherp genoeg losgetrokken:
-  - theme conventions bepalen welke wrappers/helpers/classes beschikbaar zijn
-  - het archetype bepaalt of de outer shell full-bleed, boxed, split-layout of media-first hoort te zijn
-- Die scheiding is in de planner nu expliciet gemaakt via aparte blueprintlagen voor shell/media-architectuur versus wrapper/helper-mirroring.
-- Batch B heeft nu harde validatorguardrails toegevoegd voor exacte media-first heroes die onterecht een outer `.container` of `page-width` krijgen.
-- Batch B heeft nu ook harde validatorchecks voor exacte media-first heroes waarbij fallback-media en merchant-uploaded media niet exact hetzelfde primaire media-slot en dezelfde wrapper-hiërarchie delen.
-- De pre-Batch-E hero-wrapper hardening trekt die lijn nu ook contractmatiger door:
-  - `requiresThemeWrapperMirror` wordt niet meer vanuit representatieve `heroLike` afgeleid voor media-first/full-bleed heroes
-  - prompt-only en screenshot-driven unboxed hero-shells houden hun outer media bounds
-  - validators blokkeren nu ook “effectively boxed media” wanneer theme wrappers de media-shell alsnog omsluiten
-
-### Shopify / schema / Liquid / Theme Editor
-- Range settings met te veel discrete stappen blijven een echte foutklasse in gegenereerde output; de validator onderschept dit nu wel.
-- Missende `label`-velden in section/block settings blijven een echte foutklasse in gegenereerde output; de validator onderschept dit nu wel.
-- Raw `<img>` in plaats van `image_url | image_tag` blijft inhoudelijk een generation risk. Batch B blokkeert nu ook raw Shopify-media `<img>` wanneer de src via `image_url`/`img_url` uit Liquid komt, ook als width/height al aanwezig zijn.
-- Ontbrekende `block.shopify_attributes` is niet langer alleen warning-only in de relevante section/snippet block-render contexts; Batch B maakt dit daar nu een harde validatorfail.
-- `video_url` versus `video` is nu strikter: hosted `<video>`/`video_tag` markup met alleen schema type `video_url` faalt hard, terwijl externe embedflows met `video_url` wel toegestaan blijven.
-- Wrapper/helper-logica is aantoonbaar minder asymmetrisch voor exacte media-first heroes, maar buiten die flows blijft wrapper-correctheid deels theme-aware guidance.
-
-### Validatiegaten
-- Exacte media-first hero-validatie dekt nu hard af:
-  - media-first versus split-layout DOM-mismatch
-  - onterechte outer `page-width` / `.container`
-  - een media-shell die alsnog boxed raakt door een inner `page-width`, `container` of `section-properties` wrapper
-  - gedeeld media-slot tussen fallback en uploaded image
-- Batch E tranche 1 dekt daar nu aanvullend hard af:
-  - `video_section` / `video_slider` met externe embeds zonder `video_url`
-  - `blocks/*.liquid` zonder `block.shopify_attributes`
-  - `blocks/*.liquid` zonder renderbare block-markup
-  - exacte review/comparison replicas zonder bounded shell of zonder inner card/panel surface
-- Batch E tranche 2 dekt daar nu aanvullend hard af:
-  - prompt-only review/testimonial sections zonder review-signalen, herhaalbare review cards, rating/quote-signalen of card/panel surface
-  - prompt-only video sections zonder merchant-editable `video`/`video_url` setting of blank-safe renderpad
-  - prompt-only PDP/product sections zonder productbron of commerce action/helper
-- Wat nog niet universeel hard afgedwongen is:
-  - het volledige `media layer -> overlay layer -> content layer` contract buiten exacte media-first/reference-driven flows
-  - bredere background-media versus inline-image checks voor generieke prompt-only hero/video generation
-  - volwaardige native product-block renderer-contracten voor alle theme-architecturen buiten de huidige schema/snippet/block-wrapper checks
-- De acceptatiesuite bewijst nog geen echte full-bleed media-first hero. De huidige exact-reference fixture blijft een boxed split-shell voorbeeld.
-
-## Fase-1 validatorstatus: sterk versus nog niet afgedwongen
-### Al sterk afgedekt
-- verplichte schema fields zoals `label`, `type`, `id`, `name` en `content`
-- range bounds, step-alignment, te veel stappen en te weinig stappen
-- blank-safe optionele `image_picker`, `video` en `video_url` rendering
-- precision-first exact-match checks voor decoratieve anchors, sterren, vergelijking-iconografie, viewport parity, nav buttons en double-shells
-- native-block schema/snippet drift en `@theme` block-route validatie
-
-### Nog niet hard genoeg
-- first-class hero/media archetype-correctheid buiten exact-match/reference-driven media-first flows
-- volledige `media layer -> overlay layer -> content layer` contractvalidatie buiten exacte hero/media-fixes
-- archetype-aware wrapperregels voor bredere native-block en theme-wrapper varianten
-- volwaardige PDP/native-block renderer-contracten buiten de huidige schema- en block-wrapperchecks
-
-## Concrete Shopify/theme fouten die fase 1 expliciet heeft bevestigd
-- Productieruntime op Railway toonde op 2026-04-22 onder meer:
-  - `sections/video-trust-header.liquid.schema.settings.overlay_opacity.label`
-  - `section.settings.image_right_offset`
-  - gecombineerde `ImgWidthAndHeight` en `ValidSchema` issues op `sections/jordy-header.liquid`
-- De test- en code-audit bevestigt daarnaast structureel:
-  - `block.shopify_attributes` was warning-only in fase 1 en is in Batch B nu hard fail gemaakt voor relevante section/snippet block-renderers
-  - hero-archetype-collapsing naar `hero_banner` was een reële plannerfout in fase 1 en is nu op plannerniveau afgedekt met first-class hero-archetypen
-  - raw Shopify-media `<img>` met width/height glipte in fase 1 nog door en wordt nu in Batch B hard geblokkeerd wanneer de src via `image_url`/`img_url` uit Liquid komt
-  - acceptance coverage zonder echte media-first full-bleed hero-case
-
-## Structurele regels voor vervolgwerk
-Deze regels zijn na fase 1 expliciet leidend als referentie voor verdere implementatie, ook waar de code ze nog niet volledig afdwingt.
-
-- Een hero-screenshot met content links en media visueel rechts mag niet automatisch naar split-layout degraderen.
-- Voor media-first heroes hoort de canonieke architectuur te zijn:
-  - hero shell
-  - media layer
-  - overlay layer
-  - content layer
-- Fallback en uploaded image moeten hetzelfde media-slot delen.
-- Full-width hero shells mogen niet blind in `.container` of `page-width` terechtkomen.
-- Theme wrappers/helpers moeten theme-aware worden toegepast zonder het section archetype te breken.
-- Dezelfde foutklassen moeten niet alleen voor hero’s, maar ook voor review sections, video sections, blocks, prompt-only generation en bestaande edits worden beoordeeld.
-
-## Wat al aantoonbaar goed werkt
-- De server is registry-first opgezet met centrale tooldefinities, outputschema’s en aliassen in `apps/hazify-mcp-remote/src/tools/registry.js`.
-- De runtime doet centrale auth/scope-gating en hydrateert Shopify lazy in `apps/hazify-mcp-remote/src/index.js`.
-- `plan-theme-edit` geeft bruikbare handoff-data terug, inclusief `plannerHandoff`, `nextReadKeys`, `writeTool` en `sectionBlueprint`.
-- `plan-theme-edit` en `themeSectionContext` onderscheiden nu ook first-class hero-archetypen voor `hero_media_first_overlay`, `hero_split_layout`, `hero_boxed_shell` en `hero_full_bleed_media`, inclusief aparte `layoutContract`- en `themeWrapperStrategy`-lagen in `sectionBlueprint` en `plannerHandoff`.
-- Batch C heeft daar nu ook een expliciete change-scope classifier bovenop gezet: `micro_patch`, `bounded_rewrite`, `multi_file_structural_edit` en `net_new_generation`, inclusief `preferredWriteMode` en `diagnosticTargets` in plannerresultaten en `plannerHandoff`.
-- Batch D heeft de readflow nu strikter metadata-first gemaakt:
-  - `get-theme-file` hydrateert zonder expliciete `includeContent` alleen nog content voor exacte planner-required single-file reads
-  - `get-theme-files` hydrateert alleen nog automatisch content wanneer de gevraagde keyset exact overeenkomt met de planner `nextReadKeys`
-  - metadata-only batch-reads strippen defensief `value`, `attachment` en `url`
-- Batch D maakt de planner ook tokenzuiniger:
-  - surgical existing-edits lezen niet meer standaard renderer-snippets volledig in
-  - templatekeuze gebeurt eerst metadata-first; alleen het gekozen template wordt daarna met content gehydrateerd
-  - compacte snippet-search overfetcht minder agressief dan voorheen
-- De pre-Batch-E hero-wrapper hardening voegt daar geen extra read-cost aan toe:
-  - de hero-shell-familie wordt afgeleid uit bestaande plannerinput (`query`, `archetype`, `qualityTarget`)
-  - de nieuwe boxed-media-shell validator werkt volledig op lokaal gegenereerde Liquid/CSS-markup en gebruikt geen extra theme reads
-- Batch D heeft daarnaast de full-content read-memory strakker gemaakt:
-  - verlopen volledige filecontent wordt actief uit `themeEditMemory` opgeschoond
-  - full-content reads krijgen een kortere TTL dan algemene flow-memory, standaard ongeveer 45 minuten via `HAZIFY_MCP_THEME_EDIT_MEMORY_CONTENT_TTL_MS`
-- Shopify Dev MCP en Context7 bevestigen deze richting:
-  - Shopify theme-surfaces zoals `sections`, `snippets`, `blocks` en `templates` zijn aparte implementatie-oppervlakken en hoeven dus niet standaard allemaal full-content mee in één plannerpass
-  - de MCP SDK-richtlijn blijft metadata/`structuredContent`-first voor tooloutputs; grote filebodies horen alleen mee te komen wanneer een vervolgstap daar echt op leunt
-- Batch E tranche 1 blijft tokenzuinig binnen die lijn:
-  - non-hero shell-families (`bounded_card_shell`, `media_surface`, `commerce_scaffold`) worden uit bestaande plannerinput afgeleid in plaats van uit extra theme reads
-  - de nieuwe review/video/block validatorchecks werken volledig op het pre-write artifact en niet via extra theme-hydration
-- Batch E tranche 2 blijft ook tokenzuinig:
-  - `promptContract` wordt afgeleid uit de bestaande prompt/archetype/context en reist mee in `sectionBlueprint` en `plannerHandoff`
-  - de nieuwe prompt-only review/video/PDP validatorchecks inspecteren alleen het pre-write artifact en doen geen extra Shopify theme reads
-- `plan-theme-edit` geeft voor native-block flows nu ook architectuur terug in `plannerHandoff`, zoals `primarySectionFile`, `usesThemeBlocks`, `snippetRendererKeys` en `hasBlockShopifyAttributes`.
-- `create-theme-section` kan verplichte planner-reads zelf hydrateren en kan alleen in een smalle, bewezen vervolgsituatie create veilig omzetten naar edit.
-- `patch-theme-file` is nu de feitelijke kleine existing-edit route voor exacte single-file fixes.
-- `patch-theme-file` geeft bij scope-fouten en ambigue/no-match anchors nu ook machine-leesbare repairdata terug, waaronder `changeScope`, `preferredWriteMode`, `diagnosticTargets` en een concrete `alternativeNextArgsTemplates.patchRetry`.
-- `draft-theme-artifact` bevat sterke preflight-guardrails voor delimiterfouten, schema-validatie, range-defaults, step-alignment, presets, richtext defaults, `color_scheme`-compatibiliteit, parser-onveilige JS/Liquid-mixen en verify-after-write.
-- `draft-theme-artifact` classificeert patch- en rewrite-failures nu ook explicieter voor small-patch flows: responses leiden `changeScope`, `preferredWriteMode` en `diagnosticTargets` af uit errors, next args en plannercontext, zodat vervolgpatches minder heuristisch hoeven te gokken.
-- De delimiter-preflight is nu ook embedded-code-safe: bare `}}` of `%}` uit inline CSS/JS, zoals keyframes of compacte animaties, veroorzaken niet langer vals-positieve `inspection_failed_liquid_delimiter_balance` fouten, terwijl echte ongesloten Liquid-openers in dezelfde blokken wel blijven falen.
-- De planner behandelt constrained responsive edits op bestaande files nu strikter als patch-flow: prompts zoals “alleen op mobiel”, “desktop ongewijzigd” en “behoud bestaande animatie” sturen niet meer onnodig naar een rewrite.
-- Exact-match review/trustpilot replica’s herkennen nu desktop/mobile references robuuster, spiegelen wrapper-signalen ook wanneer het doeltheme vooral via `section-properties` werkt, en markeren dubbele outer shells niet meer alleen voor comparison tables maar ook voor bounded review/card-composities.
-- Theme-scale inspectie gebruikt nu naast losse maxima ook een composietdruk op font-size, padding, gaps en sticky compositie, zodat sections die “net overal iets te groot” zijn niet meer onterecht door de create-flow glippen.
-- Decoratieve inline SVG-iconen zoals sterren en quote marks veroorzaken niet meer standaard een generieke `image_picker` warning; alleen echte image/video/resource-markup telt daar nu nog voor mee.
-- `draft-theme-artifact` controleert native-block snippets nu ook tegen het gerelateerde section-schema: nieuwe block types en `block.settings.*` refs moeten echt bestaan, onveilige optionele block-media worden teruggestuurd, `@theme`/`content_for 'blocks'` routes vereisen een echt `blocks/*.liquid` bestand, en `@app`/`@theme` blocks in section-schema’s worden nu Shopify-conform niet meer onterecht op `name` afgekeurd.
-- Screenshot- en reference-driven flows zijn inhoudelijk veel sterker dan eerder: de planner en validator begrijpen nu precision-first signalen zoals decoratieve anchors, media shells, responsive parity en screenshot-only fallbackstrategieën, en de suite bewijst nu ook volledige screenshot-only en image-backed create/writes over vier archetypes.
-- De huidige lokale verificatie is groen: `npm run release:preflight` slaagt op 2026-04-25 inclusief `check:docs`, `check:repo`, build, workspace-tests en `test:e2e`. Daarbovenop bewijzen de gerichte Batch D-regressies dat planner-aware metadata-reads, exact-match batch hydration en de slankere existing-edit planning blijven werken.
-- Shopify Dev MCP `validate_theme` heeft daarnaast representatieve tijdelijke theme-fixtures groen gevalideerd voor zowel section/snippet exact-reference flows als native-block files (`sections/main-product.liquid`, `snippets/product-info.liquid`, `blocks/review-badge.liquid`).
-- Tool-level domeinfouten worden nu als echte MCP tool errors teruggegeven: `apps/hazify-mcp-remote/src/index.js` leidt `isError` direct af van `success === false`, conform de MCP SDK-richtlijn.
-- Theme reads/searches/verifies doen geen stille `main`-fallback meer; zonder expliciet of sticky bevestigd target komt nu een gedeelde `explicit_theme_target_required` repair response terug.
-- `refund-order` gebruikt nu `refundCreate(input: $input) @idempotent(key: $idempotencyKey)` en genereert deterministische idempotency keys wanneer de client er geen meestuurt.
-- `update-product` weigert de oude no-op velden `collectionsToJoin`, `collectionsToLeave` en `redirectNewHandle`.
-- `update-order` schrijft geen tracking meer via `tracking`, `customAttributes` of `metafields`; de tool stuurt callers nu gestructureerd naar `set-order-tracking` of `update-fulfillment-tracking`.
-- `get-order-by-id` houdt fulfillments als bron van waarheid en zet legacy tracking-signalen alleen nog in een expliciet gedepricieerde read-only substructuur.
-- `delete-product` en `delete-product-variants` schrijven nu een persistente auditlog naar PostgreSQL en geven `auditLogId`, `requestId`, `tenantId`, `shopDomain` en target IDs terug.
-- `clone-product-from-url` accepteert in eerste import-pass alleen nog `DRAFT` of `ARCHIVED`.
-- Non-theme Shopify `userErrors` worden nu in de tool-laag genormaliseerd naar `success=false`, `status="shopify_user_error"` en concrete `errors[]` met `path`, `problem` en `fixSuggestion`. Daarmee kunnen MCP-clients dezelfde toolcall herstellen zonder dat een Shopify validatiefout als protocol-/runtimecrash eindigt.
-- `get-order-by-id` en `update-fulfillment-tracking` starten niet meer met een inmiddels ongeldige `fulfillments(first: ...){ nodes }` query. De actuele lijstvorm is lokaal geregressietest en met Shopify Dev MCP gevalideerd.
-- `get-supported-tracking-companies` is nu contractmatig gelijkgetrokken met de andere kritieke tools via een expliciet output schema.
-- Prompt-only review/video/PDP generation heeft nu een eigen contractlaag. De planner classificeert review/testimonial prompts als `review_section` of `review_slider`, PDP/product prompts als `pdp_section`, en video prompts als `video_section` of `video_slider`. De validator faalt vóór preview-write wanneer de gegenereerde section generiek blijft, video zonder bron/renderpad schrijft of PDP-commerce zonder echte productbron faked.
-- Gerichte Batch E tranche 2 verificatie is groen: `node --test apps/hazify-mcp-remote/tests/themePlanning.test.mjs`, `node --test apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`, `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs` en `node --test apps/hazify-mcp-remote/tests/crossThemeAcceptanceMatrix.test.mjs`.
-- Host-header hardening is groen via `node apps/hazify-mcp-remote/tests/mcpHttpAuth.test.mjs`; een request met `Host: evil.example` wordt vóór auth afgewezen als JSON-RPC `Invalid Host`.
-- Gerichte verificatie op 2026-04-25 is groen: `node --test apps/hazify-mcp-remote/tests/toolHardening.test.mjs`, `node --test apps/hazify-mcp-remote/tests/toolRegistry.test.mjs`, `node --test apps/hazify-mcp-remote/tests/runtimeExecutionBehavior.test.mjs`, `node --test apps/hazify-mcp-remote/tests/remediation.test.mjs`, Shopify Dev MCP GraphQL-validatie, `npm run smoke:prod` en daarna de volledige `npm run release:preflight`.
-
-## Productiebewijs uit Railway
-De laatste gecontroleerde productie-deploy van `Hazify-MCP-Remote` is `aea4e656-b98b-4427-b833-a70e28c0e9e4` op 2026-04-26. Voor `Hazify-License-Service` is de laatste gecontroleerde success-deploy `94bb86f2-cb3a-4726-93e2-661b144f7d04` op 2026-04-26.
-
-De logs laten een realistisch beeld zien:
-- de planner-, read- en write-pipeline wordt actief gebruikt op echte shops
-- de validator blokkeert daadwerkelijk fouten zoals `inspection_failed_liquid_delimiter_balance`
-- schemafouten zoals ongeldige range-defaults worden daadwerkelijk onderschept
-- er komen nog echte parse- en schemafouten terug op section-creatie en op bestaande product-sections
-- Railway bevestigde op 2026-04-22 ook een echte bestaande-section foutketen op `sections/hero-v1.liquid`: eerst `inspection_failed_truncated`, daarna `inspection_failed_liquid_delimiter_balance`. Dat incident is lokaal gereproduceerd en nu afgedekt met regressies voor mobile-only CSS-patches op bestaande sections met inline animatie-CSS.
-
-Conclusie uit productie: de pipeline grijpt wel degelijk in en de huidige live Railway runtime van `Hazify-MCP-Remote` en `Hazify-License-Service` sluit aan op de lokale remediation van 2026-04-26 voor Batch H auth, tenant-isolatie, theme-draft apply en documentatiewaarheid. De productie-smoke van 2026-04-26 bevestigt daarnaast dat de eerder gemelde `Hazify-License-Service /health -> 502` geen actuele publieke blocker meer is. Authenticated MCP read-smoke is live groen; alleen de optionele write-scope gate vereist nog een aparte read-only smoke-token.
-
-## Open blockers
-Geen bekende P1/P2 codeblockers na Batch H en de huidige smoke/docs hardening.
-
-Credential- en ops-afhankelijke acties:
-- Read-only write-scope gate live uitvoeren met `HAZIFY_MCP_SMOKE_READ_ONLY_TOKEN`. De authenticated read-smoke met productie-token is groen; de write-scope gate moet bewust met een read-only token worden getest.
-- Railway start-hygiene blijven monitoren. `npm warn config production Use --omit=dev instead` komt uit de runtime/env-startconfig en is geen functionele blocker. De remote gebruikt nu native `fetch` voor Shopify GraphQL en `@shopify/theme-check-node` wordt lazy geladen, zodat docs/build/startup de oude `graphql-request`/`cross-fetch` en theme-check warningroutes niet meer direct activeren.
-- Wanneer de lint-route `@shopify/theme-check-node` echt uitvoert, kan de upstream Shopify dependency nog steeds een `punycode` deprecation tonen. Dat is geen startup- of docs-generatiepad meer, maar blijft een upstream hygiene-signaal om te monitoren bij dependency-updates.
-- Brede semantische section-perfectie blijft bewust een claimgrens, geen huidige blocker: nieuwe archetypes moeten per theme-familie met acceptatiebewijs worden toegevoegd voordat we universele perfectie claimen.
-
-## Wat we nu nog niet eerlijk mogen claimen
-We mogen nu nog niet claimen dat:
-
-- elke MCP-client automatisch perfecte sections kan maken op elk Shopify 2.0 theme
-- screenshot- of image-driven replica’s op elk willekeurig Shopify 2.0 theme universeel exact en zonder handmatige nabehandeling slagen
-- alle non-theme tools volledig contractvast en audit-proof zijn voor elke edgecase
-
-De reden is niet dat de pipeline zwak is, maar dat "perfect op elk theme" nog steeds een grotere claim is dan het huidige acceptatiebewijs. De publieke en authenticated read-smoke zijn nu rond; verdere eerlijkheid zit vooral in het scherp houden van de claimgrenzen.
-
-## Wanneer we wél mogen claimen dat LLMs “perfecte sections” kunnen maken
-Deze claim is pas verantwoord zodra alle onderstaande gates groen zijn:
-
-1. `Protocol gate`
-   Alle tool-level domeinfouten komen als `isError: true` terug, zodat ChatGPT, Claude en andere clients zichzelf correct kunnen herstellen.
-
-2. `Theme target gate`
-   Geen enkele theme read/search/verify/write doet nog een stille fallback naar live `main` als de gebruiker geen expliciet `themeId` of `themeRole` heeft opgegeven.
-
-3. `Prompt-only section gate`
-   Een gewone tekstprompt zonder referentiebeeld moet op meerdere theme-archetypes een volledige, merchant-editable section opleveren die `preview_ready` haalt zonder handmatige code-edit.
-
-4. `Screenshot-only replica gate`
-   Een prompt met alleen een referentiescreenshot moet een section kunnen genereren die compositie, hiërarchie, spacing, anchors en responsief gedrag trouw volgt, ook als er geen losse bron-assets zijn.
-
-5. `Image-backed exact-match gate`
-   Een prompt met duidelijke referentie-afbeeldingen of assets moet een precision-first write opleveren die visueel en structureel dicht genoeg bij de referentie zit om zonder handmatige codefix te previewen en inhoudelijk te accepteren.
-
-6. `Existing-edit gate`
-   Bestaande section- en snippet-edits moeten met `search -> exact read -> patch/write` op alle ondersteunde themes zonder truncatie- of anchor-drift werken.
-
-7. `Native block gate`
-   Product-page blocks in snippet-zware themes moeten met dezelfde betrouwbaarheid slagen als standalone sections.
-
-8. `Placement gate`
-   Expliciete placement in `templates/*.json` of `templates/*.liquid` moet alleen op verzoek gebeuren, syntactisch geldig blijven voor het betreffende template-type, en hetzelfde expliciete theme-target behouden.
-
-9. `Merchant-editability gate`
-   Nieuwe sections en blocks moeten niet alleen renderen, maar ook zinvolle settings, veilige defaults en correcte Theme Editor-interactie bieden.
-
-10. `Cross-theme gate`
-    De hele matrix moet bewezen zijn op minimaal deze archetypes:
-    - een Dawn-achtig standaard 2.0 theme
-    - een wrapper-zwaar premium theme
-    - een snippet-zwaar producttheme
-    - een theme met veel app blocks / editor-complexiteit
-
-11. `Production gate`
-    Railway-logs mogen na de fixes geen terugkerend patroon meer tonen van dezelfde parse-, schema- of target-fouten voor deze flows.
-
-## Verplichte fixtracks
-### 1. Protocolcorrectheid
-Status: afgerond op 2026-04-22.
-- Corrigeer `isError`-gedrag in `apps/hazify-mcp-remote/src/index.js`.
-- Voeg regressietests toe die afdwingen dat domeinfouten via MCP-resultaten als fouten terugkomen, niet als succes.
-
-### 2. Strikt theme-targeting
-Status: afgerond op 2026-04-22.
-- Verwijder de impliciete `main`-fallback uit read/search/verify-routes.
-- Retourneer in plaats daarvan een gestructureerde repair response die de client dwingt eerst een theme te kiezen.
-- Laat alleen expliciet meegegeven `themeRole="main"` of `themeId` toe.
-
-### 3. Theme-validator pariteit
-Status: afgerond lokaal op 2026-04-22.
-- Trek snippet-inspectie richting section/block-inspectie.
-- Voeg extra checks toe voor snippet-zware native block flows, Theme Editor-contracten, resource guards en precision-first fidelity-signalen.
-- Maak van echte productiefouten uit Railway vaste regressietests.
-- Native-block planning stuurt nu ook compacter: helper-snippets zonder `section.blocks`-renderer vallen uit de eerste read-pass, de planner geeft compacte search-anchors terug en de write-template is patch-first in plaats van full-rewrite-first.
-
-### 4. Cross-theme acceptatiesuite
-Status: afgerond lokaal op 2026-04-22.
-- Bouw een vaste acceptatiematrix voor prompt-only, screenshot-only, image-backed exact-match, existing-edit, native-block en template-placement flows.
-- Meet niet alleen `preview_ready`, maar ook inhoudelijke kwaliteit, merchant-editability en theme-target-correctheid.
-- De native-block acceptance-route bewijst nu expliciet `plan-theme-edit -> search-theme-files -> draft-theme-artifact patches[]`, inclusief server-side auto-hydratie van planner-reads zonder verplichte full `get-theme-files` dump.
-
-### 5. Non-theme contract cleanup
-Status: afgerond op 2026-04-22; aangevuld op 2026-04-25.
-- Maak `refund-order` conform de actuele Shopify GraphQL-shape met idempotency.
-- Verwijder of implementeer de extra `update-product` velden echt.
-- Bouw legacy tracking in `update-order` af of maak het expliciet opt-in met duidelijke deprecation-output.
-- Maak audit-redenen bij destructieve product-acties duurzaam zichtbaar.
-- Blokkeer `clone-product-from-url` op `ACTIVE` totdat mediaverificatie aantoonbaar klaar is.
-- Verwijder de voorspelbare GraphQL schema-drift rond `Order.fulfillments` door de actuele lijstvorm primair te gebruiken.
-- Geef Shopify `userErrors` uit non-theme mutaties terug als gestructureerde MCP tool-fouten (`success=false`), niet als generieke runtime exceptions.
-- Geef ook contextvrije helpertools zoals `get-supported-tracking-companies` een expliciet outputcontract.
-
-### 6. Docs en waarheidshygiëne
-- Maak dit document leidend voor open blockers en acceptatiecriteria.
-- Behandel `docs/05-REMEDIATION-PLAN.md` als voortgangs- en release-log en niet als definitieve auditwaarheid.
-- Trek `docs/03-THEME-SECTION-GENERATION.md`, `apps/hazify-mcp-remote/README.md` en gegenereerde tooldocs na elke gedragswijziging meteen gelijk.
-
-## Minimale testuitbreidingen
-De recente suite dekt nu:
-
-- domeinfouten die `result.isError === true` moeten opleveren
-- read/search/verify zonder expliciet of sticky theme-target
-- een geldige `refundCreate @idempotent` mutation-shape
-- het weigeren van oude `update-product` contractvelden
-- het blokkeren van `ACTIVE` in `clone-product-from-url`
-- persistente auditlogging voor destructieve productacties
-
-Optionele extra bewijslaag:
-
-- een live read-only write-scope gate met een expliciete read-only production token, bovenop de anonieme well-known, `/mcp` en authenticated read-smoke die nu al groen zijn. De gate ondersteunt dit via `HAZIFY_MCP_SMOKE_READ_ONLY_TOKEN`; zet `HAZIFY_REQUIRE_WRITE_SCOPE_GATE=true` om ontbreken van die token hard te laten falen.
-
-## Werkwijze voor volgende fixes
-Gebruik dit document als auditbron, en gebruik `docs/05-REMEDIATION-PLAN.md` voor voortgang, release-gates en live bevestiging.
-
-De aanbevolen uitvoervolgorde is:
-1. protocolcorrectheid
-2. theme-target-strictness
-3. snippet/native-block parity
-4. cross-theme acceptance suite
-5. non-theme contract cleanup
-6. docs-sync en productie-observability
-
-## Onderhoudsregel
-Als code en deze audit elkaar tegenspreken, is de code leidend. Werk deze audit dan in dezelfde wijziging bij, zodat de repo één actuele bron van waarheid houdt.
+## Acceptatiecriteria
+- `npm run check:docs`
+- `npm run check:repo`
+- `npm run release:preflight`
+- `npm audit --omit=dev`
+- `npm run smoke:prod` na deploy
+- Railway deploy metadata en logs controleren voor beide services wanneer runtime of shared packages zijn geraakt.

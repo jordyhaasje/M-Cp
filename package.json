@@ -21,8 +21,8 @@
     "test": "npm run -ws --if-present test && npm run test:e2e",
     "test:e2e": "node tests/e2e/contract.test.mjs && node apps/hazify-license-service/tests/account-license-binding.test.mjs && node apps/hazify-license-service/tests/signup-auto-active-license.test.mjs",
     "start": "node scripts/start-service.mjs",
-    "start:license": "npm run --workspace @hazify/license-service start",
-    "start:mcp": "npm run --workspace @hazify/mcp-remote build && npm run --workspace @hazify/mcp-remote start:remote",
+    "start:license": "HAZIFY_SERVICE_MODE=license node scripts/start-service.mjs",
+    "start:mcp": "HAZIFY_SERVICE_MODE=mcp node scripts/start-service.mjs",
     "railway:link:mcp": "railway link -p Hazify-MCP-Remote -e production -s Hazify-MCP-Remote",
     "railway:link:license": "railway link -p Hazify-License-Service -e production -s Hazify-License-Service"
   },

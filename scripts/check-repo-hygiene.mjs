@@ -20,6 +20,12 @@ const requiredDirs = [
   ".github",
 ];
 
+const requiredFiles = [
+  "package.json",
+  "railway.json",
+  "scripts/start-service.mjs",
+];
+
 const forbiddenRootDirs = ["archive", "templates"];
 const forbiddenRepoDirs = ["apps/hazify-license-service/data"];
 const forbiddenRepoFiles = [
@@ -108,6 +114,11 @@ async function listRelativeFiles(dirPath, baseDir = dirPath) {
   return files.sort();
 }
 
+async function readJsonFile(filePath) {
+  const content = await fs.readFile(path.join(repoRoot, filePath), "utf8");
+  return JSON.parse(content);
+}
+
 async function compareMirrorContents(canonicalDir, mirrorDir) {
   const [canonicalFiles, mirrorFiles] = await Promise.all([
     listRelativeFiles(canonicalDir),
@@ -148,6 +159,41 @@ async function main() {
   for (const dir of requiredDirs) {
     if (!(await pathExists(dir))) {
       problems.push(`verplichte map ontbreekt: ${dir}`);
+    }
+  }
+
+  for (const file of requiredFiles) {
+    if (!(await pathExists(file))) {
+      problems.push(`verplicht bestand ontbreekt: ${file}`);
+    }
+  }
+
+  if (await pathExists("package.json")) {
+    const rootPackage = await readJsonFile("package.json");
+    const expectedRootScripts = {
+      start: "node scripts/start-service.mjs",
+      "start:mcp": "HAZIFY_SERVICE_MODE=mcp node scripts/start-service.mjs",
+      "start:license": "HAZIFY_SERVICE_MODE=license node scripts/start-service.mjs",
+    };
+
+    for (const [scriptName, expectedCommand] of Object.entries(expectedRootScripts)) {
+      if (rootPackage.scripts?.[scriptName] !== expectedCommand) {
+        problems.push(`root package script '${scriptName}' moet direct via start-service draaien`);
+      }
+    }
+  }
+
+  if (await pathExists("railway.json")) {
+    const railwayConfig = await readJsonFile("railway.json");
+    if (railwayConfig.deploy?.startCommand !== "node scripts/start-service.mjs") {
+      problems.push("railway.json moet deploy.startCommand='node scripts/start-service.mjs' gebruiken");
+    }
+  }
+
+  if (await pathExists("scripts/start-service.mjs")) {
+    const startScript = await fs.readFile(path.join(repoRoot, "scripts/start-service.mjs"), "utf8");
+    if (/\bnpm\s+run\b/.test(startScript)) {
+      problems.push("scripts/start-service.mjs mag runtime niet via geneste 'npm run' starten");
     }
   }
 
