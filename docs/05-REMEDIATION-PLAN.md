@@ -466,7 +466,7 @@ Afgeronde uitkomst:
 - publieke productie-smoke op 2026-04-25 is groen voor License Service health/bootstrap en MCP metadata/anonieme auth-check; authenticated MCP tool-smoke blijft apart open
 
 ### Batch H — Auth, Tenant Isolation en Repo Truth
-Status: `completed lokaal`
+Status: `completed lokaal, live read-smoke groen`
 Prioriteit: `P1/P2`
 
 Doel:

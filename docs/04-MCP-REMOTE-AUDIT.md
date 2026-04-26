@@ -2,8 +2,8 @@
 Doelgroep: maintainers, developers en coding agents.
 
 Status: levende audit en bron van waarheid voor de actuele MCP-toolingstatus.
-Versie: 2026-04-25.
-Laatst geverifieerd: 2026-04-25.
+Versie: 2026-04-26.
+Laatst geverifieerd: 2026-04-26.
 
 Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve samenvatting; de detailsecties blijven beschikbaar als achtergrond en moeten altijd aansluiten op code of recente productieobservatie.
 
