@@ -213,6 +213,25 @@ try {
     "public DCR clients should not receive a client_secret"
   );
 
+  const invalidMcpScopeRegisterResponse = await fetch(`${baseUrl}/oauth/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_name: "OAuth Invalid Scope Client",
+      redirect_uris: ["http://127.0.0.1:4460/callback"],
+      scope: "mcp:admin",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+    }),
+  });
+  assert.equal(
+    invalidMcpScopeRegisterResponse.status,
+    400,
+    "DCR should reject unknown mcp:* scopes instead of normalizing to full access"
+  );
+  const invalidMcpScopeRegisterBody = await invalidMcpScopeRegisterResponse.json();
+  assert.equal(invalidMcpScopeRegisterBody.error, "invalid_client_metadata");
+
   const publicVerifier = "pkce-verifier-public-default-1234567890-pkce-verifier-public-default-1234567890";
   const publicChallenge = pkceChallenge(publicVerifier);
   const publicAuthorize = await fetch(`${baseUrl}/oauth/authorize`, {

@@ -15,7 +15,7 @@ import {
 } from "./_themeTargeting.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
-const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
+const ThemeRoleSchema = z.enum(["main"]);
 const ScopeBucketSchema = z.enum(["templates", "sections", "snippets", "assets", "config", "locales"]);
 
 const scopeBucketPatterns = {
@@ -33,9 +33,9 @@ const SearchThemeFilesPublicObjectSchema = z
     mode: z.enum(["literal", "regex"]).optional(),
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     theme_id: z.coerce.number().int().positive().optional().describe("Compat alias van themeId voor generieke wrappers."),
-    themeRole: ThemeRoleSchema.optional().describe("Expliciete theme role. Vereist tenzij dezelfde flow al eerder expliciet een theme target bevestigde."),
-    theme_role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers."),
-    role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers."),
+    themeRole: ThemeRoleSchema.optional().describe("Expliciete theme role. Alleen 'main' is role-only toegestaan; gebruik themeId voor development/unpublished/demo themes."),
+    theme_role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers. Alleen 'main' is role-only toegestaan."),
+    role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers. Alleen 'main' is role-only toegestaan."),
     keys: z.array(z.string().min(1)).min(1).max(10).optional().describe("Exacte file keys om compact binnen al bekende planner-output te zoeken."),
     filePatterns: z.array(z.string().min(1)).max(20).optional().describe("Glob patterns to filter files."),
     file_patterns: z.array(z.string().min(1)).max(20).optional().describe("Compat alias van filePatterns voor generieke wrappers."),
@@ -58,7 +58,7 @@ const SearchThemeFilesShape = z
     query: z.string().min(1).describe("Literal text or regex pattern to search for"),
     mode: z.enum(["literal", "regex"]).default("literal"),
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-    themeRole: ThemeRoleSchema.optional().describe("Expliciete theme role. Vereist tenzij dezelfde flow al eerder expliciet een theme target bevestigde."),
+    themeRole: ThemeRoleSchema.optional().describe("Expliciete theme role. Alleen 'main' is role-only toegestaan; gebruik themeId voor development/unpublished/demo themes."),
     keys: z.array(z.string().min(1)).min(1).max(10).optional().describe("Exacte file keys om compact binnen al bekende planner-output te zoeken, bijvoorbeeld ['sections/main-product.liquid', 'snippets/product-info.liquid']."),
     filePatterns: z.array(z.string().min(1)).max(20).optional().describe("Glob patterns to filter files (bijv. ['*.liquid', 'assets/*']). Gebruik filePatterns of scope om de zoekruimte smal te houden."),
     scope: z.array(ScopeBucketSchema).min(1).max(4).optional().describe("JE BENT VERPLICHT scope OF filePatterns TE GEBRUIKEN. MOET EEN ARRAY ZIJN (e.g. ['sections']). Absoluut GEEN losse string."),

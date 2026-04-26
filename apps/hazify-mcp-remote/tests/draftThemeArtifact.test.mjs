@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { applyThemeDraft } from "../src/tools/applyThemeDraft.js";
 import { draftThemeArtifact } from "../src/tools/draftThemeArtifact.js";
 import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
+import { createThemeDraftRecord } from "../src/lib/db.js";
 import {
   clearThemeEditMemory,
   rememberThemePlan,
@@ -100,8 +101,10 @@ function createThemeFileFetchMock({
   initialValue,
   themeIdFallback = 111,
   existing = true,
+  verifyValueOverride,
 }) {
   let storedValue = initialValue;
+  let storedExists = Boolean(existing);
 
   return {
     getValue: () => storedValue,
@@ -133,15 +136,20 @@ function createThemeFileFetchMock({
         updatedAt: "2026-04-02T00:00:00Z",
       };
 
-      const fileNode = (includeContent) => ({
-        filename: key,
-        checksumMd5: checksumMd5Base64(storedValue),
-        contentType: "application/x-liquid",
-        createdAt: "2026-04-02T00:00:00Z",
-        updatedAt: "2026-04-02T00:00:00Z",
-        size: Buffer.byteLength(storedValue, "utf8"),
-        ...(includeContent ? { body: { content: storedValue } } : {}),
-      });
+      const fileNode = (includeContent) => {
+        const value = !includeContent && verifyValueOverride !== undefined
+          ? verifyValueOverride
+          : storedValue;
+        return {
+          filename: key,
+          checksumMd5: checksumMd5Base64(value),
+          contentType: "application/x-liquid",
+          createdAt: "2026-04-02T00:00:00Z",
+          updatedAt: "2026-04-02T00:00:00Z",
+          size: Buffer.byteLength(value, "utf8"),
+          ...(includeContent ? { body: { content: storedValue } } : {}),
+        };
+      };
 
       if (query.includes("ThemeById")) {
         return jsonGraphqlResponse({ data: { theme } });
@@ -153,7 +161,7 @@ function createThemeFileFetchMock({
             theme: {
               ...theme,
               files: {
-                nodes: existing ? [fileNode(true)] : [],
+                nodes: storedExists ? [fileNode(true)] : [],
                 userErrors: [],
               },
             },
@@ -167,7 +175,7 @@ function createThemeFileFetchMock({
             theme: {
               ...theme,
               files: {
-                nodes: existing ? [fileNode(false)] : [],
+                nodes: storedExists ? [fileNode(false)] : [],
                 userErrors: [],
               },
             },
@@ -177,6 +185,7 @@ function createThemeFileFetchMock({
 
       if (query.includes("ThemeFilesUpsert")) {
         storedValue = payload.variables.files[0].body.value;
+        storedExists = true;
         return jsonGraphqlResponse({
           data: {
             themeFilesUpsert: {
@@ -7758,6 +7767,7 @@ test("draftThemeArtifact - accepts commented json templates in edit mode", async
   };
 
   const originalFetch = global.fetch;
+  let storedValue = "/* existing */ { \"sections\": {}, \"order\": [] }";
   global.fetch = async (url, options = {}) => {
     const payload = options.body ? JSON.parse(String(options.body)) : {};
     const query = String(payload.query || "");
@@ -7781,6 +7791,7 @@ test("draftThemeArtifact - accepts commented json templates in edit mode", async
     }
 
     if (query.includes("ThemeFilesUpsert")) {
+      storedValue = payload.variables?.files?.[0]?.body?.value || storedValue;
       const resPayload = {
         data: {
           themeFilesUpsert: {
@@ -7794,7 +7805,7 @@ test("draftThemeArtifact - accepts commented json templates in edit mode", async
     }
 
     if (query.includes("ThemeFilesByIdMetadata")) {
-      const value = "/* existing */ { \"sections\": {}, \"order\": [] }";
+      const value = storedValue;
       const resPayload = {
         data: {
           theme: {
@@ -8173,6 +8184,54 @@ test("draftThemeArtifact - success when linter passes (pushes directly to chosen
   }
 });
 
+test("draftThemeArtifact - fails preview when verify-after-write does not match", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const originalFetch = global.fetch;
+  const themeFileMock = createThemeFileFetchMock({
+    key: "sections/verify-mismatch.liquid",
+    initialValue: "",
+    existing: false,
+    verifyValueOverride: goodSectionLiquid.replace("Hello", "Changed after write"),
+  });
+  global.fetch = themeFileMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        files: [
+          {
+            key: "sections/verify-mismatch.liquid",
+            value: goodSectionLiquid,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "preview_failed");
+    assert.equal(result.errorCode, "preview_verify_failed");
+    assert.ok(result.draft?.verifySummary?.mismatch >= 1);
+    assert.ok(
+      result.errors?.some((entry) => entry.key === "sections/verify-mismatch.liquid"),
+      "verify failures should be returned as structured errors"
+    );
+    assert.match(result.message, /verificatie niet overeen/i);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("draftThemeArtifact - warns when a valid create payload is likely still a minimal scaffold", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -8386,6 +8445,42 @@ test("applyThemeDraft - applies an existing draft to an explicit target theme", 
   }
 });
 
+test("applyThemeDraft - rejects drafts from another Shopify shop", async () => {
+  const draftRecord = await createThemeDraftRecord({
+    shopDomain: "shop-a.myshopify.com",
+    status: "preview_applied",
+    previewThemeId: 111,
+    files: [{ key: "sections/good-file.liquid", value: goodSectionLiquid }],
+  });
+
+  const result = await applyThemeDraft.execute(
+    applyThemeDraft.schema.parse({
+      draftId: draftRecord.id,
+      themeId: 222,
+      confirmation: "APPLY_THEME_DRAFT",
+      reason: "Attempt cross-shop apply",
+    }),
+    {
+      shopifyClient: {
+        url: "https://shop-b.myshopify.com/admin/api/2026-01/graphql.json",
+        requestConfig: {
+          headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+        },
+        session: { shop: "shop-b.myshopify.com" },
+        request: async () => {
+          throw new Error("should not call Shopify for cross-shop drafts");
+        },
+      },
+    }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "draft_shop_mismatch");
+  assert.equal(result.errorCode, "theme_draft_shop_mismatch");
+  assert.equal(result.retryable, false);
+  assert.match(result.errors?.[0]?.problem || "", /shop-a\.myshopify\.com.*shop-b\.myshopify\.com/i);
+});
+
 test("applyThemeDraft - requires an explicit target theme", async () => {
   const result = await applyThemeDraft.execute(
     applyThemeDraft.schema.parse({
@@ -8409,6 +8504,141 @@ test("applyThemeDraft - requires an explicit target theme", async () => {
   assert.equal(result.success, false);
   assert.equal(result.errorCode, "missing_apply_theme_target");
   assert.equal(result.nextTool, "apply-theme-draft");
+});
+
+test("applyThemeDraft - fails apply when verify-after-write does not match", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {},
+  };
+
+  const originalFetch = global.fetch;
+  const storedValues = new Map();
+  global.fetch = async (_url, options = {}) => {
+    const stringUrl = String(_url || "");
+    const restThemeMatch = stringUrl.match(/\/themes\/(\d+)\.json$/);
+    if (restThemeMatch) {
+      const numericThemeId = Number(restThemeMatch[1] || 111);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          theme: {
+            id: numericThemeId,
+            name: numericThemeId === 222 ? "Main Theme" : "Dev Theme",
+            role: numericThemeId === 222 ? "main" : "development",
+          },
+        }),
+        text: async () => "{}",
+      };
+    }
+
+    const payload = options.body ? JSON.parse(String(options.body)) : {};
+    const query = String(payload.query || "");
+    const themeId = String(payload.variables?.themeId || "");
+    const numericThemeId = Number(themeId.match(/\/(\d+)$/)?.[1] || 111);
+
+    if (query.includes("ThemeById")) {
+      const resPayload = {
+        data: {
+          theme: {
+            id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+            name: numericThemeId === 222 ? "Main Theme" : "Dev Theme",
+            role: numericThemeId === 222 ? "MAIN" : "DEVELOPMENT",
+            processing: false,
+            createdAt: "2026-04-02T00:00:00Z",
+            updatedAt: "2026-04-02T00:00:00Z",
+          },
+        },
+      };
+      return jsonGraphqlResponse(resPayload);
+    }
+
+    if (query.includes("ThemeFilesUpsert")) {
+      const nextValue = payload.variables?.files?.[0]?.body?.value || goodSectionLiquid;
+      storedValues.set(numericThemeId, nextValue);
+      return jsonGraphqlResponse({
+        data: {
+          themeFilesUpsert: {
+            upsertedThemeFiles: [{ filename: "sections/good-file.liquid" }],
+            job: { id: "gid://shopify/Job/4" },
+            userErrors: [],
+          },
+        },
+      });
+    }
+
+    if (query.includes("ThemeFilesByIdMetadata")) {
+      const storedValue = storedValues.get(numericThemeId) || null;
+      const value =
+        numericThemeId === 222 && storedValue
+          ? storedValue.replace("Hello", "Changed after apply")
+          : storedValue;
+      return jsonGraphqlResponse({
+        data: {
+          theme: {
+            id: `gid://shopify/OnlineStoreTheme/${numericThemeId}`,
+            name: numericThemeId === 222 ? "Main Theme" : "Dev Theme",
+            role: numericThemeId === 222 ? "MAIN" : "DEVELOPMENT",
+            processing: false,
+            createdAt: "2026-04-02T00:00:00Z",
+            updatedAt: "2026-04-02T00:00:00Z",
+            files: {
+              nodes: value
+                ? [
+                    {
+                      filename: "sections/good-file.liquid",
+                      checksumMd5: checksumMd5Base64(value),
+                      contentType: "text/plain",
+                      createdAt: "2026-04-02T00:00:00Z",
+                      updatedAt: "2026-04-02T00:00:00Z",
+                      size: Buffer.byteLength(value, "utf8"),
+                    },
+                  ]
+                : [],
+              userErrors: [],
+            },
+          },
+        },
+      });
+    }
+
+    throw new Error(`Unexpected GraphQL query in applyThemeDraft verify mismatch test: ${query}`);
+  };
+
+  try {
+    const draftResult = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "create",
+        themeId: 111,
+        files: [{ key: "sections/good-file.liquid", value: goodSectionLiquid }],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+    assert.equal(draftResult.success, true, "preview draft must be created before apply verify test");
+
+    const result = await applyThemeDraft.execute(
+      applyThemeDraft.schema.parse({
+        draftId: draftResult.draftId,
+        themeId: 222,
+        confirmation: "APPLY_THEME_DRAFT",
+        reason: "Validate apply verify mismatch",
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "apply_failed");
+    assert.equal(result.errorCode, "apply_verify_failed");
+    assert.ok(result.verify.summary.mismatch >= 1);
+    assert.match(result.message, /Verify-after-write/i);
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
 
 test("applyThemeDraft - returns a structured failure when Shopify apply does not write files", async () => {

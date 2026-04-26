@@ -24,6 +24,7 @@ Deze audit is bewust compact gehouden. Onderstaande statusregels zijn de actieve
 - Groen: Batch E tranche 2 is lokaal afgerond voor prompt-only review/video/PDP flows. `plan-theme-edit` geeft nu `promptContract` requirements mee voor review cards/rating, video source/renderpad en PDP productbron/commerce action; `create-theme-section` draagt die contracten door; `draft-theme-artifact` blokkeert generieke of fake-output vóór preview-write.
 - Groen: non-theme contract cleanup is aangescherpt voor refunds, product-contracten, tracking-redirects, destructieve auditsporen en eerste productimports.
 - Groen: de Remote MCP gebruikt nu de MCP SDK `allowedHosts` Host-header validatie, afgeleid uit `HAZIFY_MCP_PUBLIC_URL`, Railway public domain envs en optioneel `HAZIFY_MCP_ALLOWED_HOSTS`. De eerdere `0.0.0.0` zonder DNS-rebinding bescherming waarschuwing is in de nieuwste deployment verdwenen.
+- Groen lokaal: Batch H hardent auth en tenant-isolatie. Onbekende MCP scopes falen dicht, OAuth resource/audience wordt met de publieke `/mcp` resource vergeleken, alias-tools erven canonieke entitlements, theme drafts zijn shop-gebonden bij apply, verify-mismatch blokkeert preview/apply, en role-only theme targets zijn beperkt tot `main`.
 - Groen: de license-service herkent Railway-productie nu expliciet, valideert verplichte productie-envs hard en beschermt backup-export/smoke checks beter zonder startup op Railway te blokkeren wanneer backup-export bewust niet is geconfigureerd.
 - Groen: `Hazify-MCP-Remote` is opnieuw live gedeployed via Railway deployment `06a69e4e-5505-47fc-95a4-931122a926a7` op 2026-04-25. Build en runtime-logreview zijn gezond, en de publieke MCP endpoints (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, anonieme `POST /mcp -> 401`) antwoorden correct.
 - Geel: authenticated production MCP tool smoke vereist nog een expliciet productie-token. De publieke productie-smoke is groen, maar echte `tools/list` en `tools/call` met live tenant-token zijn nog niet opnieuw bevestigd voor deze wijzigingsset.
@@ -63,12 +64,18 @@ Deze audit is expliciet getoetst aan externe documentatie:
   Bron: <https://shopify.dev/docs/api/liquid/objects/section>
 - Shopify Admin docs bevestigen dat alleen `ThemeRole.MAIN` uniek is.
   Bron: <https://shopify.dev/docs/api/admin-graphql/latest/enums/ThemeRole>
+- Shopify Admin docs bevestigen dat `FulfillmentOrder` reads expliciete fulfillment-order read scopes vereisen, waaronder `read_merchant_managed_fulfillment_orders` voor merchant-managed locaties.
+  Bron: <https://shopify.dev/docs/api/admin-graphql/latest/objects/FulfillmentOrder>
+- Shopify Admin docs bevestigen dat Admin API requests een geldige Shopify access token vereisen via `X-Shopify-Access-Token`, en dat custom apps gemaakt in Shopify Admin in Shopify Admin worden geauthenticeerd.
+  Bron: <https://shopify.dev/docs/api/admin-graphql/latest>
 - Shopify Admin docs bevestigen dat `productCreate` alleen de initiële variant ondersteunt en dat extra varianten via `productVariantsBulkCreate` horen te lopen.
   Bron: <https://shopify.dev/docs/api/admin-graphql/latest/mutations/productVariantsBulkCreate>
 - Shopify Admin docs bevestigen dat `refundCreate` in `2026-04` een verplichte `@idempotent` directive vereist.
   Bron: <https://shopify.dev/docs/api/admin-graphql/latest/mutations/refundCreate>
 - Context7 voor de MCP TypeScript SDK bevestigt dat tool-level failures als `isError: true` moeten worden teruggegeven en dat output-schema-validatie dan wordt overgeslagen.
   Bron: `/modelcontextprotocol/typescript-sdk`, docs `server.md` en `client.md`
+- Context7 voor de MCP TypeScript SDK bevestigt dat Host-header validatie hoort bij DNS-rebinding bescherming voor HTTP MCP servers.
+  Bron: `/modelcontextprotocol/typescript-sdk`, package middleware docs
 
 ## Huidige hoofdconclusie
 De remote MCP is nu het sterkst op de theme/section-stack. `plan-theme-edit`, `create-theme-section`, `patch-theme-file` en `draft-theme-artifact` vormen samen een serieus geharde pipeline met planner-memory, verplichte reads, lokale inspectie, linting en verify-after-write.
@@ -78,6 +85,16 @@ De grootste resterende risico’s zitten nu vooral in:
 - validators die wrapper-, media-slot- en Theme Editor-contracten nog niet overal hard genoeg afdwingen buiten de nu geharde hero-, prompt-only review/video/PDP-, exact review/comparison- en strikte video/theme-block checks
 - audit- en docs-drift buiten de auto-gesynchroniseerde toolcatalogus
 - niet-blokkerende Railway hygiene-signalen zoals `punycode` deprecation en `npm warn config production`
+
+De acht review findings van 2026-04-25 zijn lokaal opgelost en gedocumenteerd:
+- onbekende MCP scopes krijgen geen full-access fallback
+- alias-tools worden tegen aliasnaam én canonieke toolnaam gegated
+- `apply-theme-draft` valideert `theme_drafts.shop_domain` tegen de request-shop
+- verify-after-write mismatch/missing/error blokkeert `preview_ready` en apply-succes
+- non-main `themeRole` mag niet role-only resolven; gebruik `themeId`
+- fulfillment-order read scope is toegevoegd aan de vereiste Shopify scopes
+- introspection resource/audience wordt gebonden aan de publieke MCP resource
+- custom-app onboarding stuurt merchant-created apps primair naar Admin API access token in plaats van niet-bestaande redirect URLs
 
 ## Fase-1 auditinventaris voor Shopify theme generation
 Deze inventaris legt de actuele fase-1 audit structureel vast voor vervolgwerk. Het doel is niet om elk bestand uitputtend te documenteren, maar om de relevante theme-tooling en verantwoordelijkheden helder te groeperen.

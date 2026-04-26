@@ -11,7 +11,7 @@ import {
 } from "./_themeTargeting.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
-const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
+const ThemeRoleSchema = z.enum(["main"]);
 
 const normalizeGetThemeFileInput = (rawInput) => {
   if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
@@ -32,9 +32,9 @@ const GetThemeFilePublicObjectSchema = z
   .object({
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     theme_id: z.coerce.number().int().positive().optional().describe("Compat alias van themeId voor generieke wrappers."),
-    themeRole: ThemeRoleSchema.optional().describe("Expliciete theme role. Vereist tenzij dezelfde flow al eerder expliciet een theme target bevestigde."),
-    theme_role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers."),
-    role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers."),
+    themeRole: ThemeRoleSchema.optional().describe("Expliciete theme role. Alleen 'main' is role-only toegestaan; gebruik themeId voor development/unpublished/demo themes."),
+    theme_role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers. Alleen 'main' is role-only toegestaan."),
+    role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers. Alleen 'main' is role-only toegestaan."),
     key: z.string().min(1).optional().describe("Theme file key, e.g. sections/hero.liquid"),
     filename: z.string().min(1).optional().describe("Compat alias van key voor generieke wrappers."),
     includeContent: z.boolean().optional().describe("Include file content (value/attachment) in response"),

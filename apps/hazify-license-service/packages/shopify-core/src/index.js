@@ -6,6 +6,7 @@ const DEFAULT_REQUIRED_SCOPES = [
   "read_orders",
   "write_orders",
   "read_fulfillments",
+  "read_merchant_managed_fulfillment_orders",
   "read_inventory",
   "write_merchant_managed_fulfillment_orders",
   "read_themes",

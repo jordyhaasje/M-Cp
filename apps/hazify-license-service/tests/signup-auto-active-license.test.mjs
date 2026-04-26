@@ -46,6 +46,7 @@ global.fetch = async (input, init = {}) => {
       "write_orders",
       "read_fulfillments",
       "read_inventory",
+      "read_merchant_managed_fulfillment_orders",
       "write_merchant_managed_fulfillment_orders",
       "read_themes",
       "write_themes",

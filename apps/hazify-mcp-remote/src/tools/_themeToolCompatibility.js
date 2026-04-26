@@ -35,16 +35,6 @@ export function inferThemeTargetFromSummary(input, summary) {
     /\b(?:live|main)(?:\s*\/\s*main)?\s+theme\b/.test(text) ||
     /\btheme\s+(?:is|=|:)?\s*(?:live|main)\b/.test(text) ||
     /\btheme(?:\s+role)?\s*(?:is|=|:)?\s*main\b/.test(text);
-  const referencesDevelopmentTheme =
-    /\bdevelopment\s+theme\b/.test(text) ||
-    /\btheme(?:\s+role)?\s*(?:is|=|:)?\s*development\b/.test(text);
-  const referencesUnpublishedTheme =
-    /\b(?:preview|unpublished)\s+theme\b/.test(text) ||
-    /\btheme(?:\s+role)?\s*(?:is|=|:)?\s*unpublished\b/.test(text);
-  const referencesDemoTheme =
-    /\bdemo\s+theme\b/.test(text) ||
-    /\btheme(?:\s+role)?\s*(?:is|=|:)?\s*demo\b/.test(text);
-
   if (!next.themeId) {
     const themeIdMatch = summary.match(/\btheme(?:\s*id)?\s*[:#]?\s*(\d{6,})\b/i);
     if (themeIdMatch) {
@@ -55,12 +45,6 @@ export function inferThemeTargetFromSummary(input, summary) {
   if (!next.themeRole) {
     if (referencesMainTheme) {
       next.themeRole = "main";
-    } else if (referencesDevelopmentTheme || /\bdev(?:elopment)? theme\b/.test(text)) {
-      next.themeRole = "development";
-    } else if (referencesUnpublishedTheme) {
-      next.themeRole = "unpublished";
-    } else if (referencesDemoTheme) {
-      next.themeRole = "demo";
     }
   }
 

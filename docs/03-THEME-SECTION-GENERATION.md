@@ -30,6 +30,11 @@ Deze gids beschrijft de actuele waarheid voor screenshot-driven en text-only sec
 
 De planner representeert deze requests via `intent`, `qualityTarget`, `category` en `sectionBlueprint.archetype`. De validator- en write-pipeline blijft hetzelfde: betere promptclassificatie mag nooit safety checks verzwakken.
 
+Theme-target waarheid:
+- `themeRole` zonder `themeId` is alleen toegestaan voor `main`.
+- Gebruik een exact `themeId` voor `development`, `unpublished` en `demo` themes, omdat Shopify alleen `MAIN` als uniek garandeert.
+- Compatibility summaries mogen dus wel "development theme" noemen, maar de tools mogen daar geen role-only target uit afleiden.
+
 ## Canonical Flows
 ### Screenshot replica, nieuwe section
 Gebruik wanneer de gebruiker een screenshot, referentiebeeld of termen als `exact`, `pixel-perfect`, `replica` of `match` geeft.
@@ -213,6 +218,8 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 - `draft-theme-artifact` kan `status="preview_ready"` teruggeven terwijl het doeltheme het live `main` theme is
 - Dit is geen impliciete publish-flow; het betekent dat de preview write naar het expliciet gekozen target succesvol was
 - De remote moet live-target risico expliciet blijven waarschuwen
+- `preview_ready` en `applied` betekenen dat verify-after-write matcht. Een `mismatch`, `missing` of verify-error blijft `preview_failed` of `apply_failed`.
+- `theme_drafts` zijn shop-gebonden via `shop_domain`; `apply-theme-draft` mag een draft alleen toepassen binnen dezelfde gekoppelde Shopify shop.
 
 ## Stateless Client Notes
 - Gewone chatclients zoals ChatGPT, Claude en Perplexity missen soms server-side sessiecontext tussen toolcalls

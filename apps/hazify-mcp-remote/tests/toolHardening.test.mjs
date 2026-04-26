@@ -437,6 +437,16 @@ try {
   assert.equal(planThemeEditSummaryPayload.data.intent, "native_block");
   assert.equal(planThemeEditSummaryPayload.data.template, "product");
 
+  const planThemeEditNonMainSummaryPayload = planThemeEditTool.schema.safeParse({
+    _tool_input_summary: "Zoek in het development theme naar de product snippets",
+  });
+  assert.equal(planThemeEditNonMainSummaryPayload.success, true, "non-main summary wording should stay repairable");
+  assert.equal(
+    planThemeEditNonMainSummaryPayload.data.themeRole,
+    undefined,
+    "compat summary inference must not inject ambiguous non-main theme roles"
+  );
+
   const planThemeEditBlocksInSectionPayload = planThemeEditTool.schema.safeParse({
     _tool_input_summary: "Maak een nieuwe section met drie review blocks in het live theme",
   });
@@ -449,7 +459,7 @@ try {
 
   const planThemeEditAliasPayload = planThemeEditTool.schema.safeParse({
     type: "existing_edit",
-    themeRole: "development",
+    themeId: 987654321,
     description: "Verklein de ruimte rond de buy button",
     targetFiles: ["sections/main-product.liquid"],
   });
@@ -855,7 +865,7 @@ try {
 
   const patchThemeFileReplacementsPayload = patchThemeFileTool.schema.safeParse({
     key: "sections/main-product.liquid",
-    themeRole: "development",
+    themeId: 987654321,
     replacements: [
       {
         find: "padding-top: 48px;",

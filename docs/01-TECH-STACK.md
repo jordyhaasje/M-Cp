@@ -34,6 +34,13 @@ Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazif
 - `MCP_SESSION_MODE` is standaard **`stateless`**. Stateful deployment is alleen aanbevolen met sticky sessions (`MCP_STATEFUL_DEPLOYMENT_SAFE=true`).
 - `HAZIFY_MCP_CONTEXT_TTL_MS` (standaard 120.000 ms) cachet alleen de gehydrateerde requestcontext en lazy Shopify client na succesvolle introspectie; token-introspectie zelf blijft per request gebeuren.
 
+### Shopify Admin API en custom apps
+- De runtime gebruikt Shopify Admin GraphQL via `X-Shopify-Access-Token`.
+- Voor merchant-created custom apps in de Shopify Admin is de Admin API access token het primaire onboardingpad.
+- `shopClientId` + `shopClientSecret` blijft ondersteund voor trusted app-achtige setups, maar is niet de standaardinstructie voor merchant-created custom apps.
+- Verplichte Admin API scopes volgen `REQUIRED_SHOPIFY_ADMIN_SCOPES` in `packages/shopify-core/src/index.js` en de Railway mirrors. De actuele lijst bevat onder meer `read_themes`, `write_themes`, `read_fulfillments`, `read_merchant_managed_fulfillment_orders` en `write_merchant_managed_fulfillment_orders`.
+- De fulfillment tracking tools lezen `fulfillmentOrders`; Shopify vereist daarvoor expliciete fulfillment-order read scopes. Alleen write-scope is niet genoeg.
+
 ### Remote MCP observability
 - De remote MCP logt request-level JSON events naar stdout; Railway is daarmee de primaire bron voor runtime-diagnose.
 - `mcp_http_tool_call_finished` betekent een succesvolle tool-call.

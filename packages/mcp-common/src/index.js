@@ -8,6 +8,10 @@ export const MCP_SCOPE_TOOLS_WRITE = "mcp:tools:write";
 
 const MCP_KNOWN_SCOPES = new Set([MCP_SCOPE_TOOLS, MCP_SCOPE_TOOLS_READ, MCP_SCOPE_TOOLS_WRITE]);
 
+export function isKnownMcpScope(value) {
+  return MCP_KNOWN_SCOPES.has(String(value || "").trim());
+}
+
 export function sha256Hex(value) {
   return crypto.createHash("sha256").update(String(value ?? ""), "utf8").digest("hex");
 }
@@ -45,20 +49,22 @@ export function parseSpaceSeparatedScopes(value, fallback = []) {
 }
 
 export function normalizeMcpScopeString(value, fallback = MCP_SCOPE_TOOLS) {
-  const scopes = parseSpaceSeparatedScopes(value, [fallback]).filter((scope) => MCP_KNOWN_SCOPES.has(scope));
-  if (scopes.includes(MCP_SCOPE_TOOLS)) {
+  const hasExplicitValue = typeof value === "string" && value.trim();
+  const scopes = parseSpaceSeparatedScopes(value, hasExplicitValue ? [] : [fallback]);
+  const knownScopes = scopes.filter((scope) => MCP_KNOWN_SCOPES.has(scope));
+  if (knownScopes.includes(MCP_SCOPE_TOOLS)) {
     return MCP_SCOPE_TOOLS;
   }
-  if (scopes.includes(MCP_SCOPE_TOOLS_WRITE) && !scopes.includes(MCP_SCOPE_TOOLS_READ)) {
+  if (knownScopes.includes(MCP_SCOPE_TOOLS_WRITE) && !knownScopes.includes(MCP_SCOPE_TOOLS_READ)) {
     return MCP_SCOPE_TOOLS_WRITE;
   }
-  if (scopes.includes(MCP_SCOPE_TOOLS_READ) && !scopes.includes(MCP_SCOPE_TOOLS_WRITE)) {
+  if (knownScopes.includes(MCP_SCOPE_TOOLS_READ) && !knownScopes.includes(MCP_SCOPE_TOOLS_WRITE)) {
     return MCP_SCOPE_TOOLS_READ;
   }
-  if (scopes.includes(MCP_SCOPE_TOOLS_WRITE) && scopes.includes(MCP_SCOPE_TOOLS_READ)) {
+  if (knownScopes.includes(MCP_SCOPE_TOOLS_WRITE) && knownScopes.includes(MCP_SCOPE_TOOLS_READ)) {
     return `${MCP_SCOPE_TOOLS_READ} ${MCP_SCOPE_TOOLS_WRITE}`;
   }
-  return fallback;
+  return scopes.length === 0 ? fallback : "";
 }
 
 export function getMcpScopeCapabilities(value) {

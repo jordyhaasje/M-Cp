@@ -56,6 +56,27 @@ const introspectionServer = http.createServer(async (req, res) => {
       raw += chunk.toString();
     }
     const payload = raw ? JSON.parse(raw) : {};
+    if (payload.token === "entitlement-token") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          active: true,
+          tokenId: "mcp_entitlement",
+          tenantId: "tenant_scope",
+          licenseKey: "HZY-SCOPE",
+          scope: "mcp:tools",
+          license: {
+            status: "active",
+            entitlements: { mutations: true, tools: { "set-order-tracking": false } },
+          },
+          shopify: {
+            domain: "unit-test-shop.myshopify.com",
+            authMode: "access_token",
+          },
+        })
+      );
+      return;
+    }
     if (payload.token !== "read-token") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ active: false }));
@@ -127,11 +148,15 @@ const mcpModuleUrl = `${pathToFileURL(path.resolve(testDir, "../src/index.js")).
 const mcpModule = await import(mcpModuleUrl);
 const mcpServer = mcpModule.httpServer;
 
-const headers = {
-  authorization: "Bearer read-token",
-  "content-type": "application/json",
-  accept: "application/json, text/event-stream",
-};
+  const headers = {
+    authorization: "Bearer read-token",
+    "content-type": "application/json",
+    accept: "application/json, text/event-stream",
+  };
+  const entitlementHeaders = {
+    ...headers,
+    authorization: "Bearer entitlement-token",
+  };
 
 try {
   await waitFor(`http://127.0.0.1:${mcpPort}/mcp`);
@@ -185,6 +210,36 @@ try {
   assert.match(deniedAuthHeader, /insufficient_scope/, "WWW-Authenticate should flag insufficient_scope");
   assert.match(deniedAuthHeader, /mcp:tools:write/, "WWW-Authenticate should advertise required write scope");
   assert.equal(exchangeCalls, 0, "scope enforcement should happen before Shopify token exchange");
+
+  const deniedAliasEntitlementResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+    method: "POST",
+    headers: entitlementHeaders,
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: {
+        name: "add-tracking-to-order",
+        arguments: {
+          order: "#1001",
+          trackingCode: "TRACK-CANONICAL-BLOCK",
+        },
+      },
+    }),
+  });
+  assert.ok(
+    [200, 500].includes(deniedAliasEntitlementResponse.status),
+    "alias tool should return a JSON-RPC/tool error when its canonical tool entitlement is disabled"
+  );
+  const deniedAliasEntitlementBody = await deniedAliasEntitlementResponse.json();
+  assert.match(
+    deniedAliasEntitlementBody?.error?.message ||
+      deniedAliasEntitlementBody?.result?.content?.map?.((entry) => entry?.text).join(" ") ||
+      "",
+    /set-order-tracking.*disabled by license entitlements/i,
+    "canonical entitlement failure should mention the disabled canonical tool"
+  );
+  assert.equal(exchangeCalls, 0, "canonical entitlement enforcement should happen before Shopify token exchange");
 } finally {
   await new Promise((resolve) => introspectionServer.close(resolve));
   await new Promise((resolve) => mcpServer.close(resolve));

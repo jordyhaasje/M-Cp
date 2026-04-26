@@ -2,6 +2,7 @@ import crypto from "crypto";
 import {
   MCP_SCOPE_TOOLS,
   getMcpScopeCapabilities,
+  isKnownMcpScope,
   normalizeMcpScopeString,
   parseSpaceSeparatedScopes,
 } from "@hazify/mcp-common";
@@ -277,13 +278,19 @@ export function createOAuthHandlers({
   function assertSupportedOauthScope(rawScope, fallback = MCP_SCOPE_TOOLS) {
     const rawTokens = parseSpaceSeparatedScopes(rawScope || "", [fallback]);
     const normalizedScope = normalizeOauthScope(rawTokens.join(" "), fallback);
-    const capabilities = getMcpScopeCapabilities(normalizedScope);
+    const capabilities = getMcpScopeCapabilities(rawTokens.join(" "));
     if (!capabilities.read) {
       throw new Error("Unsupported scope");
     }
-    const invalidTokens = rawTokens.filter(
-      (token) => !token.startsWith("mcp:") && !allowedAuxiliaryScopes.has(token)
-    );
+    const invalidTokens = rawTokens.filter((token) => {
+      if (allowedAuxiliaryScopes.has(token)) {
+        return false;
+      }
+      if (token.startsWith("mcp:")) {
+        return !isKnownMcpScope(token);
+      }
+      return true;
+    });
     if (invalidTokens.length > 0) {
       throw new Error("Unsupported scope");
     }

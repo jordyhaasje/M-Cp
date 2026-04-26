@@ -12,7 +12,6 @@ import {
     getMcpScopeCapabilities,
     isOriginAllowed,
     normalizeBaseUrl,
-    normalizeMcpScopeString,
     parseCommaSeparatedList,
     sha256Hex
 } from "@hazify/mcp-common";
@@ -115,14 +114,18 @@ const normalizeIsoDate = (value) => {
     return Number.isNaN(ms) ? null : new Date(ms).toISOString();
 };
 const defaultMcpScopeCapabilities = Object.freeze(getMcpScopeCapabilities(MCP_SCOPE_TOOLS));
-const evaluateRemoteLicenseAccess = (license, { toolName, mutating }) => {
+const evaluateRemoteLicenseAccess = (license, { toolName, canonicalToolName, mutating }) => {
     if (toolName === "get-license-status") {
         return { allowed: true, reason: "diagnostic tool always allowed" };
     }
     const status = typeof license?.status === "string" ? license.status : "invalid";
     const entitlements = license?.entitlements && typeof license.entitlements === "object" ? license.entitlements : {};
-    if (entitlements.tools && typeof entitlements.tools === "object" && entitlements.tools[toolName] === false) {
-        return { allowed: false, reason: `Tool '${toolName}' is disabled by license entitlements` };
+    if (entitlements.tools && typeof entitlements.tools === "object") {
+        const namesToCheck = Array.from(new Set([toolName, canonicalToolName].filter(Boolean)));
+        const disabledName = namesToCheck.find((name) => entitlements.tools[name] === false);
+        if (disabledName) {
+            return { allowed: false, reason: `Tool '${disabledName}' is disabled by license entitlements` };
+        }
     }
     if (mutating && entitlements.mutations === false) {
         return { allowed: false, reason: "Mutation tools disabled by license entitlements" };
@@ -241,7 +244,7 @@ const resolveRemoteShopifyAccessToken = async (bearerToken) => {
         clearTimeout(timeout);
     }
 };
-const resolveRemoteContext = async (bearerToken) => {
+const resolveRemoteContext = async (bearerToken, req = null) => {
     const tokenHash = sha256Hex(bearerToken);
     const cachedContext = remoteContextCache.get(tokenHash);
     const controller = new AbortController();
@@ -279,8 +282,19 @@ const resolveRemoteContext = async (bearerToken) => {
     }
     const tenantId = String(introspection.tenantId || "unknown");
     const tokenId = typeof introspection.tokenId === "string" ? introspection.tokenId : null;
-    const grantedScope = normalizeMcpScopeString(introspection?.scope || introspection?.grantedScope || "") || MCP_SCOPE_TOOLS;
+    const rawGrantedScope = String(introspection?.scope || introspection?.grantedScope || "").trim();
+    const scopeCapabilities = rawGrantedScope
+        ? getMcpScopeCapabilities(rawGrantedScope)
+        : defaultMcpScopeCapabilities;
+    const grantedScope = scopeCapabilities.normalizedScope || "";
+    if (!scopeCapabilities.read) {
+        throw new Error("Introspection response contains unsupported MCP scope");
+    }
     const targetResource = normalizeBaseUrl(introspection?.resource || introspection?.targetResource || introspection?.aud || "");
+    const expectedResource = req ? normalizeBaseUrl(resolvePublicMcpUrl(req)) : "";
+    if (targetResource && expectedResource && targetResource !== expectedResource) {
+        throw new Error("Token resource does not match this MCP resource");
+    }
     let cachedShopifyClient = null;
     if (HAZIFY_MCP_CONTEXT_TTL_MS > 0 && cachedContext && cachedContext.expiresAtMs > Date.now()) {
         const cached = cachedContext.context;
@@ -299,7 +313,7 @@ const resolveRemoteContext = async (bearerToken) => {
         shopifyDomain: domain,
         shopifyClient: cachedShopifyClient,
         grantedScope,
-        scopeCapabilities: getMcpScopeCapabilities(grantedScope),
+        scopeCapabilities,
         targetResource,
     });
     cacheRemoteContext(tokenHash, context);
@@ -477,7 +491,11 @@ async function runLicensedTool(tool, args) {
     if (mutating && !context.scopeCapabilities?.write) {
         throw createInsufficientScopeError(toolName);
     }
-    const decision = evaluateRemoteLicenseAccess(context.license, { toolName, mutating });
+    const decision = evaluateRemoteLicenseAccess(context.license, {
+        toolName,
+        canonicalToolName: tool.canonicalName,
+        mutating,
+    });
     if (!decision.allowed) {
         throw new Error(`License gate blocked '${toolName}': ${decision.reason}`);
     }
@@ -571,15 +589,24 @@ const resolveAuthServerBaseUrl = () => {
     }
     return normalizeBaseUrl(HAZIFY_MCP_INTROSPECTION_URL || "");
 };
+const firstHeaderValue = (value) => {
+    if (Array.isArray(value)) {
+        return String(value[0] || "").split(",")[0].trim();
+    }
+    return typeof value === "string" ? value.split(",")[0].trim() : "";
+};
+const isAllowedMetadataHost = (value) => {
+    const normalized = normalizeAllowedHostname(value);
+    return Boolean(normalized && HAZIFY_MCP_ALLOWED_HOSTS.includes(normalized));
+};
 const resolveRequestBaseUrl = (req) => {
-    const protoHeader = req.headers["x-forwarded-proto"];
-    const hostHeader = req.headers["x-forwarded-host"] || req.headers.host;
-    const protocol = typeof protoHeader === "string" && protoHeader.trim()
-        ? protoHeader.split(",")[0].trim()
-        : "http";
-    const host = typeof hostHeader === "string" && hostHeader.trim()
-        ? hostHeader.split(",")[0].trim()
-        : `${HTTP_HOST}:${HTTP_PORT}`;
+    const protoHeader = firstHeaderValue(req.headers["x-forwarded-proto"]);
+    const forwardedHost = firstHeaderValue(req.headers["x-forwarded-host"]);
+    const requestHost = firstHeaderValue(req.headers.host);
+    const protocol = ["http", "https"].includes(protoHeader) ? protoHeader : "http";
+    const host = forwardedHost && isAllowedMetadataHost(forwardedHost)
+        ? forwardedHost
+        : requestHost || `${HTTP_HOST}:${HTTP_PORT}`;
     return `${protocol}://${host}`;
 };
 const resolvePublicMcpUrl = (req) => {
@@ -920,7 +947,7 @@ const isRequestOriginAllowed = (req) => {
             return null;
         }
         try {
-            const resolvedContext = await resolveRemoteContext(token);
+            const resolvedContext = await resolveRemoteContext(token, req);
             return freezeExecutionContext({
                 ...resolvedContext,
                 requestId: typeof req?.hazifyRequestId === "string" ? req.hazifyRequestId : null,

@@ -20,6 +20,9 @@ npm run --workspace @hazify/mcp-remote start:remote
 - Alleen `Authorization: Bearer` of `x-api-key`
 - Query-token niet toegestaan
 - Origin allowlist check op requests met `Origin` header
+- Unknown MCP scopes falen dicht; alleen `mcp:tools`, `mcp:tools:read` en `mcp:tools:write` zijn geldig.
+- Introspection resource/audience moet matchen met de publieke MCP `/mcp` resource.
+- Tool-entitlements checken zowel de aliasnaam als de canonieke toolnaam.
 - OAuth metadata adverteert PKCE `S256`
 - MCP session mode default: `stateless` (`MCP_SESSION_MODE=stateless`)
 - `stateful` mode is opt-in en vereist sticky sessions of gedeelde session store
@@ -40,6 +43,7 @@ npm run --workspace @hazify/mcp-remote start:remote
 
 ## Theme edit flow
 - Canonical agent flow: gebruik `get-themes` alleen voor theme discovery wanneer de gebruiker nog geen expliciet `themeId` of `themeRole` heeft gegeven; daarna `plan-theme-edit` -> compacte read/preflight -> `create-theme-section` voor nieuwe sections -> optioneel aparte `mode="edit"` of `patch-theme-file` voor vervolgfixes.
+- `themeRole` zonder `themeId` is alleen veilig voor `main`. Gebruik voor `development`, `unpublished` en `demo` altijd een exact `themeId`.
 - `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact` blijft de standaardflow voor bestaande single-file theme edits.
 - `read-theme-file` en `read-theme-files` zijn veilige compat-aliassen van `get-theme-file(s)` voor clients die read-* toolnamen gokken.
 - Start voor native product-blocks, theme blocks en template placement eerst met `plan-theme-edit` op hetzelfde expliciet gekozen theme. Die planner houdt de read-scope klein en voorkomt one-file writes op themes waar de renderflow via snippets loopt.
@@ -73,6 +77,8 @@ npm run --workspace @hazify/mcp-remote start:remote
 - `get-theme-files` exposeert nu ook compat-aliassen `role` en `filenames` in het publieke MCP schema. Missende batch-paths komen terug in `missingKeys` en tellen niet als geldige content-reads voor latere writes. `includeContent` wordt alleen automatisch naar `true` gezet wanneer de gevraagde `keys` exact overeenkomen met de planner-voorgeschreven `nextReadKeys` op een compatibel theme-target.
 - Lokale create-validatie bundelt meerdere deterministische fouten in één response met machine-readable velden zoals `errorCode`, `errors[]`, `lintIssues[]`, `normalizedArgs`, `nextAction`, `retryMode`, `suggestedSchemaRewrites` en `preferSelectFor`. Operationele blockers zoals patch-anchor fouten, mixed create/edit zonder mode en preview write failures blijven fail-fast. Als zowel schema/style-inspectie als `theme-check` stuk zijn, komen die nu samen terug in dezelfde lokale preflight-response.
 - `apply-theme-draft` promoveert een eerder goedgekeurde draft alleen naar een expliciet target; er is geen write-default naar live en deze tool is niet bedoeld als eerste write van een nieuwe section. De tool vereist ook expliciet `confirmation=\"APPLY_THEME_DRAFT\"` plus een `reason`.
+- `apply-theme-draft` mag alleen drafts toepassen die bij dezelfde Shopify shop horen. Cross-shop draft IDs falen met `theme_draft_shop_mismatch`.
+- `preview_ready` en `applied` vereisen een geslaagde verify-after-write; `mismatch`, `missing` of verify-errors blijven failures.
 - `verify-theme-files` en `get-theme-file(s)` helpen bij verificatie en readback
 - Gebruik in nieuwe sections `video` voor merchant-uploaded video bestanden; `video_url` is alleen voor externe YouTube/Vimeo bronnen
 - Gebruik `color_scheme` alleen wanneer het doeltheme al globale color schemes heeft in `config/settings_schema.json` en `config/settings_data.json`

@@ -1674,8 +1674,8 @@ export function renderDashboardPage() {
                   <div class="field full">
                     <label for="connectMode">Verbindingsmethode</label>
                     <select id="connectMode" name="connectMode">
-                      <option value="client">Via app-sleutels</option>
                       <option value="token">Via admin toegangscode</option>
+                      <option value="client">Via app client credentials</option>
                     </select>
                   </div>
 
@@ -1951,8 +1951,7 @@ export function renderDashboardPage() {
         const storeCredentialLastValidatedAt = document.getElementById('storeCredentialLastValidatedAt');
 
         const logoutTopBtn = document.getElementById('logoutTopBtn');
-        const CUSTOM_APP_SCOPES = 'read_products,write_products,read_customers,write_customers,read_orders,write_orders,read_fulfillments,read_inventory,write_merchant_managed_fulfillment_orders,read_themes,write_themes';
-        const CUSTOM_APP_REDIRECTS = 'http://127.0.0.1:8787/oauth/shopify/callback\\nhttp://localhost:8787/oauth/shopify/callback';
+        const CUSTOM_APP_SCOPES = 'read_products,write_products,read_customers,write_customers,read_orders,write_orders,read_fulfillments,read_merchant_managed_fulfillment_orders,read_inventory,write_merchant_managed_fulfillment_orders,read_themes,write_themes';
         let lastSetupTrigger = null;
         let lastStoreTrigger = null;
 
@@ -2289,11 +2288,10 @@ export function renderDashboardPage() {
             return {
               client,
               title: 'Shopify Custom App setup',
-              intro: 'Gebruik deze copy-paste waarden in Shopify en sla daarna je winkel op via "Via app-sleutels".',
+              intro: 'Gebruik voor een merchant-created Shopify custom app de Admin API access token. Client credentials zijn alleen voor trusted apps die daarvoor geschikt zijn.',
               steps: [],
               formats: [
                 { key: 'scopes', label: 'Scopes (comma separated)', snippet: CUSTOM_APP_SCOPES },
-                { key: 'redirects', label: "Redirect URL's", snippet: CUSTOM_APP_REDIRECTS },
               ],
               openUrl: '',
             };

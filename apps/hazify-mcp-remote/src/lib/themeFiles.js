@@ -1031,6 +1031,11 @@ export const resolveTheme = async (
 
   const themes = await listThemes(shopifyClient, apiVersion);
   const role = normalizeThemeRole(themeRole);
+  if (role !== "main") {
+    throw new Error(
+      `themeRole '${role}' is niet eenduidig genoeg als target. Shopify garandeert alleen role 'main' als uniek; gebruik themeId voor ${role || "dit"} theme.`
+    );
+  }
   const byRole = themes.find((theme) => normalizeThemeRole(theme?.role) === role);
   if (!byRole) {
     const roles = Array.from(new Set(themes.map((theme) => normalizeThemeRole(theme?.role)).filter(Boolean)));

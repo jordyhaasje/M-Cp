@@ -56,6 +56,49 @@ const introspectionServer = http.createServer(async (req, res) => {
     }
     const payload = raw ? JSON.parse(raw) : {};
     const token = payload.token;
+    if (token === "unknown-scope-token") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          active: true,
+          tokenId: "mcp_test_unknown_scope",
+          tenantId: "tenant_scope",
+          licenseKey: "HZY-TEST",
+          scope: "mcp:admin",
+          license: {
+            status: "active",
+            entitlements: { mutations: true, tools: {} },
+          },
+          shopify: {
+            domain: "unit-test-shop.myshopify.com",
+            authMode: "access_token",
+          },
+        })
+      );
+      return;
+    }
+    if (token === "resource-mismatch-token") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          active: true,
+          tokenId: "mcp_test_resource_mismatch",
+          tenantId: "tenant_resource",
+          licenseKey: "HZY-TEST",
+          scope: "mcp:tools",
+          resource: `http://127.0.0.1:${mcpPort}/other-mcp`,
+          license: {
+            status: "active",
+            entitlements: { mutations: true, tools: {} },
+          },
+          shopify: {
+            domain: "unit-test-shop.myshopify.com",
+            authMode: "access_token",
+          },
+        })
+      );
+      return;
+    }
     if (token === "mismatch-token") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
@@ -202,6 +245,65 @@ try {
   assert.equal(missingTokenResponse.status, 401, "missing token should be unauthorized");
   const missingTokenAuthHeader = missingTokenResponse.headers.get("www-authenticate") || "";
   assert.match(missingTokenAuthHeader, /resource_metadata=/, "WWW-Authenticate should expose resource metadata");
+
+  const poisonedMetadataResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "x-forwarded-host": "evil.example",
+      "x-forwarded-proto": "https",
+    },
+    body: JSON.stringify(initializeBody),
+  });
+  assert.equal(poisonedMetadataResponse.status, 401, "missing token should remain unauthorized");
+  const poisonedAuthHeader = poisonedMetadataResponse.headers.get("www-authenticate") || "";
+  assert.equal(
+    poisonedAuthHeader.includes("evil.example"),
+    false,
+    "untrusted forwarded hosts must not poison OAuth resource metadata URLs"
+  );
+  assert.match(
+    poisonedAuthHeader,
+    new RegExp(`127\\.0\\.0\\.1:${mcpPort}`),
+    "metadata should fall back to the trusted request host"
+  );
+
+  const unknownScopeResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      authorization: "Bearer unknown-scope-token",
+      origin: `http://127.0.0.1:${mcpPort}`,
+    },
+    body: JSON.stringify(initializeBody),
+  });
+  assert.equal(unknownScopeResponse.status, 401, "unknown MCP scopes should fail closed");
+  const unknownScopeBody = await unknownScopeResponse.json();
+  assert.match(
+    unknownScopeBody?.error?.message || "",
+    /unsupported MCP scope/i,
+    "unknown scope rejection should be visible to clients"
+  );
+
+  const resourceMismatchResponse = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      authorization: "Bearer resource-mismatch-token",
+      origin: `http://127.0.0.1:${mcpPort}`,
+    },
+    body: JSON.stringify(initializeBody),
+  });
+  assert.equal(resourceMismatchResponse.status, 401, "token resource must bind to this MCP URL");
+  const resourceMismatchBody = await resourceMismatchResponse.json();
+  assert.match(
+    resourceMismatchBody?.error?.message || "",
+    /resource does not match/i,
+    "resource binding failures should be explicit"
+  );
 
   const disallowedHostResponse = await new Promise((resolve, reject) => {
     const request = http.request(

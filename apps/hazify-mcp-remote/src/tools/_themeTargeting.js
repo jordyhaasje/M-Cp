@@ -85,7 +85,7 @@ const buildExplicitThemeTargetRequiredResponse = ({
   },
   suggestedFixes: [
     "Vraag of bepaal eerst expliciet het doeltheme via get-themes.",
-    "Voeg daarna themeRole='main' of een exact themeId toe aan dezelfde call.",
+    "Voeg daarna themeRole='main' of een exact themeId toe aan dezelfde call; gebruik themeId voor development/unpublished/demo themes.",
   ],
   errors: [
     {
@@ -93,7 +93,7 @@ const buildExplicitThemeTargetRequiredResponse = ({
       problem:
         "Deze theme read/search/verify-flow kiest nooit stilzwijgend een live of default theme.",
       fixSuggestion:
-        "Voeg themeRole of themeId toe, bijvoorbeeld themeRole='main' of themeId=123456789.",
+        "Voeg themeRole='main' of een exact themeId toe, bijvoorbeeld themeId=123456789 voor development/unpublished/demo themes.",
     },
   ],
 });

@@ -39,7 +39,7 @@ Zet mode altijd expliciet op top-level. Alleen voor backwards compatibility infe
 
 Beide modes: Liquid-in-stylesheet check, theme-check linting, layout/theme.liquid bescherming.
 
-Belangrijk: themeRole of themeId is verplicht. Vraag de gebruiker welk thema als dit niet is opgegeven.
+Belangrijk: themeRole='main' of een exact themeId is verplicht. Vraag de gebruiker welk thema als dit niet is opgegeven. Gebruik themeId voor development/unpublished/demo themes.
 
 Theme-aware section regels:
 - Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
@@ -70,7 +70,7 @@ Do not place Liquid inside {% stylesheet %} or {% javascript %}
 
 Use <style> or markup-level CSS variables for section.id scoping`;
 
-const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
+const ThemeRoleSchema = z.enum(["main"]);
 const PlannerHandoffSchema = z.object({}).passthrough();
 
 const ThemeDraftPatchSchema = z.object({
@@ -247,13 +247,13 @@ const DraftThemeArtifactPublicObjectSchema = z
       .describe("Compat alias van themeId voor generieke wrappers."),
     themeRole: ThemeRoleSchema
       .optional()
-      .describe("Target theme role. Verplicht als themeId niet is opgegeven. Vraag de gebruiker welk thema."),
+      .describe("Target theme role. Alleen 'main' is role-only toegestaan; gebruik themeId voor development/unpublished/demo themes."),
     theme_role: ThemeRoleSchema
       .optional()
-      .describe("Compat alias van themeRole voor generieke wrappers."),
+      .describe("Compat alias van themeRole voor generieke wrappers. Alleen 'main' is role-only toegestaan."),
     role: ThemeRoleSchema
       .optional()
-      .describe("Compat alias van themeRole voor generieke wrappers."),
+      .describe("Compat alias van themeRole voor generieke wrappers. Alleen 'main' is role-only toegestaan."),
     mode: z
       .enum(["create", "edit"])
       .optional()
@@ -5624,8 +5624,64 @@ function getUpsertFailures(upsertResult) {
     : [];
 }
 
+function getVerifyFailures(upsertResult) {
+  const failures = [];
+  if (upsertResult?.verifyError) {
+    failures.push({
+      key: null,
+      status: "verify_error",
+      error: upsertResult.verifyError,
+    });
+  }
+
+  const summary = upsertResult?.verifySummary || {};
+  if (Number(summary.mismatch || 0) > 0 || Number(summary.missing || 0) > 0) {
+    for (const result of Array.isArray(upsertResult?.results) ? upsertResult.results : []) {
+      if (result?.verify?.status && result.verify.status !== "match") {
+        failures.push({
+          key: result.key || null,
+          status: result.verify.status,
+          error: {
+            message: `Verify-after-write status is '${result.verify.status}'.`,
+            mismatches: result.verify.mismatches || [],
+          },
+        });
+      }
+    }
+    if (failures.length === 0) {
+      failures.push({
+        key: null,
+        status: "verify_failed",
+        error: {
+          message: "Verify-after-write summary bevat missing of mismatch resultaten.",
+        },
+      });
+    }
+  }
+
+  return failures;
+}
+
 function classifyPreviewUpsertFailures(upsertResult, files) {
   const failures = getUpsertFailures(upsertResult);
+  const verifyFailures = getVerifyFailures(upsertResult);
+  if (failures.length === 0 && verifyFailures.length > 0) {
+    const failedKeys = verifyFailures.map((result) => result.key).filter(Boolean);
+    const firstFailureMessage =
+      verifyFailures[0]?.error?.message || "Verify-after-write heeft het geschreven bestand niet bevestigd.";
+    return {
+      failures: verifyFailures,
+      message: `Na de preview-write kwam verificatie niet overeen: ${firstFailureMessage}`,
+      errorCode: "preview_verify_failed",
+      retryable: true,
+      shouldNarrowScope: files.length > 3,
+      suggestedFixes: uniqueStrings([
+        "Lees het doelbestand opnieuw in en vergelijk size/checksum met de verwachte write.",
+        "Probeer dezelfde write opnieuw nadat het doeltheme volledig is verwerkt.",
+        failedKeys.length > 0 ? `Controleer eerst deze file(s): ${failedKeys.join(", ")}.` : null,
+      ]),
+    };
+  }
   const hasPreconditionFailure = failures.some((result) => result.status === "failed_precondition");
   const failedKeys = failures.map((result) => result.key).filter(Boolean);
   const firstFailureMessage = failures[0]?.error?.message || "Onbekende preview write-fout.";
@@ -5884,7 +5940,7 @@ export const draftThemeArtifact = {
       return buildFailureResponse({
         status: "missing_theme_target",
         message:
-          "Geef aan op welk thema je wilt schrijven via themeRole ('main', 'development', 'unpublished') of themeId. Vraag dit aan de gebruiker als het niet is opgegeven.",
+          "Geef aan op welk thema je wilt schrijven via themeRole='main' of een exact themeId. Gebruik themeId voor development/unpublished/demo themes.",
         errorCode: "missing_theme_target",
         retryable: true,
         suggestedFixes: [
@@ -6959,7 +7015,12 @@ export const draftThemeArtifact = {
       });
 
       const failedPreviewWrites = getUpsertFailures(upsertResult);
-      if (failedPreviewWrites.length > 0 || Number(upsertResult?.summary?.applied || 0) !== files.length) {
+      const failedPreviewVerifications = getVerifyFailures(upsertResult);
+      if (
+        failedPreviewWrites.length > 0 ||
+        failedPreviewVerifications.length > 0 ||
+        Number(upsertResult?.summary?.applied || 0) !== files.length
+      ) {
         const classified = classifyPreviewUpsertFailures(upsertResult, files);
         draftRecord = await updateThemeDraftRecord(draftId, {
           status: "preview_failed",
@@ -6973,7 +7034,7 @@ export const draftThemeArtifact = {
           draftId,
           message: classified.message,
           warnings,
-          errors: classified.errors || failedPreviewWrites,
+          errors: classified.errors || classified.failures || failedPreviewWrites,
           draft: buildDraftPayload(draftRecord, {
             verifySummary: upsertResult.verifySummary || null,
             verifyResults: upsertResult.results || [],

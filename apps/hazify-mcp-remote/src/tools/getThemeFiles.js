@@ -11,7 +11,7 @@ import {
 } from "./_themeTargeting.js";
 
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
-const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
+const ThemeRoleSchema = z.enum(["main"]);
 
 const buildNormalizedBatchKeys = (input = {}) => {
   const source = Array.isArray(input.keys)
@@ -44,13 +44,13 @@ const GetThemeFilesPublicObjectSchema = z
     theme_id: z.coerce.number().int().positive().optional().describe("Compat alias van themeId voor generieke wrappers."),
     themeRole: ThemeRoleSchema
       .optional()
-      .describe("Expliciete theme role. Vereist tenzij dezelfde flow al eerder expliciet een theme target bevestigde."),
+      .describe("Expliciete theme role. Alleen 'main' is role-only toegestaan; gebruik themeId voor development/unpublished/demo themes."),
     theme_role: ThemeRoleSchema
       .optional()
-      .describe("Compat alias van themeRole voor generieke wrappers."),
+      .describe("Compat alias van themeRole voor generieke wrappers. Alleen 'main' is role-only toegestaan."),
     role: ThemeRoleSchema
       .optional()
-      .describe("Compat alias van themeRole voor generieke clients."),
+      .describe("Compat alias van themeRole voor generieke clients. Alleen 'main' is role-only toegestaan."),
     keys: z
       .array(z.string().min(1))
       .min(1)

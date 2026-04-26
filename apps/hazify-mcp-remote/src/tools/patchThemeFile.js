@@ -13,7 +13,7 @@ import {
   inferThemeTargetFromSummary,
 } from "./_themeToolCompatibility.js";
 
-const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
+const ThemeRoleSchema = z.enum(["main"]);
 const SUMMARY_MAX_LENGTH = 4000;
 
 const SummaryAliasFieldDescriptions = {
@@ -46,7 +46,7 @@ const PatchThemeFilePublicObjectSchema = z
       .describe("Optioneel expliciet doel theme ID. Laat weg om via themeRole te resolven."),
     themeRole: ThemeRoleSchema
       .optional()
-      .describe("Target theme role. Verplicht als themeId niet is opgegeven. Vraag de gebruiker welk thema."),
+      .describe("Target theme role. Alleen 'main' is role-only toegestaan; gebruik themeId voor development/unpublished/demo themes."),
     key: z
       .string()
       .min(1)

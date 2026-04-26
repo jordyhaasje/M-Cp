@@ -52,6 +52,7 @@ Bij een nieuwe of bijna volle sessie is de aanbevolen herstartvolgorde:
 - bredere archetype-aware wrapperregels buiten de nu geharde media-first/full-bleed hero-familie
 - hardere validators voor wrapper-correctheid en Theme Editor-contracten buiten de hero fix
 - bredere native-block/theme-wrapper regressietests buiten de huidige schema/snippet/block-wrapper checks
+- redeploy van Batch H runtime hardening na commit/push
 - authenticated production MCP smoke met expliciet productie-token
 
 ## Concrete Patchbatches
@@ -465,6 +466,58 @@ Afgeronde uitkomst:
 - lokale verificatie is groen via de gerichte regressietests en de volledige `npm run release:preflight`
 - publieke productie-smoke op 2026-04-25 is groen voor License Service health/bootstrap en MCP metadata/anonieme auth-check; authenticated MCP tool-smoke blijft apart open
 
+### Batch H — Auth, Tenant Isolation en Repo Truth
+Status: `completed lokaal`
+Prioriteit: `P1/P2`
+
+Doel:
+- sluit de acht review findings van 2026-04-25 zonder docs/code-drift
+- maak auth-, entitlement-, draft- en verify-contracten fail-closed voor multi-tenant gebruik
+- zet Shopify- en MCP-bronwaarheid direct in docs en tests
+
+Files/tools:
+- `packages/mcp-common/src/index.js` plus Railway mirrors
+- `packages/shopify-core/src/index.js` plus Railway mirrors
+- `apps/hazify-license-service/src/routes/oauth.js`
+- `apps/hazify-license-service/src/views/pages.js`
+- `apps/hazify-mcp-remote/src/index.js`
+- `apps/hazify-mcp-remote/src/lib/themeFiles.js`
+- `apps/hazify-mcp-remote/src/tools/*Theme*.js`
+- `apps/hazify-mcp-remote/src/tools/_themeToolCompatibility.js`
+- regressies in `apps/hazify-license-service/tests/*`, `apps/hazify-mcp-remote/tests/mcpHttpAuth.test.mjs`, `mcpScopeEnforcement.test.mjs`, `draftThemeArtifact.test.mjs` en `toolHardening.test.mjs`
+
+Concrete wijzigingen:
+- onbekende `mcp:*` scopes normaliseren niet meer naar `mcp:tools`; OAuth en remote introspection falen dicht
+- OAuth/introspection resource-binding vergelijkt token `resource` / `targetResource` / `aud` met de publieke MCP `/mcp` resource
+- tool-entitlements checken aliasnaam én canonieke toolnaam
+- `apply-theme-draft` weigert drafts waarvan `shop_domain` niet overeenkomt met de request-shop
+- verify-after-write `mismatch`, `missing` of verify-error maakt preview/apply failure
+- role-only theme targeting is beperkt tot `themeRole='main'`; non-main roles vereisen `themeId`
+- required Shopify scopes bevatten nu `read_merchant_managed_fulfillment_orders`
+- custom-app onboarding zet Admin API access token als primaire route en verwijdert de niet-bestaande `/oauth/shopify/callback` redirect-instructie
+
+Bronvalidatie:
+- Shopify Dev MCP bevestigde `ThemeRole.MAIN` als enige unieke role, fulfillment-order read scopes, en Admin API access-token authenticatie via `X-Shopify-Access-Token`.
+- Context7 MCP SDK docs bevestigden tool-level errors via `isError: true` en Host-header validatie voor HTTP MCP servers.
+
+Lokaal geverifieerd:
+- `node --test apps/hazify-license-service/tests/oauth-helpers.test.mjs apps/hazify-license-service/tests/oauth-security.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/mcpScopeEnforcement.test.mjs apps/hazify-mcp-remote/tests/mcpHttpAuth.test.mjs`
+- `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs apps/hazify-mcp-remote/tests/toolHardening.test.mjs`
+
+Docs die mee gewijzigd zijn:
+- `docs/01-TECH-STACK.md`
+- `docs/02-SYSTEM-FLOW.md`
+- `docs/03-THEME-SECTION-GENERATION.md`
+- `docs/04-MCP-REMOTE-AUDIT.md`
+- dit document
+- app READMEs en gegenereerde tooldocs via `npm run generate:docs`
+
+Open na Batch H:
+- volledige `npm run release:preflight`
+- commit, push en redeploy van `Hazify-License-Service` en `Hazify-MCP-Remote`
+- authenticated production MCP smoke met expliciet productie-token
+
 ### Batch F — Docs Waarheid en Opschoning
 Status: `active`
 Prioriteit: `doorlopend`
@@ -479,6 +532,7 @@ Actieve regels:
 - wijzig auditwaarheid, blockers of confirmed issues -> update `docs/04`
 - wijzig tranche-status, patchvolgorde of handoff -> update dit document
 - wijzig documentrollen of leesvolgorde -> update `docs/00-START-HERE.md` en `docs/README.md`
+- verwijder nu geen genummerde docs; `docs/04` en `docs/05` mogen later wel compacter door historische completed batches naar tabellen samen te vatten
 
 ## Sessie-Handoff Snapshot
 Gebruik dit blok als snelle hervatting in een nieuwe sessie.

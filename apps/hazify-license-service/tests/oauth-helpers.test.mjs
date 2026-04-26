@@ -7,6 +7,7 @@ import {
   validateOAuthClientAuthentication,
   verifyPkceCodeVerifier,
 } from "../src/lib/oauth.js";
+import { getMcpScopeCapabilities, normalizeMcpScopeString } from "@hazify/mcp-common";
 
 function hashToken(value) {
   return crypto.createHash("sha256").update(value, "utf8").digest("hex");
@@ -82,6 +83,12 @@ const metadata = buildOauthMetadata({
 });
 assert.equal(metadata.authorization_endpoint, "https://issuer.example/oauth/authorize");
 assert.equal(metadata.scopes_supported[0], "mcp:tools");
+assert.equal(normalizeMcpScopeString("mcp:admin"), "", "unknown MCP scopes must not fall back to full access");
+assert.equal(
+  getMcpScopeCapabilities("mcp:admin").write,
+  false,
+  "unknown MCP scopes must fail closed for write access"
+);
 
 const urlWithParams = appendQueryParamsToUrl("https://example.com/callback", {
   code: "abc",

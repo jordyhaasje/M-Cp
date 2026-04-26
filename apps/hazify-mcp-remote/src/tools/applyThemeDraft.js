@@ -3,7 +3,7 @@ import { getThemeDraftRecord, updateThemeDraftRecord } from "../lib/db.js";
 import { getShopDomainFromClient, upsertThemeFiles } from "../lib/themeFiles.js";
 import { requireShopifyClient } from "./_context.js";
 
-const ThemeRoleSchema = z.enum(["main", "unpublished", "demo", "development"]);
+const ThemeRoleSchema = z.enum(["main"]);
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -15,7 +15,7 @@ const ApplyThemeDraftInputSchema = z.object({
       "UUID draft ID returned by draft-theme-artifact. Gebruik hier geen bestandsnaam, slug of zelfverzonnen placeholder."
     ),
   themeId: z.coerce.number().int().positive().optional().describe("Optional explicit target theme ID."),
-  themeRole: ThemeRoleSchema.optional().describe("Target theme role when themeId is omitted. Verplicht als themeId niet is opgegeven; vraag de gebruiker welk thema bedoeld wordt."),
+  themeRole: ThemeRoleSchema.optional().describe("Target theme role when themeId is omitted. Alleen 'main' is role-only toegestaan; gebruik themeId voor unpublished/demo/development themes."),
   confirmation: z.literal("APPLY_THEME_DRAFT").describe("Verplicht type: 'APPLY_THEME_DRAFT' ter bevestiging."),
   reason: z.string().min(5).describe("Auditable reden voor het toepassen van dit draft."),
 });
@@ -41,13 +41,51 @@ function getUpsertFailures(upsertResult) {
     : [];
 }
 
+function getVerifyFailures(upsertResult) {
+  const failures = [];
+  if (upsertResult?.verifyError) {
+    failures.push({
+      key: null,
+      status: "verify_error",
+      error: upsertResult.verifyError,
+    });
+  }
+
+  const summary = upsertResult?.verifySummary || {};
+  if (Number(summary.mismatch || 0) > 0 || Number(summary.missing || 0) > 0) {
+    for (const result of Array.isArray(upsertResult?.results) ? upsertResult.results : []) {
+      if (result?.verify?.status && result.verify.status !== "match") {
+        failures.push({
+          key: result.key || null,
+          status: result.verify.status,
+          error: {
+            message: `Verify-after-write status is '${result.verify.status}'.`,
+            mismatches: result.verify.mismatches || [],
+          },
+        });
+      }
+    }
+    if (failures.length === 0) {
+      failures.push({
+        key: null,
+        status: "verify_failed",
+        error: {
+          message: "Verify-after-write summary bevat missing of mismatch resultaten.",
+        },
+      });
+    }
+  }
+
+  return failures;
+}
+
 const applyThemeDraft = {
   name: "apply-theme-draft",
   title: "Promote Existing Draft",
   description:
     "Promote a previously saved theme draft to an explicit target theme. Do not use this to create a new section or for the first write of files. First create/write via create-theme-section or draft-theme-artifact, then apply only with the returned draftId.",
   docsDescription:
-    "Apply a previously drafted theme artifact to an explicit target theme. Dit is de promote/apply stap nadat `draft-theme-artifact` of `create-theme-section` eerst een echte draft/write heeft voorbereid en geverifieerd. Gebruik deze tool dus niet om een nieuwe section voor het eerst te schrijven. `themeId` of `themeRole` is verplicht; kies nooit stilzwijgend een live target.",
+    "Apply a previously drafted theme artifact to an explicit target theme. Dit is de promote/apply stap nadat `draft-theme-artifact` of `create-theme-section` eerst een echte draft/write heeft voorbereid en geverifieerd. Gebruik deze tool dus niet om een nieuwe section voor het eerst te schrijven. `themeId` of `themeRole='main'` is verplicht; gebruik themeId voor development/unpublished/demo themes en kies nooit stilzwijgend een live target. Het draft moet bij dezelfde Shopify shop horen en verify-after-write moet matchen.",
   schema: ApplyThemeDraftInputSchema,
   execute: async (input, context = {}) => {
     if (!input.themeId && !input.themeRole) {
@@ -141,6 +179,29 @@ const applyThemeDraft = {
       };
     }
 
+    const shopifyClient = requireShopifyClient(context);
+    const currentShopDomain = getShopDomainFromClient(shopifyClient);
+    const draftShopDomain = String(draftRecord.shop_domain || "").trim().toLowerCase();
+    if (draftShopDomain && draftShopDomain !== currentShopDomain) {
+      return {
+        success: false,
+        status: "draft_shop_mismatch",
+        draftId: input.draftId,
+        message:
+          "Dit theme draft hoort bij een andere Shopify shop en kan niet in deze requestcontext worden toegepast.",
+        errorCode: "theme_draft_shop_mismatch",
+        retryable: false,
+        errors: [
+          {
+            path: ["draftId"],
+            problem: `Draft shop '${draftShopDomain}' komt niet overeen met request shop '${currentShopDomain}'.`,
+            fixSuggestion:
+              "Gebruik de draftId die is aangemaakt binnen dezelfde gekoppelde Shopify shop, of maak een nieuw draft voor deze shop.",
+          },
+        ],
+      };
+    }
+
     const files = normalizeStoredFiles(draftRecord.files_json);
     if (files.length === 0) {
       return {
@@ -155,8 +216,6 @@ const applyThemeDraft = {
       };
     }
 
-    const shopifyClient = requireShopifyClient(context);
-
     const apiVersion = process.env.SHOPIFY_API_VERSION || "2026-01";
     const upsertResult = await upsertThemeFiles(shopifyClient, apiVersion, {
       themeId: input.themeId,
@@ -166,7 +225,13 @@ const applyThemeDraft = {
     });
 
     const failedApplyWrites = getUpsertFailures(upsertResult);
-    if (failedApplyWrites.length > 0 || Number(upsertResult?.summary?.applied || 0) !== files.length) {
+    const failedApplyVerifications = getVerifyFailures(upsertResult);
+    if (
+      failedApplyWrites.length > 0 ||
+      failedApplyVerifications.length > 0 ||
+      Number(upsertResult?.summary?.applied || 0) !== files.length
+    ) {
+      const firstFailure = failedApplyWrites[0] || failedApplyVerifications[0] || null;
       const updatedDraft = await updateThemeDraftRecord(input.draftId, {
         status: "apply_failed",
         verifyResult: {
@@ -190,10 +255,12 @@ const applyThemeDraft = {
           results: upsertResult.results || [],
         },
         message:
-          failedApplyWrites[0]?.error?.message ||
+          firstFailure?.error?.message ||
           "Het draft kon niet volledig op het gekozen target worden toegepast.",
         errorCode: failedApplyWrites.some((result) => result.status === "failed_precondition")
           ? "apply_failed_precondition"
+          : failedApplyVerifications.length > 0
+          ? "apply_verify_failed"
           : "apply_failed",
         retryable: true,
         draft: updatedDraft
