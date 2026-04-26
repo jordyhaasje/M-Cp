@@ -8,6 +8,7 @@ const docsIndexPath = path.join(docsDir, "README.md");
 const startHerePath = path.join(docsDir, "00-START-HERE.md");
 const agentsPath = path.join(repoRoot, "AGENTS.md");
 const remoteReadmePath = path.join(repoRoot, "apps/hazify-mcp-remote/README.md");
+const licenseReadmePath = path.join(repoRoot, "apps/hazify-license-service/README.md");
 
 const problems = [];
 
@@ -183,6 +184,7 @@ async function main() {
     agentsPath,
     docsIndexPath,
     remoteReadmePath,
+    licenseReadmePath,
     ...actualActiveDocs.map((file) => path.join(repoRoot, file)),
   ];
 
@@ -211,6 +213,52 @@ async function main() {
         "`draft-theme-artifact`",
         "`apply-theme-draft`",
         "`search-theme-files` -> `get-theme-file` -> `draft-theme-artifact`",
+        "Unknown MCP scopes falen dicht",
+        "`themeRole` zonder `themeId` is alleen veilig voor `main`",
+        "`preview_ready` en `applied` vereisen een geslaagde verify-after-write",
+      ],
+    ],
+    [
+      licenseReadmePath,
+      [
+        "Admin API access token",
+        "`X-Shopify-Access-Token`",
+        "`read_merchant_managed_fulfillment_orders`",
+        "Onbekende `mcp:*` scopes worden geweigerd",
+      ],
+    ],
+    [
+      path.join(repoRoot, "docs/01-TECH-STACK.md"),
+      [
+        "Admin API access token",
+        "`X-Shopify-Access-Token`",
+        "`read_merchant_managed_fulfillment_orders`",
+      ],
+    ],
+    [
+      path.join(repoRoot, "docs/03-THEME-SECTION-GENERATION.md"),
+      [
+        "`themeRole` zonder `themeId` is alleen veilig voor `main`",
+        "`preview_ready` en `applied` vereisen een geslaagde verify-after-write",
+        "Cross-shop draft IDs falen met `theme_draft_shop_mismatch`",
+      ],
+    ],
+    [
+      path.join(repoRoot, "docs/04-MCP-REMOTE-AUDIT.md"),
+      [
+        "Batch H",
+        "`05a12c2a-203f-4191-b350-99284dd79e62`",
+        "`9977e9d5-390b-485f-a743-701e723a27c2`",
+        "authenticated production MCP tool smoke",
+      ],
+    ],
+    [
+      path.join(repoRoot, "docs/05-REMEDIATION-PLAN.md"),
+      [
+        "Release/live bewijs",
+        "`05a12c2a-203f-4191-b350-99284dd79e62`",
+        "`9977e9d5-390b-485f-a743-701e723a27c2`",
+        "Er wordt nu geen document verwijderd.",
       ],
     ],
   ]);

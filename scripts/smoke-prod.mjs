@@ -25,6 +25,202 @@ function hasAnyConfiguredValue(values) {
   return values.some((value) => typeof value === "string" && value.trim());
 }
 
+function firstConfiguredValue(values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+async function readJsonResponse(response, label) {
+  const text = await response.text().catch(() => "");
+  if (!text.trim()) {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${label} returned non-JSON body: ${text.slice(0, 300)}`);
+  }
+}
+
+async function callMcpJsonRpc({
+  fetchImpl,
+  mcpBaseUrl,
+  token,
+  id,
+  method,
+  params = {},
+  label = method,
+}) {
+  const response = await fetchImpl(toUrl(mcpBaseUrl, "/mcp"), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${token}`,
+      origin: mcpBaseUrl,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      method,
+      params,
+    }),
+  });
+
+  const body = await readJsonResponse(response, label);
+  if (response.status !== 200) {
+    throw new Error(`${label} returned ${response.status}, expected 200. Body: ${JSON.stringify(body)}`);
+  }
+  return body;
+}
+
+function assertJsonRpcResult(body, label) {
+  if (!body || typeof body !== "object" || !body.result) {
+    throw new Error(`${label} did not return a JSON-RPC result. Body: ${JSON.stringify(body)}`);
+  }
+  if (body.result.isError) {
+    throw new Error(`${label} returned tool-level error: ${JSON.stringify(body.result.content || body.result)}`);
+  }
+  return body.result;
+}
+
+function assertJsonRpcError(body, label, pattern) {
+  const message = String(body?.error?.message || body?.result?.content?.[0]?.text || "");
+  if (!pattern.test(message)) {
+    throw new Error(`${label} did not return expected error ${pattern}. Body: ${JSON.stringify(body)}`);
+  }
+}
+
+async function runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl }) {
+  const authToken = firstConfiguredValue([
+    env.HAZIFY_MCP_SMOKE_TOKEN,
+    env.HAZIFY_PROD_MCP_TOKEN,
+    env.MCP_SMOKE_TOKEN,
+  ]);
+  const readOnlyGateToken = firstConfiguredValue([
+    env.HAZIFY_MCP_SMOKE_READ_ONLY_TOKEN,
+    env.HAZIFY_PROD_MCP_READ_ONLY_TOKEN,
+    env.MCP_SMOKE_READ_ONLY_TOKEN,
+    env.HAZIFY_MCP_SMOKE_EXPECT_WRITE_DENIED === "true" ? authToken : "",
+  ]);
+  const requireAuthenticatedSmoke =
+    env.HAZIFY_REQUIRE_AUTHENTICATED_MCP_SMOKE === "true" ||
+    env.MCP_SMOKE_REQUIRE_AUTH === "true";
+
+  if (!authToken) {
+    if (requireAuthenticatedSmoke) {
+      throw new Error(
+        "Authenticated MCP smoke is required, but no HAZIFY_MCP_SMOKE_TOKEN/MCP_SMOKE_TOKEN is configured."
+      );
+    }
+    console.log(
+      "Skipping authenticated MCP smoke -> HAZIFY_MCP_SMOKE_TOKEN not configured."
+    );
+    return;
+  }
+
+  const initializeResult = assertJsonRpcResult(
+    await callMcpJsonRpc({
+      fetchImpl,
+      mcpBaseUrl,
+      token: authToken,
+      id: 101,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-11-05",
+        capabilities: {},
+        clientInfo: { name: "hazify-authenticated-smoke", version: "1.0.0" },
+      },
+      label: "authenticated initialize",
+    }),
+    "authenticated initialize"
+  );
+  if (!initializeResult.protocolVersion) {
+    throw new Error("authenticated initialize did not return a protocolVersion.");
+  }
+  console.log("POST /mcp authenticated initialize -> 200");
+
+  const toolsResult = assertJsonRpcResult(
+    await callMcpJsonRpc({
+      fetchImpl,
+      mcpBaseUrl,
+      token: authToken,
+      id: 102,
+      method: "tools/list",
+      label: "authenticated tools/list",
+    }),
+    "authenticated tools/list"
+  );
+  const toolNames = new Set((toolsResult.tools || []).map((tool) => String(tool?.name || "")));
+  for (const requiredTool of [
+    "get-license-status",
+    "get-themes",
+    "search-theme-files",
+    "draft-theme-artifact",
+    "apply-theme-draft",
+  ]) {
+    if (!toolNames.has(requiredTool)) {
+      throw new Error(`authenticated tools/list is missing '${requiredTool}'.`);
+    }
+  }
+  console.log(`POST /mcp authenticated tools/list -> ${toolNames.size} tools`);
+
+  const statusResult = assertJsonRpcResult(
+    await callMcpJsonRpc({
+      fetchImpl,
+      mcpBaseUrl,
+      token: authToken,
+      id: 103,
+      method: "tools/call",
+      params: {
+        name: "get-license-status",
+        arguments: {},
+      },
+      label: "authenticated get-license-status",
+    }),
+    "authenticated get-license-status"
+  );
+  if (!statusResult.structuredContent?.tenant?.shopDomain) {
+    throw new Error("authenticated get-license-status did not return tenant shopDomain.");
+  }
+  console.log("POST /mcp authenticated get-license-status -> 200");
+
+  if (!readOnlyGateToken) {
+    if (requireAuthenticatedSmoke) {
+      throw new Error(
+        "Authenticated MCP smoke is required, but no read-only smoke token is configured for write-scope gate validation."
+      );
+    }
+    console.log(
+      "Skipping authenticated write-scope gate smoke -> HAZIFY_MCP_SMOKE_READ_ONLY_TOKEN not configured."
+    );
+    return;
+  }
+
+  const writeGateBody = await callMcpJsonRpc({
+    fetchImpl,
+    mcpBaseUrl,
+    token: readOnlyGateToken,
+    id: 104,
+    method: "tools/call",
+    params: {
+      name: "set-order-tracking",
+      arguments: {
+        order: "#0",
+        trackingCode: "HAZIFY-SMOKE-NOOP",
+        notifyCustomer: false,
+      },
+    },
+    label: "authenticated write-scope gate",
+  });
+  assertJsonRpcError(writeGateBody, "authenticated write-scope gate", /requires write scope|insufficient_scope/i);
+  console.log("POST /mcp authenticated write-scope gate -> denied before mutation");
+}
+
 export async function runSmokeChecks({
   fetchImpl = fetch,
   env = process.env,
@@ -117,8 +313,10 @@ export async function runSmokeChecks({
   });
 
   console.log(
-    "Anonymous /mcp check passed. Authenticated MCP tool smoke still requires an explicit production token."
+    "Anonymous /mcp check passed."
   );
+
+  await runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl });
 
   console.log("Production smoke checks passed.");
 }

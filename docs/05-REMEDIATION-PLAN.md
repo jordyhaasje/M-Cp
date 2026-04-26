@@ -52,7 +52,7 @@ Bij een nieuwe of bijna volle sessie is de aanbevolen herstartvolgorde:
 - bredere archetype-aware wrapperregels buiten de nu geharde media-first/full-bleed hero-familie
 - hardere validators voor wrapper-correctheid en Theme Editor-contracten buiten de hero fix
 - bredere native-block/theme-wrapper regressietests buiten de huidige schema/snippet/block-wrapper checks
-- authenticated production MCP smoke met expliciet productie-token
+- live authenticated production MCP smoke met expliciet productie-token blijft een credential-afhankelijke releaseactie; de smoke-code en regressietest zijn aanwezig
 
 ## Concrete Patchbatches
 Deze batches zijn bewust klein genoeg gehouden om gericht te patchen zonder opnieuw brede context op te halen.
@@ -513,7 +513,8 @@ Docs die mee gewijzigd zijn:
 - app READMEs en gegenereerde tooldocs via `npm run generate:docs`
 
 Open na Batch H:
-- authenticated production MCP smoke met expliciet productie-token
+- geen bekende P1/P2 codeblocker
+- live authenticated production MCP smoke met expliciet productie-token blijft credential-afhankelijk
 
 Release/live bewijs:
 - volledige `npm run release:preflight` is groen op 2026-04-26
@@ -521,7 +522,9 @@ Release/live bewijs:
 - `Hazify-MCP-Remote` is live gedeployed via Railway deployment `05a12c2a-203f-4191-b350-99284dd79e62`
 - `Hazify-License-Service` is live gedeployed via Railway deployment `9977e9d5-390b-485f-a743-701e723a27c2`
 - `npm run release:postdeploy` is groen: License `/health -> 200`, License `/v1/session/bootstrap -> 200`, MCP metadata endpoints -> `200`, anonieme `POST /mcp -> 401`
-- Railway runtime-logreview toont geen nieuw foutpatroon; alleen bestaande `npm warn config production`, MCP `punycode` warning en verwachte anonieme `/mcp` unauthorized log
+- Railway runtime-logreview toont geen nieuw foutpatroon; alleen bestaande `npm warn config production`, eerdere MCP `punycode` warning en verwachte anonieme `/mcp` unauthorized log. De lokale runtime gebruikt nu native `fetch` voor Shopify GraphQL en laadt `@shopify/theme-check-node` lazy zodat docs/build/startup de oude `graphql-request`/`cross-fetch` en theme-check dependency routes niet meer onnodig activeren.
+- Wanneer theme-check linting echt draait kan de upstream Shopify dependency nog wel een `punycode` deprecation tonen; dat is nu lint-route hygiene en geen docs/startup warning meer.
+- `npm audit --omit=dev` is groen met 0 kwetsbaarheden na lockfile-updates voor Hono, `@hono/node-server`, `path-to-regexp` en `lodash`.
 
 ### Batch F — Docs Waarheid en Opschoning
 Status: `active`
@@ -543,7 +546,7 @@ Actieve regels:
 Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 
 ### Volgende aanbevolen patchbatch
-`Release/Ops — authenticated MCP smoke en niet-blokkerende warning cleanup`
+`Release/Ops — live authenticated MCP smoke met productie-token en niet-blokkerende warning monitoring`
 
 ### Open release- en ops-signalen
 - `Hazify-MCP-Remote` redeploy `06a69e4e-5505-47fc-95a4-931122a926a7` is gezond en live
@@ -551,7 +554,7 @@ Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 - buildlog toont alleen bekende niet-blokkerende waarschuwingen:
   - `npm warn config production`
   - `inflight` / `glob` deprecations tijdens `npm ci`
-  - `punycode` deprecation tijdens docs/build
+  - eerdere `punycode` deprecation tijdens docs/build; de code gebruikt nu native `fetch` voor Shopify GraphQL en laadt theme-check lazy zodat docs/build/startup die dependencyroutes niet meer direct hoeven te raken
 - de eerdere MCP SDK `0.0.0.0` / DNS-rebinding warning is opgelost via `allowedHosts` Host-header validatie
 - publieke productie-smoke is op 2026-04-25 groen:
   - `Hazify-License-Service /health` -> `200`
@@ -560,11 +563,11 @@ Gebruik dit blok als snelle hervatting in een nieuwe sessie.
   - MCP authorization-server metadata -> `200`
   - anonieme `POST /mcp` -> `401`
 - admin- en billing-readiness zijn in de lokale smoke overgeslagen omdat de vereiste secrets niet aanwezig waren
-- authenticated production MCP tool-smoke met expliciet productie-token blijft open
+- authenticated production MCP tool-smoke met expliciet productie-token is scriptmatig ondersteund, maar live uitvoering blijft open tot er lokaal een geldig token is
 
 ### Waarom deze eerst
 - de belangrijkste lokale open punten voor Batch G en Batch E tranche 2 zijn nu gerepareerd
-- de grootste resterende onzekerheid zit niet in lokale code of publieke productiepariteit, maar in een authenticated MCP tool-smoke met expliciet productie-token
+- de grootste resterende onzekerheid zit niet in lokale code of publieke productiepariteit, maar in een live authenticated MCP tool-smoke met expliciet productie-token
 
 ### Minimale files voor de volgende sessie
 - `docs/04-MCP-REMOTE-AUDIT.md`

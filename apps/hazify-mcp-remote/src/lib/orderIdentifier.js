@@ -1,4 +1,4 @@
-import { gql } from "graphql-request";
+import { gql } from "./shopifyGraphqlClient.js";
 const ORDER_GID_PREFIX = "gid://shopify/Order/";
 const ORDER_LOOKUP_QUERY = gql `
   query lookupOrderByReference($query: String!) {

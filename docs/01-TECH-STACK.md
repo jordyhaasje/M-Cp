@@ -36,6 +36,7 @@ Beide services draaien in productie op Railway (`Hazify-License-Service`, `Hazif
 
 ### Shopify Admin API en custom apps
 - De runtime gebruikt Shopify Admin GraphQL via `X-Shopify-Access-Token`.
+- De Remote MCP gebruikt hiervoor een kleine native-fetch client in `apps/hazify-mcp-remote/src/lib/shopifyGraphqlClient.js`; `graphql-request` is geen runtime dependency meer.
 - Voor merchant-created custom apps in de Shopify Admin is de Admin API access token het primaire onboardingpad.
 - `shopClientId` + `shopClientSecret` blijft ondersteund voor trusted app-achtige setups, maar is niet de standaardinstructie voor merchant-created custom apps.
 - Verplichte Admin API scopes volgen `REQUIRED_SHOPIFY_ADMIN_SCOPES` in `packages/shopify-core/src/index.js` en de Railway mirrors. De actuele lijst bevat onder meer `read_themes`, `write_themes`, `read_fulfillments`, `read_merchant_managed_fulfillment_orders` en `write_merchant_managed_fulfillment_orders`.

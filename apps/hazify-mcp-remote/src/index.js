@@ -19,8 +19,8 @@ import {
     normalizeShopDomain
 } from "@hazify/shopify-core";
 import dotenv from "dotenv";
-import { GraphQLClient } from "graphql-request";
 import minimist from "minimist";
+import { createShopifyGraphqlClient } from "./lib/shopifyGraphqlClient.js";
 import { createHazifyToolRegistry, registerHazifyTools } from "./tools/registry.js";
 // Parse command line arguments
 const argv = minimist(process.argv.slice(2));
@@ -373,11 +373,10 @@ const ensureRemoteShopifyClient = async (context) => {
     if (!cachedShopifyClient ||
         cachedShopifyClient.credentialFingerprint !== credentialFingerprint ||
         cachedShopifyClient.expiresAtMs <= Date.now()) {
-        const shopifyClient = new GraphQLClient(`https://${domain}/admin/api/${API_VERSION}/graphql.json`, {
-            headers: {
-                "X-Shopify-Access-Token": exchange.accessToken,
-                "Content-Type": "application/json"
-            }
+        const shopifyClient = createShopifyGraphqlClient({
+            domain,
+            accessToken: exchange.accessToken,
+            apiVersion: API_VERSION,
         });
         cachedShopifyClient = {
             client: shopifyClient,

@@ -1,4 +1,4 @@
-import { gql } from "graphql-request";
+import { gql } from "../lib/shopifyGraphqlClient.js";
 import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";

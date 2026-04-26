@@ -14,6 +14,7 @@ await import("./urlSecurity.test.mjs");
 await import("./statefulProductionGuard.test.mjs");
 await import("./mcpHttpAuth.test.mjs");
 await import("./mcpScopeEnforcement.test.mjs");
+await import("./shopifyGraphqlClient.test.mjs");
 await import("./toolHardening.test.mjs");
 await import("./toolRegistry.test.mjs");
 await import("./themeFilesBatch.test.mjs");

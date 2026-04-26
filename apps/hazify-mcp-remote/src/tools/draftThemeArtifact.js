@@ -2,7 +2,6 @@ import { z } from "zod";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
-import { check } from "@shopify/theme-check-node";
 import { createThemeDraftRecord, updateThemeDraftRecord } from "../lib/db.js";
 import { parseJsonLike } from "../lib/jsonLike.js";
 import {
@@ -18,6 +17,7 @@ import {
   themeTargetsCompatible,
 } from "../lib/themeEditMemory.js";
 import { hydrateExactThemeReads } from "../lib/themeReadHydration.js";
+import { loadThemeCheck } from "../lib/themeCheck.js";
 import { getShopDomainFromClient, upsertThemeFiles, getThemeFiles, searchThemeFiles } from "../lib/themeFiles.js";
 import { requireShopifyClient } from "./_context.js";
 import {
@@ -5445,6 +5445,7 @@ async function runThemeCheckSandbox({
       await fs.writeFile(fullPath, file.value, "utf8");
     }
 
+    const check = await loadThemeCheck();
     let offenses = await check(tmpDir);
 
     const preExistingChecks = [

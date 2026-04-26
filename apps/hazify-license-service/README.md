@@ -1,4 +1,5 @@
 # Hazify License Service
+Doelgroep: maintainers, developers en coding agents.
 
 Auth, onboarding, OAuth, token-introspectie, interne token-exchange, billing en admin operations voor Hazify MCP.
 
@@ -34,13 +35,15 @@ HAZIFY_SERVICE_MODE=license npm start
 
 OAuth-notitie:
 - `GET|POST /oauth/authorize` canonicaliseert nu semantisch gelijke MCP scopes tijdens de form roundtrip, zodat clients zoals Codex niet stuklopen op andere volgorde van `scope`-tokens of een extra `offline_access` echo in query versus form body.
-- Alleen `mcp:tools`, `mcp:tools:read` en `mcp:tools:write` zijn geldige MCP scopes. Onbekende `mcp:*` tokens worden geweigerd.
+- Alleen `mcp:tools`, `mcp:tools:read` en `mcp:tools:write` zijn geldige MCP scopes. Onbekende `mcp:*` scopes worden geweigerd.
 - OAuth tokens worden aan de MCP resource URL gebonden; clients moeten dezelfde publieke `/mcp` resource blijven gebruiken.
 - Productie-start van de License Service wacht bij rolling deploys nu kort op de Postgres single-writer lock in plaats van meteen te crashen terwijl de vorige writer nog netjes afbouwt.
 
 ## Shopify auth modes
 - `shopAccessToken`: primaire route voor merchant-created Shopify custom apps. Gebruik de Admin API access token uit Shopify Admin.
 - `shopClientId` + `shopClientSecret`: ondersteund voor trusted app-achtige setups, maar niet de standaardroute voor merchant-created custom apps.
+
+De MCP remote gebruikt de gekoppelde Admin API access token daarna uitsluitend server-side richting Shopify Admin GraphQL en stuurt die als `X-Shopify-Access-Token` header. Deze token wordt niet teruggegeven in introspection of toolresultaten.
 
 Vereiste Shopify scopes volgen `REQUIRED_SHOPIFY_ADMIN_SCOPES`, inclusief `read_themes`, `write_themes`, `read_fulfillments`, `read_merchant_managed_fulfillment_orders` en `write_merchant_managed_fulfillment_orders`.
 
