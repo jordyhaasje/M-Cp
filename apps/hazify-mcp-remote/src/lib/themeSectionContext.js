@@ -867,6 +867,26 @@ const buildReferenceSignals = ({
     "before_after",
     "faq_collapsible",
   ]);
+  const interactivePattern =
+    [
+      "social_slider",
+      "image_slider",
+      "video_slider",
+      "review_slider",
+      "collection_slider",
+      "logo_slider",
+      "media_carousel",
+    ].includes(archetype)
+      ? "carousel"
+      : archetype === "faq_collapsible"
+        ? "accordion"
+        : archetype === "before_after"
+          ? "range_compare"
+          : /\btabs?\b/.test(haystack)
+            ? "tabs"
+            : archetype === "interactive_section"
+              ? "generic_interactive"
+              : null;
   const previewMediaPolicy = !exactReplicaRequested || !mediaLike
     ? "not_media_driven"
     : hasExplicitMediaSources
@@ -883,6 +903,7 @@ const buildReferenceSignals = ({
     sectionShellFamily,
     requestedDecorativeMediaAnchors,
     requestedDecorativeBadgeAnchors,
+    interactivePattern,
     prefersRenderablePreviewMedia:
       exactReplicaRequested && mediaLike,
     requiresRenderablePreviewMedia:
@@ -1420,6 +1441,31 @@ const buildPromptOnlyContract = ({
     archetype === "review_slider" || archetype === "review_section";
   const videoLike =
     archetype === "video_section" || archetype === "video_slider";
+  const carouselLike =
+    archetype === "review_slider" ||
+    archetype === "video_slider" ||
+    archetype === "image_slider" ||
+    archetype === "social_slider" ||
+    archetype === "collection_slider" ||
+    archetype === "logo_slider" ||
+    archetype === "media_carousel";
+  const accordionLike = archetype === "faq_collapsible";
+  const rangeCompareLike = archetype === "before_after";
+  const tabsLike = /\btabs?\b/.test(haystack);
+  const genericInteractiveLike =
+    archetype === "interactive_section" && !accordionLike && !tabsLike;
+  const interactionPattern = carouselLike
+    ? "carousel"
+    : accordionLike
+      ? "accordion"
+      : rangeCompareLike
+        ? "range_compare"
+        : tabsLike
+          ? "tabs"
+          : genericInteractiveLike
+            ? "generic_interactive"
+            : null;
+  const interactiveLike = Boolean(interactionPattern);
   const commerceLike =
     archetype === "pdp_section" ||
     archetype === "commerce_section" ||
@@ -1431,17 +1477,18 @@ const buildPromptOnlyContract = ({
     requiresReviewCardSurface: reviewLike,
     requiresBlockBasedCards: reviewLike && !singleReviewRequested,
     requiresRatingOrQuoteSignal: reviewLike,
-    requiresSliderControls:
-      archetype === "review_slider" || archetype === "video_slider",
-    requiresThemeEditorSafeInteractivity:
-      archetype === "review_slider" || archetype === "video_slider",
+    interactionPattern,
+    requiresSliderControls: carouselLike,
+    requiresSliderBehavior: carouselLike,
+    requiresInteractiveBehavior: interactiveLike,
+    requiresThemeEditorSafeInteractivity: interactiveLike,
     requiresVideoSourceSetting: videoLike,
     requiresVideoRenderablePath: videoLike,
     requiresProductContextOrSetting: commerceLike,
     requiresCommerceActionSignal: commerceLike,
     requiredMarkupSignals: uniqueStrings([
       ...(reviewLike ? ["review_card_or_quote_markup", "rating_or_quote_signal"] : []),
-      ...(archetype === "review_slider" ? ["slider_controls_or_scroll_snap"] : []),
+      ...(interactiveLike ? ["functional_interactive_behavior"] : []),
       ...(videoLike ? ["video_or_external_embed_render_path"] : []),
       ...(commerceLike
         ? ["product_context_or_product_setting", "commerce_action_or_product_helper"]
@@ -1459,6 +1506,20 @@ const buildPromptOnlyContract = ({
             "Behoud een bounded card/panel surface zodat reviews niet degraderen naar één vlak richtext-blok.",
           ]
         : []),
+      ...(interactiveLike
+        ? [
+            interactionPattern === "carousel"
+              ? "Gebruik voor interactieve carousels of sliders echte werking: scroll-snap of component-scoped JS die controls aan werkend gedrag koppelt."
+              : interactionPattern === "accordion"
+                ? "Gebruik voor collapsible content native <details>/<summary> of een editor-safe accordion met correcte open/closed state per item."
+                : interactionPattern === "range_compare"
+                  ? "Gebruik voor before/after sections een echte input/handle of andere renderbare compare-interactie, niet alleen een stilstaande mockup."
+                  : interactionPattern === "tabs"
+                    ? "Gebruik voor tabs een echte tablist/tab/tabpanel-structuur met werkende state-switching per section instance."
+                    : "Gebruik voor interactieve sections echte werking per section instance; zichtbare controls, toggles of handles mogen geen styling-only mock zijn.",
+            "Scope interactieve logica per section-root en maak scripted gedrag veilig voor Theme Editor reload/select events.",
+          ]
+        : []),
       ...(videoLike
         ? [
             "Gebruik een merchant-editable video of video_url setting en render die blank-safe in de eerste write.",
@@ -1472,6 +1533,89 @@ const buildPromptOnlyContract = ({
           ]
         : []),
     ]),
+  };
+};
+
+const buildSectionImplementationContract = ({
+  promptContract = null,
+  layoutContract = null,
+  themeWrapperStrategy = null,
+  themeContext = null,
+  relevantHelpers = [],
+} = {}) => {
+  const helperKeys = uniqueStrings(
+    (relevantHelpers || [])
+      .map((entry) => (typeof entry === "string" ? entry : entry?.key))
+      .filter(Boolean)
+  );
+  const interactiveLike = Boolean(promptContract?.requiresInteractiveBehavior);
+
+  return {
+    schemaRules: uniqueStrings([
+      "Gebruik exact één geldige {% schema %} JSON-definitie met unieke setting IDs.",
+      "Geef iedere merchant-editable setting en block-setting een label, behalve types zoals header en paragraph.",
+      "Voeg minstens één render-safe preset toe zodat de section direct zichtbaar is in de Theme Editor.",
+    ]),
+    renderingRules: uniqueStrings([
+      "Als je section.blocks rendert, zet {{ block.shopify_attributes }} op de top-level block-wrapper binnen dezelfde loop.",
+      "Gebruik blank-safe guards rond optionele image/video/product settings voordat je image_tag, video_tag of product-output rendert.",
+      "Gebruik voor Shopify-images bij voorkeur image_url gevolgd door image_tag in plaats van raw <img> wanneer de bron uit Shopify komt.",
+    ]),
+    stylingRules: uniqueStrings([
+      "Plaats geen Liquid in {% stylesheet %} of {% javascript %}; gebruik <style> voor Liquid-afhankelijke CSS en gewone markup/data-attributen voor runtime-waarden.",
+      "Scope lokale CSS en JS per section instance via #shopify-section-{{ section.id }}, data-section-id of een lokaal root-element.",
+    ]),
+    interactionPattern: promptContract?.interactionPattern || null,
+    interactionRules: uniqueStrings([
+      ...(interactiveLike
+        ? [
+            "Interactiviteit moet echt werken: zichtbare controls, toggles, tabs, handles of pagination mogen geen visuele mock zijn.",
+            "Initialiseer interactieve logica per section instance en maak scripted gedrag veilig voor Theme Editor reload/select events.",
+          ]
+        : []),
+      ...(promptContract?.interactionPattern === "carousel"
+        ? [
+            "Carousel/sliders moeten werkend scroll-, snap- of slidegedrag bevatten; prev/next knoppen moeten gekoppeld zijn aan echte navigatie.",
+          ]
+        : []),
+      ...(promptContract?.interactionPattern === "accordion"
+        ? [
+            "Accordion/collapsible content moet echte open/closed state hebben, bij voorkeur via native <details>/<summary> of een gelijkwaardige toegankelijke toggle.",
+          ]
+        : []),
+      ...(promptContract?.interactionPattern === "range_compare"
+        ? [
+            "Before/after sections moeten een werkende compare-handle of range-input hebben in plaats van een statische split-layout.",
+          ]
+        : []),
+      ...(promptContract?.interactionPattern === "tabs"
+        ? [
+            "Tabs moeten een echte tablist/tab/tabpanel-structuur of gelijkwaardige toegankelijke state-switching per section instance hebben.",
+          ]
+        : []),
+    ]),
+    themeRules: uniqueStrings([
+      ...(helperKeys.length > 0
+        ? [
+            `Spiegel relevante theme helpers waar passend, zoals ${helperKeys.join(", ")}.`,
+          ]
+        : []),
+      ...(themeContext?.usesPageWidth
+        ? [
+            "Spiegel bestaande content-width wrappers van het doeltheme waar passend, in plaats van een losstaande globale shell te introduceren.",
+          ]
+        : []),
+      ...(themeWrapperStrategy?.allowOuterThemeContainer === false ||
+      layoutContract?.avoidOuterContainer
+        ? [
+            "Plaats outer theme containers bij media-first/full-bleed shells alleen waar de layoutcontracten dat toelaten.",
+          ]
+        : []),
+    ]),
+    editRules: [
+      "Bij edits: behoud bestaande schema settings, blocks, presets, accessibility-attributen en render helpers tenzij de wijziging ze expliciet verandert.",
+      "Na patch_scope_too_large: lees eerst het actuele bestand opnieuw in en voer daarna pas een preserve-on-edit rewrite uit.",
+    ],
   };
 };
 
@@ -1795,6 +1939,13 @@ const buildSectionGenerationBlueprint = ({
     themeContext,
     referenceSignals,
   });
+  const implementationContract = buildSectionImplementationContract({
+    promptContract,
+    layoutContract,
+    themeWrapperStrategy,
+    themeContext,
+    relevantHelpers,
+  });
   const contractPreflightChecks = [
     ...(layoutContract.requiresBackgroundMediaArchitecture
       ? [
@@ -1836,6 +1987,12 @@ const buildSectionGenerationBlueprint = ({
           "Controleer dat review/testimonial content via schema.blocks en een section.blocks renderer merchant-editable blijft.",
         ]
       : []),
+    ...(promptContract.requiresInteractiveBehavior
+      ? [
+          "Controleer dat interactieve prompts echte werking hebben die past bij het gevraagde interactiepatroon; controls, tabs, toggles of handles mogen geen styling-only mock zijn.",
+          "Controleer dat interactieve logica per section instance wordt gescoped en dat scripted gedrag veilig kan herinitialiseren in de Theme Editor.",
+        ]
+      : []),
     ...(promptContract.requiresVideoRenderablePath
       ? [
           "Controleer dat prompt-only video sections een video/video_url setting en een renderbaar, blank-safe video-pad hebben.",
@@ -1858,6 +2015,7 @@ const buildSectionGenerationBlueprint = ({
     completionPolicy,
     referenceSignals,
     promptContract,
+    implementationContract,
     layoutContract,
     themeWrapperStrategy,
     requiredReads,

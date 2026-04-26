@@ -632,6 +632,18 @@ try {
     ),
     "prompt-only review plans should expose review-card preflight checks"
   );
+  assert.ok(
+    promptOnlyReviewPlan.sectionBlueprint?.implementationContract?.schemaRules?.some((entry) =>
+      entry.includes("geldige {% schema %} JSON-definitie")
+    ),
+    "new-section plans should expose a generic schema implementation contract"
+  );
+  assert.ok(
+    promptOnlyReviewPlan.sectionBlueprint?.implementationContract?.editRules?.some((entry) =>
+      entry.toLowerCase().includes("patch_scope_too_large")
+    ),
+    "new-section plans should surface preserve-on-edit rules for later refinements"
+  );
 
   const socialStripPlan = await planThemeEdit(shopifyClient, "2026-01", {
     themeId: 123,
@@ -665,6 +677,14 @@ try {
     "image_slider",
     "image-slider prompts should surface a dedicated image_slider archetype"
   );
+  assert.equal(
+    imageSliderPlan.sectionBlueprint?.promptContract?.interactionPattern,
+    "carousel"
+  );
+  assert.equal(
+    imageSliderPlan.sectionBlueprint?.promptContract?.requiresInteractiveBehavior,
+    true
+  );
 
   const logoWallPlan = await planThemeEdit(shopifyClient, "2026-01", {
     themeId: 123,
@@ -696,6 +716,20 @@ try {
     faqPlan.sectionBlueprint?.archetype,
     "faq_collapsible",
     "FAQ prompts should surface a dedicated collapsible archetype"
+  );
+  assert.equal(
+    faqPlan.sectionBlueprint?.promptContract?.interactionPattern,
+    "accordion"
+  );
+  assert.equal(
+    faqPlan.sectionBlueprint?.promptContract?.requiresInteractiveBehavior,
+    true
+  );
+  assert.ok(
+    faqPlan.sectionBlueprint?.implementationContract?.interactionRules?.some((entry) =>
+      entry.toLowerCase().includes("details")
+    ),
+    "FAQ plans should expose a generic interactive implementation contract"
   );
 
   const comparisonPlan = await planThemeEdit(shopifyClient, "2026-01", {

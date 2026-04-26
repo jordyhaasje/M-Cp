@@ -3235,6 +3235,197 @@ function hasSectionScopeMarker(source) {
   );
 }
 
+function collectSliderBehaviorSignals(value) {
+  const source = String(value || "");
+  const scriptBodies = [
+    ...extractInlineScriptContents(source),
+    ...getSpecialBlockContents(source, "javascript"),
+  ].filter((entry) => entry.trim().length > 0);
+  const scriptSource = scriptBodies.join("\n");
+  const hasNavButtons =
+    /<button\b[^>]*(?:data-(?:slider|carousel|direction|action|next|prev)|aria-label\s*=\s*["'][^"']*(?:next|previous|prev|volgende|vorige)|class\s*=\s*["'][^"']*(?:next|prev|arrow|nav|control))/i.test(
+      source
+    );
+  const hasScrollSnapBehavior =
+    /scroll-snap-type\s*:/i.test(source) &&
+    /overflow-x\s*:\s*(?:auto|scroll)/i.test(source);
+  const hasRangeInputBehavior =
+    /<input\b[^>]*type\s*=\s*["']range["']/i.test(source) &&
+    /addEventListener\s*\(\s*['"]input['"]|oninput\s*=/i.test(source);
+  const hasNativeSliderLibrary =
+    /\b(?:swiper|splide|flickity|keen-slider|embla|glide)\b/i.test(
+      `${source}\n${scriptSource}`
+    );
+  const hasScriptedSliderBehavior =
+    scriptBodies.some((scriptBody) =>
+      /(?:scrollBy|scrollTo|scrollLeft|translateX|style\.transform|classList\.(?:add|remove|toggle)\s*\([^)]*(?:active|current|is-selected)|requestAnimationFrame|new\s+(?:Swiper|Splide|Flickity|KeenSlider|EmblaCarousel)|addEventListener\s*\(\s*['"]click['"])/i.test(
+        scriptBody
+      )
+    ) || hasNativeSliderLibrary;
+  const hasThemeEditorLifecycleHook = scriptBodies.some((scriptBody) =>
+    /shopify:section:load|shopify:section:select|shopify:block:select|Shopify\.designMode/i.test(
+      scriptBody
+    )
+  );
+
+  return {
+    hasNavButtons,
+    hasScrollSnapBehavior,
+    hasRangeInputBehavior,
+    hasNativeSliderLibrary,
+    hasScriptedSliderBehavior,
+    hasThemeEditorLifecycleHook,
+    hasFunctionalSliderBehavior:
+      hasScrollSnapBehavior ||
+      hasRangeInputBehavior ||
+      hasScriptedSliderBehavior ||
+      hasNativeSliderLibrary,
+  };
+}
+
+function collectInteractivePatternSignals(value, { interactionPattern = null } = {}) {
+  const source = String(value || "");
+  const scriptBodies = [
+    ...extractInlineScriptContents(source),
+    ...getSpecialBlockContents(source, "javascript"),
+  ].filter((entry) => entry.trim().length > 0);
+  const scriptSource = scriptBodies.join("\n");
+  const sliderBehavior = collectSliderBehaviorSignals(source);
+  const hasDetailsDisclosure = /<details\b[\s\S]*?<summary\b/i.test(source);
+  const hasAriaExpandedControl =
+    /aria-expanded\s*=\s*["'](?:true|false)["']/i.test(source) ||
+    /data-accordion|data-collapsible/i.test(source);
+  const hasAccordionScriptBehavior = scriptBodies.some((scriptBody) =>
+    /(?:setAttribute|toggleAttribute)\s*\(\s*['"](?:aria-expanded|open|hidden)['"]|addEventListener\s*\(\s*['"]click['"]|classList\.(?:add|remove|toggle)\s*\(/i.test(
+      scriptBody
+    ) && /(?:open|expanded|active|current|accordion|collapsible)/i.test(scriptBody)
+  );
+  const hasFunctionalAccordionBehavior =
+    hasDetailsDisclosure ||
+    (hasAriaExpandedControl && hasAccordionScriptBehavior);
+  const hasTabListMarkup =
+    /role\s*=\s*["']tablist["']|data-tabs|class\s*=\s*["'][^"']*\btabs?\b/i.test(
+      source
+    );
+  const hasTabControlMarkup =
+    /role\s*=\s*["']tab["']|data-tab(?:-button|-trigger)?|aria-controls\s*=/i.test(
+      source
+    );
+  const hasTabPanelMarkup =
+    /role\s*=\s*["']tabpanel["']|data-tab-panel|data-panel/i.test(source);
+  const hasTabScriptBehavior = scriptBodies.some((scriptBody) =>
+    /aria-selected|toggleAttribute\s*\(\s*['"]hidden['"]|hidden\s*=|addEventListener\s*\(\s*['"]click['"]|classList\.(?:add|remove|toggle)\s*\(/i.test(
+      scriptBody
+    ) && /(?:active|current|selected|tab|panel)/i.test(scriptBody)
+  );
+  const hasFunctionalTabsBehavior =
+    hasTabListMarkup &&
+    hasTabControlMarkup &&
+    hasTabPanelMarkup &&
+    hasTabScriptBehavior;
+  const hasFunctionalRangeCompareBehavior = sliderBehavior.hasRangeInputBehavior;
+  const hasGenericInteractiveMarkup =
+    hasDetailsDisclosure ||
+    hasTabControlMarkup ||
+    /<button\b|<input\b[^>]*type\s*=\s*["']range["']|role\s*=\s*["']button["']/i.test(
+      source
+    );
+  const hasGenericScriptBehavior =
+    scriptBodies.some((scriptBody) =>
+      /addEventListener\s*\(\s*['"](?:click|input|change)['"]|toggleAttribute|classList\.(?:add|remove|toggle)|requestAnimationFrame/i.test(
+        scriptBody
+      )
+    ) || sliderBehavior.hasScriptedSliderBehavior;
+  const hasFunctionalGenericBehavior =
+    hasDetailsDisclosure ||
+    hasFunctionalTabsBehavior ||
+    sliderBehavior.hasFunctionalSliderBehavior ||
+    (hasGenericInteractiveMarkup && hasGenericScriptBehavior);
+  const hasThemeEditorLifecycleHook = scriptBodies.some((scriptBody) =>
+    /shopify:section:load|shopify:section:select|shopify:block:select|Shopify\.designMode/i.test(
+      scriptBody
+    )
+  );
+
+  const hasVisibleControlsForPattern = (() => {
+    switch (interactionPattern) {
+      case "carousel":
+        return sliderBehavior.hasNavButtons;
+      case "accordion":
+        return hasDetailsDisclosure || hasAriaExpandedControl;
+      case "range_compare":
+        return /<input\b[^>]*type\s*=\s*["']range["']/i.test(source);
+      case "tabs":
+        return hasTabControlMarkup;
+      default:
+        return hasGenericInteractiveMarkup;
+    }
+  })();
+
+  const hasFunctionalBehaviorForPattern = (() => {
+    switch (interactionPattern) {
+      case "carousel":
+        return sliderBehavior.hasFunctionalSliderBehavior;
+      case "accordion":
+        return hasFunctionalAccordionBehavior;
+      case "range_compare":
+        return hasFunctionalRangeCompareBehavior;
+      case "tabs":
+        return hasFunctionalTabsBehavior;
+      case "generic_interactive":
+        return hasFunctionalGenericBehavior;
+      default:
+        return (
+          sliderBehavior.hasFunctionalSliderBehavior ||
+          hasFunctionalAccordionBehavior ||
+          hasFunctionalTabsBehavior ||
+          hasFunctionalRangeCompareBehavior ||
+          hasFunctionalGenericBehavior
+        );
+    }
+  })();
+
+  const hasScriptedBehaviorForPattern = (() => {
+    switch (interactionPattern) {
+      case "carousel":
+        return sliderBehavior.hasScriptedSliderBehavior;
+      case "accordion":
+        return !hasDetailsDisclosure && hasAccordionScriptBehavior;
+      case "range_compare":
+        return hasFunctionalRangeCompareBehavior;
+      case "tabs":
+        return hasTabScriptBehavior;
+      case "generic_interactive":
+        return hasGenericScriptBehavior;
+      default:
+        return hasGenericScriptBehavior;
+    }
+  })();
+
+  return {
+    ...sliderBehavior,
+    scriptBodies,
+    scriptSource,
+    hasDetailsDisclosure,
+    hasAriaExpandedControl,
+    hasAccordionScriptBehavior,
+    hasFunctionalAccordionBehavior,
+    hasTabListMarkup,
+    hasTabControlMarkup,
+    hasTabPanelMarkup,
+    hasTabScriptBehavior,
+    hasFunctionalTabsBehavior,
+    hasFunctionalRangeCompareBehavior,
+    hasGenericInteractiveMarkup,
+    hasGenericScriptBehavior,
+    hasFunctionalGenericBehavior,
+    hasThemeEditorLifecycleHook,
+    hasVisibleControlsForPattern,
+    hasFunctionalBehaviorForPattern,
+    hasScriptedBehaviorForPattern,
+  };
+}
+
 function collectInteractiveSectionSafety(value, fileKey) {
   const issues = [];
   const warnings = [];
@@ -3671,6 +3862,10 @@ function collectExactMatchReferenceSafety(
     /@media\b|@container\b|clamp\(|repeat\(\s*auto-fit|repeat\(\s*auto-fill|minmax\(/i.test(
       source
     );
+  const interactionPattern = String(referenceSignals?.interactivePattern || "").trim();
+  const interactionSignals = collectInteractivePatternSignals(source, {
+    interactionPattern,
+  });
   const usesSectionPropertiesBackground =
     /render\s+['"]section-properties['"][^%]*\bbackground\s*:/i.test(source);
   const rootSectionMatch = source.match(
@@ -3912,11 +4107,67 @@ function collectExactMatchReferenceSafety(
   }
 
   if (
+    referenceSignals.requiresNavButtons &&
+    interactionSignals.hasNavButtons &&
+    !interactionSignals.hasScriptedSliderBehavior
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "De exacte slider/carousel-referentie vraagt om navigatie-controls, maar de buttons zijn niet gekoppeld aan werkend slidergedrag.",
+        fixSuggestion:
+          "Koppel prev/next buttons aan component-scoped scrollBy/scrollTo/translate gedrag en initialiseer per section instance.",
+        issueCode: "exact_match_slider_buttons_not_wired",
+      })
+    );
+    suggestedFixes.push(
+      "Zorg dat zichtbare slider-buttons echt werken; styling-only controls zijn geen exacte replica."
+    );
+  }
+
+  if (
     referenceSignals.requiresThemeEditorLifecycleHooks &&
-    /<script\b/i.test(source) &&
-    !/shopify:section:load|shopify:section:select|shopify:block:select|Shopify\.designMode/i.test(
-      source
-    )
+    !interactionSignals.hasFunctionalBehaviorForPattern
+  ) {
+    const interactiveLabel =
+      interactionPattern === "accordion"
+        ? "accordion/collapsible patroon"
+        : interactionPattern === "range_compare"
+          ? "before/after interactie"
+          : interactionPattern === "tabs"
+            ? "tabs-patroon"
+            : "slider/carousel";
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          `De exacte interactieve replica vraagt om een werkend ${interactiveLabel}, maar bevat geen aantoonbaar functioneel gedrag.`,
+        fixSuggestion:
+          interactionPattern === "accordion"
+            ? "Gebruik native <details>/<summary> of een component-scoped accordion met echte open/closed state per item."
+            : interactionPattern === "range_compare"
+              ? "Gebruik een werkende compare-handle of range-input per section instance in plaats van een statische split-layout."
+              : interactionPattern === "tabs"
+                ? "Gebruik een echte tablist/tab/tabpanel-structuur met werkende state-switching per section instance."
+                : "Voeg werkend scroll-snap/swipe gedrag of component-scoped slider-JS toe voordat de eerste preview-write wordt toegestaan.",
+        issueCode:
+          interactionPattern === "carousel" || !interactionPattern
+            ? "exact_match_missing_slider_behavior"
+            : "exact_match_missing_interactive_behavior",
+      })
+    );
+    suggestedFixes.push(
+      interactionPattern === "carousel" || !interactionPattern
+        ? "Exacte slider-replica's moeten werkend slidergedrag bevatten, niet alleen slider-styling."
+        : "Exacte interactieve replica's moeten werkend gedrag bevatten, niet alleen visuele styling."
+    );
+  }
+
+  if (
+    referenceSignals.requiresThemeEditorLifecycleHooks &&
+    interactionSignals.hasScriptedBehaviorForPattern &&
+    !interactionSignals.hasThemeEditorLifecycleHook
   ) {
     issues.push(
       createInspectionIssue({
@@ -3929,7 +4180,7 @@ function collectExactMatchReferenceSafety(
       })
     );
     suggestedFixes.push(
-      "Voeg Shopify Theme Editor lifecycle hooks toe aan slider- of carousel-JS in de eerste write."
+      "Voeg Shopify Theme Editor lifecycle hooks toe aan scripted interactieve logica in de eerste write."
     );
   }
 
@@ -4130,6 +4381,10 @@ function collectPromptOnlyArchetypeSafety(
     /<(?:article|li|div|section)\b[^>]*class\s*=\s*["'][^"']*(?:__card|--card|[-_]card\b|[-_]panel\b|[-_]surface\b|\bcard\b|\bpanel\b|\bsurface\b|review[-_ ]?(?:item|slide)|testimonial[-_ ]?(?:item|slide)|quote[-_ ]?(?:item|slide))[^"']*["']/i.test(
       source
     );
+  const interactionPattern = String(promptContract?.interactionPattern || "").trim();
+  const interactionSignals = collectInteractivePatternSignals(source, {
+    interactionPattern,
+  });
   const hasSliderControls =
     /<button\b|scroll-snap-type|data-(?:slider|carousel)|aria-label\s*=\s*["'][^"']*(?:next|previous|prev|volgende|vorige)|shopify:section:load|Shopify\.designMode/i.test(
       source
@@ -4233,6 +4488,128 @@ function collectPromptOnlyArchetypeSafety(
     );
     suggestedFixes.push(
       "Voeg prev/next buttons of scroll-snap/carousel gedrag toe voor slider-prompts."
+    );
+  }
+
+  if (promptContract.requiresSliderBehavior && !interactionSignals.hasFunctionalBehaviorForPattern) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Deze prompt-only slider/carousel heeft hooguit slider-styling of losse controls, maar geen aantoonbaar werkend slidergedrag.",
+        fixSuggestion:
+          "Voeg echte werking toe: scroll-snap met horizontale overflow, een before/after range-input met input-handler, of component-scoped JS die prev/next controls aan scrollBy/scrollTo/translate gedrag koppelt.",
+        issueCode: "prompt_slider_missing_behavior",
+      })
+    );
+    suggestedFixes.push(
+      "Maak slider-prompts functioneel: alleen styling of knoppen zonder gedrag is geen geldige slider."
+    );
+  }
+
+  if (
+    promptContract.requiresSliderBehavior &&
+    interactionSignals.hasNavButtons &&
+    !interactionSignals.hasScriptedSliderBehavior
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Deze slider bevat prev/next-achtige buttons, maar die buttons zijn niet gekoppeld aan slider-JS. Dat levert een mock-control op.",
+        fixSuggestion:
+          "Koppel de buttons per section instance aan scrollBy/scrollTo/translate gedrag, of verwijder buttons en gebruik bewust alleen scroll-snap/swipe gedrag.",
+        issueCode: "prompt_slider_buttons_not_wired",
+      })
+    );
+    suggestedFixes.push(
+      "Prev/next buttons moeten echt werken; gebruik component-scoped event handlers per section instance."
+    );
+  }
+
+  if (
+    promptContract.requiresInteractiveBehavior &&
+    interactionPattern &&
+    interactionPattern !== "carousel" &&
+    !interactionSignals.hasFunctionalBehaviorForPattern
+  ) {
+    const interactionLabel =
+      interactionPattern === "accordion"
+        ? "accordion/collapsible patroon"
+        : interactionPattern === "range_compare"
+          ? "before/after interactie"
+          : interactionPattern === "tabs"
+            ? "tabs-patroon"
+            : "interactieve patroon";
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          `Deze prompt-only section vraagt om een ${interactionLabel}, maar bevat geen aantoonbaar werkende interactie.`,
+        fixSuggestion:
+          interactionPattern === "accordion"
+            ? "Gebruik native <details>/<summary> of een component-scoped accordion met echte open/closed state per item."
+            : interactionPattern === "range_compare"
+              ? "Gebruik een werkende range-input of compare-handle die de before/after state per section instance aanstuurt."
+              : interactionPattern === "tabs"
+                ? "Gebruik een echte tablist/tab/tabpanel-structuur met werkende state-switching per section instance."
+                : "Voeg echte interactiviteit toe die past bij het gevraagde patroon en scope die per section instance.",
+        issueCode: "prompt_interaction_missing_behavior",
+      })
+    );
+    suggestedFixes.push(
+      interactionPattern === "accordion"
+        ? "Gebruik native <details>/<summary> of een echte accordion-toggle in plaats van alleen styling."
+        : interactionPattern === "range_compare"
+          ? "Gebruik een werkende compare-handle of range-input in plaats van een statische before/after layout."
+          : interactionPattern === "tabs"
+            ? "Gebruik echte tab state-switching in plaats van alleen tab-styling."
+            : "Maak interactieve prompts functioneel in plaats van visueel-only."
+    );
+  }
+
+  if (
+    promptContract.requiresInteractiveBehavior &&
+    interactionPattern &&
+    interactionPattern !== "carousel" &&
+    interactionSignals.hasVisibleControlsForPattern &&
+    !interactionSignals.hasFunctionalBehaviorForPattern
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Deze interactieve section toont controls of toggles, maar die zijn niet gekoppeld aan werkend gedrag. Daardoor blijft de output een mock.",
+        fixSuggestion:
+          "Koppel controls per section instance aan echte state- of navigatielogica, of gebruik een native toegankelijke structuur zoals details/summary.",
+        issueCode: "prompt_interaction_controls_not_wired",
+      })
+    );
+    suggestedFixes.push(
+      "Zorg dat zichtbare interactive controls echt werken en per section instance zijn gekoppeld."
+    );
+  }
+
+  if (
+    promptContract.requiresThemeEditorSafeInteractivity &&
+    interactionSignals.hasScriptedBehaviorForPattern &&
+    !interactionSignals.hasThemeEditorLifecycleHook
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Deze interactieve section gebruikt JS, maar mist Shopify Theme Editor lifecycle hooks voor re-init na section reload/select in de customizer.",
+        fixSuggestion:
+          "Ondersteun shopify:section:load en waar relevant shopify:section:select/block:select, of initialiseer vanuit een per-section root op een idempotente manier.",
+        issueCode:
+          interactionPattern === "carousel"
+            ? "prompt_slider_missing_theme_editor_hooks"
+            : "prompt_interaction_missing_theme_editor_hooks",
+      })
+    );
+    suggestedFixes.push(
+      "Voeg Shopify Theme Editor lifecycle hooks toe aan scripted interactiegedrag."
     );
   }
 
@@ -5654,6 +6031,7 @@ function buildFailureResponse({
     ...(draft ? { draft } : {}),
     errorCode,
     retryable,
+    ...(writeBlockedBeforeApply ? { blockedBy: "mcp_preflight" } : {}),
     suggestedFixes: uniqueStrings(suggestedFixes),
     shouldNarrowScope,
     ...(effectiveChangeScope ? { changeScope: effectiveChangeScope } : {}),
@@ -5686,6 +6064,10 @@ function uniqueStrings(values) {
   return Array.from(new Set((values || []).filter(Boolean)));
 }
 
+function stripBuildingInspectionPrefix(value) {
+  return String(value || "").replace(/^(?:Building Inspection Failed:\s*)+/i, "");
+}
+
 function buildAggregatedInspectionFailure({
   normalizedArgs,
   warnings = [],
@@ -5703,7 +6085,7 @@ function buildAggregatedInspectionFailure({
   const normalizedIssues = (issues || []).filter(Boolean);
   const primaryIssue = normalizedIssues[0];
   const primaryProblem =
-    primaryIssue?.problem ||
+    stripBuildingInspectionPrefix(primaryIssue?.problem) ||
     "Lokale validatie van de section-artifact faalde.";
   const distinctIssueCodes = Array.from(
     new Set(normalizedIssues.map((issue) => issue?.issueCode).filter(Boolean))
@@ -7098,7 +7480,7 @@ export const draftThemeArtifact = {
                 return buildFailureResponse({
                   status: "inspection_failed",
                   message:
-                    "Rewrite appears lossy. Re-read current file and perform a preserve-on-edit transformation. Write was blocked; live file unchanged.",
+                    "Rewrite appears lossy. MCP preflight blocked the write before live apply. Re-read current file and perform a preserve-on-edit transformation. Live file unchanged.",
                   errorCode: "inspection_failed_lossy_rewrite",
                   retryable: true,
                   suggestedFixes: [

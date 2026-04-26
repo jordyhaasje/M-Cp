@@ -74,7 +74,7 @@ Gebruik wanneer de gebruiker geen referentiebeeld geeft, maar wel een duidelijke
 Verwachte plannertruth:
 - `qualityTarget = "theme_consistent"`
 - Theme wrappers/helpers/scales worden gespiegeld uit representatieve theme files
-- Prompt-only review-, video- en PDP/product-prompts krijgen nu een `sectionBlueprint.promptContract` mee. Die contractlaag voorkomt dat een gewone tekstprompt degradeert naar een generieke heading/body/CTA section wanneer de prompt eigenlijk review cards, video-rendering of productcontext vraagt.
+- Prompt-only review-, video-, interactieve en PDP/product-prompts krijgen nu een `sectionBlueprint.promptContract` plus een generiek `sectionBlueprint.implementationContract` mee. Die contractlaag voorkomt dat een gewone tekstprompt degradeert naar een generieke heading/body/CTA section wanneer de prompt eigenlijk review cards, video-rendering, werkende interactiviteit of productcontext vraagt.
 
 Voorbeeldprompt:
 ```text

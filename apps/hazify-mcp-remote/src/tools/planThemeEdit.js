@@ -828,6 +828,8 @@ const buildPlannerHandoff = ({
     ? result.sectionBlueprint.relevantHelpers
     : [],
   referenceSignals: result?.sectionBlueprint?.referenceSignals || null,
+  implementationContract:
+    result?.sectionBlueprint?.implementationContract || null,
   themeContext: result?.themeContext || null,
   sectionBlueprint: result?.sectionBlueprint || null,
   architecture:
@@ -990,6 +992,9 @@ const planThemeEditTool = {
       ...(writeArgsTemplate ? { writeArgsTemplate } : {}),
       ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
       plannerHandoff,
+      ...(result?.sectionBlueprint?.implementationContract
+        ? { implementationContract: result.sectionBlueprint.implementationContract }
+        : {}),
       ...(result?.changeScope ? { changeScope: result.changeScope } : {}),
       ...(result?.preferredWriteMode
         ? { preferredWriteMode: result.preferredWriteMode }

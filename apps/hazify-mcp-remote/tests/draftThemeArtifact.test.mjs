@@ -1931,7 +1931,13 @@ test("draftThemeArtifact - flags missing Theme Editor lifecycle hooks on interac
 <script>
   document.addEventListener('DOMContentLoaded', () => {
     const root = document.querySelector('[data-section-id="{{ section.id }}"]');
-    root?.querySelector('.exact-slider__track');
+    const track = root?.querySelector('.exact-slider__track');
+    root?.querySelector('[aria-label="Previous slide"]')?.addEventListener('click', () => {
+      track?.scrollBy({ left: -320, behavior: 'smooth' });
+    });
+    root?.querySelector('[aria-label="Next slide"]')?.addEventListener('click', () => {
+      track?.scrollBy({ left: 320, behavior: 'smooth' });
+    });
   });
 </script>
 {% schema %}
@@ -7015,12 +7021,197 @@ test("draftThemeArtifact - rejects prompt-only review sections that degrade to g
 
     assert.equal(result.success, false);
     assert.equal(result.status, "inspection_failed");
+    assert.equal(
+      result.message?.startsWith("Building Inspection Failed: Building Inspection Failed:"),
+      false,
+      "aggregated inspection failures should not duplicate the Building Inspection prefix"
+    );
     assert.ok(
       result.errors?.some((issue) => issue.issueCode === "prompt_review_missing_block_cards")
     );
     assert.ok(
       result.errors?.some((issue) => issue.issueCode === "prompt_review_missing_card_surface")
     );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects prompt-only FAQ sections that render as static mock content", async () => {
+  const key = "sections/prompt-faq.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "faq_collapsible",
+            category: "interactive",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              interactionPattern: "accordion",
+              requiresInteractiveBehavior: true,
+              requiresThemeEditorSafeInteractivity: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .prompt-faq {
+    display: grid;
+    gap: 16px;
+    padding: 32px 0;
+  }
+</style>
+<section class="prompt-faq page-width">
+  <h2>{{ section.settings.heading }}</h2>
+  <div class="prompt-faq__item">
+    <h3>{{ section.settings.question }}</h3>
+    <p>{{ section.settings.answer }}</p>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Prompt FAQ",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Frequently asked questions" },
+    { "type": "text", "id": "question", "label": "Question", "default": "How long is shipping?" },
+    { "type": "richtext", "id": "answer", "label": "Answer", "default": "<p>Shipping takes 2-4 business days.</p>" }
+  ],
+  "presets": [{ "name": "Prompt FAQ" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "prompt_interaction_missing_behavior")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - accepts prompt-only FAQ sections with native disclosure behavior", async () => {
+  const key = "sections/prompt-faq.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "faq_collapsible",
+            category: "interactive",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              interactionPattern: "accordion",
+              requiresInteractiveBehavior: true,
+              requiresThemeEditorSafeInteractivity: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .prompt-faq {
+    display: grid;
+    gap: 16px;
+    padding: 32px 0;
+  }
+
+  #shopify-section-{{ section.id }} .prompt-faq__item {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+    padding-bottom: 16px;
+  }
+</style>
+<section class="prompt-faq page-width">
+  <h2>{{ section.settings.heading }}</h2>
+  {% for block in section.blocks %}
+    <details class="prompt-faq__item" {{ block.shopify_attributes }}>
+      <summary>{{ block.settings.question }}</summary>
+      <div class="prompt-faq__answer rte">{{ block.settings.answer }}</div>
+    </details>
+  {% endfor %}
+</section>
+{% schema %}
+{
+  "name": "Prompt FAQ",
+  "blocks": [
+    {
+      "type": "item",
+      "name": "Item",
+      "settings": [
+        { "type": "text", "id": "question", "label": "Question", "default": "How long is shipping?" },
+        { "type": "richtext", "id": "answer", "label": "Answer", "default": "<p>Shipping takes 2-4 business days.</p>" }
+      ]
+    }
+  ],
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Frequently asked questions" }
+  ],
+  "presets": [{ "name": "Prompt FAQ", "blocks": [{ "type": "item" }, { "type": "item" }] }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
   } finally {
     global.fetch = previousFetch;
   }
