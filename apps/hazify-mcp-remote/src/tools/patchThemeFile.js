@@ -311,6 +311,9 @@ const buildPatchThemeFailure = ({
 }) => ({
   success: false,
   status: "inspection_failed",
+  writeApplied: false,
+  liveFileUnchanged: true,
+  writeStatus: "blocked_live_file_unchanged",
   message,
   errorCode,
   retryable: true,
@@ -387,7 +390,7 @@ const pickRememberedPatchTarget = (memoryState = {}, { themeId, themeRole } = {}
 const patchThemeFileTool = {
   name: "patch-theme-file",
   description:
-    "Patch one existing theme file met één of meer letterlijke vervangingen. Gebruik dit alleen voor kleine single-file fixes nadat je eerst met `search-theme-files` en daarna `get-theme-file` de exacte anchor hebt bepaald. Compatibele clients mogen een summary meesturen; de tool inferreert alleen een exact targetbestand als dat veilig kan en geeft anders een repair response via `plan-theme-edit`. Wanneer exact hetzelfde bestand nog niet in deze flow is gelezen, probeert de tool nu eerst veilig zelf een exacte read met includeContent=true te hydrateren. Daarna weigert hij nog steeds generieke of niet-unieke anchors en blokkeert hij bredere CSS/JS/schema rewrites die eigenlijk via draft-theme-artifact mode='edit' horen te lopen.",
+    "Patch one existing theme file met één of meer letterlijke vervangingen. Gebruik dit alleen voor kleine single-file fixes nadat je eerst met `search-theme-files` en daarna `get-theme-file` de exacte anchor hebt bepaald. Compatibele clients mogen een summary meesturen; de tool inferreert alleen een exact targetbestand als dat veilig kan en geeft anders een repair response via `plan-theme-edit`. Wanneer exact hetzelfde bestand nog niet in deze flow is gelezen, probeert de tool nu eerst veilig zelf een exacte read met includeContent=true te hydrateren. Daarna weigert hij nog steeds generieke of niet-unieke anchors en blokkeert hij bredere CSS/JS/schema rewrites. Bij patch_scope_too_large is de verplichte fallback: `get-theme-file includeContent=true` op hetzelfde theme target, daarna een preserve-on-edit full-file rewrite via `draft-theme-artifact mode='edit'`; nooit een compacte reconstructie of samenvatting.",
   inputSchema: PatchThemeFilePublicObjectSchema,
   schema: PatchThemeFileInputSchema,
   execute: async (input, context = {}) => {
@@ -558,20 +561,49 @@ const patchThemeFileTool = {
     if (looksLikeBroadThemePatch(effectiveKey, patches)) {
       return buildPatchThemeFailure({
         message:
-          "Deze patch lijkt breder dan een kleine literal fix. Gebruik voor grotere section/snippet rewrites liever draft-theme-artifact mode='edit'.",
+          "Deze patch lijkt breder dan een kleine literal fix. Re-read current file and perform a preserve-on-edit transformation before using draft-theme-artifact mode='edit'.",
         errorCode: "patch_scope_too_large",
         normalizedArgs,
-        nextAction: "rewrite_with_draft_tool",
-        nextTool: "draft-theme-artifact",
+        nextAction: "reread_current_file_for_preserve_rewrite",
+        nextTool: "get-theme-file",
         nextArgsTemplate: {
           ...(effectiveThemeId !== undefined ? { themeId: effectiveThemeId } : {}),
           ...(effectiveThemeRole ? { themeRole: effectiveThemeRole } : {}),
-          mode: "edit",
           key: effectiveKey,
-          value: "<full rewritten file content>",
-          ...(input.baseChecksumMd5 || recentRead?.checksumMd5
-            ? { baseChecksumMd5: input.baseChecksumMd5 || recentRead.checksumMd5 }
-            : {}),
+          includeContent: true,
+        },
+        alternativeNextArgsTemplates: {
+          preserveRewriteAfterRead: {
+            ...(effectiveThemeId !== undefined ? { themeId: effectiveThemeId } : {}),
+            ...(effectiveThemeRole ? { themeRole: effectiveThemeRole } : {}),
+            mode: "edit",
+            files: [
+              {
+                key: effectiveKey,
+                value: "<full rewritten current file content after deterministic preserve-on-edit transformation>",
+                ...(input.baseChecksumMd5 || recentRead?.checksumMd5
+                  ? { baseChecksumMd5: input.baseChecksumMd5 || recentRead.checksumMd5 }
+                  : {}),
+              },
+            ],
+          },
+          literalPatch: {
+            ...(effectiveThemeId !== undefined ? { themeId: effectiveThemeId } : {}),
+            ...(effectiveThemeRole ? { themeRole: effectiveThemeRole } : {}),
+            mode: "edit",
+            files: [
+              {
+                key: effectiveKey,
+                patch: {
+                  searchString: "<exact literal anchor from the current file>",
+                  replaceString: "<updated markup/liquid>",
+                },
+                ...(input.baseChecksumMd5 || recentRead?.checksumMd5
+                  ? { baseChecksumMd5: input.baseChecksumMd5 || recentRead.checksumMd5 }
+                  : {}),
+              },
+            ],
+          },
         },
         retryMode: "switch_tool_after_fix",
         errors: [
@@ -580,12 +612,13 @@ const patchThemeFileTool = {
             problem:
               "De gevraagde patch raakt structurele CSS/JS/schema-inhoud of is te groot voor een veilige anchor-based patch-flow.",
             fixSuggestion:
-              "Gebruik draft-theme-artifact mode='edit' met een volledige rewrite of een compact files[] edit-contract wanneer je grotere structurele wijzigingen wilt doorvoeren.",
+              "Lees eerst het actuele bestand opnieuw, pas daarop een preserve-on-edit transformatie toe en stuur daarna de volledige filebody naar draft-theme-artifact mode='edit'.",
           },
         ],
         suggestedFixes: [
           "Gebruik patch-theme-file alleen voor kleine, unieke literal vervangingen.",
-          "Gebruik draft-theme-artifact mode='edit' zodra je CSS, JS, schema of bredere markup in één keer wilt herschrijven.",
+          "Na patch_scope_too_large: get-theme-file includeContent=true -> preserve-on-edit rewrite -> draft-theme-artifact mode='edit'.",
+          "Gebruik geen compacte reconstructie of samenvatting als rewrite-body.",
         ],
         changeScope: "bounded_rewrite",
         preferredWriteMode: "value",

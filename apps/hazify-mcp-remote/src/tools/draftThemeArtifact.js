@@ -28,12 +28,12 @@ import {
 
 export const toolName = "draft-theme-artifact";
 export const title = "Write Theme Files";
-export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, or broader theme changes. For a brand-new section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. For broad visual refinements of an existing section, prefer mode='edit' with a full rewrite over long patch arrays. In mode='edit', files[].value must contain the full rewritten file content, not a placeholder like REWRITE_ALREADY_APPLIED_IN_CONTEXT. Do not use apply-theme-draft for the first write.`;
+export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, or broader theme changes. For a brand-new section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. After patch_scope_too_large, re-read the current file with includeContent=true and perform a preserve-on-edit transformation before calling mode='edit'. For broad visual refinements of an existing section, prefer mode='edit' with a full current-file rewrite over long patch arrays. In mode='edit', files[].value must contain the full rewritten file content, not a placeholder, summary, compact reconstruction, or REWRITE_ALREADY_APPLIED_IN_CONTEXT. Lossy rewrites are blocked unless the planner/user explicitly requested removal or simplification. Do not use apply-theme-draft for the first write.`;
 export const docsDescription = `Draft and validate Shopify theme files through the guarded pipeline.
 
 Modes:
 - mode="create": Volledige inspectie voor nieuwe sections (geldig schema, presets, renderbare markup en Shopify-veilige range settings). Templates/config geblokkeerd.
-- mode="edit": Lichtere inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON/JSONC-validatie, en sections/blocks met schema krijgen ook range-validatie.
+- mode="edit": Inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON/JSONC-validatie. Section/block rewrites krijgen preserve-on-edit checks op bestaande schema-settings, block types/settings, presets, block.shopify_attributes, image_tag-paden, scoped CSS en theme/Impact wrappers.
 
 Zet mode altijd expliciet op top-level. Alleen voor backwards compatibility infereren patch/patches automatisch mode="edit"; value-only writes zonder mode worden eerst tegen het doeltheme geprobed zodat bestaande bestanden niet stilzwijgend als create-flow worden behandeld.
 
@@ -44,10 +44,13 @@ Belangrijk: themeRole='main' of een exact themeId is verplicht. Vraag de gebruik
 Theme-aware section regels:
 - Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
 - Compatibele shorthand: voor één file mag een client ook top-level key + value/content/liquid of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Binnen files[] worden value/content/liquid nu ook veilig naar dezelfde canonieke value-write genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
-- Gebruik in mode="edit" voor full rewrites altijd de volledige nieuwe bestandsinhoud in files[].value. Context-placeholders of samenvattingen zoals REWRITE_ALREADY_APPLIED_IN_CONTEXT zijn ongeldig; gebruik anders een letterlijke patch/patches.
+- Gebruik in mode="edit" voor full rewrites altijd de volledige nieuwe bestandsinhoud in files[].value op basis van de actuele file-read. Context-placeholders, samenvattingen, compacte reconstructies of geheugen-rewrites zoals REWRITE_ALREADY_APPLIED_IN_CONTEXT zijn ongeldig; gebruik anders een letterlijke patch/patches.
+- Na patch_scope_too_large is de verplichte veilige fallback: get-theme-file met includeContent=true -> deterministische preserve-on-edit transformatie -> draft-theme-artifact mode="edit" met de volledige filebody en waar mogelijk baseChecksumMd5.
+- Bestaande sections worden in mode="edit" preserve-on-edit gevalideerd: bestaande schema-settings, block types/settings, presets, block.shopify_attributes, image_tag-renderpaden, section.id CSS-scoping en Impact/theme helpers mogen niet verdwijnen tenzij de planner/gebruiker expliciet om verwijderen of versimpelen vroeg.
+- Een full rewrite die duidelijk kleiner wordt dan de actuele file wordt als lossy geblokkeerd met inspection_failed_lossy_rewrite en een repair response die opnieuw lezen verplicht stelt.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
 - Wanneer plan-theme-edit eerst exact nextReadKeys voorschrijft, probeert deze tool die planner-reads nu eerst veilig exact te hydrateren. Alleen als vereiste reads daarna nog ontbreken, blijft dezelfde write-flow geblokkeerd en krijgt de client een expliciete read-repair terug.
-- Nieuwe sections worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder verplichte velden zoals setting/block labels, types, ids, names en content waar relevant, plus geldige range defaults binnen min/max, geldige step-alignment en maximaal 101 stappen per range setting. Bij range-fouten geeft de tool exacte suggestedReplacement/default-hints terug.
+- Nieuwe sections en edit-rewrites worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder verplichte velden zoals setting/block labels, types, ids, names en content waar relevant, geldige presets, geldige range defaults binnen min/max, geldige step-alignment, maximaal 101 stappen per range setting en select-defaults die echt in options bestaan. Bij range- en select-fouten geeft de tool exacte suggestedReplacement/default-hints terug.
 - Nieuwe sections/blocks én nieuwe edit-writes op bestaande sections/blocks moeten blank-safe resource rendering gebruiken. Optionele settings zoals image_picker, video en video_url mogen niet onbeschermd door image_url, video_tag of external_video_* lopen; gebruik eerst een if/unless-guard of een expliciete default/fallback. Bestaande legacy-markup elders in het bestand blijft bewerkbaar zolang de nieuwe write geen extra onveilige resource-chain introduceert.
 - Wanneer de create-flow compacte theme-context heeft afgeleid, controleert de pipeline ook op hero-achtige oversizing van typography, spacing, gaps en min-heights ten opzichte van representatieve content sections in het doeltheme.
 - richtext defaults moeten Shopify-veilige HTML gebruiken. Gebruik top-level <p> of <ul>; tags zoals <mark> in richtext.default worden door Shopify afgewezen.
@@ -56,6 +59,8 @@ Theme-aware section regels:
 - Exacte screenshot-replica's met expliciete bronmedia blijven streng: placeholder_svg_tag als hoofdmedia blokkeert dan nog steeds de eerste preview-write. Screenshot-only replica's zonder losse bron-assets mogen nu wel door met een waarschuwing en een suggested fix richting renderbare demo-media of een gestileerde media shell.
 - Exact-match comparison/shell replica's worden nu ook expliciet gecontroleerd op onderscheidende decoratieve anchors uit de referentie, zoals floating productmedia of badges/seals, plus op dubbele background-shells wanneer theme wrappers zoals section-properties al een outer surface impliceren.
 - Renderer-veilige Liquid blijft verplicht: geen geneste {{ ... }} of {% ... %} binnen dezelfde output-tag of filter-argumentstring; bouw zulke waarden eerst op via assign/capture en geef daarna de variabele door.
+- Wanneer over section.blocks wordt geloopt, moet {{ block.shopify_attributes }} binnen dezelfde loop-body op de top-level block-wrapper staan; een los attribuut buiten de loop telt niet.
+- In Impact-like theme context moeten normale sections de bestaande Impact wrapper-conventies volgen, zoals section-spacing-collapsing en/of section-properties waar passend, lokale CSS scopen onder #shopify-section-{{ section.id }}, dubbele background-shells vermijden en Shopify media via image_url + image_tag renderen.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
 - Voor native blocks binnen een bestaande section (bijv. product-info of main-product): gebruik mode="edit" en patch de bestaande schema.blocks plus de render markup/snippet. Dit is geen los blocks/*.liquid bestand.
@@ -93,7 +98,7 @@ const ThemeDraftFilePublicSchema = z
       .string()
       .optional()
       .describe(
-        "De volledige inhoud / broncode. Voor mode='edit' full rewrites moet dit de complete nieuwe bestandsinhoud zijn, niet een context-placeholder of verkorte samenvatting. Payloads falen als ze niet Shopify OS 2.0 proof zijn: geldige schema settings en een presets-array zijn verplicht."
+        "De volledige inhoud / broncode. Voor mode='edit' full rewrites moet dit de complete nieuwe bestandsinhoud zijn op basis van de actuele get-theme-file includeContent=true read, niet een context-placeholder, verkorte samenvatting of compacte reconstructie. Payloads falen als ze niet Shopify OS 2.0 proof zijn: geldige schema settings, labels, presets, Liquid renderer-veiligheid en preserve-on-edit zijn verplicht."
       ),
     content: z
       .string()
@@ -141,7 +146,7 @@ const ThemeDraftFileSchema = z
       .string()
       .optional()
       .describe(
-        "De volledige inhoud / broncode. Payloads falen als ze niet Shopify OS 2.0 proof zijn: geldige schema settings en een presets-array zijn verplicht."
+        "De volledige inhoud / broncode. In mode='edit' moet dit een volledige preserve-on-edit rewrite zijn op basis van de actuele file-read; compacte reconstructies en samenvattingen worden geblokkeerd. Payloads falen als ze niet Shopify OS 2.0 proof zijn: geldige schema settings, labels, presets, Liquid renderer-veiligheid en preserve-on-edit zijn verplicht."
       ),
     patch: ThemeDraftPatchSchema.optional().describe("Verander een specifieke string zonder het hele bestand in te sturen. Bespaart tokens en voorkomt truncated writes."),
     patches: ThemeDraftPatchesSchema.optional(),
@@ -537,6 +542,9 @@ function collectSchemaSettings(schema) {
 }
 
 const SETTING_TYPES_WITH_CONTENT_ONLY = new Set(["header", "paragraph"]);
+const LOSSY_EDIT_REWRITE_MIN_RATIO = 0.75;
+const EXPLICIT_DESTRUCTIVE_EDIT_PATTERN =
+  /\b(?:delete|remove|drop|strip|simplif(?:y|ied|ication)|minimal(?:ize|ise)|prune|cleanup|clean up|verwijder|verwijderen|weghalen|haal weg|schrap|strip|versimpel|versimpelen|minimaliseer|opschonen)\b/i;
 
 function humanizeSchemaFieldLabel(value, fallback = "Setting") {
   const normalized = String(value || "")
@@ -1015,6 +1023,333 @@ function collectSchemaRangeIssues(schema) {
     for (const setting of blockSettings) {
       addIssue(setting, `Block '${blockType}'`, ["blocks", blockType]);
     }
+  }
+
+  return issues;
+}
+
+function collectSchemaSelectIssues(schema, fileKey) {
+  const issues = [];
+  const addIssue = (setting, ownerLabel, basePath) => {
+    if (!setting || setting.type !== "select") {
+      return;
+    }
+
+    const id = String(setting.id || "unknown");
+    const options = Array.isArray(setting.options) ? setting.options : [];
+    const defaultValue =
+      Object.prototype.hasOwnProperty.call(setting, "default")
+        ? String(setting.default)
+        : null;
+    const optionValues = options
+      .map((option) => String(option?.value ?? ""))
+      .filter(Boolean);
+    const optionLabelsMissing = options
+      .map((option, index) => ({
+        index,
+        value: String(option?.value ?? "").trim(),
+        label: String(option?.label ?? "").trim(),
+      }))
+      .filter((option) => option.value && !option.label);
+
+    if (!Array.isArray(setting.options) || optionValues.length === 0) {
+      issues.push(
+        createInspectionIssue({
+          path: [...basePath, "settings", id, "options"],
+          problem:
+            `${ownerLabel} select setting '${id}' moet minimaal één option met een value bevatten.`,
+          fixSuggestion:
+            "Voeg een geldige options-array toe met value en label per select-optie.",
+          issueCode: "inspection_failed_schema_select",
+        })
+      );
+      return;
+    }
+
+    if (optionLabelsMissing.length > 0) {
+      const firstMissing = optionLabelsMissing[0];
+      issues.push(
+        createInspectionIssue({
+          path: [...basePath, "settings", id, "options", firstMissing.value || firstMissing.index, "label"],
+          problem:
+            `${ownerLabel} select setting '${id}' bevat option '${firstMissing.value || firstMissing.index}' zonder label.`,
+          fixSuggestion:
+            "Voeg voor elke select option een merchant-zichtbare label toe.",
+          issueCode: "inspection_failed_schema_select",
+          suggestedReplacement: {
+            label: humanizeSchemaFieldLabel(firstMissing.value, "Option"),
+          },
+        })
+      );
+      return;
+    }
+
+    if (defaultValue !== null && !optionValues.includes(defaultValue)) {
+      issues.push(
+        createInspectionIssue({
+          path: [...basePath, "settings", id, "default"],
+          problem:
+            `${ownerLabel} select setting '${id}' heeft default '${defaultValue}', maar die value bestaat niet in options.`,
+          fixSuggestion:
+            `Gebruik als default één van de bestaande option values: ${optionValues.join(", ")}.`,
+          issueCode: "inspection_failed_schema_select",
+          suggestedReplacement: {
+            default: optionValues[0],
+            validOptions: optionValues,
+          },
+        })
+      );
+    }
+  };
+
+  const sectionSettings = Array.isArray(schema?.settings) ? schema.settings : [];
+  for (const setting of sectionSettings) {
+    addIssue(setting, "Section", [fileKey || "section", "schema"]);
+  }
+
+  const blocks = Array.isArray(schema?.blocks) ? schema.blocks : [];
+  for (const block of blocks) {
+    const blockType = String(block?.type || block?.name || "unknown");
+    const blockSettings = Array.isArray(block?.settings) ? block.settings : [];
+    for (const setting of blockSettings) {
+      addIssue(setting, `Block '${blockType}'`, [
+        fileKey || "section",
+        "schema",
+        "blocks",
+        blockType,
+      ]);
+    }
+  }
+
+  return issues;
+}
+
+function collectIds(items = []) {
+  return new Set(
+    (Array.isArray(items) ? items : [])
+      .map((item) => String(item?.id || "").trim())
+      .filter(Boolean)
+  );
+}
+
+function collectBlockTypes(blocks = []) {
+  return new Set(
+    (Array.isArray(blocks) ? blocks : [])
+      .map((block) => String(block?.type || "").trim())
+      .filter(Boolean)
+  );
+}
+
+function collectSchemaPreservationIssues(originalSchema, newSchema, fileKey) {
+  const issues = [];
+  if (!originalSchema || !newSchema) {
+    return issues;
+  }
+
+  const originalSectionSettingIds = collectIds(originalSchema.settings);
+  const newSectionSettingIds = collectIds(newSchema.settings);
+  for (const id of originalSectionSettingIds) {
+    if (!newSectionSettingIds.has(id)) {
+      issues.push(
+        createInspectionIssue({
+          path: [fileKey, "schema", "settings", id],
+          problem:
+            `Preserve-on-edit failed: section setting '${id}' bestond in het huidige theme-bestand maar ontbreekt in de rewrite.`,
+          fixSuggestion:
+            `Lees '${fileKey}' opnieuw met includeContent=true en behoud setting '${id}' tenzij de gebruiker expliciet om verwijdering vroeg.`,
+          issueCode: "inspection_failed_lossy_rewrite",
+        })
+      );
+    }
+  }
+
+  const originalBlockTypes = collectBlockTypes(originalSchema.blocks);
+  const newBlockTypes = collectBlockTypes(newSchema.blocks);
+  for (const blockType of originalBlockTypes) {
+    if (!newBlockTypes.has(blockType)) {
+      issues.push(
+        createInspectionIssue({
+          path: [fileKey, "schema", "blocks", blockType],
+          problem:
+            `Preserve-on-edit failed: block type '${blockType}' bestond in het huidige theme-bestand maar ontbreekt in de rewrite.`,
+          fixSuggestion:
+            `Behoud block type '${blockType}' en alle bijbehorende render-markup, tenzij de gebruiker expliciet om verwijdering vroeg.`,
+          issueCode: "inspection_failed_lossy_rewrite",
+        })
+      );
+      continue;
+    }
+
+    const originalBlock = (originalSchema.blocks || []).find(
+      (block) => String(block?.type || "").trim() === blockType
+    );
+    const newBlock = (newSchema.blocks || []).find(
+      (block) => String(block?.type || "").trim() === blockType
+    );
+    const originalBlockSettingIds = collectIds(originalBlock?.settings);
+    const newBlockSettingIds = collectIds(newBlock?.settings);
+    for (const id of originalBlockSettingIds) {
+      if (!newBlockSettingIds.has(id)) {
+        issues.push(
+          createInspectionIssue({
+            path: [fileKey, "schema", "blocks", blockType, "settings", id],
+            problem:
+              `Preserve-on-edit failed: block setting '${id}' in '${blockType}' bestond in het huidige theme-bestand maar ontbreekt in de rewrite.`,
+            fixSuggestion:
+              `Behoud block setting '${id}' in '${blockType}' tenzij de gebruiker expliciet om verwijdering vroeg.`,
+            issueCode: "inspection_failed_lossy_rewrite",
+          })
+        );
+      }
+    }
+  }
+
+  if (
+    Array.isArray(originalSchema.presets) &&
+    originalSchema.presets.length > 0 &&
+    (!Array.isArray(newSchema.presets) || newSchema.presets.length === 0)
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey, "schema", "presets"],
+        problem:
+          "Preserve-on-edit failed: het huidige theme-bestand heeft presets, maar de rewrite heeft ze verwijderd.",
+        fixSuggestion:
+          "Behoud de bestaande presets-array in full-file rewrites van bestaande sections.",
+        issueCode: "inspection_failed_lossy_rewrite",
+      })
+    );
+  }
+
+  return issues;
+}
+
+function countPatternOccurrences(value, pattern) {
+  return Array.from(String(value || "").matchAll(pattern)).length;
+}
+
+function hasSectionScopedCss(value) {
+  return /#shopify-section-\s*{{-?\s*section\.id\s*-?}}|#shopify-section-{{\s*section\.id\s*}}|shopify-section-\{\{\s*section\.id\s*\}\}/i.test(
+    String(value || "")
+  );
+}
+
+function hasExplicitDestructiveEditIntent(plannerHandoff = null) {
+  const intentText = [
+    plannerHandoff?.brief,
+    plannerHandoff?.plannerQuery,
+    plannerHandoff?.changeScope,
+    plannerHandoff?.completionPolicy,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join("\n");
+  return EXPLICIT_DESTRUCTIVE_EDIT_PATTERN.test(intentText);
+}
+
+function collectPreserveOnEditIssues({
+  fileKey,
+  originalValue,
+  newValue,
+  allowLossy = false,
+}) {
+  if (allowLossy) {
+    return [];
+  }
+
+  const issues = [];
+  const originalBytes = Buffer.byteLength(String(originalValue || ""), "utf8");
+  const newBytes = Buffer.byteLength(String(newValue || ""), "utf8");
+  const rewriteRatio = originalBytes > 0 ? newBytes / originalBytes : 1;
+
+  if (
+    originalBytes > 0 &&
+    newBytes > 0 &&
+    rewriteRatio < LOSSY_EDIT_REWRITE_MIN_RATIO
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          `Rewrite appears lossy: '${fileKey}' krimpt van ${originalBytes} naar ${newBytes} bytes (${Math.round(rewriteRatio * 100)}%). Dat wijst op een verkorte reconstructie in plaats van preserve-on-edit.`,
+        fixSuggestion:
+          "Re-read current file with includeContent=true and perform a preserve-on-edit transformation. Behoud alle bestaande markup, schema, presets, labels en block-rendering tenzij expliciet gewijzigd.",
+        issueCode: "inspection_failed_lossy_rewrite",
+        suggestedReplacement: {
+          originalBytes,
+          newBytes,
+          minimumExpectedBytes: Math.ceil(originalBytes * LOSSY_EDIT_REWRITE_MIN_RATIO),
+        },
+      })
+    );
+  }
+
+  const originalSchema = parseSectionSchema(originalValue).schema;
+  const newSchema = parseSectionSchema(newValue).schema;
+  issues.push(...collectSchemaPreservationIssues(originalSchema, newSchema, fileKey));
+
+  if (
+    /block\.shopify_attributes/.test(String(originalValue || "")) &&
+    !/block\.shopify_attributes/.test(String(newValue || ""))
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Preserve-on-edit failed: de rewrite verwijdert block.shopify_attributes uit een bestaand block-renderpad.",
+        fixSuggestion:
+          "Behoud {{ block.shopify_attributes }} op de block-wrapper binnen section.blocks of theme-block renderers.",
+        issueCode: "inspection_failed_block_shopify_attributes",
+      })
+    );
+  }
+
+  for (const helper of ["section-properties", "section-spacing-collapsing"]) {
+    const helperPattern = new RegExp(`render\\s+['"]${escapeRegExp(helper)}['"]`, "i");
+    if (helperPattern.test(String(originalValue || "")) && !helperPattern.test(String(newValue || ""))) {
+      issues.push(
+        createInspectionIssue({
+          path: [fileKey],
+          problem:
+            `Preserve-on-edit failed: de rewrite verwijdert de bestaande Impact/theme helper '${helper}'.`,
+          fixSuggestion:
+            `Behoud {% render '${helper}' %} of de equivalente bestaande wrapper wanneer je alleen spacing, CSS of schema-settings wijzigt.`,
+          issueCode: "inspection_failed_lossy_rewrite",
+        })
+      );
+    }
+  }
+
+  const originalImageTagCount = countPatternOccurrences(originalValue, /\|\s*image_tag\b/g);
+  const newImageTagCount = countPatternOccurrences(newValue, /\|\s*image_tag\b/g);
+  if (originalImageTagCount > 0 && newImageTagCount < originalImageTagCount) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          `Preserve-on-edit failed: de rewrite verlaagt het aantal Shopify image_tag renderpaden van ${originalImageTagCount} naar ${newImageTagCount}.`,
+        fixSuggestion:
+          "Behoud bestaande image_url + image_tag renderpaden en hun attributen, tenzij de gebruiker expliciet media-rendering wil verwijderen.",
+        issueCode: "inspection_failed_lossy_rewrite",
+      })
+    );
+  }
+
+  if (
+    hasSectionScopedCss(originalValue) &&
+    /<style\b|{%\s*stylesheet\s*%}/i.test(String(newValue || "")) &&
+    !hasSectionScopedCss(newValue)
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Preserve-on-edit failed: de rewrite verwijdert bestaande section.id CSS-scoping.",
+        fixSuggestion:
+          "Scope lokale CSS per section met #shopify-section-{{ section.id }} zodat meerdere section instances elkaar niet beïnvloeden.",
+        issueCode: "inspection_failed_lossy_rewrite",
+      })
+    );
   }
 
   return issues;
@@ -2783,6 +3118,45 @@ function collectLiquidDelimiterBalanceIssues(value, fileKey) {
   };
 }
 
+function extractSectionBlockLoopBodies(value) {
+  const source = String(value || "");
+  const tagPattern = /{%-?\s*(for\b[\s\S]*?|endfor)\s*-?%}/gi;
+  const loops = [];
+  const stack = [];
+
+  for (const match of source.matchAll(tagPattern)) {
+    const tagBody = String(match[1] || "");
+    const index = match.index ?? 0;
+    const isAnyFor = /^for\b/i.test(tagBody);
+    const isEndFor = /^endfor\b/i.test(tagBody);
+    const isSectionBlockLoop =
+      isAnyFor && /\bblock\s+in\s+section\.blocks\b/i.test(tagBody);
+
+    if (isAnyFor) {
+      stack.push({
+        isSectionBlockLoop,
+        openStart: index,
+        bodyStart: index + String(match[0] || "").length,
+      });
+      continue;
+    }
+
+    if (!isEndFor || stack.length === 0) {
+      continue;
+    }
+
+    const opened = stack.pop();
+    if (opened?.isSectionBlockLoop) {
+      loops.push({
+        body: source.slice(opened.bodyStart, index),
+        line: getLineNumberAtIndex(source, opened.openStart),
+      });
+    }
+  }
+
+  return loops;
+}
+
 function collectLiquidRendererSafety(value, fileKey) {
   const issues = [];
   const warnings = [];
@@ -2810,22 +3184,23 @@ function collectLiquidRendererSafety(value, fileKey) {
     );
   }
 
-  if (
-    /for\s+block\s+in\s+section\.blocks/i.test(String(value || "")) &&
-    !/block\.shopify_attributes/.test(String(value || ""))
-  ) {
+  const sectionBlockLoops = extractSectionBlockLoopBodies(value);
+  const loopMissingAttributes = sectionBlockLoops.find(
+    (loop) => !/block\.shopify_attributes/.test(loop.body)
+  );
+  if (loopMissingAttributes) {
     issues.push(
       createInspectionIssue({
         path: [fileKey],
         problem:
-          "Building Inspection Failed: renderer loop over section.blocks mist block.shopify_attributes. Daardoor werkt Theme Editor drag-and-drop en block-selectie niet betrouwbaar.",
+          `Building Inspection Failed: renderer loop over section.blocks rond regel ${loopMissingAttributes.line} mist block.shopify_attributes binnen de loop-body. Daardoor werkt Theme Editor drag-and-drop en block-selectie niet betrouwbaar.`,
         fixSuggestion:
-          "Zet {{ block.shopify_attributes }} op de block-wrapper wanneer je over section.blocks rendert.",
+          "Zet {{ block.shopify_attributes }} op de top-level block-wrapper binnen dezelfde section.blocks loop.",
         issueCode: "inspection_failed_block_shopify_attributes",
       })
     );
     suggestedFixes.push(
-      "Zet {{ block.shopify_attributes }} op de block-wrapper wanneer je over section.blocks rendert."
+      "Zet {{ block.shopify_attributes }} op de top-level block-wrapper binnen dezelfde section.blocks loop."
     );
   }
 
@@ -3121,6 +3496,116 @@ function collectThemeBlockRenderContractSafety(value, fileKey) {
   return {
     issues,
     suggestedFixes,
+  };
+}
+
+function collectImpactThemeConventionIssues(
+  value,
+  fileKey,
+  { themeContext = null, sectionBlueprint = null } = {}
+) {
+  const source = String(value || "");
+  const issues = [];
+  const warnings = [];
+  const suggestedFixes = [];
+  const helperKeys = [
+    ...(Array.isArray(sectionBlueprint?.relevantHelpers)
+      ? sectionBlueprint.relevantHelpers.map((helper) =>
+          typeof helper === "string" ? helper : helper?.key
+        )
+      : []),
+    ...(Array.isArray(themeContext?.relevantHelpers)
+      ? themeContext.relevantHelpers.map((helper) =>
+          typeof helper === "string" ? helper : helper?.key
+        )
+      : []),
+  ]
+    .map((key) => String(key || "").trim())
+    .filter(Boolean);
+  const impactLike = Boolean(
+    themeContext?.usesImpactSectionConventions ||
+      sectionBlueprint?.themeWrapperStrategy?.usesImpactSectionConventions ||
+      helperKeys.some((key) => /section-spacing-collapsing/i.test(key))
+  );
+  if (!impactLike) {
+    return { issues, warnings, suggestedFixes };
+  }
+
+  const layoutContract = sectionBlueprint?.layoutContract || {};
+  const themeWrapperStrategy = sectionBlueprint?.themeWrapperStrategy || {};
+  const fullBleedMediaSection =
+    layoutContract.outerShell === "full_bleed" ||
+    layoutContract.forbidOuterThemeWrapperMirror === true ||
+    themeWrapperStrategy.forbidOuterThemeWrapperMirror === true ||
+    themeWrapperStrategy.allowOuterThemeContainer === false;
+  const usesSectionProperties =
+    /render\s+['"]section-properties['"]|class\s*=\s*["'][^"']*\bsection-properties\b/i.test(
+      source
+    );
+  const usesSectionSpacing =
+    /render\s+['"]section-spacing-collapsing['"]/i.test(source);
+
+  if (!fullBleedMediaSection && !usesSectionProperties && !usesSectionSpacing) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Building Inspection Failed: Impact-like theme context detected, maar de section gebruikt geen section-properties of section-spacing-collapsing wrapper/helper.",
+        fixSuggestion:
+          "Gebruik de Impact wrapper-conventie, bijvoorbeeld {% render 'section-spacing-collapsing' %} en een wrapper met {% render 'section-properties', tight: true %} waar passend.",
+        issueCode: "inspection_failed_impact_wrapper",
+      })
+    );
+    suggestedFixes.push(
+      "Gebruik Impact wrappers zoals section-spacing-collapsing en section-properties voor normale content sections."
+    );
+  }
+
+  if (/<style\b|{%\s*stylesheet\s*%}/i.test(source) && !hasSectionScopedCss(source)) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Building Inspection Failed: lokale CSS is niet gescoped met #shopify-section-{{ section.id }} in een Impact-like theme context.",
+        fixSuggestion:
+          "Scope alle lokale CSS-selectors onder #shopify-section-{{ section.id }} zodat andere sections niet worden beïnvloed.",
+        issueCode: "inspection_failed_unscoped_css",
+      })
+    );
+    suggestedFixes.push(
+      "Scope lokale CSS met #shopify-section-{{ section.id }}."
+    );
+  }
+
+  const ownRootBackground =
+    /#shopify-section-\s*{{-?\s*section\.id\s*-?}}\s+[.#][\w-]+[^{]*{[^}]*\bbackground(?:-color)?\s*:/i.test(
+      source
+    ) ||
+    /<(?:section|div)\b[^>]*class\s*=\s*["'][^"']*(?:__shell|--shell|\bsection\b|\bwrapper\b)[^"']*["'][^>]*>[\s\S]{0,500}<div\s+{%\s*render\s+['"]section-properties['"][^%]*background\s*:/i.test(
+      source
+    );
+  const sectionPropertiesBackground =
+    /render\s+['"]section-properties['"][^%]*\bbackground\s*:/i.test(source);
+  if (ownRootBackground && sectionPropertiesBackground) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Building Inspection Failed: de section combineert een eigen background-shell met een section-properties background-helper. Dat veroorzaakt snel dubbele Impact background shells.",
+        fixSuggestion:
+          "Kies één laag voor background en spacing: de section-properties helper of een eigen scoped wrapper, niet allebei.",
+        issueCode: "inspection_failed_impact_double_background_shell",
+      })
+    );
+    suggestedFixes.push(
+      "Vermijd dubbele background shells wanneer section-properties al background/spacing draagt."
+    );
+  }
+
+  return {
+    issues,
+    warnings,
+    suggestedFixes: uniqueStrings(suggestedFixes),
   };
 }
 
@@ -3970,6 +4455,14 @@ function inspectEditableLiquidSchema(value, fileLabel, { fileKey = null, rootOwn
     });
   }
 
+  const selectIssues = collectSchemaSelectIssues(schema, fileKey || fileLabel);
+  if (selectIssues.length > 0) {
+    return buildInspectionResult({
+      issues: selectIssues,
+      suggestedFixes: selectIssues.map((issue) => issue.fixSuggestion).filter(Boolean),
+    });
+  }
+
   return buildInspectionResult({});
 }
 
@@ -4262,6 +4755,14 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
     );
   }
 
+  const selectIssues = collectSchemaSelectIssues(schema, file.key);
+  if (selectIssues.length > 0) {
+    issues.push(...selectIssues);
+    suggestedFixes.push(
+      ...selectIssues.map((issue) => issue.fixSuggestion).filter(Boolean)
+    );
+  }
+
   if (themeContext) {
     const themeScaleInspection = inspectSectionScaleAgainstTheme({
       value,
@@ -4272,6 +4773,18 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
     warnings.push(...(themeScaleInspection.warnings || []));
     suggestedFixes.push(...(themeScaleInspection.suggestedFixes || []));
   }
+
+  const impactConventionInspection = collectImpactThemeConventionIssues(
+    value,
+    file.key,
+    {
+      themeContext,
+      sectionBlueprint,
+    }
+  );
+  issues.push(...(impactConventionInspection.issues || []));
+  warnings.push(...(impactConventionInspection.warnings || []));
+  suggestedFixes.push(...(impactConventionInspection.suggestedFixes || []));
 
   const settingTypes = collectSchemaSettingTypes(schema);
   const optionalResourceInspection = collectOptionalResourceRuntimeSafety(
@@ -4488,6 +5001,14 @@ function inspectThemeBlockFile(file) {
     );
     preferSelectFor.push(
       ...rangeIssues.map((issue) => buildPreferSelectEntry(issue)).filter(Boolean)
+    );
+  }
+
+  const selectIssues = collectSchemaSelectIssues(schema, file.key);
+  if (selectIssues.length > 0) {
+    issues.push(...selectIssues);
+    suggestedFixes.push(
+      ...selectIssues.map((issue) => issue.fixSuggestion).filter(Boolean)
     );
   }
 
@@ -4736,7 +5257,7 @@ function buildFullRewriteRetryArgsTemplate({
     files: [
       {
         key: key || "<theme-file>",
-        value: "<full rewritten file content>",
+        value: "<full rewritten current file content after deterministic preserve-on-edit transformation>",
       },
     ],
     ...(plannerHandoff && typeof plannerHandoff === "object"
@@ -5108,9 +5629,23 @@ function buildFailureResponse({
     changeScope: effectiveChangeScope,
     preferredWriteMode: effectivePreferredWriteMode,
   });
+  const writeBlockedBeforeApply = [
+    "inspection_failed",
+    "lint_failed",
+    "needs_input",
+    "needs_write_payload",
+    "missing_theme_target",
+  ].includes(status);
   return {
     success: false,
     status,
+    ...(writeBlockedBeforeApply
+      ? {
+          writeApplied: false,
+          liveFileUnchanged: true,
+          writeStatus: "blocked_live_file_unchanged",
+        }
+      : {}),
     ...(draftId ? { draftId } : {}),
     message,
     ...(errors ? { errors } : {}),
@@ -5868,7 +6403,7 @@ export const draftThemeArtifact = {
             files: [
               {
                 key: patchOverflowKey || "<theme-file>",
-                value: "<full rewritten file content>",
+                value: "<full rewritten current file content after deterministic preserve-on-edit transformation>",
               },
             ],
           }
@@ -6540,6 +7075,64 @@ export const draftThemeArtifact = {
                   },
                   retryMode: "same_request_after_fix",
                   normalizedArgs: getNormalizedArgs(),
+                  changeScope: "bounded_rewrite",
+                  preferredWriteMode: "value",
+                  diagnosticTargets: [
+                    {
+                      fileKey: file.key,
+                      path: [file.key],
+                      preferredWriteMode: "value",
+                      changeScope: "bounded_rewrite",
+                    },
+                  ],
+                });
+             }
+
+             const preserveIssues = collectPreserveOnEditIssues({
+               fileKey: file.key,
+               originalValue,
+               newValue,
+               allowLossy: hasExplicitDestructiveEditIntent(effectivePlannerHandoff),
+             });
+             if (preserveIssues.length > 0) {
+                return buildFailureResponse({
+                  status: "inspection_failed",
+                  message:
+                    "Rewrite appears lossy. Re-read current file and perform a preserve-on-edit transformation. Write was blocked; live file unchanged.",
+                  errorCode: "inspection_failed_lossy_rewrite",
+                  retryable: true,
+                  suggestedFixes: [
+                    "Read current file with includeContent=true before retrying the full rewrite.",
+                    "Apply only the requested deterministic/text-preserving edit to the current file body.",
+                    "Preserve existing schema labels, presets, blocks, block.shopify_attributes, image_tag attributes, Impact wrappers and scoped CSS.",
+                  ],
+                  shouldNarrowScope: false,
+                  nextAction: "reread_current_file_preserve_edit",
+                  nextTool: "get-theme-file",
+                  nextArgsTemplate: {
+                    ...(themeId !== undefined ? { themeId } : {}),
+                    ...(themeRole ? { themeRole } : {}),
+                    key: file.key,
+                    includeContent: true,
+                  },
+                  alternativeNextArgsTemplates: {
+                    preserveRewriteAfterRead: buildFullRewriteRetryArgsTemplate({
+                      themeId,
+                      themeRole,
+                      key: file.key,
+                      plannerHandoff: effectivePlannerHandoff,
+                    }),
+                    patchExisting: buildLiteralPatchRetryArgsTemplate({
+                      themeId,
+                      themeRole,
+                      key: file.key,
+                      plannerHandoff: effectivePlannerHandoff,
+                    }),
+                  },
+                  retryMode: "switch_tool_then_retry_with_preserve_rewrite",
+                  normalizedArgs: getNormalizedArgs(),
+                  plannerHandoff: effectivePlannerHandoff,
+                  errors: preserveIssues,
                   changeScope: "bounded_rewrite",
                   preferredWriteMode: "value",
                   diagnosticTargets: [

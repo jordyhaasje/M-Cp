@@ -93,9 +93,11 @@ Belangrijk:
 - Zodra het doelbestand al bestaat, hoort de client niet opnieuw `create-theme-section` te kiezen maar over te schakelen naar `existing_edit`
 - Als een gewone stateless client tóch nog een refine-prompt via `create-theme-section` op exact dezelfde net aangemaakte section stuurt, converteert de server die route nu veilig naar `draft-theme-artifact mode="edit"` zolang theme-target en recent file-context aantoonbaar hetzelfde blijven
 - Kleine constrained responsive edits zoals “alleen op mobiel”, “desktop ongewijzigd” of een bestaande rating/CTA bovenaan zetten, horen nu expliciet in de `patch-theme-file` route en niet meer automatisch in een rewrite-flow
-- Broad rewrites op bestaande grote files blijven beschermd door truncation checks
-- Gebruik `value` alleen als het volledige bestand bewust is ingelezen en vervangen moet worden
-- Gebruik in `files[].value` altijd echte volledige bestandsinhoud; context-placeholders of samenvattingen zoals `REWRITE_ALREADY_APPLIED_IN_CONTEXT` zijn ongeldig
+- Bij `patch_scope_too_large` moet de client eerst opnieuw `get-theme-file includeContent=true` doen op hetzelfde theme target. Pas daarna mag een preserve-on-edit full-file rewrite naar `draft-theme-artifact mode="edit"` worden gestuurd.
+- Broad rewrites op bestaande grote files blijven beschermd door truncation en lossy-rewrite checks
+- Gebruik `value` alleen als het volledige actuele bestand bewust is ingelezen en preserve-on-edit vervangen moet worden
+- Gebruik in `files[].value` altijd echte volledige bestandsinhoud; context-placeholders, compacte reconstructies of samenvattingen zoals `REWRITE_ALREADY_APPLIED_IN_CONTEXT` zijn ongeldig
+- Een full rewrite mag bestaande schema labels/settings, block types/settings, presets, `block.shopify_attributes`, `image_tag`-paden, accessibility/media-attributen, theme wrappers en scoped CSS niet verwijderen tenzij de gebruiker expliciet om verwijderen of versimpelen vraagt
 - De lokale Liquid delimiter-check negeert nu bare `}}` en `%}` uit embedded CSS/JS, zoals keyframes of compacte scriptblokken, maar blijft echte ongesloten `{{` en `{%` in dezelfde file nog steeds blokkeren
 
 Voorbeeldprompt:
@@ -226,6 +228,8 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 - Gewone chatclients zoals ChatGPT, Claude en Perplexity missen soms server-side sessiecontext tussen toolcalls
 - Daarom retourneren create-conflicts nu expliciet een repair-sequence: `plan-theme-edit intent="existing_edit"` -> exacte read(s) -> `draft-theme-artifact mode="edit"`
 - Full rewrites op bestaande bestanden moeten altijd het volledige nieuwe bestand meesturen; de MCP kan een placeholder-string nooit terugvertalen naar echte Liquid
+- `patch_scope_too_large` retourneert daarom nu bewust `nextTool="get-theme-file"` met `includeContent=true`. De retry-template voor `draft-theme-artifact` is pas de stap daarna en verwacht de volledig bewerkte actuele filebody.
+- Bij inspectiefouten zet de response expliciet `writeApplied=false`, `liveFileUnchanged=true` en `writeStatus="blocked_live_file_unchanged"` zodat clients weten dat een failed preflight het theme niet heeft gewijzigd.
 
 ## Read Semantics
 - `get-theme-file` blijft nu standaard metadata-first wanneer `includeContent` ontbreekt.
@@ -285,8 +289,11 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 - Prompt-only video sections falen nu wanneer een `video`/`video_url` setting of renderbaar blank-safe video-pad ontbreekt.
 - Prompt-only PDP/product sections falen nu wanneer een productbron of commerce action/helper ontbreekt.
 - Raw `<img>` met Shopify `image_url`/`img_url` als src horen hard te falen; gebruik daar `image_url | image_tag`
-- `block.shopify_attributes` hoort hard aanwezig te zijn op gedeelde block wrappers in loops over `section.blocks` en native block-render snippets
+- `block.shopify_attributes` hoort hard aanwezig te zijn op gedeelde block wrappers in loops over `section.blocks` en native block-render snippets. Een attribuut buiten de relevante loop-body telt niet.
 - Hosted `<video>`/`video_tag` markup met alleen schema type `video_url` hoort hard te falen; gebruik `video` voor merchant-uploaded video en `video_url` voor externe embeds
+- Select defaults moeten overeenkomen met een bestaande option value en select options moeten merchant-zichtbare labels hebben
+- Presets moeten aanwezig en render-safe blijven; edit-rewrites mogen bestaande presets niet stilzwijgend verwijderen
+- In Impact-like theme context hoort de validator normale sections te blokkeren wanneer `section-spacing-collapsing`/`section-properties` of equivalente wrapperconventies ontbreken, lokale CSS niet onder `#shopify-section-{{ section.id }}` is gescoped, of een dubbele background-shell wordt gebouwd rond een helper die de outer surface al beheert
 - Theme-scale guardrails mogen content sections blokkeren wanneer ze onbedoeld hero-groot worden
 - Theme-scale guardrails kijken nu niet alleen naar losse maxima, maar ook naar gecombineerde visuele massa. Middelgrote overschrijdingen in font-size, padding, gap en sticky compositie kunnen samen dus alsnog een `inspection_failed_theme_scale` opleveren.
 - Parser-onveilige JS/Liquid combinaties falen vóór preview upload

@@ -428,7 +428,7 @@ test("draftThemeArtifact - rejects context placeholders for existing full rewrit
     assert.equal(result.errorCode, "inspection_failed_context_placeholder");
     assert.equal(
       result.nextArgsTemplate?.files?.[0]?.value,
-      "<full rewritten file content>"
+      "<full rewritten current file content after deterministic preserve-on-edit transformation>"
     );
     assert.equal(
       result.alternativeNextArgsTemplates?.patchExisting?.files?.[0]?.patch?.searchString,
@@ -486,6 +486,179 @@ test("draftThemeArtifact - keeps generic truncation guard for short real rewrite
       result.alternativeNextArgsTemplates?.patchExisting?.files?.[0]?.patch?.replaceString,
       "<updated markup/liquid>"
     );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects lossy preserve-on-edit full rewrites before preview upload", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const originalSection = `
+{% render 'section-spacing-collapsing' %}
+<style>
+  #shopify-section-{{ section.id }} .reviews { display: grid; gap: 24px; padding-block: {{ section.settings.padding_top }}px {{ section.settings.padding_bottom }}px; color: {{ section.settings.text_color }}; }
+  #shopify-section-{{ section.id }} .reviews__track { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  #shopify-section-{{ section.id }} .reviews__card { border-radius: 18px; padding: 22px; background: #fff; }
+  #shopify-section-{{ section.id }} .reviews__stars { color: {{ section.settings.star_color }}; }
+  #shopify-section-{{ section.id }} .reviews__avatar { width: 44px; height: 44px; border-radius: 999px; overflow: hidden; }
+  #shopify-section-{{ section.id }} .reviews__spacer { min-height: 16px; }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .reviews__track { grid-template-columns: 1fr; }
+  }
+</style>
+<section class="reviews">
+  <div {% render 'section-properties', tight: true %}>
+    <div class="reviews__track">
+      {% for block in section.blocks %}
+        <article class="reviews__card" {{ block.shopify_attributes }}>
+          <div class="reviews__stars" aria-label="{{ section.settings.rating }} star rating">★★★★★</div>
+          {% if block.settings.avatar != blank %}
+            {{ block.settings.avatar | image_url: width: 88 | image_tag: alt: block.settings.initials }}
+          {% else %}
+            <span class="reviews__avatar">{{ block.settings.initials }}</span>
+          {% endif %}
+          <p>{{ block.settings.quote }}</p>
+        </article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Review cards",
+  "settings": [
+    { "type": "range", "id": "rating", "label": "Rating", "min": 1, "max": 5, "step": 1, "default": 5 },
+    { "type": "text", "id": "review_count", "label": "Review count", "default": "1,200+" },
+    { "type": "range", "id": "margin_top", "label": "Margin top", "min": 0, "max": 80, "step": 4, "default": 24 },
+    { "type": "range", "id": "margin_bottom", "label": "Margin bottom", "min": 0, "max": 80, "step": 4, "default": 24 },
+    { "type": "range", "id": "padding_top", "label": "Padding top", "min": 0, "max": 80, "step": 4, "default": 36 },
+    { "type": "range", "id": "padding_bottom", "label": "Padding bottom", "min": 0, "max": 80, "step": 4, "default": 36 },
+    { "type": "color", "id": "star_color", "label": "Star color", "default": "#00b67a" },
+    { "type": "color", "id": "empty_star_color", "label": "Empty star color", "default": "#d8d8d8" },
+    { "type": "color", "id": "text_color", "label": "Text color", "default": "#111111" }
+  ],
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "image_picker", "id": "avatar", "label": "Avatar" },
+        { "type": "text", "id": "initials", "label": "Initials", "default": "JD" },
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great service." }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Review cards", "blocks": [{ "type": "review" }] }]
+}
+{% endschema %}
+`;
+
+  const lossyRewrite = `
+{% render 'section-spacing-collapsing' %}
+<style>
+  #shopify-section-{{ section.id }} .reviews { display: grid; gap: 20px; padding-block: {{ section.settings.padding_top }}px {{ section.settings.padding_bottom }}px; color: {{ section.settings.text_color }}; }
+  #shopify-section-{{ section.id }} .reviews__track { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  #shopify-section-{{ section.id }} .reviews__card { display: grid; gap: 12px; padding: 20px; border-radius: 18px; background: #fff; }
+  #shopify-section-{{ section.id }} .reviews__summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  #shopify-section-{{ section.id }} .reviews__eyebrow { font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.08em; }
+  #shopify-section-{{ section.id }} .reviews__quote { margin: 0; line-height: 1.55; }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .reviews__track { grid-template-columns: 1fr; }
+    #shopify-section-{{ section.id }} .reviews__summary { align-items: flex-start; flex-direction: column; }
+  }
+</style>
+<section class="reviews">
+  <div {% render 'section-properties', tight: true %}>
+    <div class="reviews__summary">
+      <p class="reviews__eyebrow">Verified reviews</p>
+      <p>Trusted by customers</p>
+    </div>
+    <div class="reviews__track">
+      {% for block in section.blocks %}
+        <article class="reviews__card" {{ block.shopify_attributes }}>
+          <p class="reviews__quote">{{ block.settings.quote }}</p>
+        </article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Review cards",
+  "settings": [
+    { "type": "range", "id": "padding_top", "label": "Padding top", "min": 0, "max": 80, "step": 4, "default": 36 },
+    { "type": "range", "id": "padding_bottom", "label": "Padding bottom", "min": 0, "max": 80, "step": 4, "default": 36 },
+    { "type": "color", "id": "text_color", "label": "Text color", "default": "#111111" }
+  ],
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great service." }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Review cards", "blocks": [{ "type": "review" }] }]
+}
+{% endschema %}
+`;
+
+  assert.ok(
+    Buffer.byteLength(lossyRewrite, "utf8") >
+      Buffer.byteLength(originalSection, "utf8") * 0.5,
+    "fixture should exercise the lossy guard, not the generic truncation guard"
+  );
+  assert.ok(
+    Buffer.byteLength(lossyRewrite, "utf8") <
+      Buffer.byteLength(originalSection, "utf8") * 0.75,
+    "fixture should be small enough to look lossy"
+  );
+
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/review-cards.liquid",
+    initialValue: originalSection,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "edit",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/review-cards.liquid",
+            value: lossyRewrite,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.equal(result.errorCode, "inspection_failed_lossy_rewrite");
+    assert.equal(result.nextTool, "get-theme-file");
+    assert.equal(result.nextArgsTemplate?.includeContent, true);
+    assert.equal(result.writeApplied, false);
+    assert.equal(result.liveFileUnchanged, true);
+    assert.ok(
+      result.errors?.some((issue) =>
+        String(issue.problem || "").includes("margin_top")
+      ),
+      "schema setting loss should be reported"
+    );
+    assert.equal(themeMock.getValue(), originalSection);
   } finally {
     global.fetch = previousFetch;
   }
@@ -2922,6 +3095,79 @@ test("draftThemeArtifact - rejects section block loops without block.shopify_att
   );
 });
 
+test("draftThemeArtifact - requires block.shopify_attributes inside the actual section.blocks loop", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/block-attrs-outside-loop.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .cards {
+    display: grid;
+    gap: 16px;
+    padding: 24px;
+    border-radius: 18px;
+  }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .cards { padding: 16px; }
+  }
+</style>
+<div class="cards">
+  <span class="cards__editor-anchor" {{ block.shopify_attributes }}></span>
+  {% for block in section.blocks %}
+    <article class="card">
+      <h3>{{ block.settings.title }}</h3>
+    </article>
+  {% endfor %}
+</div>
+{% schema %}
+{
+  "name": "Attrs outside loop",
+  "settings": [
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "blocks": [
+    {
+      "type": "card",
+      "name": "Card",
+      "settings": [
+        { "type": "text", "id": "title", "label": "Title", "default": "Card title" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Attrs outside loop", "blocks": [{ "type": "card" }] }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some(
+      (issue) => issue.issueCode === "inspection_failed_block_shopify_attributes"
+    ),
+    "an attribute outside the loop must not satisfy the block wrapper contract"
+  );
+  assert.match(result.message, /binnen de loop-body|section\.blocks/i);
+});
+
 test("draftThemeArtifact - allows unrelated legacy patch edits when optional resource issues already existed", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -3178,9 +3424,32 @@ test("draftThemeArtifact - rejects unguarded optional section images in edit mod
     request: async () => {}
   };
 
+  const originalHero = `
+<style>
+  #shopify-section-{{ section.id }} .hero {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<section class="hero">
+  {% if section.settings.image != blank %}
+    {{ section.settings.image | image_url: width: 1200 | image_tag }}
+  {% endif %}
+</section>
+{% schema %}
+{
+  "name": "Hero",
+  "settings": [
+    { "type": "image_picker", "id": "image", "label": "Image" }
+  ],
+  "presets": [{ "name": "Hero" }]
+}
+{% endschema %}
+`;
+
   const themeMock = createThemeFileFetchMock({
     key: "sections/hero.liquid",
-    initialValue: goodSectionLiquid,
+    initialValue: originalHero,
   });
   const previousFetch = global.fetch;
   global.fetch = themeMock.handler;
@@ -4568,6 +4837,74 @@ test("draftThemeArtifact - advises select for ranges with too few discrete value
   );
 });
 
+test("draftThemeArtifact - rejects select defaults that are not present in options", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/invalid-select-default.liquid",
+          value: `
+<style>
+  #shopify-section-{{ section.id }} .select-demo {
+    display: grid;
+    gap: 16px;
+    padding: 24px;
+    border-radius: 18px;
+  }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .select-demo { padding: 16px; }
+  }
+</style>
+<section class="select-demo">{{ section.settings.heading }}</section>
+{% schema %}
+{
+  "name": "Invalid select default",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    {
+      "type": "select",
+      "id": "layout",
+      "label": "Layout",
+      "options": [
+        { "value": "grid", "label": "Grid" },
+        { "value": "stack", "label": "Stack" }
+      ],
+      "default": "carousel"
+    },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Invalid select default" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    { shopifyClient: mockShopifyClient }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some(
+      (issue) => issue.issueCode === "inspection_failed_schema_select"
+    ),
+    "select default should be validated locally"
+  );
+  assert.match(result.message, /carousel|options/i);
+});
+
 test("draftThemeArtifact - rejects schema-only section stubs in create mode", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
@@ -4649,6 +4986,131 @@ test("draftThemeArtifact - classifies standalone sections with only minimal loca
   assert.equal(result.success, false);
   assert.equal(result.errorCode, "standalone_section_too_minimal");
   assert.match(result.message, /te minimaal|premium standalone section/i);
+});
+
+test("draftThemeArtifact - rejects Impact-like sections without theme wrapper conventions and scoped CSS", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+
+  const result = await execute(
+    draftThemeArtifact.schema.parse({
+      mode: "create",
+      themeId: 111,
+      files: [
+        {
+          key: "sections/impact-no-wrapper.liquid",
+          value: `
+<style>
+  .impact-no-wrapper {
+    display: grid;
+    gap: 24px;
+    padding: 32px;
+    border-radius: 18px;
+    background: #ffffff;
+  }
+  @media screen and (max-width: 749px) {
+    .impact-no-wrapper {
+      padding: 20px;
+    }
+  }
+</style>
+<section class="impact-no-wrapper">
+  <h2>{{ section.settings.heading }}</h2>
+</section>
+{% schema %}
+{
+  "name": "Impact no wrapper",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+    { "type": "color", "id": "accent", "label": "Accent", "default": "#111111" }
+  ],
+  "presets": [{ "name": "Impact no wrapper" }]
+}
+{% endschema %}
+`,
+        },
+      ],
+    }),
+    {
+      shopifyClient: mockShopifyClient,
+      themeSectionContext: {
+        usesImpactSectionConventions: true,
+        usesSectionPropertiesWrapper: true,
+        usesPageWidth: true,
+      },
+    }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "inspection_failed");
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "inspection_failed_impact_wrapper"),
+    "Impact-like themes should require their section wrapper convention"
+  );
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "inspection_failed_unscoped_css"),
+    "Impact-like sections should reject unscoped local CSS"
+  );
+});
+
+test("draftThemeArtifact - does not apply Impact wrapper rules to generic OS 2.0 themes", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/generic-card.liquid",
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "create",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/generic-card.liquid",
+            value: goodSectionLiquid.replace("Test section", "Generic card"),
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        themeSectionContext: {
+          usesPageWidth: false,
+          usesSectionPropertiesWrapper: false,
+          relevantHelpers: [],
+        },
+        sectionBlueprint: {
+          category: "static",
+          themeWrapperStrategy: {
+            usesImpactSectionConventions: false,
+          },
+        },
+      }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+    assert.ok(!result.errors?.some((issue) => issue.issueCode === "inspection_failed_impact_wrapper"));
+    assert.ok(themeMock.getValue().includes("Generic card"));
+  } finally {
+    global.fetch = previousFetch;
+  }
 });
 
 test("draftThemeArtifact - rejects invalid range schemas in edit mode before preview upload", async () => {
