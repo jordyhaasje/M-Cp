@@ -519,10 +519,10 @@ Open na Batch H:
 
 Release/live bewijs:
 - volledige `npm run release:preflight` is groen op 2026-04-26
-- commit `8e3c114` is gepusht naar `origin/codex/harden-mcp-truth`
-- `Hazify-MCP-Remote` is live gedeployed via Railway deployment `05a12c2a-203f-4191-b350-99284dd79e62`
-- `Hazify-License-Service` is live gedeployed via Railway deployment `9977e9d5-390b-485f-a743-701e723a27c2`
-- `npm run release:postdeploy` is groen: License `/health -> 200`, License `/v1/session/bootstrap -> 200`, MCP metadata endpoints -> `200`, anonieme `POST /mcp -> 401`
+- commits t/m `5179765` zijn fast-forward gemerged en gepusht naar `origin/main`
+- `Hazify-MCP-Remote` is live gedeployed via Railway deployment `aea4e656-b98b-4427-b833-a70e28c0e9e4`
+- `Hazify-License-Service` is live gedeployed via Railway deployment `94bb86f2-cb3a-4726-93e2-661b144f7d04`
+- `npm run release:postdeploy` is groen: License `/health -> 200`, License `/v1/session/bootstrap -> 200`, MCP metadata endpoints -> `200`, anonieme `POST /mcp -> 401`, authenticated `initialize -> 200`, `tools/list -> 35 tools` en `get-license-status -> 200`
 - Railway runtime-logreview toont geen nieuw foutpatroon; alleen bestaande `npm warn config production`, eerdere MCP `punycode` warning en verwachte anonieme `/mcp` unauthorized log. De lokale runtime gebruikt nu native `fetch` voor Shopify GraphQL en laadt `@shopify/theme-check-node` lazy zodat docs/build/startup de oude `graphql-request`/`cross-fetch` en theme-check dependency routes niet meer onnodig activeren.
 - Wanneer theme-check linting echt draait kan de upstream Shopify dependency nog wel een `punycode` deprecation tonen; dat is nu lint-route hygiene en geen docs/startup warning meer.
 - `npm audit --omit=dev` is groen met 0 kwetsbaarheden na lockfile-updates voor Hono, `@hono/node-server`, `path-to-regexp` en `lodash`.

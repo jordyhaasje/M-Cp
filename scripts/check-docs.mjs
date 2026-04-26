@@ -247,8 +247,8 @@ async function main() {
       path.join(repoRoot, "docs/04-MCP-REMOTE-AUDIT.md"),
       [
         "Batch H",
-        "`05a12c2a-203f-4191-b350-99284dd79e62`",
-        "`9977e9d5-390b-485f-a743-701e723a27c2`",
+        "`aea4e656-b98b-4427-b833-a70e28c0e9e4`",
+        "`94bb86f2-cb3a-4726-93e2-661b144f7d04`",
         "Authenticated MCP read-smoke is live groen",
       ],
     ],
@@ -256,8 +256,8 @@ async function main() {
       path.join(repoRoot, "docs/05-REMEDIATION-PLAN.md"),
       [
         "Release/live bewijs",
-        "`05a12c2a-203f-4191-b350-99284dd79e62`",
-        "`9977e9d5-390b-485f-a743-701e723a27c2`",
+        "`aea4e656-b98b-4427-b833-a70e28c0e9e4`",
+        "`94bb86f2-cb3a-4726-93e2-661b144f7d04`",
         "Er wordt nu geen document verwijderd.",
       ],
     ],
