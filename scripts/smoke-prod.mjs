@@ -54,15 +54,20 @@ async function callMcpJsonRpc({
   method,
   params = {},
   label = method,
+  origin = null,
 }) {
+  const headers = {
+    "content-type": "application/json",
+    accept: "application/json, text/event-stream",
+    authorization: `Bearer ${token}`,
+  };
+  if (origin) {
+    headers.origin = origin;
+  }
+
   const response = await fetchImpl(toUrl(mcpBaseUrl, "/mcp"), {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream",
-      authorization: `Bearer ${token}`,
-      origin: mcpBaseUrl,
-    },
+    headers,
     body: JSON.stringify({
       jsonrpc: "2.0",
       id,
@@ -110,6 +115,13 @@ async function runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl }) {
   const requireAuthenticatedSmoke =
     env.HAZIFY_REQUIRE_AUTHENTICATED_MCP_SMOKE === "true" ||
     env.MCP_SMOKE_REQUIRE_AUTH === "true";
+  const requireWriteScopeGate =
+    env.HAZIFY_REQUIRE_WRITE_SCOPE_GATE === "true" ||
+    env.MCP_SMOKE_REQUIRE_WRITE_SCOPE_GATE === "true";
+  const smokeOrigin = firstConfiguredValue([
+    env.HAZIFY_MCP_SMOKE_ORIGIN,
+    env.MCP_SMOKE_ORIGIN,
+  ]);
 
   if (!authToken) {
     if (requireAuthenticatedSmoke) {
@@ -135,6 +147,7 @@ async function runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl }) {
         capabilities: {},
         clientInfo: { name: "hazify-authenticated-smoke", version: "1.0.0" },
       },
+      origin: smokeOrigin,
       label: "authenticated initialize",
     }),
     "authenticated initialize"
@@ -152,6 +165,7 @@ async function runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl }) {
       id: 102,
       method: "tools/list",
       label: "authenticated tools/list",
+      origin: smokeOrigin,
     }),
     "authenticated tools/list"
   );
@@ -181,6 +195,7 @@ async function runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl }) {
         arguments: {},
       },
       label: "authenticated get-license-status",
+      origin: smokeOrigin,
     }),
     "authenticated get-license-status"
   );
@@ -190,9 +205,9 @@ async function runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl }) {
   console.log("POST /mcp authenticated get-license-status -> 200");
 
   if (!readOnlyGateToken) {
-    if (requireAuthenticatedSmoke) {
+    if (requireWriteScopeGate) {
       throw new Error(
-        "Authenticated MCP smoke is required, but no read-only smoke token is configured for write-scope gate validation."
+        "Authenticated write-scope gate smoke is required, but no read-only smoke token is configured."
       );
     }
     console.log(
@@ -213,10 +228,11 @@ async function runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl }) {
         order: "#0",
         trackingCode: "HAZIFY-SMOKE-NOOP",
         notifyCustomer: false,
+        },
       },
-    },
-    label: "authenticated write-scope gate",
-  });
+      label: "authenticated write-scope gate",
+      origin: smokeOrigin,
+    });
   assertJsonRpcError(writeGateBody, "authenticated write-scope gate", /requires write scope|insufficient_scope/i);
   console.log("POST /mcp authenticated write-scope gate -> denied before mutation");
 }

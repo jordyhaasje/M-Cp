@@ -52,7 +52,7 @@ Bij een nieuwe of bijna volle sessie is de aanbevolen herstartvolgorde:
 - bredere archetype-aware wrapperregels buiten de nu geharde media-first/full-bleed hero-familie
 - hardere validators voor wrapper-correctheid en Theme Editor-contracten buiten de hero fix
 - bredere native-block/theme-wrapper regressietests buiten de huidige schema/snippet/block-wrapper checks
-- live authenticated production MCP smoke met expliciet productie-token blijft een credential-afhankelijke releaseactie; de smoke-code en regressietest zijn aanwezig
+- live authenticated production MCP read-smoke met expliciet productie-token is groen; alleen de read-only write-scope gate blijft credential-afhankelijk
 
 ## Concrete Patchbatches
 Deze batches zijn bewust klein genoeg gehouden om gericht te patchen zonder opnieuw brede context op te halen.
@@ -514,7 +514,8 @@ Docs die mee gewijzigd zijn:
 
 Open na Batch H:
 - geen bekende P1/P2 codeblocker
-- live authenticated production MCP smoke met expliciet productie-token blijft credential-afhankelijk
+- live authenticated production MCP read-smoke met expliciet productie-token is groen
+- read-only write-scope gate blijft credential-afhankelijk tot er een read-only smoke-token beschikbaar is
 
 Release/live bewijs:
 - volledige `npm run release:preflight` is groen op 2026-04-26
@@ -546,7 +547,7 @@ Actieve regels:
 Gebruik dit blok als snelle hervatting in een nieuwe sessie.
 
 ### Volgende aanbevolen patchbatch
-`Release/Ops — live authenticated MCP smoke met productie-token en niet-blokkerende warning monitoring`
+`Release/Ops — read-only write-scope smoke-token en niet-blokkerende warning monitoring`
 
 ### Open release- en ops-signalen
 - `Hazify-MCP-Remote` redeploy `06a69e4e-5505-47fc-95a4-931122a926a7` is gezond en live
@@ -563,17 +564,18 @@ Gebruik dit blok als snelle hervatting in een nieuwe sessie.
   - MCP authorization-server metadata -> `200`
   - anonieme `POST /mcp` -> `401`
 - admin- en billing-readiness zijn in de lokale smoke overgeslagen omdat de vereiste secrets niet aanwezig waren
-- authenticated production MCP tool-smoke met expliciet productie-token is scriptmatig ondersteund, maar live uitvoering blijft open tot er lokaal een geldig token is
+- authenticated production MCP read-smoke met expliciet productie-token is live groen: `initialize`, `tools/list` en `get-license-status`
+- read-only write-scope gate blijft open tot er lokaal een geldige read-only smoke-token is
 
 ### Waarom deze eerst
 - de belangrijkste lokale open punten voor Batch G en Batch E tranche 2 zijn nu gerepareerd
-- de grootste resterende onzekerheid zit niet in lokale code of publieke productiepariteit, maar in een live authenticated MCP tool-smoke met expliciet productie-token
+- de grootste resterende onzekerheid zit niet in lokale code of publieke/authenticated productiepariteit, maar alleen nog in een read-only write-scope gate met expliciete read-only token
 
 ### Minimale files voor de volgende sessie
 - `docs/04-MCP-REMOTE-AUDIT.md`
 - `docs/05-REMEDIATION-PLAN.md`
 - `scripts/release-status.mjs`
-- productie-token/tenantconfig voor authenticated MCP smoke
+- read-only productie-token/tenantconfig voor write-scope gate smoke
 
 ### Bekende harde waarheden
 - een hero met content links en media rechts is niet automatisch een split-layout

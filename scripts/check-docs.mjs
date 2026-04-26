@@ -249,7 +249,7 @@ async function main() {
         "Batch H",
         "`05a12c2a-203f-4191-b350-99284dd79e62`",
         "`9977e9d5-390b-485f-a743-701e723a27c2`",
-        "authenticated production MCP tool smoke",
+        "Authenticated MCP read-smoke is live groen",
       ],
     ],
     [
