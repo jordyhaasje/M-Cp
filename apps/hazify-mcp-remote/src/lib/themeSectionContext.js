@@ -1453,7 +1453,11 @@ const buildPromptOnlyContract = ({
     ) ||
     /\b(?:review|testimonial|quote|beoordeling)\b.{0,40}\b(?:single|one|1|een enkele|één)\b/.test(
       haystack
-    );
+    ) ||
+    /\b(?:review|testimonial|trustpilot|verified|rating|star(?:s)?)[-_ ]?(?:badge|seal)\b/.test(
+      haystack
+    ) ||
+    /\b(?:review|testimonial|quote)[-_ ]?card\b/.test(haystack);
   const reviewLike =
     archetype === "review_slider" || archetype === "review_section";
   const videoLike =
@@ -1525,10 +1529,15 @@ const buildPromptOnlyContract = ({
     ]),
     hints: uniqueStrings([
       ...(reviewLike
-        ? [
-            "Gebruik voor prompt-only review/testimonial sections herhaalbare review cards of blocks met quote, naam en rating-signalen.",
-            "Behoud een bounded card/panel surface zodat reviews niet degraderen naar één vlak richtext-blok.",
-          ]
+        ? singleReviewRequested
+          ? [
+              "Gebruik voor single review/testimonial badges of cards merchant-editable section settings met quote, naam en rating-signalen; blocks zijn alleen verplicht bij herhaalbare content.",
+              "Behoud een bounded card/panel surface zodat reviews niet degraderen naar één vlak richtext-blok.",
+            ]
+          : [
+              "Gebruik voor prompt-only review/testimonial sections herhaalbare review cards of blocks met quote, naam en rating-signalen.",
+              "Behoud een bounded card/panel surface zodat reviews niet degraderen naar één vlak richtext-blok.",
+            ]
         : []),
       ...(interactiveLike
         ? [

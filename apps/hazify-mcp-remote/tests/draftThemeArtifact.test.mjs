@@ -7379,6 +7379,86 @@ test("draftThemeArtifact - accepts slider sections with editable slide blocks an
   }
 });
 
+test("draftThemeArtifact - accepts intrinsically responsive generated sections without media queries", async () => {
+  const key = "sections/flex-wrap-features.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "content_section",
+            category: "static",
+            qualityTarget: "theme_consistent",
+            promptContract: { promptOnly: true },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .flex-wrap-features {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 32px 0;
+  }
+
+  #shopify-section-{{ section.id }} .flex-wrap-features__item {
+    flex: 1 1 14rem;
+    border-radius: 16px;
+    background: #ffffff;
+    padding: 18px;
+  }
+</style>
+<section class="flex-wrap-features page-width">
+  <article class="flex-wrap-features__item">{{ section.settings.first }}</article>
+  <article class="flex-wrap-features__item">{{ section.settings.second }}</article>
+</section>
+{% schema %}
+{
+  "name": "Flex wrap features",
+  "settings": [
+    { "type": "text", "id": "first", "label": "First item", "default": "Fast setup" },
+    { "type": "text", "id": "second", "label": "Second item", "default": "Mobile friendly" }
+  ],
+  "presets": [{ "name": "Flex wrap features" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("draftThemeArtifact - rejects generated sections without explicit mobile behavior", async () => {
   const key = "sections/responsive-contract.liquid";
   const mockShopifyClient = {
@@ -7451,6 +7531,173 @@ test("draftThemeArtifact - rejects generated sections without explicit mobile be
     assert.ok(
       result.errors?.some((issue) => issue.issueCode === "section_contract_missing_responsive_behavior")
     );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - does not apply generated-section contracts to edit-mode rewrites", async () => {
+  const key = "sections/existing-static.liquid";
+  const existingLiquid = `
+<style>
+  #shopify-section-{{ section.id }} .existing-static {
+    display: grid;
+    gap: 24px;
+    padding: 40px;
+    border-radius: 20px;
+    background: #ffffff;
+  }
+</style>
+<section class="existing-static page-width">
+  <h2>{{ section.settings.heading }}</h2>
+</section>
+{% schema %}
+{
+  "name": "Existing static",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Existing" }
+  ],
+  "presets": [{ "name": "Existing static" }]
+}
+{% endschema %}
+`;
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: existingLiquid,
+    existing: true,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        plannerHandoff: {
+          intent: "existing_edit",
+          targetFile: key,
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "content_section",
+            category: "static",
+            qualityTarget: "theme_consistent",
+            promptContract: { promptOnly: true },
+          },
+        },
+        files: [
+          {
+            key,
+            value: existingLiquid,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+    assert.ok(
+      !result.errors?.some((issue) => issue.issueCode === "section_contract_missing_responsive_behavior")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - accepts single testimonial sections that use settings instead of repeatable blocks", async () => {
+  const key = "sections/single-testimonial.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "review_section",
+            category: "static",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              requiresReviewContentSignals: true,
+              requiresReviewCardSurface: true,
+              requiresBlockBasedCards: false,
+              requiresRatingOrQuoteSignal: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .single-testimonial {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 32px 0;
+  }
+
+  #shopify-section-{{ section.id }} .single-testimonial__card {
+    flex: 1 1 18rem;
+    border-radius: 18px;
+    background: #ffffff;
+    padding: 24px;
+  }
+</style>
+<section class="single-testimonial page-width">
+  <article class="single-testimonial__card">
+    <p class="single-testimonial__rating">{{ section.settings.rating }}</p>
+    <blockquote>{{ section.settings.quote }}</blockquote>
+    <p>{{ section.settings.author }}</p>
+  </article>
+</section>
+{% schema %}
+{
+  "name": "Single testimonial",
+  "settings": [
+    { "type": "text", "id": "rating", "label": "Rating", "default": "★★★★★" },
+    { "type": "textarea", "id": "quote", "label": "Quote", "default": "This changed our routine." },
+    { "type": "text", "id": "author", "label": "Author", "default": "Mila" }
+  ],
+  "presets": [{ "name": "Single testimonial" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
   } finally {
     global.fetch = previousFetch;
   }
@@ -7806,6 +8053,355 @@ test("draftThemeArtifact - rejects featured product sections that use static pro
     assert.ok(
       result.errors?.some((issue) => issue.issueCode === "section_contract_missing_product_source")
     );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects featured product sections that ignore their product setting for fake commerce", async () => {
+  const key = "sections/featured-product-fake.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "featured_product_section",
+            category: "commerce",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              requiresProductContextOrSetting: true,
+              requiresCommerceActionSignal: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .featured-product-fake {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    padding: 32px;
+    border-radius: 20px;
+    background: #ffffff;
+  }
+</style>
+<section class="featured-product-fake page-width">
+  {% if section.settings.product == blank %}
+    <p>Select a product in the theme editor.</p>
+  {% endif %}
+  <div class="featured-product-fake__product-card">
+    <h2>Hydrating serum</h2>
+    <p class="featured-product-fake__price">$49.00</p>
+    <button type="button">Add to cart</button>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Featured product fake",
+  "settings": [
+    { "type": "product", "id": "product", "label": "Product" }
+  ],
+  "presets": [{ "name": "Featured product fake" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "section_contract_static_product_markup")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - accepts featured product sections with real source rendering and safe empty state", async () => {
+  const key = "sections/featured-product-source.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "featured_product_section",
+            category: "commerce",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              requiresProductContextOrSetting: true,
+              requiresCommerceActionSignal: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .featured-product-source {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    padding: 32px;
+    border-radius: 20px;
+    background: #ffffff;
+  }
+</style>
+{% assign featured_product = section.settings.product %}
+<section class="featured-product-source page-width">
+  {% if featured_product != blank %}
+    <h2>{{ featured_product.title }}</h2>
+    <p>{{ featured_product.price | money }}</p>
+    {% form 'product', featured_product %}
+      <input type="hidden" name="id" value="{{ featured_product.selected_or_first_available_variant.id }}">
+      <button type="submit">{{ section.settings.button_label }}</button>
+    {% endform %}
+  {% else %}
+    <p>Select a product in the theme editor.</p>
+  {% endif %}
+</section>
+{% schema %}
+{
+  "name": "Featured product source",
+  "settings": [
+    { "type": "product", "id": "product", "label": "Product" },
+    { "type": "text", "id": "button_label", "label": "Button label", "default": "Add to cart" }
+  ],
+  "presets": [{ "name": "Featured product source" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects featured collection sections that ignore their collection setting", async () => {
+  const key = "sections/featured-collection-fake.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "featured_collection_section",
+            category: "media",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              requiresCollectionContextOrSetting: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .featured-collection-fake {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 32px;
+  }
+</style>
+<section class="featured-collection-fake page-width">
+  {% if section.settings.collection == blank %}
+    <p>Select a collection in the theme editor.</p>
+  {% endif %}
+  <article class="featured-collection-fake__product-card">
+    <h2>Hydrating serum</h2>
+    <p>$49.00</p>
+  </article>
+</section>
+{% schema %}
+{
+  "name": "Featured collection fake",
+  "settings": [
+    { "type": "collection", "id": "collection", "label": "Collection" }
+  ],
+  "presets": [{ "name": "Featured collection fake" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "section_contract_static_collection_markup")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - accepts featured collection sections with real source rendering and safe empty state", async () => {
+  const key = "sections/featured-collection-source.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "featured_collection_section",
+            category: "media",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              requiresCollectionContextOrSetting: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .featured-collection-source {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 32px;
+  }
+
+  #shopify-section-{{ section.id }} .featured-collection-source__card {
+    flex: 1 1 14rem;
+    border-radius: 16px;
+    background: #ffffff;
+    padding: 18px;
+  }
+</style>
+{% assign featured_collection = section.settings.collection %}
+<section class="featured-collection-source page-width">
+  {% if featured_collection != blank %}
+    <h2>{{ featured_collection.title }}</h2>
+    {% for product in featured_collection.products limit: 3 %}
+      <article class="featured-collection-source__card">
+        <h3>{{ product.title }}</h3>
+      </article>
+    {% endfor %}
+  {% else %}
+    <p>Select a collection in the theme editor.</p>
+  {% endif %}
+</section>
+{% schema %}
+{
+  "name": "Collection source",
+  "settings": [
+    { "type": "collection", "id": "collection", "label": "Collection" }
+  ],
+  "presets": [{ "name": "Collection source" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
   } finally {
     global.fetch = previousFetch;
   }

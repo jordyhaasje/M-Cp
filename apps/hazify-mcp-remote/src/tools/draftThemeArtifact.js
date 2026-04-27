@@ -4748,7 +4748,7 @@ function createInspectionIssue({
 }
 
 const RESPONSIVE_SECTION_PATTERN =
-  /@media\b|@container\b|clamp\(|repeat\(\s*auto-(?:fit|fill)|minmax\(|\b(?:mobile|desktop)[-_](?:layout|grid|columns|stack|spacing)\b|--(?:mobile|desktop)-/i;
+  /@media\b|@container\b|container-type\s*:|clamp\(|repeat\(\s*auto-(?:fit|fill)|minmax\(|flex-wrap\s*:\s*(?:wrap|wrap-reverse)|grid-template-columns\s*:[^;]*(?:\bfr\b|repeat\(|fit-content\(|min\(|max\(|calc\(|var\()|(?:width|inline-size)\s*:\s*min\(|\b(?:mobile|desktop)[-_](?:layout|grid|columns|stack|spacing)\b|--(?:mobile|desktop)-/i;
 
 const EDITOR_REPEATABLE_BLOCK_CONTRACTS = {
   review_section: {
@@ -4947,11 +4947,65 @@ function schemaHasPresetBlocks(schema) {
   );
 }
 
+function collectSettingIdsByType(settings = [], type) {
+  return (Array.isArray(settings) ? settings : [])
+    .filter((setting) => String(setting?.type || "").trim() === type)
+    .map((setting) => String(setting?.id || "").trim())
+    .filter(Boolean);
+}
+
+function collectSettingObjectAliases(source, settingIds = []) {
+  const aliases = new Set();
+  const text = String(source || "");
+
+  for (const settingId of settingIds) {
+    const escapedId = escapeRegExp(settingId);
+    const directRef = `section.settings.${settingId}`;
+    if (new RegExp(`section\\.settings\\.${escapedId}\\b`).test(text)) {
+      aliases.add(directRef);
+    }
+
+    const assignPattern = new RegExp(
+      `assign\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*section\\.settings\\.${escapedId}\\b`,
+      "gi"
+    );
+    let match;
+    while ((match = assignPattern.exec(text))) {
+      if (match[1]) {
+        aliases.add(match[1]);
+      }
+    }
+  }
+
+  return Array.from(aliases);
+}
+
+function sourceUsesObjectProperties(source, objectNames = [], propertyNames = []) {
+  const text = String(source || "");
+  const propertyPattern = propertyNames.map(escapeRegExp).join("|");
+  if (!propertyPattern) {
+    return false;
+  }
+
+  return objectNames.some((objectName) => {
+    const escapedObject = escapeRegExp(objectName);
+    return new RegExp(`\\b${escapedObject}\\.(?:${propertyPattern})\\b`).test(text);
+  });
+}
+
 function resolveRepeatableEditorContract(sectionBlueprint = {}) {
   const archetype = String(sectionBlueprint?.archetype || "").trim();
+  const promptContract = sectionBlueprint?.promptContract || {};
   const promptInteractionPattern = String(
-    sectionBlueprint?.promptContract?.interactionPattern || ""
+    promptContract?.interactionPattern || ""
   ).trim();
+
+  if (
+    archetype === "review_section" &&
+    promptContract?.requiresBlockBasedCards === false
+  ) {
+    return null;
+  }
 
   if (EDITOR_REPEATABLE_BLOCK_CONTRACTS[archetype]) {
     return EDITOR_REPEATABLE_BLOCK_CONTRACTS[archetype];
@@ -5017,6 +5071,48 @@ function collectSectionEditorContractSafety(
   const hasPresetBlocks = schemaHasPresetBlocks(schema);
   const repeatableContract = resolveRepeatableEditorContract(sectionBlueprint);
   const hasResponsiveBehavior = RESPONSIVE_SECTION_PATTERN.test(source);
+  const productSettingIds = collectSettingIdsByType(ownSettings, "product");
+  const collectionSettingIds = collectSettingIdsByType(ownSettings, "collection");
+  const productObjectNames = uniqueStrings([
+    "product",
+    ...collectSettingObjectAliases(source, productSettingIds),
+  ]);
+  const collectionObjectNames = uniqueStrings([
+    "collection",
+    ...collectSettingObjectAliases(source, collectionSettingIds),
+  ]);
+  const hasProductSettingReference = productSettingIds.some((settingId) =>
+    new RegExp(`section\\.settings\\.${escapeRegExp(settingId)}\\b`).test(source)
+  );
+  const hasCollectionSettingReference = collectionSettingIds.some((settingId) =>
+    new RegExp(`section\\.settings\\.${escapeRegExp(settingId)}\\b`).test(source)
+  );
+  const hasProductObjectOutput = sourceUsesObjectProperties(source, productObjectNames, [
+    "title",
+    "price",
+    "featured_image",
+    "featured_media",
+    "selected_or_first_available_variant",
+    "variants",
+    "available",
+    "url",
+  ]);
+  const hasCollectionObjectOutput = sourceUsesObjectProperties(source, collectionObjectNames, [
+    "title",
+    "image",
+    "products",
+    "all_products",
+    "description",
+    "url",
+  ]);
+  const hasStaticCommerceMarkup =
+    /(?:[$€£]\s*\d|add[-_ ]?to[-_ ]?cart|class\s*=\s*["'][^"']*(?:price|product[-_ ]?card|featured[-_ ]?product)|<button\b[^>]*(?:cart|buy|shop))/i.test(
+      source
+    );
+  const hasStaticCollectionMarkup =
+    /(?:[$€£]\s*\d|add[-_ ]?to[-_ ]?cart|class\s*=\s*["'][^"']*(?:product[-_ ]?card|collection[-_ ]?card|collection[-_ ]?grid)|<article\b[^>]*class\s*=\s*["'][^"']*(?:card|product))/i.test(
+      source
+    );
 
   if (!hasResponsiveBehavior) {
     issues.push(
@@ -5123,7 +5219,7 @@ function collectSectionEditorContractSafety(
   }
 
   const hasProductSource =
-    ownSettings.some((setting) => String(setting?.type || "").trim() === "product") ||
+    hasProductSettingReference ||
     /\bproduct\.[A-Za-z_]|section\.settings\.[A-Za-z0-9_]+\s*!=\s*blank[\s\S]{0,240}section\.settings\.[A-Za-z0-9_]+\.|assign\s+\w+\s*=\s*section\.settings\.[A-Za-z0-9_]+|all_products\[/i.test(
       source
     );
@@ -5146,8 +5242,29 @@ function collectSectionEditorContractSafety(
     );
   }
 
+  if (
+    requiresProductSource &&
+    productSettingIds.length > 0 &&
+    hasStaticCommerceMarkup &&
+    !hasProductObjectOutput
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Product-oriented generated sections must not expose a product setting while rendering static product names, prices, or cart controls that do not come from that product source.",
+        fixSuggestion:
+          "Render title, media, price, and CTA from the selected product, and keep only a blank-safe empty state such as 'Select a product in the theme editor' when no product is selected.",
+        issueCode: "section_contract_static_product_markup",
+      })
+    );
+    suggestedFixes.push(
+      "Replace fake static commerce markup with output from the selected product source."
+    );
+  }
+
   const hasCollectionSource =
-    ownSettings.some((setting) => String(setting?.type || "").trim() === "collection") ||
+    hasCollectionSettingReference ||
     /\bcollection\.[A-Za-z_]|section\.settings\.[A-Za-z0-9_]*collection[A-Za-z0-9_]*\s*!=\s*blank[\s\S]{0,240}section\.settings\.[A-Za-z0-9_]*collection[A-Za-z0-9_]*\.|assign\s+\w+\s*=\s*section\.settings\.[A-Za-z0-9_]*collection[A-Za-z0-9_]*/i.test(
       source
     );
@@ -5168,6 +5285,27 @@ function collectSectionEditorContractSafety(
     );
     suggestedFixes.push(
       "Use a collection setting or collection context for featured collection sections."
+    );
+  }
+
+  if (
+    requiresCollectionSource &&
+    collectionSettingIds.length > 0 &&
+    hasStaticCollectionMarkup &&
+    !hasCollectionObjectOutput
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Collection-oriented generated sections must not expose a collection setting while rendering static product/card markup that does not come from that collection source.",
+        fixSuggestion:
+          "Render cards from the selected collection, and keep only a blank-safe empty state such as 'Select a collection in the theme editor' when no collection is selected.",
+        issueCode: "section_contract_static_collection_markup",
+      })
+    );
+    suggestedFixes.push(
+      "Replace fake static collection cards with output from the selected collection source."
     );
   }
 

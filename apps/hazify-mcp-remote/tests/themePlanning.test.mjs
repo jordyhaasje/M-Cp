@@ -484,6 +484,19 @@ try {
     "featured product plans should expose editor/resource contract guidance"
   );
 
+  const reviewBadgePlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak een review badge section met sterren en een korte verified tekst",
+  });
+  assert.equal(reviewBadgePlan.sectionBlueprint?.archetype, "review_section");
+  assert.equal(
+    reviewBadgePlan.sectionBlueprint?.promptContract?.requiresBlockBasedCards,
+    false,
+    "single review/rating badge sections should not be forced into repeatable blocks"
+  );
+
   const existingReviewEditPlan = await planThemeEdit(shopifyClient, "2026-01", {
     themeId: 123,
     intent: "existing_edit",
