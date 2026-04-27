@@ -4403,6 +4403,13 @@ function collectPromptOnlyArchetypeSafety(
     /\bproduct\.[A-Za-z_]|section\.settings\.[A-Za-z0-9_]+\s*!=\s*blank[\s\S]{0,240}section\.settings\.[A-Za-z0-9_]+\.|assign\s+\w+\s*=\s*section\.settings\.[A-Za-z0-9_]+|all_products\[/i.test(
       source
     );
+  const hasCollectionSetting = settings.some(
+    (setting) => String(setting?.type || "").trim() === "collection"
+  );
+  const hasCollectionContext =
+    /\bcollection\.[A-Za-z_]|section\.settings\.[A-Za-z0-9_]*collection[A-Za-z0-9_]*\s*!=\s*blank[\s\S]{0,240}section\.settings\.[A-Za-z0-9_]*collection[A-Za-z0-9_]*\.|assign\s+\w+\s*=\s*section\.settings\.[A-Za-z0-9_]*collection[A-Za-z0-9_]*/i.test(
+      source
+    );
   const hasCommerceAction =
     /buy_buttons|product_form|form\s+['"]product['"]|add[-_ ]?to[-_ ]?cart|cart|price\s*\|\s*money|product\.price|product\.selected_or_first_available_variant|section\.settings\.[A-Za-z0-9_]+\.price/i.test(
       source
@@ -4681,6 +4688,26 @@ function collectPromptOnlyArchetypeSafety(
     );
   }
 
+  if (
+    promptContract.requiresCollectionContextOrSetting &&
+    !hasCollectionSetting &&
+    !hasCollectionContext
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey, "schema", "settings"],
+        problem:
+          "Prompt-only collection sections moeten een echte collection-bron gebruiken. Er is geen collection setting of collection context gedetecteerd.",
+        fixSuggestion:
+          "Gebruik een collection setting of de collection template context voordat product/cards worden gerenderd.",
+        issueCode: "prompt_collection_missing_collection_source",
+      })
+    );
+    suggestedFixes.push(
+      "Gebruik een collection setting of collection context voor featured collection sections."
+    );
+  }
+
   if (promptContract.hints?.length > 0) {
     warnings.push(...promptContract.hints);
   }
@@ -4717,6 +4744,441 @@ function createInspectionIssue({
       ? { anchorCandidates: uniqueStrings(anchorCandidates) }
       : {}),
     ...(suggestedReplacement !== undefined ? { suggestedReplacement } : {}),
+  };
+}
+
+const RESPONSIVE_SECTION_PATTERN =
+  /@media\b|@container\b|clamp\(|repeat\(\s*auto-(?:fit|fill)|minmax\(|\b(?:mobile|desktop)[-_](?:layout|grid|columns|stack|spacing)\b|--(?:mobile|desktop)-/i;
+
+const EDITOR_REPEATABLE_BLOCK_CONTRACTS = {
+  review_section: {
+    label: "review/testimonial cards",
+    issuePrefix: "section_contract_review",
+    requiredSettingGroups: [
+      {
+        key: "quote",
+        patterns: [/quote/i, /review/i, /testimonial/i, /body/i, /content/i, /text/i],
+        label: "quote/review text",
+      },
+      {
+        key: "author",
+        patterns: [/author/i, /customer/i, /name/i, /naam/i, /klant/i],
+        label: "author/customer name",
+      },
+      {
+        key: "rating",
+        patterns: [/rating/i, /stars?/i, /score/i, /trustpilot/i],
+        label: "rating/star score",
+      },
+    ],
+  },
+  review_slider: {
+    label: "review/testimonial slides",
+    issuePrefix: "section_contract_review_slider",
+    requiredSettingGroups: [
+      {
+        key: "quote",
+        patterns: [/quote/i, /review/i, /testimonial/i, /body/i, /content/i, /text/i],
+        label: "quote/review text",
+      },
+      {
+        key: "author",
+        patterns: [/author/i, /customer/i, /name/i, /naam/i, /klant/i],
+        label: "author/customer name",
+      },
+      {
+        key: "rating",
+        patterns: [/rating/i, /stars?/i, /score/i, /trustpilot/i],
+        label: "rating/star score",
+      },
+    ],
+  },
+  faq_collapsible: {
+    label: "FAQ items",
+    issuePrefix: "section_contract_faq",
+    requiresDisclosureMarkup: true,
+    requiredSettingGroups: [
+      {
+        key: "question",
+        patterns: [/question/i, /vraag/i, /title/i, /heading/i],
+        label: "question/title",
+      },
+      {
+        key: "answer",
+        patterns: [/answer/i, /antwoord/i, /body/i, /content/i, /text/i],
+        label: "answer/content",
+      },
+    ],
+  },
+  comparison_table: {
+    label: "comparison rows",
+    issuePrefix: "section_contract_comparison",
+    requiredSettingGroups: [
+      {
+        key: "row",
+        patterns: [/row/i, /feature/i, /benefit/i, /label/i, /title/i, /criterion/i, /vergelijk/i],
+        label: "row/feature label",
+      },
+    ],
+  },
+  logo_wall: {
+    label: "logo items",
+    issuePrefix: "section_contract_logo",
+    requiredSettingGroups: [
+      {
+        key: "logo",
+        patterns: [/logo/i, /image/i, /brand/i, /media/i],
+        label: "logo/image",
+      },
+    ],
+  },
+  logo_slider: {
+    label: "logo slides",
+    issuePrefix: "section_contract_logo_slider",
+    requiredSettingGroups: [
+      {
+        key: "logo",
+        patterns: [/logo/i, /image/i, /brand/i, /media/i],
+        label: "logo/image",
+      },
+    ],
+  },
+  image_slider: {
+    label: "image slides",
+    issuePrefix: "section_contract_image_slider",
+    requiredSettingGroups: [
+      {
+        key: "media",
+        patterns: [/image/i, /media/i, /slide/i, /heading/i, /title/i],
+        label: "slide image/media or title",
+      },
+    ],
+  },
+  video_slider: {
+    label: "video slides",
+    issuePrefix: "section_contract_video_slider",
+    requiredSettingGroups: [
+      {
+        key: "media",
+        patterns: [/video/i, /video_url/i, /media/i, /poster/i, /heading/i, /title/i],
+        label: "slide video/media or title",
+      },
+    ],
+  },
+  social_slider: {
+    label: "social slides",
+    issuePrefix: "section_contract_social_slider",
+    requiredSettingGroups: [
+      {
+        key: "media",
+        patterns: [/image/i, /media/i, /video/i, /url/i, /handle/i, /caption/i],
+        label: "social media/caption",
+      },
+    ],
+  },
+  media_carousel: {
+    label: "carousel slides",
+    issuePrefix: "section_contract_carousel",
+    requiredSettingGroups: [
+      {
+        key: "slide",
+        patterns: [/slide/i, /image/i, /media/i, /video/i, /heading/i, /title/i, /caption/i],
+        label: "slide content",
+      },
+    ],
+  },
+};
+
+function collectSectionOwnSettings(schema) {
+  return Array.isArray(schema?.settings) ? schema.settings.filter(Boolean) : [];
+}
+
+function collectSectionBlocks(schema) {
+  return Array.isArray(schema?.blocks) ? schema.blocks.filter(Boolean) : [];
+}
+
+function collectEditableSectionBlocks(schema) {
+  return collectSectionBlocks(schema).filter((block) => {
+    const type = String(block?.type || "").trim();
+    return type && !type.startsWith("@");
+  });
+}
+
+function schemaSettingsHaystack(settings = []) {
+  return (Array.isArray(settings) ? settings : [])
+    .map((setting) =>
+      [
+        setting?.type,
+        setting?.id,
+        setting?.label,
+        setting?.content,
+        setting?.default,
+      ]
+        .filter((entry) => entry !== undefined && entry !== null)
+        .join(" ")
+    )
+    .join(" ");
+}
+
+function blockSettingsHaystack(block) {
+  const own = [block?.type, block?.name].filter(Boolean).join(" ");
+  const settings = schemaSettingsHaystack(
+    Array.isArray(block?.settings) ? block.settings : []
+  );
+  return `${own} ${settings}`;
+}
+
+function blockHasSettingGroup(block, group) {
+  const haystack = blockSettingsHaystack(block);
+  return (group?.patterns || []).some((pattern) => pattern.test(haystack));
+}
+
+function sourceHasSectionBlockLoop(source) {
+  return /for\s+block\s+in\s+section\.blocks/i.test(String(source || ""));
+}
+
+function sourceRendersBlockSettings(source) {
+  return /block\.settings\.[A-Za-z0-9_]+/i.test(String(source || ""));
+}
+
+function schemaHasPresetBlocks(schema) {
+  return (Array.isArray(schema?.presets) ? schema.presets : []).some(
+    (preset) => Array.isArray(preset?.blocks) && preset.blocks.length > 0
+  );
+}
+
+function resolveRepeatableEditorContract(sectionBlueprint = {}) {
+  const archetype = String(sectionBlueprint?.archetype || "").trim();
+  const promptInteractionPattern = String(
+    sectionBlueprint?.promptContract?.interactionPattern || ""
+  ).trim();
+
+  if (EDITOR_REPEATABLE_BLOCK_CONTRACTS[archetype]) {
+    return EDITOR_REPEATABLE_BLOCK_CONTRACTS[archetype];
+  }
+
+  if (
+    archetype === "interactive_section" &&
+    promptInteractionPattern === "tabs"
+  ) {
+    return {
+      label: "tab panels",
+      issuePrefix: "section_contract_tabs",
+      requiredSettingGroups: [
+        {
+          key: "title",
+          patterns: [/tab/i, /title/i, /heading/i, /label/i],
+          label: "tab title",
+        },
+        {
+          key: "content",
+          patterns: [/content/i, /body/i, /text/i, /panel/i],
+          label: "tab panel content",
+        },
+      ],
+    };
+  }
+
+  if (
+    archetype === "interactive_section" &&
+    promptInteractionPattern === "carousel"
+  ) {
+    return EDITOR_REPEATABLE_BLOCK_CONTRACTS.media_carousel;
+  }
+
+  return null;
+}
+
+function collectSectionEditorContractSafety(
+  value,
+  fileKey,
+  { sectionBlueprint = null } = {}
+) {
+  if (!sectionBlueprint || typeof sectionBlueprint !== "object") {
+    return { issues: [], warnings: [], suggestedFixes: [] };
+  }
+
+  const source = String(value || "");
+  const { schema } = parseSectionSchema(source);
+  if (!schema) {
+    return { issues: [], warnings: [], suggestedFixes: [] };
+  }
+
+  const issues = [];
+  const warnings = [];
+  const suggestedFixes = [];
+  const archetype = String(sectionBlueprint?.archetype || "").trim();
+  const promptContract = sectionBlueprint?.promptContract || {};
+  const ownSettings = collectSectionOwnSettings(schema);
+  const editableBlocks = collectEditableSectionBlocks(schema);
+  const hasBlockLoop = sourceHasSectionBlockLoop(source);
+  const hasBlockAttributes = /block\.shopify_attributes/i.test(source);
+  const hasBlockSettingsOutput = sourceRendersBlockSettings(source);
+  const hasPresetBlocks = schemaHasPresetBlocks(schema);
+  const repeatableContract = resolveRepeatableEditorContract(sectionBlueprint);
+  const hasResponsiveBehavior = RESPONSIVE_SECTION_PATTERN.test(source);
+
+  if (!hasResponsiveBehavior) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          "Generated sections must include an explicit desktop and mobile behavior contract. This section has no detectable responsive breakpoint, container query, clamp/minmax layout, or mobile/desktop-specific styling signal.",
+        fixSuggestion:
+          "Add responsive CSS or layout logic, for example an @media/@container breakpoint that defines the mobile composition separately from desktop.",
+        issueCode: "section_contract_missing_responsive_behavior",
+      })
+    );
+    suggestedFixes.push(
+      "Add explicit responsive behavior for mobile and desktop, preferably scoped under #shopify-section-{{ section.id }}."
+    );
+  }
+
+  if (repeatableContract) {
+    const missingBlockStructure =
+      editableBlocks.length === 0 ||
+      !hasBlockLoop ||
+      !hasBlockAttributes ||
+      !hasBlockSettingsOutput;
+
+    if (missingBlockStructure) {
+      issues.push(
+        createInspectionIssue({
+          path: [fileKey, "schema", "blocks"],
+          problem:
+            `The ${archetype || "section"} contract requires merchant-editable ${repeatableContract.label}, but the section does not define and render editable blocks end-to-end.`,
+          fixSuggestion:
+            "Define schema.blocks with merchant-editable settings, render {% for block in section.blocks %}, output block.settings, and place {{ block.shopify_attributes }} on the block wrapper.",
+          issueCode: `${repeatableContract.issuePrefix}_missing_editable_blocks`,
+          suggestedReplacement: {
+            required: [
+              "schema.blocks",
+              "section.blocks loop",
+              "block.settings output",
+              "block.shopify_attributes",
+            ],
+          },
+        })
+      );
+      suggestedFixes.push(
+        `Use schema.blocks plus a section.blocks renderer for ${repeatableContract.label}.`
+      );
+    }
+
+    if (!hasPresetBlocks) {
+      issues.push(
+        createInspectionIssue({
+          path: [fileKey, "schema", "presets"],
+          problem:
+            `The ${archetype || "section"} contract should include preset blocks so the section opens in the Theme Editor with editable ${repeatableContract.label} instead of an empty shell.`,
+          fixSuggestion:
+            "Add preset blocks with valid block types that match schema.blocks.",
+          issueCode: `${repeatableContract.issuePrefix}_missing_preset_blocks`,
+        })
+      );
+      suggestedFixes.push(
+        "Add render-safe preset blocks for repeatable content sections."
+      );
+    }
+
+    for (const group of repeatableContract.requiredSettingGroups || []) {
+      const hasGroup = editableBlocks.some((block) =>
+        blockHasSettingGroup(block, group)
+      );
+      if (!hasGroup) {
+        issues.push(
+          createInspectionIssue({
+            path: [fileKey, "schema", "blocks"],
+            problem:
+              `The ${archetype || "section"} contract is missing a block setting for ${group.label}.`,
+            fixSuggestion:
+              `Add a block setting for ${group.label} so merchants can edit each item in the Theme Editor.`,
+            issueCode: `${repeatableContract.issuePrefix}_missing_${group.key}_setting`,
+          })
+        );
+        suggestedFixes.push(
+          `Add a merchant-editable block setting for ${group.label}.`
+        );
+      }
+    }
+
+    if (
+      repeatableContract.requiresDisclosureMarkup &&
+      !/<details\b[\s\S]*?<summary\b/i.test(source)
+    ) {
+      issues.push(
+        createInspectionIssue({
+          path: [fileKey],
+          problem:
+            "FAQ/accordion sections must render real expandable items, not static question and answer markup.",
+          fixSuggestion:
+            "Render each FAQ block with native <details>/<summary> or an equivalent accessible accordion state.",
+          issueCode: "section_contract_faq_missing_disclosure_markup",
+        })
+      );
+      suggestedFixes.push(
+        "Use native <details>/<summary> for FAQ blocks unless a custom accessible accordion is required."
+      );
+    }
+  }
+
+  const hasProductSource =
+    ownSettings.some((setting) => String(setting?.type || "").trim() === "product") ||
+    /\bproduct\.[A-Za-z_]|section\.settings\.[A-Za-z0-9_]+\s*!=\s*blank[\s\S]{0,240}section\.settings\.[A-Za-z0-9_]+\.|assign\s+\w+\s*=\s*section\.settings\.[A-Za-z0-9_]+|all_products\[/i.test(
+      source
+    );
+  const requiresProductSource =
+    archetype === "featured_product_section" ||
+    promptContract?.requiresProductContextOrSetting === true;
+  if (requiresProductSource && !hasProductSource) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey, "schema", "settings"],
+        problem:
+          "Product-oriented generated sections must use a real product setting or product template context. Static product names, prices, or add-to-cart controls are not merchant-editable product data.",
+        fixSuggestion:
+          "Add a product setting or use the product template context, then render price/CTA/content from that source with blank-safe guards.",
+        issueCode: "section_contract_missing_product_source",
+      })
+    );
+    suggestedFixes.push(
+      "Use a product setting or product context for featured product/PDP sections."
+    );
+  }
+
+  const hasCollectionSource =
+    ownSettings.some((setting) => String(setting?.type || "").trim() === "collection") ||
+    /\bcollection\.[A-Za-z_]|section\.settings\.[A-Za-z0-9_]*collection[A-Za-z0-9_]*\s*!=\s*blank[\s\S]{0,240}section\.settings\.[A-Za-z0-9_]*collection[A-Za-z0-9_]*\.|assign\s+\w+\s*=\s*section\.settings\.[A-Za-z0-9_]*collection[A-Za-z0-9_]*/i.test(
+      source
+    );
+  const requiresCollectionSource =
+    archetype === "featured_collection_section" ||
+    archetype === "collection_slider" ||
+    promptContract?.requiresCollectionContextOrSetting === true;
+  if (requiresCollectionSource && !hasCollectionSource) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey, "schema", "settings"],
+        problem:
+          "Collection-oriented generated sections must use a real collection setting or collection context instead of static product/card markup.",
+        fixSuggestion:
+          "Add a collection setting or use the collection template context, then render products/cards from that source with blank-safe guards.",
+        issueCode: "section_contract_missing_collection_source",
+      })
+    );
+    suggestedFixes.push(
+      "Use a collection setting or collection context for featured collection sections."
+    );
+  }
+
+  if (promptContract?.hints?.length > 0) {
+    warnings.push(...promptContract.hints);
+  }
+
+  return {
+    issues,
+    warnings,
+    suggestedFixes,
   };
 }
 
@@ -5222,6 +5684,13 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
   issues.push(...(promptOnlyInspection.issues || []));
   warnings.push(...(promptOnlyInspection.warnings || []));
   suggestedFixes.push(...(promptOnlyInspection.suggestedFixes || []));
+
+  const editorContractInspection = collectSectionEditorContractSafety(value, file.key, {
+    sectionBlueprint,
+  });
+  issues.push(...(editorContractInspection.issues || []));
+  warnings.push(...(editorContractInspection.warnings || []));
+  suggestedFixes.push(...(editorContractInspection.suggestedFixes || []));
 
   if (settingTypes.has("color_scheme_group")) {
     issues.push(

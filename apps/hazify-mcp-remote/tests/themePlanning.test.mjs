@@ -461,6 +461,29 @@ try {
 
   global.fetch = createGraphqlFetch(homepageJsonFiles);
 
+  const featuredProductPlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak een featured product section met prijs, productafbeelding en add-to-cart CTA",
+  });
+  assert.equal(
+    featuredProductPlan.sectionBlueprint?.archetype,
+    "featured_product_section",
+    "featured product prompts should surface a dedicated product-source contract"
+  );
+  assert.equal(
+    featuredProductPlan.sectionBlueprint?.promptContract?.requiresProductContextOrSetting,
+    true
+  );
+  assert.ok(
+    featuredProductPlan.sectionBlueprint?.implementationContract?.renderingRules?.some((entry) =>
+      entry.toLowerCase().includes("herhaalbare content") ||
+      entry.toLowerCase().includes("product")
+    ),
+    "featured product plans should expose editor/resource contract guidance"
+  );
+
   const existingReviewEditPlan = await planThemeEdit(shopifyClient, "2026-01", {
     themeId: 123,
     intent: "existing_edit",

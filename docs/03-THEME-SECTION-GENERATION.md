@@ -22,6 +22,9 @@ Deze gids beschrijft de actuele waarheid voor screenshot-driven en text-only sec
 - FAQ / collapsibles
 - Comparison tables
 - Before/after sliders
+- Featured product sections
+- Featured collection sections
+- Image-with-text, rich text, newsletter, tabs en custom promotional sections
 - Product-page native blocks
 - Bestaande section edits
 - Nieuwe standalone sections
@@ -74,7 +77,8 @@ Gebruik wanneer de gebruiker geen referentiebeeld geeft, maar wel een duidelijke
 Verwachte plannertruth:
 - `qualityTarget = "theme_consistent"`
 - Theme wrappers/helpers/scales worden gespiegeld uit representatieve theme files
-- Prompt-only review-, video-, interactieve en PDP/product-prompts krijgen nu een `sectionBlueprint.promptContract` plus een generiek `sectionBlueprint.implementationContract` mee. Die contractlaag voorkomt dat een gewone tekstprompt degradeert naar een generieke heading/body/CTA section wanneer de prompt eigenlijk review cards, video-rendering, werkende interactiviteit of productcontext vraagt.
+- Prompt-only review-, slider-, FAQ-, comparison-, logo-, video-, interactieve, featured collection- en PDP/product-prompts krijgen nu een `sectionBlueprint.promptContract` plus een generiek `sectionBlueprint.implementationContract` mee. Die contractlaag voorkomt dat een gewone tekstprompt degradeert naar een generieke heading/body/CTA section wanneer de prompt eigenlijk herhaalbare blocks, video-rendering, werkende interactiviteit, collection data of productcontext vraagt.
+- Elke gegenereerde section met planner-blueprint hoort een aantoonbare desktop- én mobiele compositie te hebben. Dat mag via `@media`, `@container`, `clamp`, `minmax` of een vergelijkbaar responsive layoutpatroon, maar niet als impliciete afterthought.
 
 Voorbeeldprompt:
 ```text
@@ -199,16 +203,26 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
   - een zichtbare card/panel/surface-laag in plaats van alleen richtext
 
 ### Commerce scaffold sections
-- `native_block`, `pdp_section` en bredere `commerce_section` flows vallen nu onder een expliciete `commerce_scaffold` familie.
+- `native_block`, `pdp_section`, `featured_product_section` en bredere `commerce_section` flows vallen nu onder een expliciete `commerce_scaffold` familie.
 - Behoud in zulke flows de bestaande product/PDP renderer scaffold van het theme:
   - vervang `product-info`, `buy_buttons`, prijshelpers of block-slots niet door losse marketing-markup
   - spiegel wrappers en helpers alleen voor zover ze de bestaande commerce-renderflow intact laten
-- Prompt-only PDP/product sections moeten een echte productbron gebruiken: de product-template context, een `product` setting of bestaande theme product helpers. Statische fake prijzen of fake add-to-cart markup zonder productbron falen vóór preview-write.
+- Prompt-only PDP/product en featured-product sections moeten een echte productbron gebruiken: de product-template context, een `product` setting of bestaande theme product helpers. Statische fake prijzen of fake add-to-cart markup zonder productbron falen vóór preview-write.
+
+### Collection en repeatable editor contracts
+- `featured_collection_section` en `collection_slider` moeten een echte collection-bron gebruiken: een `collection` setting of collection-template context. Een statische lijst met productkaarten is geen geldig eindresultaat.
+- Herhaalbare contentfamilies moeten merchant-editable blijven in de Theme Editor:
+  - sliders/carousels renderen slide blocks via `section.blocks`
+  - FAQ/accordion sections renderen vraag/antwoord blocks, bij voorkeur met native `<details>/<summary>`
+  - review/testimonial sections renderen review blocks met quote/body, author/customer en rating/sterren setting
+  - comparison tables, logo walls/sliders en tabs gebruiken blocks of echte Shopify resource settings voor hun items
+- Voor zulke repeatable families controleert de validator nu op `schema.blocks`, een `section.blocks` loop, `block.settings` output, `block.shopify_attributes` op de block-wrapper en preset blocks, zodat de editor niet leeg of statisch opent.
 
 ### Sliders en carousels
 - Scope JS altijd per section instance
 - Ondersteun Theme Editor events (`shopify:section:load`, `shopify:section:select`, `shopify:block:select`, `shopify:block:deselect`)
 - Gebruik blank-safe media/link rendering
+- Slider-achtige output zonder editable slide blocks en preset slide blocks is geen geldig generated-section resultaat, ook als de Liquid syntactisch klopt.
 
 ### Safe link/media guards
 - Guard optionele `href`, `src`, `poster`, `action` en `formaction`
@@ -287,7 +301,10 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
   - de inner card/panel surface ontbreekt
 - Prompt-only review/testimonial sections falen nu ook wanneer review-signalen, herhaalbare block cards, rating/quote-signalen of een review-card/panel surface ontbreken.
 - Prompt-only video sections falen nu wanneer een `video`/`video_url` setting of renderbaar blank-safe video-pad ontbreekt.
-- Prompt-only PDP/product sections falen nu wanneer een productbron of commerce action/helper ontbreekt.
+- Prompt-only PDP/product en featured-product sections falen nu wanneer een productbron of commerce action/helper ontbreekt.
+- Prompt-only featured collection/collection-slider sections falen nu wanneer een collection source ontbreekt.
+- Repeatable section families zoals sliders, FAQ, reviews/testimonials, comparison rows, logo walls/sliders en tabs falen nu wanneer ze geen editor-bruikbare blockstructuur, block-rendering of preset blocks hebben.
+- Generated sections met een planner-blueprint falen nu wanneer er geen expliciete desktop/mobile responsive behavior detecteerbaar is.
 - Raw `<img>` met Shopify `image_url`/`img_url` als src horen hard te falen; gebruik daar `image_url | image_tag`
 - `block.shopify_attributes` hoort hard aanwezig te zijn op gedeelde block wrappers in loops over `section.blocks` en native block-render snippets. Een attribuut buiten de relevante loop-body telt niet.
 - Hosted `<video>`/`video_tag` markup met alleen schema type `video_url` hoort hard te falen; gebruik `video` voor merchant-uploaded video en `video_url` voor externe embeds
@@ -312,7 +329,7 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 - Voor Shopify resource-media wordt raw `<img>` met `image_url`/`img_url` nu hard afgekeurd, ook als width/height al aanwezig zijn. Pure hardcoded demo-URLs met expliciete dimensies blijven toegestaan als fallbackpad.
 - Ontbrekende `block.shopify_attributes` is nu hard failure in relevante section-loops en native block-render snippets.
 - Hosted video-markup met alleen schema type `video_url` is nu hard failure; externe embedflows met `video_url` blijven toegestaan.
-- Prompt-only review/video/PDP fidelity wordt nu hard afgedwongen op de eerste write voor de belangrijkste non-hero regressies: review cards/rating, video source/renderpad en PDP productbron/commerce action.
+- Prompt-only review/video/PDP/featured-product/featured-collection fidelity wordt nu hard afgedwongen op de eerste write voor de belangrijkste non-hero regressies: review cards/rating, video source/renderpad, productbron/commerce action, collection-bron en editor-bruikbare repeatable blocks.
 - Wat nog open blijft:
   - de volledige `media layer -> overlay layer -> content layer` architectuur wordt nog niet op elk niet-exact hero/video-pad als generiek contract afgedwongen
   - wrapper-correctheid buiten de media-first/full-bleed hero-familie blijft deels theme-aware guidance in plaats van universele hard fail

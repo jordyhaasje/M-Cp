@@ -4,6 +4,7 @@ Doelgroep: maintainers, reviewers en coding agents.
 Deze audit is de compacte bron van waarheid voor de Hazify Remote MCP. Code blijft leidend; wanneer deze audit afwijkt van runtime-code of tests, moet de documentatie in dezelfde wijziging worden aangepast.
 
 ## Production Readiness Status
+- Status op 2026-04-27: de section-generation pipeline heeft nu een hardere Theme Editor usability-laag voor planner-gegenereerde sections. Repeatable families zoals sliders, FAQ, reviews/testimonials, comparison rows, logo walls/sliders en tabs moeten editor-bruikbare blocks, block-rendering, `block.shopify_attributes` en preset blocks hebben; featured product/collection flows moeten echte Shopify resource-bronnen gebruiken; generated sections moeten expliciet desktop/mobile responsive gedrag tonen.
 - Status op 2026-04-26: de MCP theme edit pipeline is gehard tegen lossy rewrites, lokaal gevalideerd over meerdere OS 2.0 theme-archetypen en opnieuw gedeployed. De planner/handoff geeft nu ook een generiek `implementationContract` mee voor schema-, render-, media-, interactieve en preserve-on-edit regels, zodat clients niet op use-case-specifieke promptworkarounds hoeven te leunen.
 - Authenticated MCP read-smoke is live groen: `initialize`, `tools/list` met 35 tools en `get-license-status` werken op productie met een geldige MCP credential.
 - Laatste bevestigde productie-baseline op `main`:
@@ -51,6 +52,7 @@ Deze audit is de compacte bron van waarheid voor de Hazify Remote MCP. Code blij
 - Geen Liquid binnen `{% stylesheet %}` of `{% javascript %}`.
 - `layout/theme.liquid` mag `content_for_header` en `content_for_layout` nooit verliezen.
 - Screenshot-only replica's zonder losse bronassets mogen renderbare demo-media of een gestileerde media shell gebruiken; expliciete bronmedia blijft strenger.
+- Generated sections moeten niet alleen syntactisch kloppen, maar ook Theme Editor-bruikbaar zijn: herhaalbare content via blocks of echte Shopify resource settings, resource-based product/collection/video/media data via passende schema settings, en expliciet desktop/mobile responsive gedrag.
 
 ## Claimgrens
 - De MCP kan ChatGPT, Claude en andere MCP-clients tools geven om store- en theme-taken gericht uit te voeren wanneer de client remote MCP met bearer token of API key ondersteunt.

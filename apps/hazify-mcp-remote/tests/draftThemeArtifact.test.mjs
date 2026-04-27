@@ -1012,6 +1012,12 @@ test("draftThemeArtifact - rejects placeholder media when exact-match replica re
     display: grid;
     gap: 24px;
   }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .collections-slider {
+      gap: 16px;
+    }
+  }
 </style>
 <section class="collections-slider page-width">
   <div class="collections-slider__card">
@@ -1092,6 +1098,12 @@ test("draftThemeArtifact - allows screenshot-only exact-match placeholders with 
   #shopify-section-{{ section.id }} .collections-slider {
     display: grid;
     gap: 24px;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .collections-slider {
+      gap: 16px;
+    }
   }
 </style>
 <section class="collections-slider page-width">
@@ -7121,6 +7133,329 @@ test("draftThemeArtifact - rejects prompt-only FAQ sections that render as stati
   }
 });
 
+test("draftThemeArtifact - rejects slider-like generated sections without editable slide blocks", async () => {
+  const key = "sections/hero-slider.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "media_carousel",
+            category: "hybrid",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              interactionPattern: "carousel",
+              requiresSliderControls: true,
+              requiresSliderBehavior: true,
+              requiresInteractiveBehavior: true,
+              requiresThemeEditorSafeInteractivity: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .hero-slider {
+    display: grid;
+    gap: 20px;
+    padding: 32px 0;
+  }
+
+  #shopify-section-{{ section.id }} .hero-slider__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 100%;
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+
+  #shopify-section-{{ section.id }} .hero-slider__slide {
+    scroll-snap-align: start;
+    border-radius: 20px;
+    padding: 32px;
+    background: #f7f3ec;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .hero-slider__slide {
+      padding: 20px;
+    }
+  }
+</style>
+<section class="hero-slider page-width">
+  <h2>{{ section.settings.heading }}</h2>
+  <div class="hero-slider__track" data-slider>
+    <article class="hero-slider__slide">
+      <h3>{{ section.settings.slide_heading }}</h3>
+      <p>{{ section.settings.slide_text }}</p>
+    </article>
+    <article class="hero-slider__slide">
+      <h3>{{ section.settings.slide_heading_2 }}</h3>
+      <p>{{ section.settings.slide_text_2 }}</p>
+    </article>
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Hero slider",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Featured stories" },
+    { "type": "text", "id": "slide_heading", "label": "Slide heading", "default": "First slide" },
+    { "type": "textarea", "id": "slide_text", "label": "Slide text", "default": "Static slide copy." },
+    { "type": "text", "id": "slide_heading_2", "label": "Second slide heading", "default": "Second slide" },
+    { "type": "textarea", "id": "slide_text_2", "label": "Second slide text", "default": "Static slide copy." }
+  ],
+  "presets": [{ "name": "Hero slider" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "section_contract_carousel_missing_editable_blocks"),
+      "slider-looking generated sections should require schema.blocks plus section.blocks rendering"
+    );
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "section_contract_carousel_missing_preset_blocks"),
+      "slider contracts should also require preset slide blocks so the editor opens with editable content"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - accepts slider sections with editable slide blocks and responsive behavior", async () => {
+  const key = "sections/hero-slider.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "media_carousel",
+            category: "hybrid",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              interactionPattern: "carousel",
+              requiresSliderControls: true,
+              requiresSliderBehavior: true,
+              requiresInteractiveBehavior: true,
+              requiresThemeEditorSafeInteractivity: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .hero-slider {
+    display: grid;
+    gap: 20px;
+    padding: 32px 0;
+  }
+
+  #shopify-section-{{ section.id }} .hero-slider__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 82%;
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+
+  #shopify-section-{{ section.id }} .hero-slider__slide {
+    scroll-snap-align: start;
+    border-radius: 20px;
+    padding: 32px;
+    background: #f7f3ec;
+  }
+
+  @media screen and (min-width: 750px) {
+    #shopify-section-{{ section.id }} .hero-slider__track {
+      grid-auto-columns: minmax(0, 48%);
+    }
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .hero-slider__slide {
+      padding: 20px;
+    }
+  }
+</style>
+<section class="hero-slider page-width">
+  <h2>{{ section.settings.heading }}</h2>
+  <div class="hero-slider__track" data-slider>
+    {% for block in section.blocks %}
+      <article class="hero-slider__slide" {{ block.shopify_attributes }}>
+        <h3>{{ block.settings.heading }}</h3>
+        <p>{{ block.settings.text }}</p>
+      </article>
+    {% endfor %}
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Hero slider",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Featured stories" }
+  ],
+  "blocks": [
+    {
+      "type": "slide",
+      "name": "Slide",
+      "settings": [
+        { "type": "text", "id": "heading", "label": "Heading", "default": "Slide heading" },
+        { "type": "textarea", "id": "text", "label": "Text", "default": "Slide copy." }
+      ]
+    }
+  ],
+  "presets": [
+    { "name": "Hero slider", "blocks": [{ "type": "slide" }, { "type": "slide" }] }
+  ]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects generated sections without explicit mobile behavior", async () => {
+  const key = "sections/responsive-contract.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "content_section",
+            category: "static",
+            qualityTarget: "theme_consistent",
+            promptContract: { promptOnly: true },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .responsive-contract {
+    display: grid;
+    gap: 24px;
+    padding: 40px;
+    border-radius: 20px;
+    background: #ffffff;
+  }
+</style>
+<section class="responsive-contract page-width">
+  <h2>{{ section.settings.heading }}</h2>
+  <p>{{ section.settings.copy }}</p>
+</section>
+{% schema %}
+{
+  "name": "Responsive contract",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Desktop only" },
+    { "type": "textarea", "id": "copy", "label": "Copy", "default": "This section has no mobile behavior." }
+  ],
+  "presets": [{ "name": "Responsive contract" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "section_contract_missing_responsive_behavior")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("draftThemeArtifact - accepts prompt-only FAQ sections with native disclosure behavior", async () => {
   const key = "sections/prompt-faq.liquid";
   const mockShopifyClient = {
@@ -7173,6 +7508,13 @@ test("draftThemeArtifact - accepts prompt-only FAQ sections with native disclosu
   #shopify-section-{{ section.id }} .prompt-faq__item {
     border-bottom: 1px solid rgba(0, 0, 0, 0.12);
     padding-bottom: 16px;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .prompt-faq {
+      gap: 12px;
+      padding-inline: 16px;
+    }
   }
 </style>
 <section class="prompt-faq page-width">
@@ -7381,6 +7723,94 @@ test("draftThemeArtifact - rejects prompt-only PDP sections without product cont
   }
 });
 
+test("draftThemeArtifact - rejects featured product sections that use static product markup", async () => {
+  const key = "sections/featured-product-static.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: {
+            archetype: "featured_product_section",
+            category: "commerce",
+            qualityTarget: "theme_consistent",
+            promptContract: {
+              promptOnly: true,
+              requiresProductContextOrSetting: true,
+              requiresCommerceActionSignal: true,
+            },
+          },
+        },
+        files: [
+          {
+            key,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .featured-product-static {
+    display: grid;
+    gap: 20px;
+    padding: 32px;
+    border-radius: 20px;
+    background: #ffffff;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .featured-product-static {
+      padding: 20px;
+    }
+  }
+</style>
+<section class="featured-product-static page-width">
+  <h2>{{ section.settings.heading }}</h2>
+  <p class="featured-product-static__title">Hydrating serum</p>
+  <p class="featured-product-static__price">$49.00</p>
+  <button type="button">Add to cart</button>
+</section>
+{% schema %}
+{
+  "name": "Featured product static",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Featured product" }
+  ],
+  "presets": [{ "name": "Featured product static" }]
+}
+{% endschema %}
+`,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "section_contract_missing_product_source")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("draftThemeArtifact - accepts prompt-only video sections with blank-safe video source rendering", async () => {
   const key = "sections/prompt-video.liquid";
   const mockShopifyClient = {
@@ -7432,6 +7862,13 @@ test("draftThemeArtifact - accepts prompt-only video sections with blank-safe vi
   #shopify-section-{{ section.id }} .prompt-video__media {
     border-radius: 20px;
     overflow: hidden;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .prompt-video {
+      gap: 16px;
+      padding: 20px 16px;
+    }
   }
 </style>
 <section class="prompt-video page-width">
@@ -7517,6 +7954,13 @@ test("draftThemeArtifact - accepts prompt-only PDP sections with product setting
     padding: 32px;
     border-radius: 20px;
     background: #ffffff;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .pdp-conversion {
+      gap: 14px;
+      padding: 20px;
+    }
   }
 </style>
 {% assign featured_product = section.settings.product %}

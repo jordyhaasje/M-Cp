@@ -631,6 +631,21 @@ const inferSectionArchetype = ({
     return "pdp_section";
   }
   if (
+    /\b(featured[-_ ]?product|product[-_ ]?(?:feature|showcase|spotlight|highlight)|single[-_ ]?product)\b/.test(
+      haystack
+    )
+  ) {
+    return "featured_product_section";
+  }
+  if (
+    /\b(featured[-_ ]?collection|collection[-_ ]?(?:feature|showcase|spotlight|grid|section)|collection\s+lijst|collectie[-_ ]?(?:showcase|grid|sectie))\b/.test(
+      haystack
+    ) &&
+    !/(slider|carousel|slideshow)/.test(haystack)
+  ) {
+    return "featured_collection_section";
+  }
+  if (
     /(logo[-_ ]?wall|brand[-_ ]?wall|logo[-_ ]?(?:grid|list)|logo showcase)/.test(
       haystack
     )
@@ -772,6 +787,7 @@ const inferSectionShellFamily = ({
     case "social_strip":
     case "social_slider":
     case "collection_slider":
+    case "featured_collection_section":
     case "logo_slider":
     case "logo_wall":
     case "media_gallery":
@@ -779,6 +795,7 @@ const inferSectionShellFamily = ({
       return "media_surface";
     case "native_block":
     case "pdp_section":
+    case "featured_product_section":
     case "commerce_section":
       return "commerce_scaffold";
     default:
@@ -1468,8 +1485,12 @@ const buildPromptOnlyContract = ({
   const interactiveLike = Boolean(interactionPattern);
   const commerceLike =
     archetype === "pdp_section" ||
+    archetype === "featured_product_section" ||
     archetype === "commerce_section" ||
     archetype === "native_block";
+  const collectionLike =
+    archetype === "featured_collection_section" ||
+    archetype === "collection_slider";
 
   return {
     promptOnly: true,
@@ -1485,6 +1506,7 @@ const buildPromptOnlyContract = ({
     requiresVideoSourceSetting: videoLike,
     requiresVideoRenderablePath: videoLike,
     requiresProductContextOrSetting: commerceLike,
+    requiresCollectionContextOrSetting: collectionLike,
     requiresCommerceActionSignal: commerceLike,
     requiredMarkupSignals: uniqueStrings([
       ...(reviewLike ? ["review_card_or_quote_markup", "rating_or_quote_signal"] : []),
@@ -1493,11 +1515,13 @@ const buildPromptOnlyContract = ({
       ...(commerceLike
         ? ["product_context_or_product_setting", "commerce_action_or_product_helper"]
         : []),
+      ...(collectionLike ? ["collection_context_or_collection_setting"] : []),
     ]),
     requiredSchemaSignals: uniqueStrings([
       ...(reviewLike && !singleReviewRequested ? ["review_blocks"] : []),
       ...(videoLike ? ["video_or_video_url_setting"] : []),
       ...(commerceLike ? ["product_setting_or_product_context"] : []),
+      ...(collectionLike ? ["collection_setting_or_collection_context"] : []),
     ]),
     hints: uniqueStrings([
       ...(reviewLike
@@ -1532,6 +1556,12 @@ const buildPromptOnlyContract = ({
             "Behoud PDP/product flows als commerce scaffold in plaats van een losse marketing-card zonder productbron.",
           ]
         : []),
+      ...(collectionLike
+        ? [
+            "Gebruik een collection setting of bestaande collection context zodat merchants de productbron kunnen beheren.",
+            "Render collection/product cards vanuit echte collection data in plaats van statische kaartmarkup.",
+          ]
+        : []),
     ]),
   };
 };
@@ -1560,10 +1590,12 @@ const buildSectionImplementationContract = ({
       "Als je section.blocks rendert, zet {{ block.shopify_attributes }} op de top-level block-wrapper binnen dezelfde loop.",
       "Gebruik blank-safe guards rond optionele image/video/product settings voordat je image_tag, video_tag of product-output rendert.",
       "Gebruik voor Shopify-images bij voorkeur image_url gevolgd door image_tag in plaats van raw <img> wanneer de bron uit Shopify komt.",
+      "Herhaalbare content zoals slides, FAQ-items, reviews, comparison rows, logo's en tab-panels moet via schema.blocks of een echte Shopify resource setting merchant-editable blijven.",
     ]),
     stylingRules: uniqueStrings([
       "Plaats geen Liquid in {% stylesheet %} of {% javascript %}; gebruik <style> voor Liquid-afhankelijke CSS en gewone markup/data-attributen voor runtime-waarden.",
       "Scope lokale CSS en JS per section instance via #shopify-section-{{ section.id }}, data-section-id of een lokaal root-element.",
+      "Lever altijd een expliciete desktop- en mobiele compositie, bijvoorbeeld via @media, @container of een aantoonbaar responsive layoutpatroon.",
     ]),
     interactionPattern: promptContract?.interactionPattern || null,
     interactionRules: uniqueStrings([
@@ -1730,6 +1762,19 @@ const buildCategoryGuardrails = ({
   if (layoutContract?.preferExistingCommerceScaffold) {
     guardrails.push(
       "Behoud bij commerce/native-block flows de bestaande product-renderer scaffold van het theme. Vervang product-info, buy_buttons of price-renderers niet door een los marketing-shell."
+    );
+  }
+
+  if (archetype === "featured_product_section") {
+    guardrails.push(
+      "Featured product sections moeten een echte product setting of product context gebruiken, met productprijs/CTA vanuit die bron in plaats van statische fake commerce-markup."
+    );
+  }
+
+  if (archetype === "featured_collection_section" || archetype === "collection_slider") {
+    guardrails.push(
+      "Featured collection sections moeten een collection setting of collection context gebruiken zodat merchants de bron kunnen beheren.",
+      "Render product/cards vanuit echte collection data of merchant-editable blocks; schrijf geen statische productkaart-lijst als eindresultaat."
     );
   }
 
@@ -2001,6 +2046,11 @@ const buildSectionGenerationBlueprint = ({
     ...(promptContract.requiresProductContextOrSetting
       ? [
           "Controleer dat PDP/product sections een echte productcontext of product setting gebruiken en geen statische fake commerce-markup schrijven.",
+        ]
+      : []),
+    ...(promptContract.requiresCollectionContextOrSetting
+      ? [
+          "Controleer dat featured collection/collection-slider sections een echte collection context of collection setting gebruiken en geen statische productlijst schrijven.",
         ]
       : []),
   ];
