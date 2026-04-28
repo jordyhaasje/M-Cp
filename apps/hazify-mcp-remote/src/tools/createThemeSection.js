@@ -3,7 +3,10 @@ import { requireShopifyClient } from "./_context.js";
 import { draftThemeArtifact } from "./draftThemeArtifact.js";
 import { planThemeEdit } from "../lib/themePlanning.js";
 import { getThemeFiles } from "../lib/themeFiles.js";
-import { inferTemplateSurfaceFromSectionLiquid } from "../lib/themeSectionContext.js";
+import {
+  inferTemplateSurfaceFromSectionLiquid,
+  inspectSectionGenerationRecipePreflight,
+} from "../lib/themeSectionContext.js";
 import {
   getRecentThemeRead,
   getThemeEditMemory,
@@ -250,10 +253,12 @@ const buildCreateSectionError = ({
   problem,
   fixSuggestion,
   suggestedReplacement,
+  issueCode,
 }) => ({
   path,
   problem,
   fixSuggestion,
+  ...(issueCode ? { issueCode } : {}),
   ...(suggestedReplacement !== undefined ? { suggestedReplacement } : {}),
 });
 
@@ -1005,6 +1010,53 @@ const createThemeSectionTool = {
       internalWarnings.push(
         `Kon geen compacte theme-context afleiden vóór create-validatie: ${error.message}`
       );
+    }
+
+    const recipePreflight = inspectSectionGenerationRecipePreflight(input.liquid, input.key, {
+      sectionBlueprint,
+      themeContext: themeSectionContext,
+    });
+    if ((recipePreflight.issues || []).length > 0) {
+      const recipeFixes = uniqueStrings(recipePreflight.suggestedFixes || []);
+      const recipeFixInstruction =
+        recipeFixes.length > 0
+          ? recipeFixes.join(" ")
+          : "follow sectionBlueprint.generationRecipe exactly";
+      return buildCreateSectionRepairResponse({
+        status: "inspection_failed",
+        message:
+          `Building Inspection Failed: ${recipePreflight.issues[0].problem}`,
+        errorCode:
+          recipePreflight.issues.length === 1
+            ? recipePreflight.issues[0].issueCode ||
+              "section_generation_recipe_preflight_failed"
+            : "section_generation_recipe_preflight_failed",
+        nextAction: "fix_generation_recipe_contract",
+        retryMode: "same_request_after_fix",
+        nextTool: "create-theme-section",
+        normalizedArgs,
+        nextArgsTemplate: {
+          ...nextArgsTemplate,
+          liquid:
+            `<complete corrected Shopify Liquid section; fix these recipe contract issues before retrying: ${recipeFixInstruction}>`,
+        },
+        warnings: uniqueStrings([
+          ...internalWarnings,
+          ...(recipePreflight.warnings || []),
+        ]),
+        errors: recipePreflight.issues.map((issue) =>
+          buildCreateSectionError({
+            path: issue.path || [input.key],
+            problem: issue.problem,
+            fixSuggestion: issue.fixSuggestion,
+            issueCode: issue.issueCode,
+            suggestedReplacement: issue.suggestedReplacement,
+          })
+        ),
+        themeContext: themeSectionContext,
+        sectionBlueprint,
+        plannerHandoff,
+      });
     }
 
     const result = await draftThemeArtifact.execute(

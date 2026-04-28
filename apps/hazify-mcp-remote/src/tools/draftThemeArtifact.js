@@ -7,6 +7,7 @@ import { parseJsonLike } from "../lib/jsonLike.js";
 import {
   analyzeSectionScale,
   classifySectionGeneration,
+  inspectSectionGenerationRecipePreflight,
   inspectSectionScaleAgainstTheme,
 } from "../lib/themeSectionContext.js";
 import {
@@ -3157,6 +3158,27 @@ function extractSectionBlockLoopBodies(value) {
   return loops;
 }
 
+function isAuxiliarySectionBlockLoop(loopBody) {
+  const body = String(loopBody || "");
+  const hasBlockSettingsOutput = /block\.settings\.[A-Za-z0-9_]+/i.test(body);
+  if (hasBlockSettingsOutput) {
+    return false;
+  }
+
+  const hasAuxiliaryUiSignal =
+    /\b(?:dot|dots|bullet|indicator|pagination|pager|thumbnail|thumb|nav|control)s?\b/i.test(
+      body
+    ) ||
+    /data-(?:dot|indicator|pagination|slide-index|slide-to|thumb|nav)/i.test(body) ||
+    /aria-label\s*=\s*["'][^"']*(?:slide|dot|indicator|go to|pagination)/i.test(
+      body
+    );
+  const hasOnlyLoopMetadata =
+    /\bforloop\.(?:index|index0|length|first|last)\b|block\.id\b/i.test(body);
+
+  return hasAuxiliaryUiSignal || (hasOnlyLoopMetadata && /<(?:button|span|li)\b/i.test(body));
+}
+
 function collectLiquidRendererSafety(value, fileKey) {
   const issues = [];
   const warnings = [];
@@ -3185,8 +3207,32 @@ function collectLiquidRendererSafety(value, fileKey) {
   }
 
   const sectionBlockLoops = extractSectionBlockLoopBodies(value);
+  const auxiliaryBlockLoop = sectionBlockLoops.find((loop) =>
+    isAuxiliarySectionBlockLoop(loop.body)
+  );
+  if (auxiliaryBlockLoop) {
+    issues.push(
+      createInspectionIssue({
+        path: [fileKey],
+        problem:
+          `Building Inspection Failed: auxiliary UI rond regel ${auxiliaryBlockLoop.line} loopt opnieuw over section.blocks voor dots, bullets of pagination. Dat botst met de Theme Editor block-wrapper contracten en veroorzaakt vaak onjuiste block.shopify_attributes-fixes.`,
+        fixSuggestion:
+          "Gebruik precies één section.blocks content-loop voor slides/cards. Genereer dots of pagination in component-scoped JS vanuit de gerenderde slides, of gebruik non-block static data.",
+        issueCode: "section_contract_auxiliary_block_loop",
+        suggestedReplacement: {
+          recommendedPattern:
+            "Replace the auxiliary section.blocks loop with JS-generated dots from the rendered slide elements.",
+        },
+      })
+    );
+    suggestedFixes.push(
+      "Vervang extra section.blocks loops voor dots/pagination door JS-generated auxiliary UI vanuit de gerenderde slides."
+    );
+  }
   const loopMissingAttributes = sectionBlockLoops.find(
-    (loop) => !/block\.shopify_attributes/.test(loop.body)
+    (loop) =>
+      !isAuxiliarySectionBlockLoop(loop.body) &&
+      !/block\.shopify_attributes/.test(loop.body)
   );
   if (loopMissingAttributes) {
     issues.push(
@@ -4751,6 +4797,22 @@ const RESPONSIVE_SECTION_PATTERN =
   /@media\b|@container\b|container-type\s*:|clamp\(|repeat\(\s*auto-(?:fit|fill)|minmax\(|flex-wrap\s*:\s*(?:wrap|wrap-reverse)|grid-template-columns\s*:[^;]*(?:\bfr\b|repeat\(|fit-content\(|min\(|max\(|calc\(|var\()|(?:width|inline-size)\s*:\s*min\(|\b(?:mobile|desktop)[-_](?:layout|grid|columns|stack|spacing)\b|--(?:mobile|desktop)-/i;
 
 const EDITOR_REPEATABLE_BLOCK_CONTRACTS = {
+  hero_slider: {
+    label: "hero slides",
+    issuePrefix: "section_contract_hero_slider",
+    requiredSettingGroups: [
+      {
+        key: "heading",
+        patterns: [/heading/i, /title/i, /headline/i, /slide/i],
+        label: "slide heading/title",
+      },
+      {
+        key: "content",
+        patterns: [/content/i, /body/i, /text/i, /copy/i, /subheading/i],
+        label: "slide text/content",
+      },
+    ],
+  },
   review_section: {
     label: "review/testimonial cards",
     issuePrefix: "section_contract_review",
@@ -5762,6 +5824,18 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
   issues.push(...(impactConventionInspection.issues || []));
   warnings.push(...(impactConventionInspection.warnings || []));
   suggestedFixes.push(...(impactConventionInspection.suggestedFixes || []));
+
+  const generationRecipeInspection = inspectSectionGenerationRecipePreflight(
+    value,
+    file.key,
+    {
+      themeContext,
+      sectionBlueprint,
+    }
+  );
+  issues.push(...(generationRecipeInspection.issues || []));
+  warnings.push(...(generationRecipeInspection.warnings || []));
+  suggestedFixes.push(...(generationRecipeInspection.suggestedFixes || []));
 
   const settingTypes = collectSchemaSettingTypes(schema);
   const optionalResourceInspection = collectOptionalResourceRuntimeSafety(

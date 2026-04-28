@@ -235,6 +235,116 @@ test("createThemeSection - forwards static section blueprint and theme context f
   );
 });
 
+test("createThemeSection - blocks generation recipe violations before draftThemeArtifact", serial, async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let draftCalled = false;
+  draftThemeArtifact.execute = async () => {
+    draftCalled = true;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/review-slider-preflight.liquid",
+      plannerHandoff: {
+        brief: "Create a review slider with editable review cards.",
+        intent: "new_section",
+        themeTarget: { themeId: 123, themeRole: null },
+        themeContext: {
+          usesPageWidth: true,
+          usesSectionPropertiesWrapper: true,
+        },
+        sectionBlueprint: {
+          archetype: "review_slider",
+          category: "hybrid",
+          qualityTarget: "theme_consistent",
+          promptContract: {
+            promptOnly: true,
+            requiresBlockBasedCards: true,
+            requiresReviewCardSurface: true,
+          },
+          generationRecipe: {
+            sectionContractType: "review_slider",
+            wrapperMode: "own_scoped_shell",
+            forbiddenWrapperCombinations: [
+              "Do not combine section-properties background helper with a custom background shell.",
+            ],
+            scaleProfile: {
+              contentMaxWidthDefault: 1000,
+              contentMaxWidthMax: 1120,
+              cardMinHeightDefault: 300,
+              cardMinHeightMax: 360,
+              quoteFontMaxPx: 30,
+              gridGapMaxPx: 40,
+              cardPaddingMaxPx: 26,
+            },
+            desktopMobileLayoutRequirements: {
+              requiresContentWidthWrapper: true,
+            },
+          },
+        },
+      },
+      liquid: `
+<style>
+  #shopify-section-{{ section.id }} .review-slider-preflight {
+    background: #f6f3ea;
+    padding: 32px 0;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .review-slider-preflight {
+      padding: 24px 0;
+    }
+  }
+</style>
+<section class="review-slider-preflight page-width">
+  <div {% render 'section-properties', background: section.settings.background, text_color: section.settings.text_color %}>
+    {% for block in section.blocks %}
+      <article class="review-slider-preflight__card" {{ block.shopify_attributes }}>
+        <p>{{ block.settings.quote }}</p>
+      </article>
+    {% endfor %}
+  </div>
+</section>
+{% schema %}
+{
+  "name": "Review slider preflight",
+  "settings": [
+    { "type": "color", "id": "background", "label": "Background", "default": "#F6F3EA" },
+    { "type": "color", "id": "text_color", "label": "Text color", "default": "#111111" }
+  ],
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great." }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Review slider preflight", "blocks": [{ "type": "review" }] }]
+}
+{% endschema %}
+`,
+    },
+    { shopifyClient, tokenHash: "create-theme-recipe-preflight" }
+  );
+
+  assert.equal(draftCalled, false);
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "section_recipe_wrapper_mode_mismatch");
+  assert.equal(result.nextTool, "create-theme-section");
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "section_recipe_wrapper_mode_mismatch")
+  );
+});
+
 test("createThemeSection - reuses precision-first planner metadata for exact screenshot replicas", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 
@@ -623,10 +733,10 @@ test("createThemeSection - forwards media-oriented blueprint hints for hero/vide
       liquid: `
 <style>
   #shopify-section-{{ section.id }} .hero-video {
-    min-height: 540px;
+    min-height: 340px;
   }
 </style>
-<section class="hero-video">
+<section class="hero-video page-width">
   {{ section.settings.background_video | video_tag: autoplay: true, muted: true, loop: true, playsinline: true }}
 </section>
 {% schema %}
@@ -847,7 +957,7 @@ test("createThemeSection - auto-hydrates planner reads before writing a new sect
       themeId: 123,
       key: "sections/review-replica.liquid",
       liquid: `
-<section class="review-replica">
+<section class="review-replica page-width">
   <div class="rte">{{ section.settings.heading }}</div>
 </section>
 {% schema %}

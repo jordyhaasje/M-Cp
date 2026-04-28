@@ -77,8 +77,19 @@ Gebruik wanneer de gebruiker geen referentiebeeld geeft, maar wel een duidelijke
 Verwachte plannertruth:
 - `qualityTarget = "theme_consistent"`
 - Theme wrappers/helpers/scales worden gespiegeld uit representatieve theme files
+- `plan-theme-edit` geeft voor nieuwe sections een compacte `generationRecipe` terug, zowel top-level als binnen `sectionBlueprint.generationRecipe`. Die recipe is de pre-generation waarheid voor de eerste write en bevat minimaal:
+  - `sectionContractType`
+  - `wrapperMode`
+  - `allowedThemeHelpers`
+  - `forbiddenWrapperCombinations`
+  - `requiredBlockRenderingPattern`
+  - `allowedAuxiliaryLoops`
+  - `scaleProfile`
+  - `desktopMobileLayoutRequirements`
+  - `interactionPatternRequirements`
 - Prompt-only review-, slider-, FAQ-, comparison-, logo-, video-, interactieve, featured collection- en PDP/product-prompts krijgen nu een `sectionBlueprint.promptContract` plus een generiek `sectionBlueprint.implementationContract` mee. Die contractlaag voorkomt dat een gewone tekstprompt degradeert naar een generieke heading/body/CTA section wanneer de prompt eigenlijk herhaalbare blocks, video-rendering, werkende interactiviteit, collection data of productcontext vraagt.
 - Elke gegenereerde section met planner-blueprint hoort een aantoonbare desktop- én mobiele compositie te hebben. Dat mag via `@media`, `@container`, `clamp`, `minmax` of een vergelijkbaar responsive layoutpatroon, maar niet als impliciete afterthought.
+- De generator moet de recipe volgen in plaats van zelf opnieuw wrapper- of schaalkeuzes te raden. `create-theme-section` voert een contract-aware preflight uit vóór de write en `draft-theme-artifact mode="create"` voert dezelfde checks nogmaals uit als backstop.
 
 Voorbeeldprompt:
 ```text
@@ -103,6 +114,7 @@ Belangrijk:
 - Gebruik in `files[].value` altijd echte volledige bestandsinhoud; context-placeholders, compacte reconstructies of samenvattingen zoals `REWRITE_ALREADY_APPLIED_IN_CONTEXT` zijn ongeldig
 - Een full rewrite mag bestaande schema labels/settings, block types/settings, presets, `block.shopify_attributes`, `image_tag`-paden, accessibility/media-attributen, theme wrappers en scoped CSS niet verwijderen tenzij de gebruiker expliciet om verwijderen of versimpelen vraagt
 - De lokale Liquid delimiter-check negeert nu bare `}}` en `%}` uit embedded CSS/JS, zoals keyframes of compacte scriptblokken, maar blijft echte ongesloten `{{` en `{%` in dezelfde file nog steeds blokkeren
+- De generation-recipe preflight is bedoeld voor create-mode generated sections. Kleine bestaande edits, `patch-theme-file` en gewone `draft-theme-artifact mode="edit"` rewrites mogen daardoor niet gaan falen op nieuwe-section schaal- of recipe-contracten.
 
 Voorbeeldprompt:
 ```text
@@ -201,6 +213,17 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
   - `block.shopify_attributes` op de review-card wrapper
   - quote-, author/customer- en rating/sterren-signalen
   - een zichtbare card/panel/surface-laag in plaats van alleen richtext
+- Review sliders en review grids zijn repeatable families: gebruik block-driven review cards met preset blocks. Een single testimonial card of rating badge mag settings gebruiken wanneer het contract expliciet niet-repeatable is.
+- Review slider auxiliary UI hoort niet opnieuw over `section.blocks` te loopen. Gebruik één content-loop met `block.shopify_attributes`; genereer dots, bullets of pagination daarna via component-scoped JS op basis van de gerenderde slides of via non-block data.
+- Review/card-wall schaal moet standaard theme-sized blijven. Content widths rond 1000px, review-card heights rond 300-360px, quote font maxima rond 30px en gaps onder circa 40px zijn de normale baseline tenzij de gebruiker expliciet om oversized, full-bleed of immersive vraagt.
+
+### Wrapper modes en shells
+Nieuwe section recipes gebruiken expliciet `wrapperMode`:
+- `use_theme_section_properties`: theme helpers zoals `section-properties` beheren outer background/spacing; voeg geen tweede root background shell toe.
+- `own_scoped_shell`: de section beheert zelf de outer visual shell; hou theme helpers neutraal en geef geen `background`/`text_color` door aan `section-properties`.
+- `no_background_shell`: gebruik geen outer background shell; hou eventuele theme containers op een inner contentlaag wanneer dat bij het archetype past.
+
+Algemene regel: één background shell is genoeg. Combineer geen `section-properties` background/text-color helper met een eigen root background surface. Impact-like themes mogen Impact-conventies blijven volgen, maar alleen wanneer de recipe en detectie aangeven welke laag de outer surface beheert.
 
 ### Commerce scaffold sections
 - `native_block`, `pdp_section`, `featured_product_section` en bredere `commerce_section` flows vallen nu onder een expliciete `commerce_scaffold` familie.
@@ -223,6 +246,8 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 - Ondersteun Theme Editor events (`shopify:section:load`, `shopify:section:select`, `shopify:block:select`, `shopify:block:deselect`)
 - Gebruik blank-safe media/link rendering
 - Slider-achtige output zonder editable slide blocks en preset slide blocks is geen geldig generated-section resultaat, ook als de Liquid syntactisch klopt.
+- Dots, bullets en pagination mogen geen tweede `section.blocks` loop zijn. De primaire slide/card loop is de enige loop die editor block wrappers draagt; auxiliary UI wordt uit rendered DOM, numeric ranges of non-block data opgebouwd.
+- Hero sliders, review sliders, logo sliders, image sliders, video sliders en collection sliders hebben elk een eigen schaalprofiel. Gebruik niet blind hero-typography of hero-spacing voor card/review/content sliders.
 
 ### Safe link/media guards
 - Guard optionele `href`, `src`, `poster`, `action` en `formaction`
@@ -256,6 +281,7 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 
 ## Token-Efficiënte Flow
 - Plan eerst, lees daarna alleen `nextReadKeys`
+- Gebruik de compacte `generationRecipe` als generation prompt-contract. Dump geen extra volledige theme files om wrapperMode, repeatable blocks of scale opnieuw te raden.
 - Gebruik `search-theme-files` voor compacte anchors
 - `plan-theme-edit` leest nu minder eager full-content mee:
   - bestaande surgical existing-edits hydrateren niet meer standaard renderer-snippets
@@ -304,7 +330,13 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 - Prompt-only PDP/product en featured-product sections falen nu wanneer een productbron of commerce action/helper ontbreekt.
 - Prompt-only featured collection/collection-slider sections falen nu wanneer een collection source ontbreekt.
 - Repeatable section families zoals sliders, FAQ, reviews/testimonials, comparison rows, logo walls/sliders en tabs falen nu wanneer ze geen editor-bruikbare blockstructuur, block-rendering of preset blocks hebben.
-- Generated sections met een planner-blueprint falen nu wanneer er geen expliciete desktop/mobile responsive behavior detecteerbaar is.
+- Generated sections met een planner-blueprint falen nu wanneer er geen expliciete desktop/mobile responsive behavior detecteerbaar is. Responsive detectie mag intrinsiek zijn: `@media` is geldig, maar `@container`, `clamp()`, `minmax()`, `auto-fit/auto-fill`, `flex-wrap`, responsive grid/flex tracks en duidelijke mobile/desktop CSS variables tellen ook.
+- Generated sections met een `generationRecipe` falen in create-mode wanneer:
+  - `wrapperMode` wordt geschonden
+  - `section.blocks` opnieuw wordt geloopt voor dots/pagination in plaats van alleen voor content blocks
+  - het theme een content-width wrapper gebruikt en de generated section die wrapper mist
+  - schema defaults of CSS voor content width, card min-height, quote/font size, gap of card padding duidelijk boven het archetype-scale-profiel zitten
+- Scale profiles bestaan voor `hero_banner`, `hero_slider`, `review_slider`, `review_section`, `faq`, `video`, `featured_product`, `featured_collection`, `comparison_table`, `logo_slider` en `content_section`. Ze worden gecapped door de representatieve theme scale wanneer die kleiner is, tenzij de prompt expliciet oversized/full-bleed/immersive vraagt.
 - Raw `<img>` met Shopify `image_url`/`img_url` als src horen hard te falen; gebruik daar `image_url | image_tag`
 - `block.shopify_attributes` hoort hard aanwezig te zijn op gedeelde block wrappers in loops over `section.blocks` en native block-render snippets. Een attribuut buiten de relevante loop-body telt niet.
 - Hosted `<video>`/`video_tag` markup met alleen schema type `video_url` hoort hard te falen; gebruik `video` voor merchant-uploaded video en `video_url` voor externe embeds

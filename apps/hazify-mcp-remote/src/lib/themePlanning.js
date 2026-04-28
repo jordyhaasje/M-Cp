@@ -1494,6 +1494,7 @@ export const planThemeEdit = async (
     qualityTarget: sectionBlueprint?.qualityTarget || null,
     generationMode: sectionBlueprint?.generationMode || null,
     completionPolicy: sectionBlueprint?.completionPolicy || null,
+    generationRecipe: sectionBlueprint?.generationRecipe || null,
     allowedRefineStrategy:
       sectionBlueprint?.writeStrategy?.allowedRefineStrategy || null,
     ...(themeContext ? { themeContext } : {}),

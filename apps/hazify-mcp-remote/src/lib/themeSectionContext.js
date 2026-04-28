@@ -339,6 +339,136 @@ const COMPARISON_ICON_REFERENCE_PATTERNS = [
   /\b(versus|vs\b|others)\b/i,
 ];
 
+const OVERSIZED_SCALE_PATTERNS = [
+  /\b(full[-_ ]?bleed|full[-_ ]?width|edge[-_ ]?to[-_ ]?edge)\b/i,
+  /\b(oversized|large[-_ ]?format|immersive|cinematic|statement)\b/i,
+  /\b(beeldvullend|schermvullend|groot(?:s)?|immersief)\b/i,
+];
+
+const BASE_SECTION_SCALE_PROFILES = {
+  hero_banner: {
+    contentMaxWidthDefault: 1120,
+    contentMaxWidthMax: 1320,
+    cardMinHeightDefault: 360,
+    cardMinHeightMax: 520,
+    quoteFontMaxPx: 40,
+    gridGapMaxPx: 48,
+    cardPaddingMaxPx: 36,
+    mobileCardMinHeightMax: 420,
+    mobileGapMaxPx: 28,
+  },
+  hero_slider: {
+    contentMaxWidthDefault: 1080,
+    contentMaxWidthMax: 1240,
+    cardMinHeightDefault: 340,
+    cardMinHeightMax: 460,
+    quoteFontMaxPx: 36,
+    gridGapMaxPx: 44,
+    cardPaddingMaxPx: 34,
+    mobileCardMinHeightMax: 380,
+    mobileGapMaxPx: 24,
+  },
+  review_slider: {
+    contentMaxWidthDefault: 1000,
+    contentMaxWidthMax: 1120,
+    cardMinHeightDefault: 300,
+    cardMinHeightMax: 360,
+    quoteFontMaxPx: 30,
+    gridGapMaxPx: 40,
+    cardPaddingMaxPx: 26,
+    mobileCardMinHeightMax: 320,
+    mobileGapMaxPx: 20,
+  },
+  review_section: {
+    contentMaxWidthDefault: 960,
+    contentMaxWidthMax: 1120,
+    cardMinHeightDefault: 260,
+    cardMinHeightMax: 340,
+    quoteFontMaxPx: 30,
+    gridGapMaxPx: 36,
+    cardPaddingMaxPx: 26,
+    mobileCardMinHeightMax: 300,
+    mobileGapMaxPx: 20,
+  },
+  faq: {
+    contentMaxWidthDefault: 880,
+    contentMaxWidthMax: 980,
+    cardMinHeightDefault: 0,
+    cardMinHeightMax: 0,
+    quoteFontMaxPx: 28,
+    gridGapMaxPx: 24,
+    cardPaddingMaxPx: 24,
+    mobileCardMinHeightMax: 0,
+    mobileGapMaxPx: 16,
+  },
+  video: {
+    contentMaxWidthDefault: 1040,
+    contentMaxWidthMax: 1180,
+    cardMinHeightDefault: 320,
+    cardMinHeightMax: 440,
+    quoteFontMaxPx: 34,
+    gridGapMaxPx: 36,
+    cardPaddingMaxPx: 28,
+    mobileCardMinHeightMax: 360,
+    mobileGapMaxPx: 20,
+  },
+  featured_product: {
+    contentMaxWidthDefault: 1040,
+    contentMaxWidthMax: 1180,
+    cardMinHeightDefault: 0,
+    cardMinHeightMax: 420,
+    quoteFontMaxPx: 34,
+    gridGapMaxPx: 40,
+    cardPaddingMaxPx: 30,
+    mobileCardMinHeightMax: 360,
+    mobileGapMaxPx: 20,
+  },
+  featured_collection: {
+    contentMaxWidthDefault: 1080,
+    contentMaxWidthMax: 1200,
+    cardMinHeightDefault: 0,
+    cardMinHeightMax: 360,
+    quoteFontMaxPx: 32,
+    gridGapMaxPx: 32,
+    cardPaddingMaxPx: 24,
+    mobileCardMinHeightMax: 320,
+    mobileGapMaxPx: 18,
+  },
+  comparison_table: {
+    contentMaxWidthDefault: 1000,
+    contentMaxWidthMax: 1120,
+    cardMinHeightDefault: 0,
+    cardMinHeightMax: 360,
+    quoteFontMaxPx: 30,
+    gridGapMaxPx: 32,
+    cardPaddingMaxPx: 26,
+    mobileCardMinHeightMax: 320,
+    mobileGapMaxPx: 18,
+  },
+  logo_slider: {
+    contentMaxWidthDefault: 1000,
+    contentMaxWidthMax: 1120,
+    cardMinHeightDefault: 0,
+    cardMinHeightMax: 220,
+    quoteFontMaxPx: 28,
+    gridGapMaxPx: 32,
+    cardPaddingMaxPx: 22,
+    mobileCardMinHeightMax: 180,
+    mobileGapMaxPx: 16,
+  },
+  content_section: {
+    contentMaxWidthDefault: 960,
+    contentMaxWidthMax: 1120,
+    cardMinHeightDefault: 0,
+    cardMinHeightMax: 360,
+    quoteFontMaxPx: 32,
+    gridGapMaxPx: 36,
+    cardPaddingMaxPx: 28,
+    mobileCardMinHeightMax: 320,
+    mobileGapMaxPx: 20,
+  },
+};
+
 const EXPLICIT_MEDIA_SOURCE_PATTERNS = [
   /shopify:\/\//i,
   /cdn\.shopify/i,
@@ -611,6 +741,13 @@ const inferSectionArchetype = ({
     }
     return "social_strip";
   }
+  if (
+    /\b(hero|banner|slideshow|masthead|cover)\b/.test(haystack) &&
+    /(slider|carousel|slideshow)/.test(haystack) &&
+    !/\b(video|review|testimonial|trustpilot)\b/.test(haystack)
+  ) {
+    return "hero_slider";
+  }
   if (/(faq|frequently[-_ ]?asked[-_ ]?questions?|accordion|collapsible)/.test(haystack)) {
     return "faq_collapsible";
   }
@@ -781,6 +918,7 @@ const inferSectionShellFamily = ({
     case "review_slider":
     case "review_section":
       return "bounded_card_shell";
+    case "hero_slider":
     case "video_section":
     case "video_slider":
     case "image_slider":
@@ -1015,6 +1153,28 @@ const extractPropertyMaxPx = (source, propertyNames) => {
   }
 
   return Math.round(Math.max(...values));
+};
+
+const extractSelectorPropertyMaxPx = (source, selectorPattern, propertyNames) => {
+  if (!(selectorPattern instanceof RegExp)) {
+    return null;
+  }
+
+  const values = [];
+  const rulePattern = /([^{}]+)\{([^{}]*)\}/g;
+  for (const match of String(source || "").matchAll(rulePattern)) {
+    const selector = String(match[1] || "");
+    const body = String(match[2] || "");
+    if (!selectorPattern.test(selector)) {
+      continue;
+    }
+    const value = extractPropertyMaxPx(body, propertyNames);
+    if (typeof value === "number" && Number.isFinite(value)) {
+      values.push(value);
+    }
+  }
+
+  return values.length > 0 ? Math.round(Math.max(...values)) : null;
 };
 
 const getMaxSpacingDefault = (spacingSettings = []) => {
@@ -1268,6 +1428,234 @@ const buildWriteStrategy = ({ category, qualityTarget = "theme_consistent" } = {
   };
 };
 
+const resolveSectionContractType = (archetype = "content_section") => {
+  switch (archetype) {
+    case "hero_media_first_overlay":
+    case "hero_full_bleed_media":
+    case "hero_split_layout":
+    case "hero_boxed_shell":
+    case "hero_banner":
+      return "hero_banner";
+    case "hero_slider":
+      return "hero_slider";
+    case "review_slider":
+      return "review_slider";
+    case "review_section":
+      return "review_section";
+    case "faq_collapsible":
+      return "faq";
+    case "video_section":
+    case "video_slider":
+      return "video";
+    case "featured_product_section":
+    case "pdp_section":
+    case "commerce_section":
+      return "featured_product";
+    case "featured_collection_section":
+    case "collection_slider":
+      return "featured_collection";
+    case "comparison_table":
+      return "comparison_table";
+    case "logo_wall":
+    case "logo_slider":
+      return "logo_slider";
+    default:
+      return "content_section";
+  }
+};
+
+const userExplicitlyAllowsOversizedScale = ({ query = "", referenceSignals = null } = {}) =>
+  Boolean(referenceSignals?.heroShellFamily === "media_first_unboxed") ||
+  OVERSIZED_SCALE_PATTERNS.some((pattern) => pattern.test(String(query || "")));
+
+const capProfileValue = (value, cap) => {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    typeof cap !== "number" ||
+    !Number.isFinite(cap) ||
+    cap <= 0
+  ) {
+    return value;
+  }
+  return Math.max(0, Math.round(Math.min(value, cap)));
+};
+
+const buildThemeAwareScaleProfile = ({
+  sectionContractType = "content_section",
+  themeContext = null,
+  referenceSignals = null,
+  query = "",
+} = {}) => {
+  const base = {
+    ...BASE_SECTION_SCALE_PROFILES.content_section,
+    ...(BASE_SECTION_SCALE_PROFILES[sectionContractType] || {}),
+  };
+  const guide = themeContext?.scaleGuide || {};
+  const profile = { ...base };
+
+  if (typeof guide.maxExplicitFontSizePx === "number" && guide.maxExplicitFontSizePx > 0) {
+    profile.quoteFontMaxPx = capProfileValue(
+      profile.quoteFontMaxPx,
+      Math.max(24, guide.maxExplicitFontSizePx + 6, guide.maxExplicitFontSizePx * 1.25)
+    );
+  }
+
+  if (typeof guide.maxGapPx === "number" && guide.maxGapPx > 0) {
+    profile.gridGapMaxPx = capProfileValue(
+      profile.gridGapMaxPx,
+      Math.max(18, guide.maxGapPx + 12, guide.maxGapPx * 1.35)
+    );
+    profile.mobileGapMaxPx = capProfileValue(
+      profile.mobileGapMaxPx,
+      Math.max(14, guide.maxGapPx + 4, guide.maxGapPx * 1.05)
+    );
+  }
+
+  if (typeof guide.maxExplicitPaddingYPx === "number" && guide.maxExplicitPaddingYPx > 0) {
+    profile.cardPaddingMaxPx = capProfileValue(
+      profile.cardPaddingMaxPx,
+      Math.max(18, guide.maxExplicitPaddingYPx * 0.7, guide.maxExplicitPaddingYPx - 8)
+    );
+  }
+
+  if (typeof guide.maxMinHeightPx === "number" && guide.maxMinHeightPx > 0) {
+    profile.cardMinHeightMax = capProfileValue(
+      profile.cardMinHeightMax,
+      Math.max(profile.cardMinHeightDefault || 0, guide.maxMinHeightPx + 80)
+    );
+    profile.mobileCardMinHeightMax = capProfileValue(
+      profile.mobileCardMinHeightMax,
+      Math.max(0, guide.maxMinHeightPx + 40)
+    );
+  }
+
+  return {
+    ...profile,
+    allowOversizedScale: userExplicitlyAllowsOversizedScale({
+      query,
+      referenceSignals,
+    }),
+    themeSource: themeContext?.representativeSection?.key || null,
+  };
+};
+
+const buildSectionGenerationRecipe = ({
+  archetype = "content_section",
+  promptContract = null,
+  layoutContract = null,
+  themeWrapperStrategy = null,
+  themeContext = null,
+  referenceSignals = null,
+  relevantHelpers = [],
+  query = "",
+} = {}) => {
+  const sectionContractType = resolveSectionContractType(archetype);
+  const helperKeys = uniqueStrings(
+    (relevantHelpers || [])
+      .map((entry) => (typeof entry === "string" ? entry : entry?.key))
+      .filter(Boolean)
+  );
+  const repeatableBlockDriven =
+    promptContract?.requiresBlockBasedCards === true ||
+    [
+      "hero_slider",
+      "review_slider",
+      "faq",
+      "comparison_table",
+      "logo_slider",
+    ].includes(sectionContractType) ||
+    ["collection_slider", "image_slider", "video_slider", "social_slider", "media_carousel"].includes(archetype);
+  const mediaFirstOrFullBleed =
+    layoutContract?.avoidOuterContainer === true ||
+    layoutContract?.outerShell === "full_bleed" ||
+    themeWrapperStrategy?.allowOuterThemeContainer === false;
+  const boundedOrMediaShell =
+    layoutContract?.sectionShellFamily === "bounded_card_shell" ||
+    layoutContract?.sectionShellFamily === "media_surface";
+  const wrapperMode = mediaFirstOrFullBleed
+    ? "no_background_shell"
+    : boundedOrMediaShell
+      ? "own_scoped_shell"
+      : themeWrapperStrategy?.usesSectionPropertiesWrapper
+        ? "use_theme_section_properties"
+        : "own_scoped_shell";
+
+  return {
+    sectionContractType,
+    wrapperMode,
+    allowedThemeHelpers: uniqueStrings([
+      ...helperKeys,
+      ...(themeContext?.usesPageWidth ? ["page-width/container equivalent"] : []),
+      ...(themeWrapperStrategy?.usesSectionPropertiesWrapper
+        ? ["section-properties without duplicate background shells"]
+        : []),
+    ]),
+    forbiddenWrapperCombinations: uniqueStrings([
+      "Do not combine section-properties background helper with a custom background shell.",
+      ...(wrapperMode === "own_scoped_shell"
+        ? [
+            "When using an own scoped shell, keep section-properties neutral; do not pass background/text_color into it.",
+          ]
+        : []),
+      ...(wrapperMode === "use_theme_section_properties"
+        ? [
+            "When section-properties owns the background, do not add a second root background shell.",
+          ]
+        : []),
+      ...(wrapperMode === "no_background_shell"
+        ? [
+            "Keep the outer shell free of page-width, container, section-properties background, or custom decorative background wrappers.",
+          ]
+        : []),
+    ]),
+    requiredBlockRenderingPattern: repeatableBlockDriven
+      ? {
+          contentLoop:
+            "Use one primary {% for block in section.blocks %} content loop. Put {{ block.shopify_attributes }} on the top-level slide/card/item wrapper and render block.settings.* inside it.",
+          presetBlocks:
+            "Include render-safe preset blocks matching schema.blocks so the Theme Editor opens with editable content.",
+        }
+      : {
+          contentLoop:
+            "Blocks are optional for this section; use section settings when the section is semantically single/static.",
+        },
+    allowedAuxiliaryLoops: repeatableBlockDriven
+      ? {
+          sectionBlocks:
+            "Do not create a second section.blocks loop for dots, bullets, thumbnails, or pagination. Generate auxiliary UI from JS using the rendered slides, or from non-block static data.",
+          nonBlockData:
+            "Auxiliary loops may use numeric ranges, fixed arrays, or JS-generated DOM when they do not re-loop section.blocks.",
+        }
+      : {
+          sectionBlocks:
+            "Avoid looping section.blocks unless the schema intentionally exposes repeatable merchant content.",
+        },
+    scaleProfile: buildThemeAwareScaleProfile({
+      sectionContractType,
+      themeContext,
+      referenceSignals,
+      query,
+    }),
+    desktopMobileLayoutRequirements: {
+      desktop:
+        layoutContract?.contentWidthStrategy ||
+        themeWrapperStrategy?.preferredContentWidthLayer ||
+        "theme_default",
+      mobile:
+        "Provide an explicit mobile composition via breakpoint, container query, or intrinsically responsive layout and keep mobile cards/gaps at or below the scale profile.",
+      requiresContentWidthWrapper:
+        Boolean(themeContext?.usesPageWidth) && wrapperMode !== "no_background_shell",
+    },
+    interactionPatternRequirements: {
+      pattern: promptContract?.interactionPattern || null,
+      requiresFunctionalBehavior: promptContract?.requiresInteractiveBehavior === true,
+      requiresThemeEditorLifecycle:
+        promptContract?.requiresThemeEditorSafeInteractivity === true,
+    },
+  };
+};
+
 const buildLayoutContract = ({
   archetype = "content_section",
   referenceSignals = null,
@@ -1463,6 +1851,7 @@ const buildPromptOnlyContract = ({
   const videoLike =
     archetype === "video_section" || archetype === "video_slider";
   const carouselLike =
+    archetype === "hero_slider" ||
     archetype === "review_slider" ||
     archetype === "video_slider" ||
     archetype === "image_slider" ||
@@ -2000,6 +2389,16 @@ const buildSectionGenerationBlueprint = ({
     themeContext,
     relevantHelpers,
   });
+  const generationRecipe = buildSectionGenerationRecipe({
+    archetype,
+    promptContract,
+    layoutContract,
+    themeWrapperStrategy,
+    themeContext,
+    referenceSignals,
+    relevantHelpers,
+    query,
+  });
   const contractPreflightChecks = [
     ...(layoutContract.requiresBackgroundMediaArchitecture
       ? [
@@ -2075,6 +2474,7 @@ const buildSectionGenerationBlueprint = ({
     referenceSignals,
     promptContract,
     implementationContract,
+    generationRecipe,
     layoutContract,
     themeWrapperStrategy,
     requiredReads,
@@ -2606,6 +3006,329 @@ const inspectSectionScaleAgainstTheme = ({
   };
 };
 
+const createRecipeIssue = ({
+  fileKey,
+  problem,
+  fixSuggestion,
+  issueCode,
+  suggestedReplacement,
+  path = null,
+}) => ({
+  path: path || [fileKey],
+  problem,
+  fixSuggestion,
+  issueCode,
+  ...(suggestedReplacement !== undefined ? { suggestedReplacement } : {}),
+});
+
+const extractRootClassTokens = (source) => {
+  const match = String(source || "").match(
+    /<(?:section|div)\b[^>]*class\s*=\s*["']([^"']+)["']/i
+  );
+  return uniqueStrings(
+    String(match?.[1] || "")
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token && /^[A-Za-z0-9_-]+$/.test(token))
+  );
+};
+
+const sourceUsesSectionPropertiesBackground = (source) =>
+  /render\s+['"]section-properties['"][^%]*\b(?:background|text_color)\s*:/i.test(
+    String(source || "")
+  );
+
+const sourceHasOwnRootBackgroundShell = (source) => {
+  const text = String(source || "");
+  const rootClassTokens = extractRootClassTokens(text);
+  const rootElementMatch = text.match(/<(?:section|div)\b[^>]*>/i);
+  if (/\bstyle\s*=\s*["'][^"']*\bbackground(?:-color)?\s*:/i.test(rootElementMatch?.[0] || "")) {
+    return true;
+  }
+
+  if (
+    rootClassTokens.some((className) =>
+      new RegExp(
+        `\\.${escapeRegExp(className)}\\b[^{}]*\\{[^}]*background(?:-color)?\\s*:`,
+        "i"
+      ).test(text)
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
+const collectNumericSchemaSettingMatches = (schema, patterns = []) =>
+  collectSchemaSettings(schema)
+    .map((setting) => {
+      const haystack = `${String(setting?.id || "")} ${String(setting?.label || "")}`.toLowerCase();
+      const matches = patterns.some((pattern) => pattern.test(haystack));
+      if (!matches) {
+        return null;
+      }
+      return {
+        id: String(setting?.id || ""),
+        label: String(setting?.label || "") || null,
+        default:
+          typeof setting?.default === "number" && Number.isFinite(setting.default)
+            ? setting.default
+            : null,
+        max:
+          typeof setting?.max === "number" && Number.isFinite(setting.max)
+            ? setting.max
+            : null,
+      };
+    })
+    .filter(Boolean);
+
+const maxNumericSettingValue = (schema, patterns = [], property = "default") => {
+  const values = collectNumericSchemaSettingMatches(schema, patterns)
+    .map((setting) => setting[property])
+    .filter((value) => typeof value === "number" && Number.isFinite(value));
+  return values.length > 0 ? Math.max(...values) : null;
+};
+
+const inspectGenerationRecipeScale = ({
+  value,
+  fileKey,
+  schema,
+  recipe,
+}) => {
+  const scaleProfile = recipe?.scaleProfile || null;
+  if (!scaleProfile || scaleProfile.allowOversizedScale === true) {
+    return { issues: [], warnings: [], suggestedFixes: [] };
+  }
+
+  const candidate = analyzeSectionScale(value, { key: fileKey });
+  const issues = [];
+  const suggestedFixes = [];
+
+  const addScaleIssue = ({
+    metric,
+    actualValue,
+    maxValue,
+    recommendedValue,
+    issueCode,
+  }) => {
+    if (
+      typeof actualValue !== "number" ||
+      !Number.isFinite(actualValue) ||
+      typeof maxValue !== "number" ||
+      !Number.isFinite(maxValue) ||
+      maxValue <= 0 ||
+      actualValue <= maxValue
+    ) {
+      return;
+    }
+
+    const issue = createRecipeIssue({
+      fileKey,
+      problem:
+        `Generated ${recipe.sectionContractType || "section"} exceeds the section generation scale profile: ${metric} is ${actualValue}px, but the recipe max is ${maxValue}px.`,
+      fixSuggestion:
+        `Reduce ${metric} to <= ${maxValue}px before writing. Use a default near ${recommendedValue || maxValue}px unless the user explicitly asked for oversized/full-bleed/immersive scale.`,
+      issueCode,
+      suggestedReplacement: {
+        metric,
+        actualPx: actualValue,
+        recommendedDefaultPx: recommendedValue || maxValue,
+        recommendedMaxPx: maxValue,
+      },
+    });
+    issues.push(issue);
+    suggestedFixes.push(issue.fixSuggestion);
+  };
+
+  addScaleIssue({
+    metric: "content max-width default",
+    actualValue: maxNumericSettingValue(schema, [/(content|container|section).*(max.*width|width)|max.*width/], "default"),
+    maxValue: scaleProfile.contentMaxWidthMax,
+    recommendedValue: scaleProfile.contentMaxWidthDefault,
+    issueCode: "section_recipe_scale_content_width",
+  });
+  addScaleIssue({
+    metric: "content max-width setting maximum",
+    actualValue: maxNumericSettingValue(schema, [/(content|container|section).*(max.*width|width)|max.*width/], "max"),
+    maxValue: scaleProfile.contentMaxWidthMax,
+    recommendedValue: scaleProfile.contentMaxWidthMax,
+    issueCode: "section_recipe_scale_content_width",
+  });
+  addScaleIssue({
+    metric: "card min-height",
+    actualValue:
+      candidate.maxMinHeightPx ||
+      maxNumericSettingValue(schema, [/(card|slide|item).*(min.*height|height)|min.*height/], "default"),
+    maxValue: scaleProfile.cardMinHeightMax,
+    recommendedValue: scaleProfile.cardMinHeightDefault,
+    issueCode: "section_recipe_scale_card_min_height",
+  });
+  addScaleIssue({
+    metric: "quote/font-size",
+    actualValue:
+      candidate.maxFontSizePx ||
+      maxNumericSettingValue(schema, [/(quote|text|heading|font).*(size)|font.*size/], "default"),
+    maxValue: scaleProfile.quoteFontMaxPx,
+    recommendedValue: scaleProfile.quoteFontMaxPx,
+    issueCode: "section_recipe_scale_font_size",
+  });
+  addScaleIssue({
+    metric: "grid/card gap",
+    actualValue:
+      candidate.maxGapPx ||
+      maxNumericSettingValue(schema, [/(grid|card|slide|item|column).*(gap|spacing)|gap|spacing/], "default"),
+    maxValue: scaleProfile.gridGapMaxPx,
+    recommendedValue: Math.min(scaleProfile.gridGapMaxPx, 24),
+    issueCode: "section_recipe_scale_gap",
+  });
+  addScaleIssue({
+    metric: "card padding",
+    actualValue:
+      extractSelectorPropertyMaxPx(
+        value,
+        /(?:__|[-_ ])(?:card|slide|item|panel|surface|quote)\b|\b(?:card|slide|item|panel|surface|quote)\b/i,
+        ["padding", "padding-top", "padding-bottom", "padding-block"]
+      ) ||
+      maxNumericSettingValue(schema, [/(card|slide|item).*(padding|spacing)|card.*padding/], "default") ||
+      null,
+    maxValue: scaleProfile.cardPaddingMaxPx,
+    recommendedValue: scaleProfile.cardPaddingMaxPx,
+    issueCode: "section_recipe_scale_card_padding",
+  });
+
+  return {
+    issues,
+    warnings: [],
+    suggestedFixes: uniqueStrings(suggestedFixes),
+  };
+};
+
+const inspectSectionGenerationRecipePreflight = (
+  value,
+  fileKey,
+  { sectionBlueprint = null, themeContext = null } = {}
+) => {
+  const recipe = sectionBlueprint?.generationRecipe || null;
+  if (!recipe || typeof recipe !== "object") {
+    return { issues: [], warnings: [], suggestedFixes: [] };
+  }
+
+  const source = String(value || "");
+  const schema = parseSectionSchema(source);
+  const issues = [];
+  const warnings = [];
+  const suggestedFixes = [];
+  const wrapperMode = String(recipe.wrapperMode || "").trim();
+  const usesSectionPropertiesBackground = sourceUsesSectionPropertiesBackground(source);
+  const hasOwnBackgroundShell = sourceHasOwnRootBackgroundShell(source);
+  const hasContentWidthWrapper = hasContentWidthWrapperClass(extractClassTokens(source));
+
+  if (wrapperMode === "own_scoped_shell" && usesSectionPropertiesBackground) {
+    issues.push(
+      createRecipeIssue({
+        fileKey,
+        problem:
+          "The generation recipe chose wrapperMode=own_scoped_shell, but the section also passes background/text_color through section-properties.",
+        fixSuggestion:
+          "Choose one wrapper strategy: keep the own scoped shell and remove background/text_color from section-properties, or switch the recipe/output to section-properties-owned background.",
+        issueCode: "section_recipe_wrapper_mode_mismatch",
+        suggestedReplacement: {
+          wrapperMode: "own_scoped_shell",
+          requiredFix: "Remove background/text_color arguments from section-properties.",
+        },
+      })
+    );
+    suggestedFixes.push(
+      "Use one background shell only: own scoped shell OR section-properties background, not both."
+    );
+  }
+
+  if (wrapperMode === "use_theme_section_properties" && hasOwnBackgroundShell) {
+    issues.push(
+      createRecipeIssue({
+        fileKey,
+        problem:
+          "The generation recipe chose wrapperMode=use_theme_section_properties, but the section adds its own root background shell.",
+        fixSuggestion:
+          "Let section-properties own the outer background/spacing and remove the custom root background shell.",
+        issueCode: "section_recipe_wrapper_mode_mismatch",
+        suggestedReplacement: {
+          wrapperMode: "use_theme_section_properties",
+          requiredFix: "Remove the custom root background shell.",
+        },
+      })
+    );
+    suggestedFixes.push(
+      "Do not add a second root background shell when section-properties owns the background."
+    );
+  }
+
+  if (
+    wrapperMode === "no_background_shell" &&
+    (hasOwnBackgroundShell || usesSectionPropertiesBackground)
+  ) {
+    issues.push(
+      createRecipeIssue({
+        fileKey,
+        problem:
+          "The generation recipe chose wrapperMode=no_background_shell, but the section still creates an outer background shell.",
+        fixSuggestion:
+          "Keep the outer media/layout shell neutral and move any bounded visual surface to an allowed inner content layer.",
+        issueCode: "section_recipe_wrapper_mode_mismatch",
+        suggestedReplacement: {
+          wrapperMode: "no_background_shell",
+          requiredFix: "Remove outer background shells and keep wrappers neutral.",
+        },
+      })
+    );
+    suggestedFixes.push(
+      "Keep no-background-shell sections neutral at the outer layer."
+    );
+  }
+
+  if (
+    recipe?.desktopMobileLayoutRequirements?.requiresContentWidthWrapper === true &&
+    themeContext?.usesPageWidth &&
+    !hasContentWidthWrapper
+  ) {
+    issues.push(
+      createRecipeIssue({
+        fileKey,
+        problem:
+          "The target theme uses a content-width wrapper, but the generated section misses page-width/container structure required by the recipe.",
+        fixSuggestion:
+          "Add the theme's page-width/container equivalent to the bounded content layer so the section matches theme scale.",
+        issueCode: "section_recipe_missing_theme_container",
+        suggestedReplacement: {
+          requiredWrapper: "page-width/container equivalent",
+        },
+      })
+    );
+    suggestedFixes.push(
+      "Add a page-width/container equivalent on the bounded content layer."
+    );
+  }
+
+  if (schema) {
+    const scaleInspection = inspectGenerationRecipeScale({
+      value,
+      fileKey,
+      schema,
+      recipe,
+    });
+    issues.push(...scaleInspection.issues);
+    warnings.push(...scaleInspection.warnings);
+    suggestedFixes.push(...scaleInspection.suggestedFixes);
+  }
+
+  return {
+    issues,
+    warnings: uniqueStrings(warnings),
+    suggestedFixes: uniqueStrings(suggestedFixes),
+  };
+};
+
 const inferTemplateSurfaceFromSectionLiquid = (value) => {
   const schema = parseSectionSchema(value);
   if (!schema) {
@@ -2692,5 +3415,6 @@ export {
   classifySectionGeneration,
   inferQualityTarget,
   inferTemplateSurfaceFromSectionLiquid,
+  inspectSectionGenerationRecipePreflight,
   inspectSectionScaleAgainstTheme,
 };

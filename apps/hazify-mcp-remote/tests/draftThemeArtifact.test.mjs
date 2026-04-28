@@ -7379,6 +7379,473 @@ test("draftThemeArtifact - accepts slider sections with editable slide blocks an
   }
 });
 
+const buildReviewSliderRecipeBlueprint = ({
+  wrapperMode = "own_scoped_shell",
+  allowOversizedScale = false,
+} = {}) => ({
+  archetype: "review_slider",
+  category: "hybrid",
+  qualityTarget: "theme_consistent",
+  promptContract: {
+    promptOnly: true,
+    requiresReviewContentSignals: true,
+    requiresReviewCardSurface: true,
+    requiresBlockBasedCards: true,
+    requiresRatingOrQuoteSignal: true,
+    interactionPattern: "carousel",
+    requiresSliderControls: true,
+    requiresSliderBehavior: true,
+    requiresThemeEditorSafeInteractivity: true,
+  },
+  generationRecipe: {
+    sectionContractType: "review_slider",
+    wrapperMode,
+    allowedThemeHelpers: ["section-properties"],
+    forbiddenWrapperCombinations: [
+      "Do not combine section-properties background helper with a custom background shell.",
+    ],
+    requiredBlockRenderingPattern: {
+      contentLoop: "section.blocks with block.shopify_attributes on the review card wrapper",
+    },
+    allowedAuxiliaryLoops: {
+      sectionBlocks:
+        "Do not create a second section.blocks loop for dots, bullets or pagination; generate those controls from rendered slides in JS.",
+    },
+    scaleProfile: {
+      contentMaxWidthDefault: 1000,
+      contentMaxWidthMax: 1120,
+      cardMinHeightDefault: 300,
+      cardMinHeightMax: 360,
+      quoteFontMaxPx: 30,
+      gridGapMaxPx: 40,
+      cardPaddingMaxPx: 26,
+      mobileCardMinHeightMax: 320,
+      mobileGapMaxPx: 20,
+      allowOversizedScale,
+    },
+    desktopMobileLayoutRequirements: {
+      requiresContentWidthWrapper: true,
+      mobileFirstRequired: true,
+      desktopAndMobileMustBeRepresented: true,
+    },
+    interactionPatternRequirements: {
+      pattern: "carousel",
+      requiresWorkingControls: true,
+      requiresThemeEditorLifecycleHooks: true,
+    },
+  },
+});
+
+const reviewSliderThemeContext = {
+  representativeSection: {
+    key: "sections/testimonials.liquid",
+    type: "testimonials",
+  },
+  usesPageWidth: true,
+  usesSectionPropertiesWrapper: true,
+  scaleGuide: {
+    maxExplicitFontSizePx: 30,
+    maxExplicitPaddingYPx: 40,
+    maxGapPx: 24,
+    maxMinHeightPx: 320,
+    maxSpacingSettingDefaultPx: 36,
+  },
+};
+
+const validReviewSliderLiquid = `
+<style>
+  #shopify-section-{{ section.id }} .review-slider {
+    --review-slider-bg: #f6f3ea;
+    background: var(--review-slider-bg);
+    padding: 32px 0;
+  }
+
+  #shopify-section-{{ section.id }} .review-slider__inner {
+    max-width: min(100%, var(--content-max-width));
+    margin: 0 auto;
+    display: grid;
+    gap: 20px;
+  }
+
+  #shopify-section-{{ section.id }} .review-slider__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  #shopify-section-{{ section.id }} .review-slider__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(260px, 1fr);
+    gap: 24px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+
+  #shopify-section-{{ section.id }} .review-slider__card {
+    min-height: 320px;
+    scroll-snap-align: start;
+    border-radius: 18px;
+    background: #ffffff;
+    padding: 24px;
+    box-shadow: 0 14px 34px rgba(17, 17, 17, 0.08);
+    display: grid;
+    gap: 14px;
+  }
+
+  #shopify-section-{{ section.id }} .review-slider__quote {
+    font-size: clamp(20px, 2.2vw, 28px);
+    line-height: 1.2;
+  }
+
+  @media screen and (min-width: 900px) {
+    #shopify-section-{{ section.id }} .review-slider__track {
+      grid-auto-columns: minmax(280px, 32%);
+    }
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .review-slider {
+      padding: 24px 0;
+    }
+
+    #shopify-section-{{ section.id }} .review-slider__track {
+      grid-auto-columns: minmax(240px, 86%);
+      gap: 16px;
+    }
+
+    #shopify-section-{{ section.id }} .review-slider__card {
+      min-height: 280px;
+      padding: 20px;
+    }
+  }
+</style>
+<section class="review-slider page-width" style="--content-max-width: {{ section.settings.content_max_width }}px">
+  <div class="review-slider__inner">
+    <div class="review-slider__header">
+      <h2>{{ section.settings.heading }}</h2>
+      <div class="review-slider__controls">
+        <button type="button" class="review-slider__prev" data-prev aria-label="Previous review">Prev</button>
+        <button type="button" class="review-slider__next" data-next aria-label="Next review">Next</button>
+      </div>
+    </div>
+    <div class="review-slider__track" data-track>
+      {% for block in section.blocks %}
+        <article class="review-slider__card" {{ block.shopify_attributes }}>
+          <div class="review-slider__stars" aria-label="{{ block.settings.rating }} star rating">★★★★★</div>
+          <blockquote class="review-slider__quote">{{ block.settings.quote }}</blockquote>
+          <p class="review-slider__author">{{ block.settings.author }}</p>
+        </article>
+      {% endfor %}
+    </div>
+    <div class="review-slider__dots" data-dots aria-label="Review pagination"></div>
+  </div>
+</section>
+<script>
+  (() => {
+    const init = (root = document) => {
+      const sectionRoot = root.querySelector('#shopify-section-{{ section.id }} .review-slider');
+      if (!sectionRoot || sectionRoot.dataset.initialized === 'true') return;
+      sectionRoot.dataset.initialized = 'true';
+      const track = sectionRoot.querySelector('[data-track]');
+      const slides = Array.from(sectionRoot.querySelectorAll('.review-slider__card'));
+      const dots = sectionRoot.querySelector('[data-dots]');
+      const scrollToSlide = (index) => {
+        const slide = slides[index];
+        if (slide && track) track.scrollTo({ left: slide.offsetLeft - track.offsetLeft, behavior: 'smooth' });
+      };
+      sectionRoot.querySelector('[data-prev]')?.addEventListener('click', () => track?.scrollBy({ left: -320, behavior: 'smooth' }));
+      sectionRoot.querySelector('[data-next]')?.addEventListener('click', () => track?.scrollBy({ left: 320, behavior: 'smooth' }));
+      if (dots) {
+        slides.forEach((_, index) => {
+          const dot = document.createElement('button');
+          dot.type = 'button';
+          dot.className = 'review-slider__dot';
+          dot.setAttribute('aria-label', 'Go to review ' + (index + 1));
+          dot.addEventListener('click', () => scrollToSlide(index));
+          dots.appendChild(dot);
+        });
+      }
+    };
+    init();
+    if (window.Shopify && Shopify.designMode) {
+      document.addEventListener('shopify:section:load', (event) => init(event.target));
+    }
+  })();
+</script>
+{% schema %}
+{
+  "name": "Review slider",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Loved by customers" },
+    { "type": "range", "id": "content_max_width", "label": "Content max width", "min": 840, "max": 1120, "step": 20, "default": 1000 }
+  ],
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "A genuinely useful product and a smooth experience." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Customer name" },
+        { "type": "range", "id": "rating", "label": "Rating", "min": 1, "max": 5, "step": 1, "default": 5 }
+      ]
+    }
+  ],
+  "presets": [
+    { "name": "Review slider", "blocks": [{ "type": "review" }, { "type": "review" }, { "type": "review" }] }
+  ]
+}
+{% endschema %}
+`;
+
+test("draftThemeArtifact - rejects section.blocks auxiliary dot loops with a specific repair", async () => {
+  const key = "sections/review-slider-dot-loop.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: buildReviewSliderRecipeBlueprint(),
+        },
+        files: [
+          {
+            key,
+            value: validReviewSliderLiquid.replace(
+              '<div class="review-slider__dots" data-dots aria-label="Review pagination"></div>',
+              `<div class="review-slider__dots" aria-label="Review pagination">
+      {% for block in section.blocks %}
+        <button type="button" class="review-slider__dot" data-slide-index="{{ forloop.index0 }}" aria-label="Go to review {{ forloop.index }}"></button>
+      {% endfor %}
+    </div>`
+            ),
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        themeSectionContext: reviewSliderThemeContext,
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "section_contract_auxiliary_block_loop")
+    );
+    assert.ok(
+      !result.errors?.some(
+        (issue) => issue.issueCode === "inspection_failed_block_shopify_attributes"
+      ),
+      "auxiliary dot loops should get the dots-specific fix instead of a misleading block attributes failure"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects recipe wrapper mode mismatches before write", async () => {
+  const key = "sections/review-slider-double-shell.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: buildReviewSliderRecipeBlueprint(),
+        },
+        files: [
+          {
+            key,
+            value: validReviewSliderLiquid
+              .replace(
+                '<section class="review-slider page-width" style="--content-max-width: {{ section.settings.content_max_width }}px">',
+                `<section class="review-slider page-width" style="--content-max-width: {{ section.settings.content_max_width }}px"><div {% render 'section-properties', background: section.settings.background, text_color: section.settings.text_color %}>`
+              )
+              .replace("</section>\n<script>", "</div></section>\n<script>")
+              .replace(
+                '{ "type": "range", "id": "content_max_width", "label": "Content max width", "min": 840, "max": 1120, "step": 20, "default": 1000 }',
+                '{ "type": "range", "id": "content_max_width", "label": "Content max width", "min": 840, "max": 1120, "step": 20, "default": 1000 },\n    { "type": "color", "id": "background", "label": "Background", "default": "#F6F3EA" },\n    { "type": "color", "id": "text_color", "label": "Text color", "default": "#111111" }'
+              ),
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        themeSectionContext: reviewSliderThemeContext,
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "section_recipe_wrapper_mode_mismatch")
+    );
+    assert.ok(
+      result.suggestedFixes?.some((entry) => entry.includes("one background shell")),
+      "wrapper mismatch should explain the single-shell repair"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - rejects review slider defaults that exceed the recipe scale profile", async () => {
+  const key = "sections/hero-pro-3.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const oversizedLiquid = validReviewSliderLiquid
+      .replace(/min-height: 320px/g, "min-height: 430px")
+      .replace(/clamp\(20px, 2\.2vw, 28px\)/g, "clamp(28px, 4vw, 42px)")
+      .replace(/gap: 24px;/g, "gap: clamp(24px, 5vw, 64px);")
+      .replace("background: #ffffff;\n    padding: 24px;", "background: #ffffff;\n    padding: 44px;")
+      .replace(
+        '{ "type": "range", "id": "content_max_width", "label": "Content max width", "min": 840, "max": 1120, "step": 20, "default": 1000 }',
+        '{ "type": "range", "id": "content_max_width", "label": "Content max width", "min": 840, "max": 1400, "step": 20, "default": 1200 }'
+      );
+
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: buildReviewSliderRecipeBlueprint(),
+        },
+        files: [
+          {
+            key,
+            value: oversizedLiquid,
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        themeSectionContext: reviewSliderThemeContext,
+      }
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "section_recipe_scale_content_width")
+    );
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "section_recipe_scale_card_min_height")
+    );
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "section_recipe_scale_font_size")
+    );
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "section_recipe_scale_gap")
+    );
+    assert.ok(
+      result.errors?.some((issue) => issue.issueCode === "section_recipe_scale_card_padding")
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - accepts contract-scale review sliders with JS-generated dots", async () => {
+  const key = "sections/review-slider-valid-contract.liquid";
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          sectionBlueprint: buildReviewSliderRecipeBlueprint(),
+        },
+        files: [
+          {
+            key,
+            value: validReviewSliderLiquid,
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        themeSectionContext: reviewSliderThemeContext,
+      }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("draftThemeArtifact - accepts intrinsically responsive generated sections without media queries", async () => {
   const key = "sections/flex-wrap-features.liquid";
   const mockShopifyClient = {

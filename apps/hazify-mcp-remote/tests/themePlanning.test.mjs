@@ -681,6 +681,43 @@ try {
     "new-section plans should surface preserve-on-edit rules for later refinements"
   );
 
+  const reviewSliderRecipePlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak een Trustpilot review slider met reviewkaarten, pijlen en dots",
+  });
+  assert.equal(reviewSliderRecipePlan.sectionBlueprint?.archetype, "review_slider");
+  assert.equal(
+    reviewSliderRecipePlan.generationRecipe?.sectionContractType,
+    "review_slider",
+    "new-section plans should expose a compact generation recipe at top level"
+  );
+  assert.equal(
+    reviewSliderRecipePlan.sectionBlueprint?.generationRecipe?.wrapperMode,
+    "own_scoped_shell"
+  );
+  assert.ok(
+    reviewSliderRecipePlan.generationRecipe?.forbiddenWrapperCombinations?.some((entry) =>
+      entry.includes("section-properties background")
+    ),
+    "recipe should prevent known double-background wrapper combinations"
+  );
+  assert.ok(
+    reviewSliderRecipePlan.generationRecipe?.allowedAuxiliaryLoops?.sectionBlocks?.includes(
+      "Do not create a second section.blocks loop"
+    ),
+    "recipe should tell generators not to re-loop section.blocks for slider dots"
+  );
+  assert.ok(
+    reviewSliderRecipePlan.generationRecipe?.scaleProfile?.contentMaxWidthMax <= 1120,
+    "review slider recipes should default to theme-sized content widths"
+  );
+  assert.equal(
+    reviewSliderRecipePlan.generationRecipe?.desktopMobileLayoutRequirements?.requiresContentWidthWrapper,
+    true
+  );
+
   const socialStripPlan = await planThemeEdit(shopifyClient, "2026-01", {
     themeId: 123,
     intent: "new_section",

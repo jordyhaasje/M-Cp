@@ -810,6 +810,7 @@ const buildPlannerHandoff = ({
   archetype: result?.sectionBlueprint?.archetype || null,
   layoutContract: result?.sectionBlueprint?.layoutContract || null,
   themeWrapperStrategy: result?.sectionBlueprint?.themeWrapperStrategy || null,
+  generationRecipe: result?.sectionBlueprint?.generationRecipe || null,
   qualityTarget: result?.qualityTarget || result?.sectionBlueprint?.qualityTarget || null,
   generationMode:
     result?.generationMode || result?.sectionBlueprint?.generationMode || null,
@@ -992,6 +993,9 @@ const planThemeEditTool = {
       ...(writeArgsTemplate ? { writeArgsTemplate } : {}),
       ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
       plannerHandoff,
+      ...(result?.sectionBlueprint?.generationRecipe
+        ? { generationRecipe: result.sectionBlueprint.generationRecipe }
+        : {}),
       ...(result?.sectionBlueprint?.implementationContract
         ? { implementationContract: result.sectionBlueprint.implementationContract }
         : {}),
