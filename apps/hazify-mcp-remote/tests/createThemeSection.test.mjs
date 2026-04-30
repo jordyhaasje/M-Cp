@@ -194,17 +194,62 @@ test("createThemeSection - forwards static section blueprint and theme context f
     display: grid;
     gap: 24px;
   }
+  #shopify-section-{{ section.id }} .review-replica__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(260px, 86%);
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+  #shopify-section-{{ section.id }} .review-replica__card {
+    padding: 20px;
+    border-radius: 12px;
+    min-height: 160px;
+  }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .review-replica { gap: 16px; }
+  }
 </style>
-<section class="review-replica page-width">
+<review-replica class="review-replica page-width" data-section-slider>
   <div class="rte">{{ section.settings.heading }}</div>
-</section>
+  <button type="button" data-next aria-label="Next review">Next</button>
+  <div class="review-replica__track">
+    {% for block in section.blocks %}
+      <article class="review-replica__card" data-section-review-item {{ block.shopify_attributes }}>
+        <blockquote>{{ block.settings.quote }}</blockquote>
+        <p>{{ block.settings.author }}</p>
+      </article>
+    {% endfor %}
+  </div>
+  <script>
+    if (!customElements.get('review-replica')) {
+      customElements.define('review-replica', class extends HTMLElement {
+        connectedCallback() {
+          const track = this.querySelector('.review-replica__track');
+          this.querySelector('[data-next]')?.addEventListener('click', () => track?.scrollBy({ left: 280, behavior: 'smooth' }));
+        }
+      });
+    }
+  </script>
+</review-replica>
 {% schema %}
 {
   "name": "Review replica",
   "settings": [
     { "type": "text", "id": "heading", "label": "Heading", "default": "Great reviews" }
   ],
-  "presets": [{ "name": "Review replica" }]
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great service." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Customer" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Review replica", "blocks": [{ "type": "review" }] }]
 }
 {% endschema %}
 `,
@@ -296,6 +341,19 @@ test("createThemeSection - blocks generation recipe violations before draftTheme
     background: #f6f3ea;
     padding: 32px 0;
   }
+  #shopify-section-{{ section.id }} .review-slider-preflight__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(240px, 86%);
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+  #shopify-section-{{ section.id }} .review-slider-preflight__card {
+    padding: 20px;
+    border-radius: 12px;
+    min-height: 180px;
+  }
 
   @media screen and (max-width: 749px) {
     #shopify-section-{{ section.id }} .review-slider-preflight {
@@ -305,11 +363,22 @@ test("createThemeSection - blocks generation recipe violations before draftTheme
 </style>
 <section class="review-slider-preflight page-width">
   <div {% render 'section-properties', background: section.settings.background, text_color: section.settings.text_color %}>
-    {% for block in section.blocks %}
-      <article class="review-slider-preflight__card" {{ block.shopify_attributes }}>
-        <p>{{ block.settings.quote }}</p>
-      </article>
-    {% endfor %}
+    <button type="button" data-next aria-label="Next review">Next</button>
+    <div class="review-slider-preflight__track">
+      {% for block in section.blocks %}
+        <article class="review-slider-preflight__card" {{ block.shopify_attributes }}>
+          <p>{{ block.settings.quote }}</p>
+          <p>{{ block.settings.author }}</p>
+        </article>
+      {% endfor %}
+    </div>
+    <script>
+      const root = document.currentScript.closest('.review-slider-preflight');
+      root.querySelector('[data-next]')?.addEventListener('click', () => {
+        root.querySelector('.review-slider-preflight__track')?.scrollBy({ left: 280, behavior: 'smooth' });
+      });
+      document.addEventListener('shopify:section:load', () => {});
+    </script>
   </div>
 </section>
 {% schema %}
@@ -324,7 +393,8 @@ test("createThemeSection - blocks generation recipe violations before draftTheme
       "type": "review",
       "name": "Review",
       "settings": [
-        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great." }
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Customer" }
       ]
     }
   ],
@@ -343,6 +413,55 @@ test("createThemeSection - blocks generation recipe violations before draftTheme
   assert.ok(
     result.errors?.some((issue) => issue.issueCode === "section_recipe_wrapper_mode_mismatch")
   );
+});
+
+test("createThemeSection - blocks codegen preflight failures before draftThemeArtifact", serial, async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let draftCalled = false;
+  draftThemeArtifact.execute = async () => {
+    draftCalled = true;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/unscoped-codegen.liquid",
+      liquid: `
+<style>
+  .unscoped-codegen {
+    display: grid;
+    gap: 24px;
+  }
+</style>
+<section class="unscoped-codegen">
+  <h2>{{ section.settings.heading }}</h2>
+</section>
+{% schema %}
+{
+  "name": "Unscoped codegen",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+  ],
+  "presets": [{ "name": "Unscoped codegen" }]
+}
+{% endschema %}
+`,
+    },
+    { shopifyClient, tokenHash: "create-theme-codegen-preflight" }
+  );
+
+  assert.equal(draftCalled, false);
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "css_missing_section_scope");
+  assert.equal(result.nextTool, "create-theme-section");
+  assert.match(result.repairPrompt || "", /css_missing_section_scope/);
+  assert.equal(result.codegenContract?.validationProfile, "production_visual");
 });
 
 test("createThemeSection - reuses precision-first planner metadata for exact screenshot replicas", serial, async () => {
@@ -376,16 +495,66 @@ test("createThemeSection - reuses precision-first planner metadata for exact scr
       themeId: 123,
       key: "sections/trustpilot-slider.liquid",
       liquid: `
-<section class="trustpilot-slider page-width">
-  <div class="rte">{{ section.settings.heading }}</div>
-</section>
+<style>
+  #shopify-section-{{ section.id }} .trustpilot-slider { display: grid; gap: 24px; }
+  #shopify-section-{{ section.id }} .trustpilot-slider__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(260px, 86%);
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+  #shopify-section-{{ section.id }} .trustpilot-slider__card {
+    padding: 20px;
+    border-radius: 12px;
+    min-height: 160px;
+  }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .trustpilot-slider { gap: 16px; }
+  }
+</style>
+<trustpilot-slider class="trustpilot-slider page-width" data-section-slider>
+  <h2>{{ section.settings.heading }}</h2>
+  <button type="button" data-next aria-label="Next review">Next</button>
+  <div class="trustpilot-slider__track">
+    {% for block in section.blocks %}
+      <article class="trustpilot-slider__card" data-section-review-item {{ block.shopify_attributes }}>
+        <div aria-label="{{ block.settings.rating }} star rating">★★★★★</div>
+        <blockquote>{{ block.settings.quote }}</blockquote>
+        <p>{{ block.settings.author }}</p>
+      </article>
+    {% endfor %}
+  </div>
+  <script>
+    if (!customElements.get('trustpilot-slider')) {
+      customElements.define('trustpilot-slider', class extends HTMLElement {
+        connectedCallback() {
+          const track = this.querySelector('.trustpilot-slider__track');
+          this.querySelector('[data-next]')?.addEventListener('click', () => track?.scrollBy({ left: 280, behavior: 'smooth' }));
+        }
+      });
+    }
+  </script>
+</trustpilot-slider>
 {% schema %}
 {
   "name": "Trustpilot slider",
   "settings": [
     { "type": "text", "id": "heading", "label": "Heading", "default": "Loved by customers" }
   ],
-  "presets": [{ "name": "Trustpilot slider" }]
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great service." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Customer" },
+        { "type": "range", "id": "rating", "label": "Rating", "min": 1, "max": 5, "step": 1, "default": 5 }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Trustpilot slider", "blocks": [{ "type": "review" }] }]
 }
 {% endschema %}
 `,
@@ -480,10 +649,45 @@ test("createThemeSection - keeps exact-match planner context even when a compat 
     display: grid;
     gap: 24px;
   }
+  #shopify-section-{{ section.id }} .review-slider__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(260px, 86%);
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+  #shopify-section-{{ section.id }} .review-slider__card {
+    padding: 20px;
+    border-radius: 12px;
+    min-height: 160px;
+  }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .review-slider { gap: 16px; }
+  }
 </style>
-<section class="review-slider page-width">
+<review-slider class="review-slider page-width" data-section-slider>
   <h2>{{ section.settings.heading }} <em>{{ section.settings.heading_accent }}</em></h2>
-</section>
+  <button type="button" data-next aria-label="Next review">Next</button>
+  <div class="review-slider__track">
+    {% for block in section.blocks %}
+      <article class="review-slider__card" data-section-review-item {{ block.shopify_attributes }}>
+        <blockquote>{{ block.settings.quote }}</blockquote>
+        <p>{{ block.settings.author }}</p>
+      </article>
+    {% endfor %}
+  </div>
+  <script>
+    if (!customElements.get('review-slider')) {
+      customElements.define('review-slider', class extends HTMLElement {
+        connectedCallback() {
+          const track = this.querySelector('.review-slider__track');
+          this.querySelector('[data-next]')?.addEventListener('click', () => track?.scrollBy({ left: 280, behavior: 'smooth' }));
+        }
+      });
+    }
+  </script>
+</review-slider>
 {% schema %}
 {
   "name": "Review slider",
@@ -491,7 +695,17 @@ test("createThemeSection - keeps exact-match planner context even when a compat 
     { "type": "text", "id": "heading", "label": "Heading", "default": "Loved by" },
     { "type": "text", "id": "heading_accent", "label": "Accent", "default": "customers" }
   ],
-  "presets": [{ "name": "Review slider" }]
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great service." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Customer" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Review slider", "blocks": [{ "type": "review" }] }]
 }
 {% endschema %}
 `,
@@ -543,19 +757,65 @@ test("createThemeSection - preserves desktop/mobile exact-match review signals t
     display: grid;
     gap: 24px;
   }
+  #shopify-section-{{ section.id }} .review-slider__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(240px, 86%);
+    gap: 16px;
+    padding: 16px;
+    border-radius: 14px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .review-slider {
+      gap: 16px;
+    }
+  }
 </style>
-<section class="review-slider page-width">
+<review-slider class="review-slider page-width">
   <button type="button" aria-label="Previous review">Prev</button>
   <h2>{{ section.settings.heading }}</h2>
+  <div class="review-slider__track">
+    {% for block in section.blocks %}
+      <article class="review-slider__card" data-section-review-item {{ block.shopify_attributes }}>
+        <div aria-label="{{ block.settings.rating }} star rating">★★★★★</div>
+        <blockquote>{{ block.settings.quote }}</blockquote>
+        <p>{{ block.settings.author }}</p>
+      </article>
+    {% endfor %}
+  </div>
   <button type="button" aria-label="Next review">Next</button>
-</section>
+  <script>
+    if (!customElements.get('review-slider')) {
+      customElements.define('review-slider', class extends HTMLElement {
+        connectedCallback() {
+          const track = this.querySelector('.review-slider__track');
+          this.querySelector('[aria-label="Next review"]')?.addEventListener('click', () => track?.scrollBy({ left: 280, behavior: 'smooth' }));
+          this.querySelector('[aria-label="Previous review"]')?.addEventListener('click', () => track?.scrollBy({ left: -280, behavior: 'smooth' }));
+        }
+      });
+    }
+  </script>
+</review-slider>
 {% schema %}
 {
   "name": "Review slider desktop mobile",
   "settings": [
     { "type": "text", "id": "heading", "label": "Heading", "default": "Wat zeggen klanten?" }
   ],
-  "presets": [{ "name": "Review slider desktop mobile" }]
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great service." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Customer" },
+        { "type": "range", "id": "rating", "label": "Rating", "min": 1, "max": 5, "step": 1, "default": 5 }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Review slider desktop mobile", "blocks": [{ "type": "review" }] }]
 }
 {% endschema %}
 `,
@@ -737,7 +997,9 @@ test("createThemeSection - forwards media-oriented blueprint hints for hero/vide
   }
 </style>
 <section class="hero-video page-width">
-  {{ section.settings.background_video | video_tag: autoplay: true, muted: true, loop: true, playsinline: true }}
+  {% if section.settings.background_video != blank %}
+    {{ section.settings.background_video | video_tag: autoplay: true, muted: true, loop: true, playsinline: true }}
+  {% endif %}
 </section>
 {% schema %}
 {
@@ -815,6 +1077,16 @@ test("createThemeSection - forwards prompt-only review contracts for non-exact r
   #shopify-section-{{ section.id }} .review-cards {
     display: grid;
     gap: 24px;
+  }
+  #shopify-section-{{ section.id }} .review-cards__card {
+    padding: 20px;
+    border-radius: 12px;
+    min-height: 160px;
+  }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .review-cards {
+      gap: 16px;
+    }
   }
 </style>
 <section class="review-cards page-width">
@@ -1031,17 +1303,62 @@ test("createThemeSection - accepts required planner reads gathered via multiple 
     display: grid;
     gap: 24px;
   }
+  #shopify-section-{{ section.id }} .review-replica__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(260px, 86%);
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+  #shopify-section-{{ section.id }} .review-replica__card {
+    padding: 20px;
+    border-radius: 12px;
+    min-height: 160px;
+  }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .review-replica { gap: 16px; }
+  }
 </style>
-<section class="review-replica page-width">
+<review-replica class="review-replica page-width" data-section-slider>
   <div class="rte">{{ section.settings.heading }}</div>
-</section>
+  <button type="button" data-next aria-label="Next review">Next</button>
+  <div class="review-replica__track">
+    {% for block in section.blocks %}
+      <article class="review-replica__card" data-section-review-item {{ block.shopify_attributes }}>
+        <blockquote>{{ block.settings.quote }}</blockquote>
+        <p>{{ block.settings.author }}</p>
+      </article>
+    {% endfor %}
+  </div>
+  <script>
+    if (!customElements.get('review-replica')) {
+      customElements.define('review-replica', class extends HTMLElement {
+        connectedCallback() {
+          const track = this.querySelector('.review-replica__track');
+          this.querySelector('[data-next]')?.addEventListener('click', () => track?.scrollBy({ left: 280, behavior: 'smooth' }));
+        }
+      });
+    }
+  </script>
+</review-replica>
 {% schema %}
 {
   "name": "Review replica",
   "settings": [
     { "type": "text", "id": "heading", "label": "Heading", "default": "Great reviews" }
   ],
-  "presets": [{ "name": "Review replica" }]
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great service." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Customer" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Review replica", "blocks": [{ "type": "review" }] }]
 }
 {% endschema %}
 `,

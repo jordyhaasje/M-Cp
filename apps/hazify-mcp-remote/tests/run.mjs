@@ -19,6 +19,7 @@ await import("./toolHardening.test.mjs");
 await import("./toolRegistry.test.mjs");
 await import("./themeFilesBatch.test.mjs");
 await import("./themePlanning.test.mjs");
+await import("./themeCodegenContract.test.mjs");
 runNodeTestFile("./createThemeSection.test.mjs");
 runNodeTestFile("./crossThemeAcceptanceMatrix.test.mjs");
 await import("./remediation.test.mjs");

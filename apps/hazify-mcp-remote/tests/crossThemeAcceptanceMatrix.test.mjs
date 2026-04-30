@@ -269,6 +269,21 @@ function buildExactReplicaSectionLiquid({ label, strictRenderableMedia = false }
     text-decoration: none;
   }
 
+  #shopify-section-{{ section.id }} .reference-match__rows {
+    display: grid;
+    gap: 10px;
+    margin-top: 18px;
+  }
+
+  #shopify-section-{{ section.id }} .reference-match__row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.72);
+  }
+
   #shopify-section-{{ section.id }} .reference-match__media {
     min-height: 320px;
     border-radius: 24px;
@@ -300,7 +315,7 @@ function buildExactReplicaSectionLiquid({ label, strictRenderableMedia = false }
 </style>
 
 <section class="reference-match page-width container">
-  <div class="reference-match__shell">
+  <div class="reference-match__shell reference-match__panel">
     <div class="reference-match__copy">
       <p class="reference-match__badge">{{ section.settings.badge_label }}</p>
       <div class="reference-match__rating" aria-label="5 star rating">
@@ -309,6 +324,16 @@ function buildExactReplicaSectionLiquid({ label, strictRenderableMedia = false }
       </div>
       <h2>{{ section.settings.heading }}</h2>
       <div class="rte">{{ section.settings.body }}</div>
+      <article class="reference-match__card comparison-card">
+        <div class="reference-match__rows">
+          {% for block in section.blocks %}
+            <div class="reference-match__row" {{ block.shopify_attributes }}>
+              <span>{{ block.settings.label }}</span>
+              <strong>{{ block.settings.value }}</strong>
+            </div>
+          {% endfor %}
+        </div>
+      </article>
       {% if section.settings.cta_url != blank %}
         <a class="reference-match__cta" href="{{ section.settings.cta_url }}">{{ section.settings.cta_label }}</a>
       {% else %}
@@ -347,7 +372,17 @@ function buildExactReplicaSectionLiquid({ label, strictRenderableMedia = false }
     { "type": "range", "id": "padding_bottom", "label": "Padding bottom", "min": 0, "max": 80, "step": 4, "default": 24 },
     { "type": "color", "id": "surface_color", "label": "Surface color", "default": "#fffaf1" }
   ],
-  "presets": [{ "name": "${schemaName}" }]
+  "blocks": [
+    {
+      "type": "row",
+      "name": "Comparison row",
+      "settings": [
+        { "type": "text", "id": "label", "label": "Label", "default": "Responsive layout" },
+        { "type": "text", "id": "value", "label": "Value", "default": "Included" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "${schemaName}", "blocks": [{ "type": "row" }, { "type": "row" }] }]
 }
 {% endschema %}
 `;
@@ -671,7 +706,12 @@ test(
             requestContext
           );
 
-          assert.equal(screenshotCreate.success, true);
+          assert.equal(screenshotCreate.success, true, JSON.stringify({
+            status: screenshotCreate.status,
+            errorCode: screenshotCreate.errorCode,
+            errors: screenshotCreate.errors,
+            warnings: screenshotCreate.warnings,
+          }));
           assert.equal(screenshotCreate.status, "preview_ready");
           assert.equal(screenshotCreate.sectionBlueprint?.qualityTarget, "exact_match");
           assert.ok(themeFetch.hasFile(screenshotSectionKey));

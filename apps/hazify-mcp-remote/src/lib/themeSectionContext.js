@@ -495,6 +495,34 @@ const hasContentWidthWrapperClass = (tokens = []) =>
 const hasPreferredContentWidthWrapper = (preferredClasses = []) =>
   hasContentWidthWrapperClass(preferredClasses);
 
+const sourceHasCustomBoundedShell = (source) => {
+  const text = String(source || "");
+  if (/data-section-bounded-shell\b/i.test(text)) {
+    return true;
+  }
+
+  const hasScopedBoundedWidth =
+    /#shopify-section-\s*{{-?\s*section\.id\s*-?}}[\s\S]{0,1600}(?:max-width\s*:|width\s*:\s*(?:min|clamp)\s*\(|width\s*:\s*calc\(\s*100vw\s*-)/i.test(
+      text
+    );
+  const hasAutoMargin =
+    /#shopify-section-\s*{{-?\s*section\.id\s*-?}}[\s\S]{0,1600}(?:margin-inline\s*:\s*auto|margin-left\s*:\s*auto[\s\S]{0,220}margin-right\s*:\s*auto|margin-right\s*:\s*auto[\s\S]{0,220}margin-left\s*:\s*auto)/i.test(
+      text
+    );
+
+  if (hasScopedBoundedWidth && hasAutoMargin) {
+    return true;
+  }
+
+  return /<[^>]+(?:class|data-[^=]+)=["'][^"']*(?:bounded|shell|inner|content|wrapper)[^"']*["'][^>]*>[\s\S]{0,2500}(?:max-width\s*:|width\s*:\s*(?:min|clamp)\s*\(|width\s*:\s*calc\(\s*100vw\s*-|margin-inline\s*:\s*auto)/i.test(
+    text
+  );
+};
+
+const sourceHasBoundedContentShell = (source) =>
+  hasContentWidthWrapperClass(extractClassTokens(source)) ||
+  sourceHasCustomBoundedShell(source);
+
 const uniqueStrings = (values) =>
   Array.from(new Set((values || []).filter(Boolean)));
 
@@ -690,6 +718,35 @@ const inferSectionArchetype = ({
   const effectiveSignals = Array.isArray(categorySignals) && categorySignals.length > 0
     ? categorySignals
     : [category].filter(Boolean);
+  const heroLike = /\b(hero|banner|slideshow|masthead|cover)\b/.test(haystack);
+  const sliderLike =
+    /\b(slider|carousel|slideshow|slides?)\b/.test(haystack) ||
+    (/\b(next|previous|prev|dots)\b/.test(haystack) &&
+      /\b(slide|slides|card|cards|carousel|slider)\b/.test(haystack));
+  const logoMarqueeLike = /\b(marquee|ticker|logo[-_ ]?strip|logo[-_ ]?wall|brand[-_ ]?wall|logo showcase|publications?|press|featured in|as seen in)\b/.test(
+    haystack
+  );
+  const testimonialLike = /\b(testimonials?|customer quotes?|quote cards?|klant(?:en)?ervaring(?:en)?)\b/.test(
+    haystack
+  );
+  const repeatedReviewLike =
+    testimonialLike ||
+    /\b(review cards?|review grid|review wall|reviews? carousel|reviews? slider|customer reviews?|customer comments?|beoordeling(?:en)?(?:\s+(?:grid|carousel|slider|cards?|kaarten))?)\b/.test(
+      haystack
+    ) ||
+    (/\b(review|reviews|testimonials?|comments?|quotes?|beoordeling(?:en)?|ervaring(?:en)?)\b/.test(
+      haystack
+    ) &&
+      /\b(carousel|slider|slides?|grid|cards?|kaarten|wall|list|blocks?)\b/.test(
+        haystack
+      ));
+  const standaloneReviewBadgeLike =
+    /\b(?:review|testimonial|trustpilot|verified|rating|stars?)[-_ ]?(?:badge|seal|card)\b/.test(
+      haystack
+    ) ||
+    /\b(?:review|testimonial|trustpilot|verified|rating|stars?)\b.{0,50}\b(?:badge|seal|card)\b/.test(
+      haystack
+    );
 
   const inferHeroArchetype = () => {
     const heroLike =
@@ -741,12 +798,21 @@ const inferSectionArchetype = ({
     }
     return "social_strip";
   }
-  if (
-    /\b(hero|banner|slideshow|masthead|cover)\b/.test(haystack) &&
-    /(slider|carousel|slideshow)/.test(haystack) &&
-    !/\b(video|review|testimonial|trustpilot)\b/.test(haystack)
-  ) {
+  if (heroLike && /\bvideo\b/.test(haystack)) {
+    return sliderLike ? "video_slider" : "video_section";
+  }
+  if (heroLike && sliderLike && logoMarqueeLike) {
+    return "hero_slider_with_logo_marquee";
+  }
+  if (heroLike && sliderLike) {
     return "hero_slider";
+  }
+  if (heroLike && logoMarqueeLike) {
+    return "hero_with_logo_marquee";
+  }
+  const heroArchetype = inferHeroArchetype();
+  if (heroArchetype) {
+    return heroArchetype;
   }
   if (/(faq|frequently[-_ ]?asked[-_ ]?questions?|accordion|collapsible)/.test(haystack)) {
     return "faq_collapsible";
@@ -756,7 +822,8 @@ const inferSectionArchetype = ({
   }
   if (
     /comparison[-_ ]?table/.test(haystack) ||
-    (/(comparison|compare|\bvs\b)/.test(haystack) && /(table|grid|chart)/.test(haystack))
+    (/(comparison|compare|\bvs\b)/.test(haystack) &&
+      /(table|grid|chart|layout|rows?|cards?)/.test(haystack))
   ) {
     return "comparison_table";
   }
@@ -789,6 +856,9 @@ const inferSectionArchetype = ({
   ) {
     return "logo_wall";
   }
+  if (logoMarqueeLike) {
+    return "logo_marquee";
+  }
   if (/(image|gallery|photo)/.test(haystack) && /(slider|carousel|slideshow)/.test(haystack)) {
     return "image_slider";
   }
@@ -799,12 +869,15 @@ const inferSectionArchetype = ({
     return "video_section";
   }
   if (
-    /(review|testimonial|trustpilot)/.test(haystack) &&
+    repeatedReviewLike &&
     /(slider|carousel)/.test(haystack)
   ) {
     return "review_slider";
   }
-  if (/(review|testimonial|trustpilot|quote|klant(?:en)?|beoordeling(?:en)?|ervaring(?:en)?)/.test(haystack)) {
+  if (!heroLike && standaloneReviewBadgeLike) {
+    return "review_section";
+  }
+  if (repeatedReviewLike) {
     return "review_section";
   }
   if (/(collection)/.test(haystack) && /(slider|carousel)/.test(haystack)) {
@@ -815,10 +888,6 @@ const inferSectionArchetype = ({
   }
   if (/(gallery|masonry)/.test(haystack)) {
     return "media_gallery";
-  }
-  const heroArchetype = inferHeroArchetype();
-  if (heroArchetype) {
-    return heroArchetype;
   }
   if (effectiveSignals.includes("interactive") && effectiveSignals.includes("media")) {
     return "media_carousel";
@@ -855,7 +924,7 @@ const inferHeroShellFamily = ({
     return "split";
   }
 
-  if (archetype !== "hero_banner") {
+  if (!["hero_banner", "hero_with_logo_marquee", "hero_slider_with_logo_marquee", "hero_slider"].includes(archetype)) {
     return "generic";
   }
 
@@ -1435,7 +1504,9 @@ const resolveSectionContractType = (archetype = "content_section") => {
     case "hero_split_layout":
     case "hero_boxed_shell":
     case "hero_banner":
+    case "hero_with_logo_marquee":
       return "hero_banner";
+    case "hero_slider_with_logo_marquee":
     case "hero_slider":
       return "hero_slider";
     case "review_slider":
@@ -1458,6 +1529,7 @@ const resolveSectionContractType = (archetype = "content_section") => {
       return "comparison_table";
     case "logo_wall":
     case "logo_slider":
+    case "logo_marquee":
       return "logo_slider";
     default:
       return "content_section";
@@ -1565,7 +1637,16 @@ const buildSectionGenerationRecipe = ({
       "comparison_table",
       "logo_slider",
     ].includes(sectionContractType) ||
-    ["collection_slider", "image_slider", "video_slider", "social_slider", "media_carousel"].includes(archetype);
+    [
+      "collection_slider",
+      "image_slider",
+      "video_slider",
+      "social_slider",
+      "media_carousel",
+      "logo_marquee",
+      "hero_with_logo_marquee",
+      "hero_slider_with_logo_marquee",
+    ].includes(archetype);
   const mediaFirstOrFullBleed =
     layoutContract?.avoidOuterContainer === true ||
     layoutContract?.outerShell === "full_bleed" ||
@@ -1852,13 +1933,15 @@ const buildPromptOnlyContract = ({
     archetype === "video_section" || archetype === "video_slider";
   const carouselLike =
     archetype === "hero_slider" ||
+    archetype === "hero_slider_with_logo_marquee" ||
     archetype === "review_slider" ||
     archetype === "video_slider" ||
     archetype === "image_slider" ||
     archetype === "social_slider" ||
     archetype === "collection_slider" ||
-    archetype === "logo_slider" ||
     archetype === "media_carousel";
+  const marqueeLike =
+    archetype === "logo_marquee" || archetype === "hero_with_logo_marquee";
   const accordionLike = archetype === "faq_collapsible";
   const rangeCompareLike = archetype === "before_after";
   const tabsLike = /\btabs?\b/.test(haystack);
@@ -1866,15 +1949,17 @@ const buildPromptOnlyContract = ({
     archetype === "interactive_section" && !accordionLike && !tabsLike;
   const interactionPattern = carouselLike
     ? "carousel"
-    : accordionLike
-      ? "accordion"
-      : rangeCompareLike
-        ? "range_compare"
-        : tabsLike
-          ? "tabs"
-          : genericInteractiveLike
-            ? "generic_interactive"
-            : null;
+    : marqueeLike
+      ? "marquee"
+      : accordionLike
+        ? "accordion"
+        : rangeCompareLike
+          ? "range_compare"
+          : tabsLike
+            ? "tabs"
+            : genericInteractiveLike
+              ? "generic_interactive"
+              : null;
   const interactiveLike = Boolean(interactionPattern);
   const commerceLike =
     archetype === "pdp_section" ||
@@ -1904,6 +1989,7 @@ const buildPromptOnlyContract = ({
     requiredMarkupSignals: uniqueStrings([
       ...(reviewLike ? ["review_card_or_quote_markup", "rating_or_quote_signal"] : []),
       ...(interactiveLike ? ["functional_interactive_behavior"] : []),
+      ...(marqueeLike ? ["merchant_editable_logo_items"] : []),
       ...(videoLike ? ["video_or_external_embed_render_path"] : []),
       ...(commerceLike
         ? ["product_context_or_product_setting", "commerce_action_or_product_helper"]
@@ -1915,6 +2001,7 @@ const buildPromptOnlyContract = ({
       ...(videoLike ? ["video_or_video_url_setting"] : []),
       ...(commerceLike ? ["product_setting_or_product_context"] : []),
       ...(collectionLike ? ["collection_setting_or_collection_context"] : []),
+      ...(marqueeLike ? ["logo_blocks"] : []),
     ]),
     hints: uniqueStrings([
       ...(reviewLike
@@ -1932,6 +2019,8 @@ const buildPromptOnlyContract = ({
         ? [
             interactionPattern === "carousel"
               ? "Gebruik voor interactieve carousels of sliders echte werking: scroll-snap of component-scoped JS die controls aan werkend gedrag koppelt."
+              : interactionPattern === "marquee"
+                ? "Gebruik voor logo/publication marquees merchant-editable logo blocks en marqueegedrag zonder slider-controls te veinzen."
               : interactionPattern === "accordion"
                 ? "Gebruik voor collapsible content native <details>/<summary> of een editor-safe accordion met correcte open/closed state per item."
                 : interactionPattern === "range_compare"
@@ -3222,7 +3311,7 @@ const inspectSectionGenerationRecipePreflight = (
   const wrapperMode = String(recipe.wrapperMode || "").trim();
   const usesSectionPropertiesBackground = sourceUsesSectionPropertiesBackground(source);
   const hasOwnBackgroundShell = sourceHasOwnRootBackgroundShell(source);
-  const hasContentWidthWrapper = hasContentWidthWrapperClass(extractClassTokens(source));
+  const hasContentWidthWrapper = sourceHasBoundedContentShell(source);
 
   if (wrapperMode === "own_scoped_shell" && usesSectionPropertiesBackground) {
     issues.push(
@@ -3296,17 +3385,17 @@ const inspectSectionGenerationRecipePreflight = (
       createRecipeIssue({
         fileKey,
         problem:
-          "The target theme uses a content-width wrapper, but the generated section misses page-width/container structure required by the recipe.",
+          "The target theme uses a content-width wrapper, but the generated section misses a bounded content shell required by the recipe.",
         fixSuggestion:
-          "Add the theme's page-width/container equivalent to the bounded content layer so the section matches theme scale.",
+          "Add a theme wrapper or a custom section-scoped bounded shell, for example max-width/width:min or clamp plus margin-inline:auto and data-section-bounded-shell.",
         issueCode: "section_recipe_missing_theme_container",
         suggestedReplacement: {
-          requiredWrapper: "page-width/container equivalent",
+          requiredWrapper: "theme wrapper or custom data-section-bounded-shell with max-width and auto margins",
         },
       })
     );
     suggestedFixes.push(
-      "Add a page-width/container equivalent on the bounded content layer."
+      "Add a bounded content layer with max-width/width:min or clamp, fixed gutters, and margin-inline:auto."
     );
   }
 

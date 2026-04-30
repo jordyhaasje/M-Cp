@@ -5,6 +5,11 @@ import * as path from "path";
 import { createThemeDraftRecord, updateThemeDraftRecord } from "../lib/db.js";
 import { parseJsonLike } from "../lib/jsonLike.js";
 import {
+  buildCodegenContract,
+  buildSectionRepairPrompt,
+  preflightSectionLiquid,
+} from "../lib/themeCodegenContract.js";
+import {
   analyzeSectionScale,
   classifySectionGeneration,
   inspectSectionGenerationRecipePreflight,
@@ -6668,6 +6673,8 @@ function buildFailureResponse({
   changeScope,
   preferredWriteMode,
   diagnosticTargets = [],
+  repairPrompt,
+  codegenContract,
 }) {
   const effectivePreferredWriteMode =
     preferredWriteMode ||
@@ -6708,7 +6715,14 @@ function buildFailureResponse({
     message,
     ...(errors ? { errors } : {}),
     ...(lintIssues ? { lintIssues } : {}),
+    ...(repairPrompt || (writeBlockedBeforeApply && errors)
+      ? {
+          repairPrompt:
+            repairPrompt || buildSectionRepairPrompt(errors || []),
+        }
+      : {}),
     warnings,
+    ...(codegenContract ? { codegenContract } : {}),
     ...(draft ? { draft } : {}),
     errorCode,
     retryable,
@@ -6762,6 +6776,7 @@ function buildAggregatedInspectionFailure({
   themeContext = null,
   sectionBlueprint = null,
   plannerHandoff = null,
+  codegenContract = null,
 }) {
   const normalizedIssues = (issues || []).filter(Boolean);
   const primaryIssue = normalizedIssues[0];
@@ -6795,6 +6810,7 @@ function buildAggregatedInspectionFailure({
     themeContext,
     sectionBlueprint,
     plannerHandoff,
+    codegenContract,
     suggestedSchemaRewrites,
     preferSelectFor,
   });
@@ -8233,6 +8249,7 @@ export const draftThemeArtifact = {
             value: newValue, 
             checksum: file.baseChecksumMd5 || null,
             originalValue,
+            writeKind: file.patches.length > 0 ? "patch" : "value",
           });
         }
       } catch (err) {
@@ -8253,6 +8270,7 @@ export const draftThemeArtifact = {
         value: f.value || "",
         checksum: f.baseChecksumMd5,
         originalValue: null,
+        writeKind: "value",
       }));
     }
 
@@ -8365,6 +8383,20 @@ export const draftThemeArtifact = {
       preferSelectFor: [],
       shouldNarrowScope: false,
     };
+    const codegenRequestText = uniqueStrings([
+      effectivePlannerHandoff?.brief,
+      effectivePlannerHandoff?.plannerQuery,
+      extractThemeToolSummary(rawArgs),
+    ]).join("\n");
+    const themeTargetForCodegen = {
+      ...(themeId !== undefined ? { themeId } : {}),
+      ...(themeRole ? { themeRole } : {}),
+    };
+    let primaryCodegenContract =
+      effectivePlannerHandoff?.codegenContract &&
+      typeof effectivePlannerHandoff.codegenContract === "object"
+        ? effectivePlannerHandoff.codegenContract
+        : null;
 
     for (const file of files) {
       const isTemplateConfig = /^(templates|config)\//.test(file.key);
@@ -8557,6 +8589,70 @@ export const draftThemeArtifact = {
         });
       }
 
+      if (
+        isSectionFile &&
+        typeof file.value === "string" &&
+        (mode === "create" || file.writeKind !== "patch")
+      ) {
+        const sectionIntent =
+          effectivePlanIntent || (mode === "create" ? "new_section" : "existing_edit");
+        const hasCodegenPlanningContext = Boolean(
+          primaryCodegenContract ||
+            effectivePlannerHandoff ||
+            effectiveSectionBlueprint ||
+            effectivePlanIntent
+        );
+        const sectionCodegenContract = buildCodegenContract({
+          intent: sectionIntent,
+          mode,
+          targetFile: file.key,
+          themeTarget: themeTargetForCodegen,
+          sectionBlueprint: effectiveSectionBlueprint,
+          themeContext: effectiveThemeSectionContext,
+          changeScope: effectivePlannerHandoff?.changeScope,
+          preferredWriteMode: effectivePlannerHandoff?.preferredWriteMode,
+          requestText: codegenRequestText,
+          validationProfile:
+            primaryCodegenContract?.validationProfile ||
+            (!hasCodegenPlanningContext && mode === "create"
+              ? "theme_safe"
+              : null),
+          value: file.value,
+        });
+        const codegenPreflight = preflightSectionLiquid(file.value, {
+          fileKey: file.key,
+          mode,
+          intent: sectionIntent,
+          requestText: codegenRequestText,
+          themeTarget: themeTargetForCodegen,
+          themeContext: effectiveThemeSectionContext,
+          sectionBlueprint: effectiveSectionBlueprint,
+          codegenContract: sectionCodegenContract,
+          changeScope: effectivePlannerHandoff?.changeScope,
+          preferredWriteMode: effectivePlannerHandoff?.preferredWriteMode,
+        });
+        if ((codegenPreflight.issues || []).length > 0 || !primaryCodegenContract) {
+          primaryCodegenContract = codegenPreflight.codegenContract || sectionCodegenContract;
+        }
+        mergeInspectionIntoAccumulator(
+          localInspection,
+          buildInspectionResult({
+            issues:
+              (inspection?.issues || []).length > 0
+                ? []
+                : codegenPreflight.issues,
+            warnings: (codegenPreflight.warnings || []).map(
+              (warning) =>
+                warning?.message ||
+                warning?.problem ||
+                warning?.code ||
+                String(warning)
+            ),
+            suggestedFixes: codegenPreflight.suggestedFixes,
+          })
+        );
+      }
+
       if (inspection) {
         mergeInspectionIntoAccumulator(localInspection, inspection);
       }
@@ -8599,6 +8695,7 @@ export const draftThemeArtifact = {
         themeContext: effectiveThemeSectionContext,
         sectionBlueprint: effectiveSectionBlueprint,
         plannerHandoff: effectivePlannerHandoff,
+        codegenContract: primaryCodegenContract,
         shouldNarrowScope:
           localInspection.shouldNarrowScope ||
           Boolean(classifiedLint?.shouldNarrowScope),
@@ -8655,6 +8752,7 @@ export const draftThemeArtifact = {
         themeContext: effectiveThemeSectionContext,
         sectionBlueprint: effectiveSectionBlueprint,
         plannerHandoff: effectivePlannerHandoff,
+        codegenContract: primaryCodegenContract,
       });
     }
 
@@ -8785,6 +8883,7 @@ export const draftThemeArtifact = {
           ? { sectionBlueprint: effectiveSectionBlueprint }
           : {}),
         ...(effectivePlannerHandoff ? { plannerHandoff: effectivePlannerHandoff } : {}),
+        ...(primaryCodegenContract ? { codegenContract: primaryCodegenContract } : {}),
         suggestedFixes: uniqueStrings(suggestedFixes),
       };
     } catch (error) {

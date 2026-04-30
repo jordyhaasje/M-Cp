@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { planThemeEdit } from "../lib/themePlanning.js";
+import { buildCodegenContract } from "../lib/themeCodegenContract.js";
 import {
   extractThemeToolSummary,
   inferIntentFromSummary,
@@ -794,6 +795,7 @@ const buildPlannerHandoff = ({
   result = {},
   immediateStep = {},
   writeTool = null,
+  codegenContract = null,
 } = {}) => ({
   brief: String(brief || "").trim() || null,
   plannerQuery: String(input?.query || "").trim() || null,
@@ -831,6 +833,7 @@ const buildPlannerHandoff = ({
   referenceSignals: result?.sectionBlueprint?.referenceSignals || null,
   implementationContract:
     result?.sectionBlueprint?.implementationContract || null,
+  codegenContract,
   themeContext: result?.themeContext || null,
   sectionBlueprint: result?.sectionBlueprint || null,
   architecture:
@@ -954,12 +957,31 @@ const planThemeEditTool = {
     const writeTool = typeof result?.shouldUse === "string" ? result.shouldUse : undefined;
     const writeArgsTemplate = buildPlanWriteArgsTemplate(input, result);
     const immediateStep = buildPlanImmediateNextStep(input, result);
+    const codegenContract = buildCodegenContract({
+      intent: input.intent,
+      mode: writeArgsTemplate?.mode || (writeTool === "create-theme-section" ? "create" : null),
+      targetFile:
+        input.targetFile ||
+        result?.nextWriteKeys?.[0] ||
+        result?.newFileSuggestions?.[0] ||
+        null,
+      themeTarget: {
+        themeId:
+          input.themeId === undefined || input.themeId === null
+            ? null
+            : Number(input.themeId),
+        themeRole: String(input.themeRole || "").trim() || null,
+      },
+      plannerResult: result,
+      requestText: extractPlannerBrief(rawInput, input),
+    });
     const plannerHandoff = buildPlannerHandoff({
       brief: extractPlannerBrief(rawInput, input),
       input,
       result,
       immediateStep,
       writeTool,
+      codegenContract,
     });
     const requiredToolNames = uniqueStrings([
       immediateStep.nextTool,
@@ -993,6 +1015,7 @@ const planThemeEditTool = {
       ...(writeArgsTemplate ? { writeArgsTemplate } : {}),
       ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
       plannerHandoff,
+      codegenContract,
       ...(result?.sectionBlueprint?.generationRecipe
         ? { generationRecipe: result.sectionBlueprint.generationRecipe }
         : {}),

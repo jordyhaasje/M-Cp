@@ -4,6 +4,10 @@ import { draftThemeArtifact } from "./draftThemeArtifact.js";
 import { planThemeEdit } from "../lib/themePlanning.js";
 import { getThemeFiles } from "../lib/themeFiles.js";
 import {
+  buildCodegenContract,
+  preflightSectionLiquid,
+} from "../lib/themeCodegenContract.js";
+import {
   inferTemplateSurfaceFromSectionLiquid,
   inspectSectionGenerationRecipePreflight,
 } from "../lib/themeSectionContext.js";
@@ -282,6 +286,9 @@ const buildCreateSectionRepairResponse = ({
   plannerHandoff,
   requiredToolNames,
   repairSequence,
+  repairPrompt,
+  codegenContract,
+  preflight,
 }) => ({
   success: false,
   status,
@@ -294,6 +301,9 @@ const buildCreateSectionRepairResponse = ({
   normalizedArgs,
   warnings,
   errors,
+  ...(repairPrompt ? { repairPrompt } : {}),
+  ...(codegenContract ? { codegenContract } : {}),
+  ...(preflight ? { preflight } : {}),
   ...(themeContext ? { themeContext } : {}),
   ...(sectionBlueprint ? { sectionBlueprint } : {}),
   ...(sectionBlueprint?.completionPolicy
@@ -1012,6 +1022,87 @@ const createThemeSectionTool = {
       );
     }
 
+    const createCodegenContract =
+      plannerHandoff?.codegenContract && typeof plannerHandoff.codegenContract === "object"
+        ? plannerHandoff.codegenContract
+        : buildCodegenContract({
+            intent: "new_section",
+            mode: "create",
+            targetFile: input.key,
+            themeTarget: {
+              themeId:
+                input.themeId === undefined || input.themeId === null
+                  ? null
+                  : Number(input.themeId),
+              themeRole: String(input.themeRole || "").trim() || null,
+            },
+            sectionBlueprint,
+            themeContext: themeSectionContext,
+            requestText: planningQuery,
+            value: input.liquid,
+          });
+
+    const codegenPreflight = preflightSectionLiquid(input.liquid, {
+      fileKey: input.key,
+      mode: "create",
+      intent: "new_section",
+      requestText: planningQuery,
+      themeTarget: {
+        themeId:
+          input.themeId === undefined || input.themeId === null
+            ? null
+            : Number(input.themeId),
+        themeRole: String(input.themeRole || "").trim() || null,
+      },
+      themeContext: themeSectionContext,
+      sectionBlueprint,
+      codegenContract: createCodegenContract,
+    });
+
+    if (!codegenPreflight.ok) {
+      return buildCreateSectionRepairResponse({
+        status: "inspection_failed",
+        message:
+          `Codegen preflight failed before write: ${codegenPreflight.issues[0]?.message || "fix section contract issues before retrying"}`,
+        errorCode:
+          codegenPreflight.issues[0]?.code ||
+          codegenPreflight.issues[0]?.issueCode ||
+          "preflight_failed",
+        nextAction: "fix_codegen_preflight",
+        retryMode: "same_request_after_fix",
+        nextTool: "create-theme-section",
+        normalizedArgs,
+        nextArgsTemplate: {
+          ...nextArgsTemplate,
+          liquid:
+            "<complete corrected Shopify Liquid section; preserve the design/data model and fix only the reported codegen preflight issues>",
+        },
+        warnings: uniqueStrings([
+          ...internalWarnings,
+          ...(codegenPreflight.warnings || []).map(
+            (warning) => warning.message || warning.problem || String(warning)
+          ),
+        ]),
+        errors: codegenPreflight.issues,
+        repairPrompt: codegenPreflight.repairPrompt,
+        codegenContract: codegenPreflight.codegenContract,
+        preflight: {
+          validationProfile: codegenPreflight.validationProfile,
+          sectionKind: codegenPreflight.sectionKind,
+        },
+        themeContext: themeSectionContext,
+        sectionBlueprint,
+        plannerHandoff,
+      });
+    }
+    if ((codegenPreflight.warnings || []).length > 0) {
+      internalWarnings.push(
+        ...(codegenPreflight.warnings || []).map(
+          (warning) => warning.message || warning.problem || String(warning)
+        )
+      );
+    }
+
     const recipePreflight = inspectSectionGenerationRecipePreflight(input.liquid, input.key, {
       sectionBlueprint,
       themeContext: themeSectionContext,
@@ -1056,6 +1147,7 @@ const createThemeSectionTool = {
         themeContext: themeSectionContext,
         sectionBlueprint,
         plannerHandoff,
+        codegenContract: createCodegenContract,
       });
     }
 
@@ -1077,6 +1169,7 @@ const createThemeSectionTool = {
         themeSectionContext,
         sectionBlueprint,
         plannerHandoff,
+        codegenContract: createCodegenContract,
         themeContextWarnings: internalWarnings,
       }
     );
@@ -1101,6 +1194,9 @@ const createThemeSectionTool = {
           ? { sectionBlueprint }
           : {}),
         ...(plannerHandoff ? { plannerHandoff } : {}),
+        ...(createCodegenContract && !result.codegenContract
+          ? { codegenContract: createCodegenContract }
+          : {}),
         nextTool: "create-theme-section",
         nextArgsTemplate,
       };
@@ -1132,6 +1228,9 @@ const createThemeSectionTool = {
           ? { sectionBlueprint }
           : {}),
         ...(plannerHandoff ? { plannerHandoff } : {}),
+        ...(createCodegenContract && !result.codegenContract
+          ? { codegenContract: createCodegenContract }
+          : {}),
         ...buildRefinementRouteMetadata({
           input,
           planningQuery,
@@ -1164,6 +1263,9 @@ const createThemeSectionTool = {
           ? { sectionBlueprint }
           : {}),
         ...(plannerHandoff ? { plannerHandoff } : {}),
+        ...(createCodegenContract && !result.codegenContract
+          ? { codegenContract: createCodegenContract }
+          : {}),
         ...buildRefinementRouteMetadata({
           input,
           planningQuery,

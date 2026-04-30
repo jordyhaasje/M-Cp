@@ -96,6 +96,42 @@ Voorbeeldprompt:
 Maak een comparison table section voor product voordelen met 3 kolommen en CTA.
 ```
 
+### Codegen Contract en preflight-profielen
+`plan-theme-edit` geeft naast `sectionBlueprint` nu ook een compacte `codegenContract` terug. Clients mogen `codegenContract.promptBlock` rechtstreeks meegeven aan hun codegeneratiemodel vóór `create-theme-section` of een brede section rewrite. Dit block bevat alleen harde generatie-eisen: schema, Liquid, scoped CSS/JS, responsief gedrag, generieke section-architectuur en waar beschikbaar een theme-afgeleide `scaleProfile`.
+
+Validatieprofielen zijn bewust profiel-gebaseerd:
+- `syntax_only`: basis schema/Liquid safety voor micro-patches en kleine patchroutes.
+- `theme_safe`: schema, Liquid en basis scoped CSS/JS checks voor normale existing edits.
+- `production_visual`: nieuwe sections en brede visual sections; voegt responsive/card/carousel heuristieken toe.
+- `exact_replica`: `production_visual` plus strengere replica-signalen voor screenshot/exact/pixel-match prompts.
+
+De planner leidt daarnaast een generieke `sectionKind` af, zoals `hero_with_logo_marquee`, `hero_slider`, `logo_marquee`, `testimonial_slider`, `review_grid`, `review_carousel`, `comparison`, `faq`, `tabs`, `media_section`, `product_related` of `unknown`. Die inference mag nooit theme-specifiek zijn: geen hardcoded Impact-classes, snippetnamen, wrappergedrag of schaalwaarden. Theme-context mag alleen via profieldata, `sectionBlueprint`, `generationRecipe` en `scaleProfile` meespelen.
+
+De contractlaag maakt ook de data-architectuur expliciet vóór generatie:
+- `interactionKind`: `none`, `static`, `slider`, `carousel`, `marquee`, `slider_and_marquee`, `tabs` of `accordion`
+- `blockModel`: `none`, `slides`, `logos`, `repeated_cards`, `repeated_reviews`, `mixed_blocks`, `rows`, `faq_items` of `tabs`
+- `mediaModel`: `none`, `section_level_media`, `block_level_media`, `block_level_avatar`, `block_level_logo` of `both`
+- `navigationModel`: `none`, `link_button`, `decorative_arrow`, `slider_controls`, `dots`, `arrows` of `arrows_and_dots`
+- `contentModel`: `section_settings`, `block_settings` of `mixed`
+
+Gebruik die velden als bron van waarheid. Een ratingbadge in een hero is geen review-grid; een logo/publication marquee is geen testimonial list; een decoratieve pijl of CTA-link is geen slider-control. Als `navigationModel=slider_controls`, moeten knoppen echte slide/card-navigatie uitvoeren en bij scripted gedrag Theme Editor-safe herinitialiseren. Als `interactionKind=marquee`, zijn slider-controls niet verplicht. Bij `mixed_blocks` valideert de preflight blockrollen apart, bijvoorbeeld `slide`-blocks op media/heading/copy/CTA en `logo`-blocks op logo-content zonder author/rating-eisen.
+
+`promptBlock` noemt waar relevant semantische markers die generatoren mogen toevoegen zodat validators niet op theme-classes hoeven te gokken:
+- `data-section-bounded-shell`
+- `data-section-rating-badge`
+- `data-section-marquee`
+- `data-section-slider`
+- `data-section-slide`
+- `data-section-logo-item`
+- `data-section-review-item`
+
+Bounded content shells mogen theme wrappers zoals `page-width` of `container` gebruiken, maar dat is geen harde eis. Een custom section-scoped shell is ook geldig wanneer die semantisch of via CSS aantoonbaar bounded is, bijvoorbeeld `data-section-bounded-shell`, `max-width`, `width: min(...)`, `width: clamp(...)`, `calc(100vw - gutters)` en `margin-inline: auto`. Full-width hero/media shells mogen dus een full-width achtergrondlaag combineren met een inner bounded content shell.
+
+Waarom profiel-gebaseerd:
+- `production_visual` mag nieuwe sections blokkeren op echte productiekwaliteitsproblemen, zoals onstabiele mobile carousel widths, fake controls, ongescope CSS of interactieve JS zonder Theme Editor lifecycle.
+- Diezelfde visuele heuristieken mogen micro-patches, legacy patch edits en kleine `existing_edit` flows niet breken.
+- `draft-theme-artifact` gebruikt de codegen-preflight als backstop voor planner/codegen-gestuurde section rewrites. Directe advanced draft-create calls zonder plannercontext blijven op `theme_safe`, tenzij de planner/codegen-handoff expliciet een strenger profiel meegeeft.
+
 ### Bestaande section edit
 Gebruik wanneer het doelbestand al bestaat of wanneer de gebruiker expliciet bestaande markup wil aanpassen.
 

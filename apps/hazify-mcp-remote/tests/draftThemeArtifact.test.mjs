@@ -1012,6 +1012,19 @@ test("draftThemeArtifact - rejects placeholder media when exact-match replica re
     display: grid;
     gap: 24px;
   }
+  #shopify-section-{{ section.id }} .collections-slider__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(260px, 86%);
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+  #shopify-section-{{ section.id }} .collections-slider__slide {
+    padding: 20px;
+    border-radius: 14px;
+    min-height: 180px;
+  }
 
   @media screen and (max-width: 749px) {
     #shopify-section-{{ section.id }} .collections-slider {
@@ -1019,20 +1032,49 @@ test("draftThemeArtifact - rejects placeholder media when exact-match replica re
     }
   }
 </style>
-<section class="collections-slider page-width">
-  <div class="collections-slider__card">
-    {{ 'collection-1' | placeholder_svg_tag }}
+<collections-slider class="collections-slider page-width" data-section-slider>
+  <button type="button" data-next aria-label="Next collection">Next</button>
+  <div class="collections-slider__track">
+    {% for block in section.blocks %}
+      <article class="collections-slider__slide" data-section-slide {{ block.shopify_attributes }}>
+        {% if block.settings.image != blank %}
+          {{ block.settings.image | image_url: width: 1200 | image_tag }}
+        {% else %}
+          {{ 'collection-1' | placeholder_svg_tag }}
+        {% endif %}
+        <h3>{{ block.settings.heading }}</h3>
+      </article>
+    {% endfor %}
   </div>
-</section>
+  <script>
+    if (!customElements.get('collections-slider')) {
+      customElements.define('collections-slider', class extends HTMLElement {
+        connectedCallback() {
+          const track = this.querySelector('.collections-slider__track');
+          this.querySelector('[data-next]')?.addEventListener('click', () => track?.scrollBy({ left: 280, behavior: 'smooth' }));
+        }
+      });
+    }
+  </script>
+</collections-slider>
 {% schema %}
 {
   "name": "Collections slider",
   "settings": [
-    { "type": "image_picker", "id": "image", "label": "Image" },
     { "type": "text", "id": "heading", "label": "Heading", "default": "Ontdek onze" },
     { "type": "text", "id": "heading_accent", "label": "Accent", "default": "collecties" }
   ],
-  "presets": [{ "name": "Collections slider" }]
+  "blocks": [
+    {
+      "type": "slide",
+      "name": "Slide",
+      "settings": [
+        { "type": "image_picker", "id": "image", "label": "Image" },
+        { "type": "text", "id": "heading", "label": "Heading", "default": "Collection" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Collections slider", "blocks": [{ "type": "slide" }] }]
 }
 {% endschema %}
 `,
@@ -1099,6 +1141,19 @@ test("draftThemeArtifact - allows screenshot-only exact-match placeholders with 
     display: grid;
     gap: 24px;
   }
+  #shopify-section-{{ section.id }} .collections-slider__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(260px, 86%);
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+  #shopify-section-{{ section.id }} .collections-slider__slide {
+    padding: 20px;
+    border-radius: 14px;
+    min-height: 180px;
+  }
 
   @media screen and (max-width: 749px) {
     #shopify-section-{{ section.id }} .collections-slider {
@@ -1106,20 +1161,49 @@ test("draftThemeArtifact - allows screenshot-only exact-match placeholders with 
     }
   }
 </style>
-<section class="collections-slider page-width">
-  <div class="collections-slider__card">
-    {{ 'collection-1' | placeholder_svg_tag }}
+<collections-slider class="collections-slider page-width" data-section-slider>
+  <button type="button" data-next aria-label="Next collection">Next</button>
+  <div class="collections-slider__track">
+    {% for block in section.blocks %}
+      <article class="collections-slider__slide" data-section-slide {{ block.shopify_attributes }}>
+        {% if block.settings.image != blank %}
+          {{ block.settings.image | image_url: width: 1200 | image_tag }}
+        {% else %}
+          {{ 'collection-1' | placeholder_svg_tag }}
+        {% endif %}
+        <h3>{{ block.settings.heading }}</h3>
+      </article>
+    {% endfor %}
   </div>
-</section>
+  <script>
+    if (!customElements.get('collections-slider')) {
+      customElements.define('collections-slider', class extends HTMLElement {
+        connectedCallback() {
+          const track = this.querySelector('.collections-slider__track');
+          this.querySelector('[data-next]')?.addEventListener('click', () => track?.scrollBy({ left: 280, behavior: 'smooth' }));
+        }
+      });
+    }
+  </script>
+</collections-slider>
 {% schema %}
 {
   "name": "Collections slider",
   "settings": [
-    { "type": "image_picker", "id": "image", "label": "Image" },
     { "type": "text", "id": "heading", "label": "Heading", "default": "Ontdek onze" },
     { "type": "text", "id": "heading_accent", "label": "Accent", "default": "collecties" }
   ],
-  "presets": [{ "name": "Collections slider" }]
+  "blocks": [
+    {
+      "type": "slide",
+      "name": "Slide",
+      "settings": [
+        { "type": "image_picker", "id": "image", "label": "Image" },
+        { "type": "text", "id": "heading", "label": "Heading", "default": "Collection" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Collections slider", "blocks": [{ "type": "slide" }] }]
 }
 {% endschema %}
 `,
@@ -6723,7 +6807,69 @@ test("draftThemeArtifact - auto-hydrates planner reads before a create write con
         files: [
           {
             key: "sections/review-slider.liquid",
-            value: goodSectionLiquid,
+            value: `
+<style>
+  #shopify-section-{{ section.id }} .review-slider {
+    display: grid;
+    gap: 24px;
+  }
+  #shopify-section-{{ section.id }} .review-slider__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(260px, 86%);
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+  #shopify-section-{{ section.id }} .review-slider__card {
+    padding: 20px;
+    border-radius: 12px;
+    min-height: 160px;
+  }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .review-slider {
+      gap: 16px;
+    }
+  }
+</style>
+<review-slider class="review-slider page-width" data-section-slider>
+  <button type="button" data-next aria-label="Next review">Next</button>
+  <div class="review-slider__track">
+    {% for block in section.blocks %}
+      <article class="review-slider__card" data-section-review-item {{ block.shopify_attributes }}>
+        <blockquote>{{ block.settings.quote }}</blockquote>
+        <p>{{ block.settings.author }}</p>
+      </article>
+    {% endfor %}
+  </div>
+  <script>
+    if (!customElements.get('review-slider')) {
+      customElements.define('review-slider', class extends HTMLElement {
+        connectedCallback() {
+          const track = this.querySelector('.review-slider__track');
+          this.querySelector('[data-next]')?.addEventListener('click', () => track?.scrollBy({ left: 280, behavior: 'smooth' }));
+        }
+      });
+    }
+  </script>
+</review-slider>
+{% schema %}
+{
+  "name": "Review slider",
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great service." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Customer" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Review slider", "blocks": [{ "type": "review" }] }]
+}
+{% endschema %}
+`,
           },
         ],
       }),
@@ -7335,14 +7481,26 @@ test("draftThemeArtifact - accepts slider sections with editable slide blocks an
 </style>
 <section class="hero-slider page-width">
   <h2>{{ section.settings.heading }}</h2>
+  <button type="button" data-next aria-label="Next slide">Next</button>
   <div class="hero-slider__track" data-slider>
     {% for block in section.blocks %}
-      <article class="hero-slider__slide" {{ block.shopify_attributes }}>
+      <article class="hero-slider__slide" data-section-slide {{ block.shopify_attributes }}>
+        {% if block.settings.image != blank %}
+          {{ block.settings.image | image_url: width: 1400 | image_tag }}
+        {% endif %}
         <h3>{{ block.settings.heading }}</h3>
         <p>{{ block.settings.text }}</p>
+        <a href="{{ block.settings.button_link }}">{{ block.settings.button_text }}</a>
       </article>
     {% endfor %}
   </div>
+  <script>
+    const root = document.currentScript.closest('.hero-slider');
+    root.querySelector('[data-next]')?.addEventListener('click', () => {
+      root.querySelector('[data-slider]')?.scrollBy({ left: 320, behavior: 'smooth' });
+    });
+    document.addEventListener('shopify:section:load', () => {});
+  </script>
 </section>
 {% schema %}
 {
@@ -7355,8 +7513,11 @@ test("draftThemeArtifact - accepts slider sections with editable slide blocks an
       "type": "slide",
       "name": "Slide",
       "settings": [
+        { "type": "image_picker", "id": "image", "label": "Image" },
         { "type": "text", "id": "heading", "label": "Heading", "default": "Slide heading" },
-        { "type": "textarea", "id": "text", "label": "Text", "default": "Slide copy." }
+        { "type": "textarea", "id": "text", "label": "Text", "default": "Slide copy." },
+        { "type": "text", "id": "button_text", "label": "Button text", "default": "Read more" },
+        { "type": "url", "id": "button_link", "label": "Button link" }
       ]
     }
   ],
@@ -8075,6 +8236,81 @@ test("draftThemeArtifact - does not apply generated-section contracts to edit-mo
     assert.ok(
       !result.errors?.some((issue) => issue.issueCode === "section_contract_missing_responsive_behavior")
     );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - planner production section rewrites run codegen preflight before write", async () => {
+  const key = "sections/existing-codegen.liquid";
+  const existingLiquid = `
+<style>
+  .existing-codegen {
+    display: grid;
+    gap: 20px;
+  }
+</style>
+<section class="existing-codegen">
+  <h2>{{ section.settings.heading }}</h2>
+</section>
+{% schema %}
+{
+  "name": "Existing codegen",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Existing" }
+  ],
+  "presets": [{ "name": "Existing codegen" }]
+}
+{% endschema %}
+`;
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key,
+    initialValue: existingLiquid,
+    existing: true,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "edit",
+        plannerHandoff: {
+          intent: "existing_edit",
+          targetFile: key,
+          themeTarget: { themeId: 111, themeRole: null },
+          codegenContract: {
+            version: "2026-04-30",
+            validationProfile: "production_visual",
+            sectionKind: "content",
+          },
+        },
+        files: [
+          {
+            key,
+            value: existingLiquid,
+          },
+        ],
+      }),
+      { shopifyClient: mockShopifyClient }
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "inspection_failed");
+    assert.equal(result.errorCode, "css_missing_section_scope");
+    assert.equal(result.writeApplied, false);
+    assert.equal(result.liveFileUnchanged, true);
+    assert.match(result.repairPrompt || "", /css_missing_section_scope/);
+    assert.equal(themeMock.getValue(), existingLiquid);
   } finally {
     global.fetch = previousFetch;
   }
