@@ -484,6 +484,7 @@ test("createThemeSection - reuses precision-first planner metadata for exact scr
       intent: "new_section",
       template: "homepage",
       query: "Maak deze Trustpilot review slider exact na van de screenshot",
+      includeContracts: true,
     },
     requestContext
   );
@@ -633,6 +634,7 @@ test("createThemeSection - keeps exact-match planner context even when a compat 
       template: "homepage",
       query:
         "Maak een review slider exact na van de screenshot met cursieve titel en navigatiepijlen rechtsboven",
+      includeContracts: true,
     },
     requestContext
   );
@@ -741,6 +743,7 @@ test("createThemeSection - preserves desktop/mobile exact-match review signals t
       template: "homepage",
       query:
         "Maak deze Trustpilot review slider exact na van de desktop en mobiele screenshots, met pijlen rechtsboven, dezelfde rating cards en aparte desktop/mobile composities.",
+      includeContracts: true,
     },
     requestContext
   );
@@ -1062,6 +1065,7 @@ test("createThemeSection - forwards prompt-only review contracts for non-exact r
       intent: "new_section",
       template: "homepage",
       query: "Maak een review section met 3 kaarten, klantnamen en sterrenrating",
+      includeContracts: true,
     },
     requestContext
   );
@@ -1159,6 +1163,7 @@ test("createThemeSection - blocks overwriting an existing section key", serial, 
       intent: "new_section",
       template: "homepage",
       query: "Maak deze Trustpilot review slider exact na van de screenshot",
+      includeContracts: true,
     },
     requestContext
   );
@@ -1278,6 +1283,7 @@ test("createThemeSection - accepts required planner reads gathered via multiple 
       intent: "new_section",
       template: "homepage",
       query: "Maak deze review slider exact na van de screenshot",
+      includeContracts: true,
     },
     requestContext
   );
@@ -1521,6 +1527,7 @@ test("planThemeEdit - keeps the last created section as sticky follow-up target"
     {
       themeId: 123,
       description: "optimaliseer hem naar ecom conversion hero",
+      includeContracts: true,
     },
     requestContext
   );
@@ -1562,6 +1569,7 @@ test("planThemeEdit - keeps the recent existing-edit target as sticky follow-up 
     {
       themeId: 123,
       description: "maak hem mobiel compacter en rustiger",
+      includeContracts: true,
     },
     requestContext
   );
@@ -1604,6 +1612,7 @@ test("planThemeEdit - does not reuse a sticky target after an explicit theme swi
     {
       themeId: 222,
       description: "maak hem mobiel compacter en rustiger",
+      includeContracts: true,
     },
     requestContext
   );

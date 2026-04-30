@@ -817,3 +817,39 @@ test("themeCodegenContract - syntax_only profile skips visual architecture check
   assert.ok(!codes(result).some((code) => code.startsWith("architecture_")));
   assert.ok(!codes(result).some((code) => code.startsWith("visual_")));
 });
+
+test("themeCodegenContract - static card sections with @media do not become repeated-card media sections", () => {
+  const result = preflightSectionLiquid(
+    section({
+      body: `
+        <style>
+          #shopify-section-{{ section.id }} .card {
+            display: grid;
+            padding: 24px;
+            border-radius: 18px;
+          }
+          @media screen and (max-width: 749px) {
+            #shopify-section-{{ section.id }} .card { padding: 16px; }
+          }
+        </style>
+        <div class="card">{{ section.settings.heading }}</div>
+      `,
+      schema: `{
+        "name": "Generic card",
+        "settings": [
+          { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" }
+        ],
+        "presets": [{ "name": "Generic card" }]
+      }`,
+    }),
+    {
+      validationProfile: "production_visual",
+      requestText: "Create a simple static card section",
+    }
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.codegenContract.sectionKind, "content");
+  assert.equal(result.codegenContract.architecture.blockModel, "none");
+  assert.ok(!codes(result).some((code) => code.startsWith("architecture_missing")));
+});

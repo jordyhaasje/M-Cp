@@ -1931,6 +1931,11 @@ const buildPromptOnlyContract = ({
     archetype === "review_slider" || archetype === "review_section";
   const videoLike =
     archetype === "video_section" || archetype === "video_slider";
+  const repeatedVideoCardsLike =
+    videoLike &&
+    /\b(repeatable|repeated|multiple|cards?|grid|items?|blocks?|per[-_ ]?card)\b/.test(
+      haystack
+    );
   const carouselLike =
     archetype === "hero_slider" ||
     archetype === "hero_slider_with_logo_marquee" ||
@@ -1974,7 +1979,8 @@ const buildPromptOnlyContract = ({
     promptOnly: true,
     requiresReviewContentSignals: reviewLike,
     requiresReviewCardSurface: reviewLike,
-    requiresBlockBasedCards: reviewLike && !singleReviewRequested,
+    requiresBlockBasedCards:
+      (reviewLike && !singleReviewRequested) || repeatedVideoCardsLike,
     requiresRatingOrQuoteSignal: reviewLike,
     interactionPattern,
     requiresSliderControls: carouselLike,
@@ -1999,6 +2005,7 @@ const buildPromptOnlyContract = ({
     requiredSchemaSignals: uniqueStrings([
       ...(reviewLike && !singleReviewRequested ? ["review_blocks"] : []),
       ...(videoLike ? ["video_or_video_url_setting"] : []),
+      ...(repeatedVideoCardsLike ? ["video_card_blocks"] : []),
       ...(commerceLike ? ["product_setting_or_product_context"] : []),
       ...(collectionLike ? ["collection_setting_or_collection_context"] : []),
       ...(marqueeLike ? ["logo_blocks"] : []),
@@ -2034,7 +2041,9 @@ const buildPromptOnlyContract = ({
       ...(videoLike
         ? [
             "Gebruik een merchant-editable video of video_url setting en render die blank-safe in de eerste write.",
-            "Geef video sliders echte controls of een scroll-snap/slide structuur met Theme Editor-veilige initialisatie.",
+            repeatedVideoCardsLike
+              ? "Gebruik voor repeatable video cards schema.blocks met per-block video/video_url, poster/thumbnail, heading/copy en link/CTA waar gevraagd."
+              : "Geef video sliders echte controls of een scroll-snap/slide structuur met Theme Editor-veilige initialisatie.",
           ]
         : []),
       ...(commerceLike
@@ -2133,7 +2142,7 @@ const buildSectionImplementationContract = ({
     ]),
     editRules: [
       "Bij edits: behoud bestaande schema settings, blocks, presets, accessibility-attributen en render helpers tenzij de wijziging ze expliciet verandert.",
-      "Na patch_scope_too_large: lees eerst het actuele bestand opnieuw in en voer daarna pas een preserve-on-edit rewrite uit.",
+      "Na patch_scope_too_large: volg de repair response; met geldige read-context mag draft-theme-artifact dezelfde structurele patch uitvoeren, anders eerst opnieuw lezen.",
     ],
   };
 };

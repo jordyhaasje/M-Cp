@@ -516,14 +516,18 @@ try {
   );
   assert.equal(broadPatchThemeFileResult.success, false);
   assert.equal(broadPatchThemeFileResult.errorCode, "patch_scope_too_large");
-  assert.equal(broadPatchThemeFileResult.nextTool, "get-theme-file");
-  assert.equal(broadPatchThemeFileResult.nextArgsTemplate?.includeContent, true);
+  assert.equal(broadPatchThemeFileResult.nextTool, "draft-theme-artifact");
+  assert.equal(broadPatchThemeFileResult.nextArgsTemplate?.mode, "edit");
+  assert.equal(broadPatchThemeFileResult.nextArgsTemplate?.files?.[0]?.patch?.searchString, "<div class=\"product__info-wrapper\">");
+  assert.equal(broadPatchThemeFileResult.readContext?.currentReadContextValid, true);
+  assert.equal(broadPatchThemeFileResult.requiresReread, false);
+  assert.deepEqual(broadPatchThemeFileResult.doNotUse, ["patch-theme-file"]);
   assert.equal(
-    broadPatchThemeFileResult.alternativeNextArgsTemplates?.preserveRewriteAfterRead?.files?.[0]?.value,
+    broadPatchThemeFileResult.alternativeNextArgsTemplates?.preserveFullRewrite?.files?.[0]?.value,
     "<full rewritten current file content after deterministic preserve-on-edit transformation>"
   );
   assert.equal(broadPatchThemeFileResult.changeScope, "bounded_rewrite");
-  assert.equal(broadPatchThemeFileResult.preferredWriteMode, "value");
+  assert.equal(broadPatchThemeFileResult.preferredWriteMode, "patch");
   assert.equal(
     broadPatchThemeFileResult.diagnosticTargets?.[0]?.fileKey,
     "sections/main-product.liquid"

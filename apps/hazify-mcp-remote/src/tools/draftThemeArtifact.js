@@ -34,7 +34,7 @@ import {
 
 export const toolName = "draft-theme-artifact";
 export const title = "Write Theme Files";
-export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, or broader theme changes. For a brand-new section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. After patch_scope_too_large, re-read the current file with includeContent=true and perform a preserve-on-edit transformation before calling mode='edit'. For broad visual refinements of an existing section, prefer mode='edit' with a full current-file rewrite over long patch arrays. In mode='edit', files[].value must contain the full rewritten file content, not a placeholder, summary, compact reconstruction, or REWRITE_ALREADY_APPLIED_IN_CONTEXT. Lossy rewrites are blocked unless the planner/user explicitly requested removal or simplification. Do not use apply-theme-draft for the first write.`;
+export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, structural patches, or broader theme changes. For a brand-new section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. After patch_scope_too_large, use the nextArgsTemplate returned by patch-theme-file: when currentReadContextValid=true, draft-theme-artifact may apply the same patch with baseChecksumMd5; when read context is missing or stale, re-read with includeContent=true first. For broad visual refinements of an existing section, prefer mode='edit' with a full current-file rewrite over long patch arrays. In mode='edit', files[].value must contain the full rewritten file content, not a placeholder, summary, compact reconstruction, or REWRITE_ALREADY_APPLIED_IN_CONTEXT. Lossy rewrites are blocked unless the planner/user explicitly requested removal or simplification. Do not use apply-theme-draft for the first write.`;
 export const docsDescription = `Draft and validate Shopify theme files through the guarded pipeline.
 
 Modes:
@@ -51,7 +51,7 @@ Theme-aware section regels:
 - Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
 - Compatibele shorthand: voor één file mag een client ook top-level key + value/content/liquid of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Binnen files[] worden value/content/liquid nu ook veilig naar dezelfde canonieke value-write genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
 - Gebruik in mode="edit" voor full rewrites altijd de volledige nieuwe bestandsinhoud in files[].value op basis van de actuele file-read. Context-placeholders, samenvattingen, compacte reconstructies of geheugen-rewrites zoals REWRITE_ALREADY_APPLIED_IN_CONTEXT zijn ongeldig; gebruik anders een letterlijke patch/patches.
-- Na patch_scope_too_large is de verplichte veilige fallback: get-theme-file met includeContent=true -> deterministische preserve-on-edit transformatie -> draft-theme-artifact mode="edit" met de volledige filebody en waar mogelijk baseChecksumMd5.
+- Na patch_scope_too_large volg je de repair response van patch-theme-file. Bij currentReadContextValid=true mag draft-theme-artifact mode="edit" dezelfde patch met baseChecksumMd5 uitvoeren; bij ontbrekende of stale read-context lees je eerst opnieuw met includeContent=true. Voor brede visual rewrites blijft een volledige preserve-on-edit value-write de voorkeursroute.
 - Bestaande sections worden in mode="edit" preserve-on-edit gevalideerd: bestaande schema-settings, block types/settings, presets, block.shopify_attributes, image_tag-renderpaden, section.id CSS-scoping en Impact/theme helpers mogen niet verdwijnen tenzij de planner/gebruiker expliciet om verwijderen of versimpelen vroeg.
 - Een full rewrite die duidelijk kleiner wordt dan de actuele file wordt als lossy geblokkeerd met inspection_failed_lossy_rewrite en een repair response die opnieuw lezen verplicht stelt.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
@@ -8602,23 +8602,44 @@ export const draftThemeArtifact = {
             effectiveSectionBlueprint ||
             effectivePlanIntent
         );
-        const sectionCodegenContract = buildCodegenContract({
-          intent: sectionIntent,
-          mode,
-          targetFile: file.key,
-          themeTarget: themeTargetForCodegen,
-          sectionBlueprint: effectiveSectionBlueprint,
-          themeContext: effectiveThemeSectionContext,
-          changeScope: effectivePlannerHandoff?.changeScope,
-          preferredWriteMode: effectivePlannerHandoff?.preferredWriteMode,
-          requestText: codegenRequestText,
-          validationProfile:
-            primaryCodegenContract?.validationProfile ||
-            (!hasCodegenPlanningContext && mode === "create"
-              ? "theme_safe"
-              : null),
-          value: file.value,
-        });
+        const usePlannerCodegenContract =
+          primaryCodegenContract &&
+          typeof primaryCodegenContract === "object" &&
+          (
+            mode === "create" ||
+            !primaryCodegenContract?.target?.file ||
+            primaryCodegenContract.target.file === file.key
+          );
+        const sectionCodegenContract = usePlannerCodegenContract
+          ? {
+              ...primaryCodegenContract,
+              target: {
+                ...(primaryCodegenContract.target || {}),
+                intent: sectionIntent,
+                file: file.key,
+                theme: themeTargetForCodegen,
+                mode,
+                changeScope: effectivePlannerHandoff?.changeScope,
+                preferredWriteMode: effectivePlannerHandoff?.preferredWriteMode,
+              },
+            }
+          : buildCodegenContract({
+              intent: sectionIntent,
+              mode,
+              targetFile: file.key,
+              themeTarget: themeTargetForCodegen,
+              sectionBlueprint: effectiveSectionBlueprint,
+              themeContext: effectiveThemeSectionContext,
+              changeScope: effectivePlannerHandoff?.changeScope,
+              preferredWriteMode: effectivePlannerHandoff?.preferredWriteMode,
+              requestText: codegenRequestText,
+              validationProfile:
+                primaryCodegenContract?.validationProfile ||
+                (!hasCodegenPlanningContext && mode === "create"
+                  ? "theme_safe"
+                  : null),
+              value: file.value,
+            });
         const codegenPreflight = preflightSectionLiquid(file.value, {
           fileKey: file.key,
           mode,

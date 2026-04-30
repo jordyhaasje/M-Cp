@@ -592,6 +592,7 @@ test(
               intent: "new_section",
               template: "homepage",
               query: fixture.promptOnlyQuery,
+              includeContracts: true,
             },
             requestContext
           );
@@ -655,6 +656,7 @@ test(
               intent: "new_section",
               template: "homepage",
               query: fixture.screenshotReplicaPrompt,
+              includeContracts: true,
             },
             requestContext
           );
@@ -679,6 +681,7 @@ test(
               intent: "new_section",
               template: "homepage",
               query: fixture.screenshotReplicaPrompt,
+              includeContracts: true,
             },
             requestContext
           );
@@ -725,6 +728,7 @@ test(
               intent: "new_section",
               template: "homepage",
               query: fixture.imageBackedReplicaPrompt,
+              includeContracts: true,
             },
             requestContext
           );
@@ -748,6 +752,7 @@ test(
               intent: "new_section",
               template: "homepage",
               query: fixture.imageBackedReplicaPrompt,
+              includeContracts: true,
             },
             requestContext
           );
@@ -789,6 +794,7 @@ test(
               intent: "existing_edit",
               targetFile: fixture.expectations.existingEditTarget,
               query: "Werk alleen de zichtbare copy bij",
+              includeContracts: true,
             },
             requestContext
           );
@@ -839,6 +845,7 @@ test(
               intent: "native_block",
               template: "product",
               query: "Voeg een review badge block toe op de productpagina",
+              includeContracts: true,
             },
             requestContext
           );
@@ -926,6 +933,7 @@ test(
               intent: "native_block",
               template: "product",
               query: "Voeg een review badge block toe op de productpagina",
+              includeContracts: true,
             },
             requestContext
           );
@@ -1045,6 +1053,7 @@ test(
               intent: "template_placement",
               template: "homepage",
               query: "Plaats de nieuwe section onder de content section op de homepage",
+              includeContracts: true,
             },
             requestContext
           );

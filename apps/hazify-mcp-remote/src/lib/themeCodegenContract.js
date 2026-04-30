@@ -14,6 +14,8 @@ const SECTION_KINDS = new Set([
   "hero_slider",
   "hero_slider_with_logo_marquee",
   "image_slider",
+  "video_grid",
+  "video_slider",
   "logo_marquee",
   "testimonial_slider",
   "review_grid",
@@ -33,6 +35,7 @@ const INTERACTION_KINDS = new Set([
   "static",
   "slider",
   "carousel",
+  "mobile_scroll_snap",
   "marquee",
   "slider_and_marquee",
   "tabs",
@@ -55,6 +58,7 @@ const MEDIA_MODELS = new Set([
   "none",
   "section_level_media",
   "block_level_media",
+  "block_level_video",
   "block_level_avatar",
   "block_level_logo",
   "both",
@@ -82,11 +86,14 @@ const CAROUSEL_KINDS = new Set([
   "hero_slider",
   "hero_slider_with_logo_marquee",
   "image_slider",
+  "video_slider",
   "testimonial_slider",
   "review_carousel",
   "social_comments",
 ]);
 const CARD_KINDS = new Set([
+  "video_grid",
+  "video_slider",
   "social_comments",
   "testimonial_slider",
   "review_grid",
@@ -635,11 +642,15 @@ const inferSectionKind = ({
   schema = null,
 } = {}) => {
   const archetype = normalizeText(sectionBlueprint?.archetype);
+  const valueWithoutStyleBlocks = String(value || "").replace(
+    /<style\b[^>]*>[\s\S]*?<\/style>|\{%\s*stylesheet\s*%\}[\s\S]*?\{%\s*endstylesheet\s*%\}/gi,
+    " "
+  );
   const haystack = normalizeText(
     [
       requestText,
       fileKey,
-      value.slice(0, 1200),
+      valueWithoutStyleBlocks.slice(0, 1200),
       schema?.name,
       archetype,
     ].join(" ")
@@ -722,10 +733,21 @@ const inferSectionKind = ({
   if (/(image|gallery|photo)/.test(haystack) && sliderLike) {
     return "image_slider";
   }
+  if (/\bvideo\b/.test(haystack) && sliderLike) {
+    return "video_slider";
+  }
+  if (
+    /\bvideo\b/.test(semanticHaystack) &&
+    /\b(repeatable|repeated|multiple|cards?|grid|items?|blocks?|per[-_ ]?card)\b/.test(
+      semanticHaystack
+    )
+  ) {
+    return "video_grid";
+  }
   if (/product|collection|pdp|commerce|price|buy|cart/.test(haystack)) {
     return "product_related";
   }
-  if (/media|image|video|gallery|logo|reels?|media_/.test(haystack)) {
+  if (/\b(media|image|video|gallery|logo|reels?)\b|media_/.test(haystack)) {
     return "media_section";
   }
   if (/content|text|richtext|feature|faq|accordion|tabs?/.test(haystack)) {
@@ -775,7 +797,30 @@ const inferSectionArchitecture = ({
       sectionKind,
     ].join(" ")
   );
+  const semanticHaystack = normalizeText(
+    [
+      requestText,
+      fileKey,
+      schema?.name,
+      sectionBlueprint?.archetype,
+      sectionKind,
+    ].join(" ")
+  );
+  const schemaBlocks = getSchemaBlocks(schema);
+  const hasSchemaBlocks = schemaBlocks.length > 0;
+  const hasSectionBlocksLoop = /for\s+block\s+in\s+section\.blocks/i.test(
+    String(value || "")
+  );
   const hasBlockMediaHint = /\b(slides?|multiple images?|background images?|gallery|card images?|block image|per[-_ ]?slide)\b/.test(
+    semanticHaystack
+  );
+  const hasRepeatedCardHint = /\b(repeatable|repeated|multiple|cards?|grid|items?|blocks?|per[-_ ]?card)\b/.test(
+    semanticHaystack
+  ) || hasSchemaBlocks || hasSectionBlocksLoop;
+  const hasBlockVideoHint = /\b(video cards?|card videos?|block video|per[-_ ]?card video|video blocks?|video items?)\b/.test(
+    semanticHaystack
+  );
+  const hasMobileScrollSnapHint = /\b(mobile|mobiel)\b[\s\S]{0,80}\b(scroll[-_ ]?snap|swipe|carousel|slider|horizontal scroll)\b/.test(
     haystack
   );
   const hasAvatarHint = /\b(avatar|customer photo|headshot|portrait)\b/.test(
@@ -819,6 +864,18 @@ const inferSectionArchitecture = ({
       interactionKind = "slider";
       blockModel = "slides";
       mediaModel = "block_level_media";
+      contentModel = "block_settings";
+      break;
+    case "video_slider":
+      interactionKind = hasMobileScrollSnapHint ? "mobile_scroll_snap" : "carousel";
+      blockModel = "repeated_cards";
+      mediaModel = "block_level_video";
+      contentModel = "block_settings";
+      break;
+    case "video_grid":
+      interactionKind = hasMobileScrollSnapHint ? "mobile_scroll_snap" : "static";
+      blockModel = "repeated_cards";
+      mediaModel = "block_level_video";
       contentModel = "block_settings";
       break;
     case "logo_marquee":
@@ -867,9 +924,11 @@ const inferSectionArchitecture = ({
       contentModel = "block_settings";
       break;
     case "media_section":
-      mediaModel = hasBlockMediaHint ? "block_level_media" : "section_level_media";
-      blockModel = hasBlockMediaHint ? "slides" : "none";
-      contentModel = hasBlockMediaHint ? "block_settings" : "section_settings";
+      mediaModel =
+        hasBlockVideoHint ? "block_level_video" : hasBlockMediaHint ? "block_level_media" : "section_level_media";
+      blockModel = hasRepeatedCardHint ? "repeated_cards" : hasBlockMediaHint ? "slides" : "none";
+      interactionKind = hasMobileScrollSnapHint ? "mobile_scroll_snap" : interactionKind;
+      contentModel = blockModel !== "none" ? "block_settings" : "section_settings";
       break;
     default:
       break;
@@ -889,6 +948,7 @@ const inferSectionArchitecture = ({
   const navigationModel = inferNavigationModel({ haystack, interactionKind });
   const blockRoles = uniqueStrings([
     ...(blockModel === "slides" || blockModel === "mixed_blocks" ? ["slide"] : []),
+    ...(blockModel === "repeated_cards" ? ["card"] : []),
     ...(blockModel === "logos" || blockModel === "mixed_blocks" ? ["logo"] : []),
     ...(blockModel === "repeated_reviews" ? ["review"] : []),
     ...(blockModel === "rows" ? ["row"] : []),
@@ -918,6 +978,19 @@ const inferSectionArchitecture = ({
       : {}),
     ...(blockRoles.includes("logo")
       ? { logo: ["logo_image_or_text", "logo_alt_or_name"] }
+      : {}),
+    ...(blockRoles.includes("card")
+      ? {
+          card: uniqueStrings([
+            mediaModel === "block_level_video"
+              ? "video_or_external_video"
+              : mediaModel === "block_level_media"
+                ? "image_or_media"
+                : "content",
+            "heading_or_title",
+            "text_or_caption",
+          ]),
+        }
       : {}),
     ...(blockRoles.includes("review")
       ? {
@@ -951,6 +1024,7 @@ const inferSectionArchitecture = ({
         : []),
       ...(interactionKind === "slider" ||
       interactionKind === "carousel" ||
+      interactionKind === "mobile_scroll_snap" ||
       interactionKind === "slider_and_marquee"
         ? ["data-section-slider", "data-section-slide"]
         : []),
@@ -1392,7 +1466,7 @@ const collectMobilePercentColumnIssues = ({
 };
 
 const isSliderInteraction = (interactionKind) =>
-  ["slider", "carousel", "slider_and_marquee"].includes(
+  ["slider", "carousel", "mobile_scroll_snap", "slider_and_marquee"].includes(
     String(interactionKind || "")
   );
 
@@ -1611,6 +1685,26 @@ const collectMissingBlockSettingIssues = ({
       types: ["textarea", "richtext", "inline_richtext", "text"],
       label: "tab content",
     },
+    video_or_external_video: {
+      patterns: [/\b(video|external_video|youtube|vimeo|media)\b/],
+      types: ["video", "video_url"],
+      label: "video/video_url",
+    },
+    image_or_media: {
+      patterns: [/\b(image|media|photo|picture)\b/],
+      types: ["image_picker", "video", "video_url"],
+      label: "image/media",
+    },
+    heading_or_title: {
+      patterns: [/\b(heading|title|headline|kop)\b/],
+      types: ["text", "inline_richtext"],
+      label: "heading/title",
+    },
+    text_or_caption: {
+      patterns: [/\b(text|copy|caption|body|description|subheading)\b/],
+      types: ["text", "textarea", "richtext", "inline_richtext"],
+      label: "text/caption",
+    },
   };
 
   for (const requirement of requirements) {
@@ -1798,6 +1892,36 @@ const collectArchitectureIssues = ({
             "quote_or_comment",
             "author_or_name",
           ],
+        })
+      );
+    }
+  }
+
+  if (schema && blockModel === "repeated_cards") {
+    const cardBlocks = getSchemaBlocks(schema).filter(
+      (block) => !isLogoBlock(block)
+    );
+    if (cardBlocks.length === 0) {
+      issues.push(
+        createIssue({
+          code: "architecture_missing_card_blocks",
+          path: [fileKey, "schema", "blocks"],
+          message:
+            "The codegen architecture requires repeated merchant-editable card blocks, but no suitable card block type is defined.",
+          fixSuggestion:
+            "Add card/item blocks with merchant-editable media/content settings and render them through section.blocks.",
+        })
+      );
+    }
+    for (const block of cardBlocks) {
+      const blockType = String(block?.type || "card");
+      issues.push(
+        ...collectMissingBlockSettingIssues({
+          block,
+          role: "card",
+          fileKey,
+          blockType,
+          requirements: requiredBlockSettings.card || ["heading_or_title", "text_or_caption"],
         })
       );
     }

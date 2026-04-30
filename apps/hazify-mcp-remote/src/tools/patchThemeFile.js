@@ -308,6 +308,9 @@ const buildPatchThemeFailure = ({
   preferredWriteMode = "patch",
   diagnosticTargets = [],
   alternativeNextArgsTemplates,
+  readContext,
+  requiresReread,
+  doNotUse = [],
 }) => ({
   success: false,
   status: "inspection_failed",
@@ -326,9 +329,26 @@ const buildPatchThemeFailure = ({
   suggestedFixes,
   changeScope,
   preferredWriteMode,
+  ...(readContext ? { readContext } : {}),
+  ...(typeof requiresReread === "boolean" ? { requiresReread } : {}),
+  ...(doNotUse.length > 0 ? { doNotUse } : {}),
   ...(diagnosticTargets.length > 0 ? { diagnosticTargets } : {}),
   ...(alternativeNextArgsTemplates ? { alternativeNextArgsTemplates } : {}),
   shouldNarrowScope: false,
+});
+
+const buildPatchReadContext = ({
+  key,
+  recentRead = null,
+  themeId,
+  themeRole,
+} = {}) => ({
+  currentReadContextValid: Boolean(recentRead?.content),
+  key: key || null,
+  themeId: themeId ?? null,
+  themeRole: themeRole || null,
+  checksumMd5: recentRead?.checksumMd5 || null,
+  contentLength: recentRead?.contentLength ?? null,
 });
 
 const validatePatchesAgainstRead = (patches, source) => {
@@ -390,7 +410,7 @@ const pickRememberedPatchTarget = (memoryState = {}, { themeId, themeRole } = {}
 const patchThemeFileTool = {
   name: "patch-theme-file",
   description:
-    "Patch one existing theme file met één of meer letterlijke vervangingen. Gebruik dit alleen voor kleine single-file fixes nadat je eerst met `search-theme-files` en daarna `get-theme-file` de exacte anchor hebt bepaald. Compatibele clients mogen een summary meesturen; de tool inferreert alleen een exact targetbestand als dat veilig kan en geeft anders een repair response via `plan-theme-edit`. Wanneer exact hetzelfde bestand nog niet in deze flow is gelezen, probeert de tool nu eerst veilig zelf een exacte read met includeContent=true te hydrateren. Daarna weigert hij nog steeds generieke of niet-unieke anchors en blokkeert hij bredere CSS/JS/schema rewrites. Bij patch_scope_too_large is de verplichte fallback: `get-theme-file includeContent=true` op hetzelfde theme target, daarna een preserve-on-edit full-file rewrite via `draft-theme-artifact mode='edit'`; nooit een compacte reconstructie of samenvatting.",
+    "Patch one existing theme file met één of meer letterlijke vervangingen. Gebruik dit alleen voor kleine single-file fixes nadat je eerst met `search-theme-files` en daarna `get-theme-file` de exacte anchor hebt bepaald. Compatibele clients mogen een summary meesturen; de tool inferreert alleen een exact targetbestand als dat veilig kan en geeft anders een repair response via `plan-theme-edit`. Wanneer exact hetzelfde bestand nog niet in deze flow is gelezen, probeert de tool nu eerst veilig zelf een exacte read met includeContent=true te hydrateren. Daarna weigert hij nog steeds generieke of niet-unieke anchors en blokkeert hij bredere CSS/JS/schema rewrites. Bij patch_scope_too_large met geldige read-context wijst de tool direct naar `draft-theme-artifact mode='edit'` met dezelfde patch en baseChecksumMd5; alleen bij ontbrekende/stale read-context is eerst opnieuw lezen nodig.",
   inputSchema: PatchThemeFilePublicObjectSchema,
   schema: PatchThemeFileInputSchema,
   execute: async (input, context = {}) => {
@@ -553,27 +573,91 @@ const patchThemeFileTool = {
             changeScope: "micro_patch",
           },
         ],
+        readContext: buildPatchReadContext({
+          key: effectiveKey,
+          recentRead: null,
+          themeId: effectiveThemeId,
+          themeRole: effectiveThemeRole,
+        }),
+        requiresReread: true,
       });
     }
 
     const patches = input.patch ? [input.patch] : input.patches || [];
 
     if (looksLikeBroadThemePatch(effectiveKey, patches)) {
+      const broadPatchValidation = validatePatchesAgainstRead(
+        patches,
+        recentRead.content
+      );
+      const checksum =
+        input.baseChecksumMd5 || recentRead?.checksumMd5 || undefined;
+      const draftPatchFile =
+        input.patch
+          ? {
+              key: effectiveKey,
+              patch: input.patch,
+              ...(checksum ? { baseChecksumMd5: checksum } : {}),
+            }
+          : {
+              key: effectiveKey,
+              patches: input.patches,
+              ...(checksum ? { baseChecksumMd5: checksum } : {}),
+            };
+      if (!broadPatchValidation.ok) {
+        return buildPatchThemeFailure({
+          message:
+            "Deze patch is te breed voor patch-theme-file én de anchor matcht de huidige read-context niet exact. Lees het bestand opnieuw of kies een actuele unieke anchor.",
+          errorCode: "patch_scope_too_large_anchor_invalid",
+          normalizedArgs,
+          nextAction: "refresh_patch_anchor",
+          nextTool: "get-theme-file",
+          nextArgsTemplate: readArgsTemplate,
+          retryMode: "switch_tool_after_fix",
+          errors: [
+            {
+              path: input.patch
+                ? ["patch", "searchString"]
+                : ["patches", broadPatchValidation.patchIndex, "searchString"],
+              problem:
+                broadPatchValidation.occurrenceCount > 1
+                  ? `De brede patch-anchor matcht ${broadPatchValidation.occurrenceCount} keer.`
+                  : "De brede patch-anchor matcht niet in de huidige filecontent.",
+              fixSuggestion:
+                "Refresh de filecontent en gebruik daarna draft-theme-artifact mode='edit' met een actuele patch of volledige value rewrite.",
+            },
+          ],
+          suggestedFixes: [
+            "Gebruik get-theme-file includeContent=true wanneer de anchor niet meer klopt.",
+            "Gebruik daarna draft-theme-artifact mode='edit'; herhaal patch-theme-file niet voor deze brede wijziging.",
+          ],
+          changeScope: "bounded_rewrite",
+          preferredWriteMode: "patch",
+          readContext: buildPatchReadContext({
+            key: effectiveKey,
+            recentRead,
+            themeId: effectiveThemeId,
+            themeRole: effectiveThemeRole,
+          }),
+          requiresReread: true,
+          doNotUse: ["patch-theme-file"],
+        });
+      }
       return buildPatchThemeFailure({
         message:
-          "Deze patch lijkt breder dan een kleine literal fix. Re-read current file and perform a preserve-on-edit transformation before using draft-theme-artifact mode='edit'.",
+          "Deze patch lijkt breder dan patch-theme-file toestaat. De huidige read-context is geldig; gebruik draft-theme-artifact mode='edit' voor deze structurele patch of voer een volledige preserve-on-edit rewrite uit.",
         errorCode: "patch_scope_too_large",
         normalizedArgs,
-        nextAction: "reread_current_file_for_preserve_rewrite",
-        nextTool: "get-theme-file",
+        nextAction: "use_draft_theme_artifact_for_structural_patch",
+        nextTool: "draft-theme-artifact",
         nextArgsTemplate: {
           ...(effectiveThemeId !== undefined ? { themeId: effectiveThemeId } : {}),
           ...(effectiveThemeRole ? { themeRole: effectiveThemeRole } : {}),
-          key: effectiveKey,
-          includeContent: true,
+          mode: "edit",
+          files: [draftPatchFile],
         },
         alternativeNextArgsTemplates: {
-          preserveRewriteAfterRead: {
+          preserveFullRewrite: {
             ...(effectiveThemeId !== undefined ? { themeId: effectiveThemeId } : {}),
             ...(effectiveThemeRole ? { themeRole: effectiveThemeRole } : {}),
             mode: "edit",
@@ -581,26 +665,7 @@ const patchThemeFileTool = {
               {
                 key: effectiveKey,
                 value: "<full rewritten current file content after deterministic preserve-on-edit transformation>",
-                ...(input.baseChecksumMd5 || recentRead?.checksumMd5
-                  ? { baseChecksumMd5: input.baseChecksumMd5 || recentRead.checksumMd5 }
-                  : {}),
-              },
-            ],
-          },
-          literalPatch: {
-            ...(effectiveThemeId !== undefined ? { themeId: effectiveThemeId } : {}),
-            ...(effectiveThemeRole ? { themeRole: effectiveThemeRole } : {}),
-            mode: "edit",
-            files: [
-              {
-                key: effectiveKey,
-                patch: {
-                  searchString: "<exact literal anchor from the current file>",
-                  replaceString: "<updated markup/liquid>",
-                },
-                ...(input.baseChecksumMd5 || recentRead?.checksumMd5
-                  ? { baseChecksumMd5: input.baseChecksumMd5 || recentRead.checksumMd5 }
-                  : {}),
+                ...(checksum ? { baseChecksumMd5: checksum } : {}),
               },
             ],
           },
@@ -612,16 +677,24 @@ const patchThemeFileTool = {
             problem:
               "De gevraagde patch raakt structurele CSS/JS/schema-inhoud of is te groot voor een veilige anchor-based patch-flow.",
             fixSuggestion:
-              "Lees eerst het actuele bestand opnieuw, pas daarop een preserve-on-edit transformatie toe en stuur daarna de volledige filebody naar draft-theme-artifact mode='edit'.",
+              "Gebruik draft-theme-artifact mode='edit' met dezelfde patch en baseChecksumMd5, of stuur een volledige preserve-on-edit value rewrite.",
           },
         ],
         suggestedFixes: [
           "Gebruik patch-theme-file alleen voor kleine, unieke literal vervangingen.",
-          "Na patch_scope_too_large: get-theme-file includeContent=true -> preserve-on-edit rewrite -> draft-theme-artifact mode='edit'.",
-          "Gebruik geen compacte reconstructie of samenvatting als rewrite-body.",
+          "Na patch_scope_too_large met geldige read-context: ga direct door naar draft-theme-artifact mode='edit'.",
+          "Gebruik geen compacte reconstructie of samenvatting als rewrite-body wanneer je voor een value rewrite kiest.",
         ],
         changeScope: "bounded_rewrite",
-        preferredWriteMode: "value",
+        preferredWriteMode: "patch",
+        readContext: buildPatchReadContext({
+          key: effectiveKey,
+          recentRead,
+          themeId: effectiveThemeId,
+          themeRole: effectiveThemeRole,
+        }),
+        requiresReread: false,
+        doNotUse: ["patch-theme-file"],
         diagnosticTargets: patches
           .slice(0, 2)
           .map((patch) =>

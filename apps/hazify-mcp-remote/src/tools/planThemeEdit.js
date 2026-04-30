@@ -11,6 +11,7 @@ import {
   inferThemeTargetFromSummary,
 } from "./_themeToolCompatibility.js";
 import {
+  getRecentThemeRead,
   getThemeEditMemory,
   rememberThemePlan,
   themeTargetsCompatible,
@@ -36,6 +37,7 @@ const TemplateSchema = z.enum([
   "cart",
   "search",
 ]);
+const PlannerVerbositySchema = z.enum(["compact", "debug"]);
 
 const SummaryAliasFieldDescriptions = {
   _tool_input_summary:
@@ -228,6 +230,21 @@ const PlanThemeEditPublicObjectSchema = z
       .max(5)
       .optional()
       .describe("Compat alias van snippetLimit voor generieke wrappers."),
+    verbosity: PlannerVerbositySchema
+      .default("compact")
+      .describe(
+        "compact is de standaard machine-actionable planner-output. debug voegt volledige plannerHandoff, sectionBlueprint en codegenContract toe."
+      ),
+    includeContracts: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Zet true wanneer een stateless client de volledige plannerHandoff/codegenContract/sectionBlueprint moet doorgeven aan een latere write-tool."
+      ),
+    include_contracts: z
+      .boolean()
+      .optional()
+      .describe("Compat alias van includeContracts."),
   })
   .strict();
 
@@ -261,6 +278,8 @@ const PlanThemeEditNormalizedShape = z
     targetFile: z.string().min(1).optional(),
     sectionTypeHint: z.string().max(120).optional(),
     snippetLimit: z.number().int().min(1).max(5).default(3),
+    verbosity: PlannerVerbositySchema.default("compact"),
+    includeContracts: z.boolean().default(false),
   })
   .strict()
   .superRefine((input, ctx) => {
@@ -299,6 +318,8 @@ const normalizePlanThemeEditInput = (rawInput) => {
     targetFile: rawInput.targetFile ?? rawInput.target_file,
     sectionTypeHint: rawInput.sectionTypeHint ?? rawInput.section_type_hint,
     snippetLimit: rawInput.snippetLimit ?? rawInput.snippet_limit,
+    verbosity: rawInput.verbosity,
+    includeContracts: rawInput.includeContracts ?? rawInput.include_contracts,
   };
   const descriptionAlias =
     typeof rawInput.description === "string" && rawInput.description.trim()
@@ -380,6 +401,8 @@ const summarizeNormalizedPlanInput = (input = {}) => ({
   targetFile: input.targetFile || null,
   sectionTypeHint: input.sectionTypeHint || null,
   snippetLimit: input.snippetLimit ?? 3,
+  verbosity: input.verbosity || "compact",
+  includeContracts: input.includeContracts === true,
 });
 
 const buildExplicitThemeTarget = (input = {}) =>
@@ -852,13 +875,317 @@ const buildPlannerHandoff = ({
     : [],
 });
 
+const getPlanTargetFile = (input = {}, result = {}) =>
+  input?.targetFile ||
+  result?.nextWriteKeys?.[0] ||
+  result?.newFileSuggestions?.[0] ||
+  result?.nextReadKeys?.[0] ||
+  null;
+
+const buildPlanDoNotUse = ({ changeScope, writeTool, intent } = {}) => {
+  if (changeScope === "net_new_generation") {
+    return uniqueStrings([
+      "patch-theme-file",
+      "apply-theme-draft",
+      ...(writeTool === "create-theme-section" ? ["draft-theme-artifact"] : []),
+    ]);
+  }
+  if (changeScope === "bounded_rewrite" || changeScope === "multi_file_structural_edit") {
+    return uniqueStrings([
+      "patch-theme-file",
+      ...(intent !== "new_section" ? ["create-theme-section"] : []),
+      "apply-theme-draft",
+    ]);
+  }
+  if (changeScope === "micro_patch") {
+    return uniqueStrings(["create-theme-section", "apply-theme-draft"]);
+  }
+  return uniqueStrings(["apply-theme-draft"]);
+};
+
+const buildPlanWritePolicy = ({ input = {}, result = {}, writeTool = null } = {}) => {
+  const changeScope = result?.changeScope || null;
+  const doNotUse = buildPlanDoNotUse({
+    changeScope,
+    writeTool,
+    intent: input?.intent,
+  });
+  const allowedTools =
+    changeScope === "net_new_generation"
+      ? ["create-theme-section"]
+      : changeScope === "micro_patch"
+        ? ["patch-theme-file", "draft-theme-artifact"]
+        : ["draft-theme-artifact"];
+
+  return {
+    preferredTool: writeTool || result?.shouldUse || null,
+    allowedTools,
+    doNotUse,
+    writeMode: result?.preferredWriteMode || null,
+    requiresFullFileValue:
+      result?.preferredWriteMode === "value" ||
+      changeScope === "bounded_rewrite",
+    requiresPriorRead: Array.isArray(result?.nextReadKeys) && result.nextReadKeys.length > 0,
+    patchThemeFileAllowed: changeScope === "micro_patch",
+    reason: changeScope || result?.recommendedFlow || null,
+  };
+};
+
+const buildPlanRequiredReads = (result = {}) => {
+  const blueprintReads = Array.isArray(result?.sectionBlueprint?.requiredReads)
+    ? result.sectionBlueprint.requiredReads
+    : [];
+  const byKey = new Map();
+  for (const read of blueprintReads) {
+    const key = String(read?.key || "").trim();
+    if (!key) {
+      continue;
+    }
+    byKey.set(key, {
+      key,
+      reason: String(read?.reason || "planner required context read"),
+      includeContent: true,
+    });
+  }
+  for (const key of Array.isArray(result?.nextReadKeys) ? result.nextReadKeys : []) {
+    const normalized = String(key || "").trim();
+    if (!normalized || byKey.has(normalized)) {
+      continue;
+    }
+    byKey.set(normalized, {
+      key: normalized,
+      reason: "required before write",
+      includeContent: true,
+    });
+  }
+  return Array.from(byKey.values());
+};
+
+const resolveScaleConstraintProfile = ({ result = {}, codegenContract = null } = {}) => {
+  const scaleProfile =
+    codegenContract?.scaleProfile ||
+    result?.generationRecipe?.scaleProfile ||
+    result?.sectionBlueprint?.generationRecipe?.scaleProfile ||
+    null;
+  const referenceSignals = result?.sectionBlueprint?.referenceSignals || null;
+  const layoutContract = result?.sectionBlueprint?.layoutContract || null;
+  const fullBleedAllowed =
+    scaleProfile?.allowOversizedScale === true ||
+    layoutContract?.outerShell === "full_bleed" ||
+    layoutContract?.avoidOuterContainer === true ||
+    referenceSignals?.heroShellFamily === "media_first_unboxed";
+  const profile = fullBleedAllowed
+    ? "full_bleed"
+    : result?.qualityTarget === "exact_match" ||
+        result?.sectionBlueprint?.qualityTarget === "exact_match"
+      ? "reference_replica"
+      : "theme_default";
+
+  return { scaleProfile, profile };
+};
+
+const buildPlanConstraints = ({ result = {}, codegenContract = null } = {}) => {
+  const { scaleProfile, profile } = resolveScaleConstraintProfile({
+    result,
+    codegenContract,
+  });
+  return {
+    schema: {
+      exactlyOneSchemaBlock: true,
+      presetRequired: true,
+      uniqueSettingIds: true,
+      labelsRequiredForEditableSettings: true,
+      rangeDefaultsMustFitBoundsAndStep: true,
+      preferSelectForSmallDiscreteRanges: true,
+    },
+    liquid: {
+      blockShopifyAttributesInLoop: true,
+      blankSafeMediaGuards: true,
+      shopifyImagesUseImageUrlImageTag: true,
+      noLiquidInsideStylesheetOrJavascriptTags: true,
+    },
+    css: {
+      scopeToSectionRoot: true,
+      liquidDependentCssUsesStyleTag: true,
+      boundedShellMarker: "data-section-bounded-shell",
+    },
+    js: {
+      scopeInteractiveSelectorsToSection: true,
+      themeEditorLifecycleForScriptedInteractions: true,
+    },
+    media: {
+      merchantUploadedVideoSettingType: "video",
+      externalVideoSettingType: "video_url",
+      imageSettingType: "image_picker",
+    },
+    architecture: codegenContract?.architecture || null,
+    scale: {
+      profile,
+      ...(scaleProfile?.contentMaxWidthDefault
+        ? { contentWidthDefaultMax: scaleProfile.contentMaxWidthDefault }
+        : {}),
+      ...(scaleProfile?.contentMaxWidthMax
+        ? { contentWidthSettingMax: scaleProfile.contentMaxWidthMax }
+        : {}),
+      ...(scaleProfile?.gridGapMaxPx ? { gridGapMax: scaleProfile.gridGapMaxPx } : {}),
+      ...(scaleProfile?.cardMinHeightMax
+        ? { cardHeightMax: scaleProfile.cardMinHeightMax }
+        : {}),
+      ...(scaleProfile?.mobileCardMinHeightMax
+        ? { mobileCardHeightMax: scaleProfile.mobileCardMinHeightMax }
+        : {}),
+      ...(scaleProfile?.cardPaddingMaxPx
+        ? { cardPaddingMax: scaleProfile.cardPaddingMaxPx }
+        : {}),
+      allowOversizedScale: scaleProfile?.allowOversizedScale === true,
+      themeSource: scaleProfile?.themeSource || null,
+    },
+  };
+};
+
+const buildPlanReadContext = ({ context = {}, input = {}, result = {} } = {}) => {
+  const keys = uniqueStrings([
+    getPlanTargetFile(input, result),
+    ...(Array.isArray(result?.nextReadKeys) ? result.nextReadKeys : []),
+  ]);
+  const files = keys.map((key) => {
+    const recentRead = getRecentThemeRead(context, {
+      key,
+      themeId: input?.themeId,
+      themeRole: input?.themeRole,
+      requireContent: true,
+    });
+    return {
+      key,
+      currentReadContextValid: Boolean(recentRead?.content),
+      checksumMd5: recentRead?.checksumMd5 || null,
+      contentLength: recentRead?.contentLength ?? null,
+    };
+  });
+  return {
+    currentReadContextValid:
+      files.length > 0 && files.every((file) => file.currentReadContextValid),
+    knownChecksumMd5:
+      files.length === 1 && files[0]?.checksumMd5 ? files[0].checksumMd5 : null,
+    files,
+  };
+};
+
+const buildPlanGoldenPath = ({
+  immediateStep = {},
+  writeTool = null,
+  writeArgsTemplate = null,
+} = {}) => {
+  const steps = [];
+  if (immediateStep?.nextTool) {
+    steps.push({
+      tool: immediateStep.nextTool,
+      ...(immediateStep.nextArgsTemplate
+        ? { args: immediateStep.nextArgsTemplate }
+        : {}),
+    });
+  }
+  if (writeTool && writeTool !== immediateStep?.nextTool) {
+    steps.push({
+      tool: writeTool,
+      ...(writeArgsTemplate ? { argsShape: writeArgsTemplate } : {}),
+    });
+  }
+  return steps;
+};
+
+const buildPlanSafetyWarnings = ({ result = {}, input = {} } = {}) => {
+  const warnings = [];
+  const role = String(result?.theme?.role || input?.themeRole || "").toLowerCase();
+  if (role === "main") {
+    warnings.push({
+      code: "LIVE_THEME",
+      message: "Writes target the live theme.",
+    });
+  }
+  return warnings;
+};
+
+const mergePlanWarningStrings = (resultWarnings = [], safetyWarnings = []) =>
+  uniqueStrings([
+    ...(Array.isArray(resultWarnings) ? resultWarnings : []),
+    ...safetyWarnings.map((warning) => warning.message),
+  ]);
+
+const buildCompactPlanResponse = ({
+  input = {},
+  result = {},
+  immediateStep = {},
+  writeTool = null,
+  writeArgsTemplate = null,
+  requiredToolNames = [],
+  codegenContract = null,
+  normalizedArgs = {},
+  stickyTarget = null,
+  context = {},
+} = {}) => {
+  const targetFile = getPlanTargetFile(input, result);
+  const safetyWarnings = buildPlanSafetyWarnings({ result, input });
+  const writePolicy = buildPlanWritePolicy({ input, result, writeTool });
+  const flowArchitecture =
+    input?.intent === "native_block" && result?.architecture
+      ? result.architecture
+      : codegenContract?.architecture || result?.architecture || null;
+  return {
+    ok: true,
+    success: true,
+    flowId: `theme-${Date.now().toString(36)}`,
+    normalizedArgs,
+    target: {
+      themeId:
+        result?.theme?.id ??
+        (input?.themeId === undefined || input?.themeId === null ? null : Number(input.themeId)),
+      themeRole: result?.theme?.role || input?.themeRole || null,
+      themeName: result?.theme?.name || null,
+      file: targetFile,
+    },
+    intent: input?.intent || result?.intent || null,
+    changeScope: result?.changeScope || null,
+    goldenPath: buildPlanGoldenPath({
+      immediateStep,
+      writeTool,
+      writeArgsTemplate,
+    }),
+    writePolicy,
+    doNotUse: writePolicy.doNotUse,
+    requiredReads: buildPlanRequiredReads(result),
+    constraints: buildPlanConstraints({ result, codegenContract }),
+    readContext: buildPlanReadContext({ context, input, result }),
+    architecture: flowArchitecture,
+    codegenArchitecture: codegenContract?.architecture || null,
+    nextAction: immediateStep.nextAction || null,
+    nextTool: immediateStep.nextTool || null,
+    nextArgsTemplate: immediateStep.nextArgsTemplate || null,
+    writeTool: writeTool || null,
+    writeArgsTemplate: writeArgsTemplate || null,
+    requiredToolNames,
+    requiresReadBeforeWrite: Boolean(immediateStep.requiresReadBeforeWrite),
+    recommendedFlow: result?.recommendedFlow || null,
+    shouldUse: result?.shouldUse || null,
+    reason: result?.reason || null,
+    candidateFiles: result?.candidateFiles || [],
+    nextReadKeys: result?.nextReadKeys || [],
+    nextWriteKeys: result?.nextWriteKeys || [],
+    newFileSuggestions: result?.newFileSuggestions || [],
+    searchQueries: result?.searchQueries || [],
+    warnings: mergePlanWarningStrings(result?.warnings, safetyWarnings),
+    safetyWarnings,
+    ...(stickyTarget ? { stickyTarget } : {}),
+  };
+};
+
 const planThemeEditTool = {
   name: "plan-theme-edit",
   title: "Plan Theme Edit",
   description:
-    "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Gebruik plan-theme-edit voor native blocks, placement-vragen en andere theme-aware flows. Geef bij voorkeur intent plus themeId of themeRole='main' mee; gebruik themeId voor development/unpublished/demo themes. De planner retourneert de directe volgende stap: compacte search-theme-files anchoring wanneer dat veilig kan, en alleen nog get-theme-file(s) voor diepere contextreads. Bredere refinements van bestaande sections/snippets gaan expliciet richting draft-theme-artifact; patch-theme-file blijft alleen voor kleine, gerichte fixes. Batch C voegt hier nu ook changeScope (`micro_patch`, `bounded_rewrite`, `multi_file_structural_edit`, `net_new_generation`) en concrete diagnosticTargets aan toe, zodat vervolgtools minder heuristisch hoeven te gokken. Voor exacte screenshot/design-replica sections stuurt de planner nu op één precieze create-write met de finale styling in de eerste pass, niet op een veilige baseline gevolgd door een toestemming-vraag. Screenshot-only replica's zonder losse bron-assets markeert de planner nu apart zodat de write-flow demo-media of gestileerde media shells kan toestaan zonder de precision-first intent te verliezen. Bij comparison/shell replica's geeft de planner nu ook expliciet signalen terug voor desktop/mobile parity, decoratieve anchors zoals floating productmedia of badges, en het vermijden van dubbele background-shells.",
+    "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Geef intent plus themeId of themeRole='main' mee. De standaardoutput is compact en machine-actionable: target, goldenPath, writePolicy, doNotUse, requiredReads, constraints, readContext, architecture, nextTool en writeTool. Gebruik includeContracts=true of verbosity='debug' wanneer een stateless client de volledige plannerHandoff, sectionBlueprint en codegenContract.promptBlock moet doorgeven aan latere write-tools.",
   docsDescription:
-    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole='main'`; gebruik themeId voor development/unpublished/demo themes. Gebruik dit eerst voor native product-blocks, blocks in bestaande sections, template placement of wanneer je tokenzuinig exact wilt weten welke files je moet lezen. De output geeft een compacte theme-aware strategie terug: `patch-existing`, `multi-file-edit`, `create-section` of `template-placement`, plus Batch C-classificatie via `changeScope` (`micro_patch`, `bounded_rewrite`, `multi_file_structural_edit`, `net_new_generation`) en `preferredWriteMode`. `nextTool` en `nextArgsTemplate` beschrijven nu de onmiddellijke volgende stap: voor native blocks en patch-first edits liefst eerst `search-theme-files` op de exacte planner-keys voor compacte anchors, en alleen nog `get-theme-file` of `get-theme-files` wanneer diepere contextreads echt nodig zijn. Daarna volgt pas de uiteindelijke write-tool via `writeTool` en `writeArgsTemplate`. Langere `query`- of `description`-prompts zijn toegestaan; de planner compacteert die intern naar een korte query voor tokenzuinige planning, maar retourneert daarnaast ook een `plannerHandoff` met de volledige brief, archetype, layoutContract, themeWrapperStrategy, changeScope, preferredWriteMode, native-block architecture, required reads, reference signals, searchQueries, diagnosticTargets en requiredToolNames zodat write-tools en clients minder context verliezen. Voor native product-blocks analyseert de planner het relevante templatebestand al zelf; reread dat template daarna alleen als placement expliciet gevraagd is. Compatibele clients mogen ook `_tool_input_summary`, `description`, `type`, `intentType`, `intent_type` en `targetFiles` meesturen. Vrije summary-tekst mag alleen veilige inferentie doen voor intent, theme target, template en exact één bestaand `targetFile`; non-main themewoorden zonder themeId worden niet naar role-only targets omgezet. Wanneer in dezelfde flow net een section is aangemaakt of exact is gepland, kunnen vervolgprompts zoals 'optimaliseer hem' of 'maak V2' automatisch blijven wijzen naar datzelfde target, maar alleen zolang het expliciete theme-target compatibel blijft. Een expliciete theme-switch verbreekt die sticky koppeling; alleen `themeRole='main'` mag nog veilig aan een eerder bevestigd `themeId` blijven hangen omdat Shopify daar maar één live theme tegelijk toestaat. Voor nieuwe sections retourneert de planner nu naast `themeContext` ook een `sectionBlueprint` met category, qualityTarget, generationMode, completionPolicy, layoutContract, themeWrapperStrategy, required reads, relevante helpers, risky inherited classes, safe unit strategy, forbidden patterns, preflight checks, reference signals en write-strategy hints. Screenshot-only exacte replica's zonder losse bron-assets krijgen daarbij aparte reference-signals zoals previewMediaPolicy=\"best_effort_demo_media\" en allowStylizedPreviewFallbacks=true, terwijl expliciete bronmedia de strengere strict_renderable_media-route actief houden. Bij comparison/shell replica's geeft de planner daarnaast nu ook signalen terug voor desktop/mobile parity, decoratieve anchors zoals floating productmedia of badges, en het vermijden van dubbele background-shells wanneer theme wrappers zoals section-properties al een outer surface impliceren. Exacte screenshot/design-replica prompts krijgen verder precision-first guardrails: liever één sterke create-write met de finale styling in de eerste pass en daarna hooguit een volledige rewrite-edit, niet een baseline gevolgd door grote patch-batches of een extra toestemming-vraag voor pixel-perfect styling.",
+    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole='main'`; gebruik themeId voor development/unpublished/demo themes. De standaardoutput is compact: `target`, `goldenPath`, `writePolicy`, `doNotUse`, `requiredReads`, `constraints`, `readContext`, `architecture`, `nextTool`, `nextArgsTemplate`, `writeTool` en `writeArgsTemplate`. Zwaardere velden zoals `plannerHandoff`, `sectionBlueprint`, `codegenContract` en `codegenContract.promptBlock` zijn opt-in via `includeContracts=true` of `verbosity='debug'`. Voor native blocks blijft `architecture` de native renderer-architectuur; section-codegen architectuur staat apart onder `codegenArchitecture` en `constraints.architecture`. Gebruik `goldenPath` en `writePolicy.doNotUse` als bron van waarheid voor toolrouting: micro-patches mogen `patch-theme-file`, bounded rewrites gaan naar `draft-theme-artifact`, en net-new sections gebruiken `create-theme-section` als eerste write-tool.",
   inputSchema: PlanThemeEditPublicObjectSchema,
   schema: PlanThemeEditInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -1003,17 +1330,28 @@ const planThemeEditTool = {
       sectionBlueprint: result?.sectionBlueprint || null,
       plannerHandoff,
     });
-    return {
-      success: true,
+    const compactResponse = buildCompactPlanResponse({
+      input,
+      result,
+      immediateStep,
+      writeTool,
+      writeArgsTemplate,
+      requiredToolNames,
+      codegenContract,
       normalizedArgs,
-      ...(immediateStep.nextAction ? { nextAction: immediateStep.nextAction } : {}),
-      ...(immediateStep.nextTool ? { nextTool: immediateStep.nextTool } : {}),
-      ...(immediateStep.nextArgsTemplate
-        ? { nextArgsTemplate: immediateStep.nextArgsTemplate }
-        : {}),
-      ...(writeTool ? { writeTool } : {}),
-      ...(writeArgsTemplate ? { writeArgsTemplate } : {}),
-      ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
+      stickyTarget,
+      context,
+    });
+    const includeContracts =
+      input.includeContracts === true || input.verbosity === "debug";
+
+    if (!includeContracts) {
+      return compactResponse;
+    }
+
+    return {
+      ...compactResponse,
+      verbosity: input.verbosity,
       plannerHandoff,
       codegenContract,
       ...(result?.sectionBlueprint?.generationRecipe
@@ -1022,19 +1360,20 @@ const planThemeEditTool = {
       ...(result?.sectionBlueprint?.implementationContract
         ? { implementationContract: result.sectionBlueprint.implementationContract }
         : {}),
-      ...(result?.changeScope ? { changeScope: result.changeScope } : {}),
-      ...(result?.preferredWriteMode
-        ? { preferredWriteMode: result.preferredWriteMode }
-        : {}),
       ...(Array.isArray(result?.diagnosticTargets) &&
       result.diagnosticTargets.length > 0
         ? { diagnosticTargets: result.diagnosticTargets }
         : {}),
-      ...(typeof immediateStep.requiresReadBeforeWrite === "boolean"
-        ? { requiresReadBeforeWrite: immediateStep.requiresReadBeforeWrite }
-        : {}),
-      ...(stickyTarget ? { stickyTarget } : {}),
       ...result,
+      warnings: compactResponse.warnings,
+      safetyWarnings: compactResponse.safetyWarnings,
+      goldenPath: compactResponse.goldenPath,
+      writePolicy: compactResponse.writePolicy,
+      doNotUse: compactResponse.doNotUse,
+      constraints: compactResponse.constraints,
+      readContext: compactResponse.readContext,
+      architecture: compactResponse.architecture,
+      codegenArchitecture: compactResponse.codegenArchitecture,
     };
   },
 };

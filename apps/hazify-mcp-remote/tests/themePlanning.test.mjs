@@ -3,6 +3,7 @@ import {
   planThemeEdit,
   searchThemeFilesWithSnippets,
 } from "../src/lib/themePlanning.js";
+import { planThemeEditTool } from "../src/tools/planThemeEdit.js";
 
 const originalFetch = global.fetch;
 const shopifyClient = {
@@ -12,6 +13,7 @@ const shopifyClient = {
       "X-Shopify-Access-Token": "shpat_unit_test",
     },
   },
+  request: async () => ({}),
 };
 
 const themeNode = {
@@ -619,6 +621,50 @@ try {
     "media_surface",
     "video-slider prompts should keep a media-surface layout contract outside the hero-only shell logic"
   );
+
+  const compactVideoCardsPlan = await planThemeEditTool.execute(
+    {
+      themeId: 123,
+      intent: "new_section",
+      template: "homepage",
+      query:
+        "Maak een section met repeatable video cards in een grid; elke card heeft een Shopify uploaded video en op mobiel scroll-snap.",
+    },
+    { shopifyClient, tokenHash: "compact-video-cards-plan" }
+  );
+  assert.equal(compactVideoCardsPlan.success, true);
+  assert.equal(compactVideoCardsPlan.plannerHandoff, undefined);
+  assert.equal(compactVideoCardsPlan.codegenContract, undefined);
+  assert.equal(compactVideoCardsPlan.writePolicy?.preferredTool, "create-theme-section");
+  assert.deepEqual(compactVideoCardsPlan.writePolicy?.allowedTools, ["create-theme-section"]);
+  assert.ok(
+    compactVideoCardsPlan.goldenPath?.some((step) => step.tool === "get-theme-files") &&
+      compactVideoCardsPlan.goldenPath?.some((step) => step.tool === "create-theme-section"),
+    "compact planner output should expose an actionable read -> create golden path"
+  );
+  assert.equal(compactVideoCardsPlan.constraints?.media?.merchantUploadedVideoSettingType, "video");
+  assert.equal(compactVideoCardsPlan.constraints?.architecture?.blockModel, "repeated_cards");
+  assert.equal(compactVideoCardsPlan.constraints?.architecture?.mediaModel, "block_level_video");
+  assert.equal(compactVideoCardsPlan.constraints?.architecture?.interactionKind, "mobile_scroll_snap");
+  assert.equal(
+    compactVideoCardsPlan.safetyWarnings.filter((warning) => warning.code === "LIVE_THEME").length,
+    1,
+    "compact planner output should include one live-theme warning"
+  );
+
+  const debugVideoCardsPlan = await planThemeEditTool.execute(
+    {
+      themeId: 123,
+      intent: "new_section",
+      template: "homepage",
+      query:
+        "Maak een section met repeatable video cards in een grid; elke card heeft een Shopify uploaded video.",
+      includeContracts: true,
+    },
+    { shopifyClient, tokenHash: "debug-video-cards-plan" }
+  );
+  assert.ok(debugVideoCardsPlan.plannerHandoff);
+  assert.ok(debugVideoCardsPlan.codegenContract);
 
   global.fetch = createGraphqlFetch(mediaEditFiles);
 

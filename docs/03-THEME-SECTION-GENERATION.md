@@ -96,8 +96,10 @@ Voorbeeldprompt:
 Maak een comparison table section voor product voordelen met 3 kolommen en CTA.
 ```
 
-### Codegen Contract en preflight-profielen
-`plan-theme-edit` geeft naast `sectionBlueprint` nu ook een compacte `codegenContract` terug. Clients mogen `codegenContract.promptBlock` rechtstreeks meegeven aan hun codegeneratiemodel vóór `create-theme-section` of een brede section rewrite. Dit block bevat alleen harde generatie-eisen: schema, Liquid, scoped CSS/JS, responsief gedrag, generieke section-architectuur en waar beschikbaar een theme-afgeleide `scaleProfile`.
+### Compacte planner-output, Codegen Contract en preflight-profielen
+`plan-theme-edit` retourneert standaard een compacte, machine-actionable route: `target`, `goldenPath`, `writePolicy`, `doNotUse`, `requiredReads`, `constraints`, `readContext`, `architecture`, `nextTool` en `writeTool`. Volledige debugvelden zoals `plannerHandoff`, `sectionBlueprint` en `codegenContract` zijn opt-in via `includeContracts: true` of `verbosity: "debug"`.
+
+Wanneer een client zelf Liquid gaat genereren, mag hij `codegenContract.promptBlock` rechtstreeks meegeven aan het codegeneratiemodel. Dit block bevat alleen harde generatie-eisen: schema, Liquid, scoped CSS/JS, responsief gedrag, generieke section-architectuur en waar beschikbaar een theme-afgeleide `scaleProfile`. In compact mode staan dezelfde kernregels machine-readable onder `constraints`.
 
 Validatieprofielen zijn bewust profiel-gebaseerd:
 - `syntax_only`: basis schema/Liquid safety voor micro-patches en kleine patchroutes.
@@ -105,12 +107,12 @@ Validatieprofielen zijn bewust profiel-gebaseerd:
 - `production_visual`: nieuwe sections en brede visual sections; voegt responsive/card/carousel heuristieken toe.
 - `exact_replica`: `production_visual` plus strengere replica-signalen voor screenshot/exact/pixel-match prompts.
 
-De planner leidt daarnaast een generieke `sectionKind` af, zoals `hero_with_logo_marquee`, `hero_slider`, `logo_marquee`, `testimonial_slider`, `review_grid`, `review_carousel`, `comparison`, `faq`, `tabs`, `media_section`, `product_related` of `unknown`. Die inference mag nooit theme-specifiek zijn: geen hardcoded Impact-classes, snippetnamen, wrappergedrag of schaalwaarden. Theme-context mag alleen via profieldata, `sectionBlueprint`, `generationRecipe` en `scaleProfile` meespelen.
+De planner leidt daarnaast een generieke `sectionKind` af, zoals `hero`, `hero_with_social_proof`, `hero_with_logo_marquee`, `hero_slider`, `hero_slider_with_logo_marquee`, `image_slider`, `video_grid`, `video_slider`, `logo_marquee`, `testimonial_slider`, `review_grid`, `review_carousel`, `comparison`, `faq`, `tabs`, `media_section`, `content`, `product_related` of `unknown`. Die inference mag nooit theme-specifiek zijn: geen hardcoded Impact-classes, snippetnamen, wrappergedrag of schaalwaarden. Theme-context mag alleen via profieldata, `sectionBlueprint`, `generationRecipe` en `scaleProfile` meespelen.
 
 De contractlaag maakt ook de data-architectuur expliciet vóór generatie:
-- `interactionKind`: `none`, `static`, `slider`, `carousel`, `marquee`, `slider_and_marquee`, `tabs` of `accordion`
+- `interactionKind`: `none`, `static`, `slider`, `carousel`, `mobile_scroll_snap`, `marquee`, `slider_and_marquee`, `tabs` of `accordion`
 - `blockModel`: `none`, `slides`, `logos`, `repeated_cards`, `repeated_reviews`, `mixed_blocks`, `rows`, `faq_items` of `tabs`
-- `mediaModel`: `none`, `section_level_media`, `block_level_media`, `block_level_avatar`, `block_level_logo` of `both`
+- `mediaModel`: `none`, `section_level_media`, `block_level_media`, `block_level_video`, `block_level_avatar`, `block_level_logo` of `both`
 - `navigationModel`: `none`, `link_button`, `decorative_arrow`, `slider_controls`, `dots`, `arrows` of `arrows_and_dots`
 - `contentModel`: `section_settings`, `block_settings` of `mixed`
 
@@ -144,7 +146,7 @@ Belangrijk:
 - Zodra het doelbestand al bestaat, hoort de client niet opnieuw `create-theme-section` te kiezen maar over te schakelen naar `existing_edit`
 - Als een gewone stateless client tóch nog een refine-prompt via `create-theme-section` op exact dezelfde net aangemaakte section stuurt, converteert de server die route nu veilig naar `draft-theme-artifact mode="edit"` zolang theme-target en recent file-context aantoonbaar hetzelfde blijven
 - Kleine constrained responsive edits zoals “alleen op mobiel”, “desktop ongewijzigd” of een bestaande rating/CTA bovenaan zetten, horen nu expliciet in de `patch-theme-file` route en niet meer automatisch in een rewrite-flow
-- Bij `patch_scope_too_large` moet de client eerst opnieuw `get-theme-file includeContent=true` doen op hetzelfde theme target. Pas daarna mag een preserve-on-edit full-file rewrite naar `draft-theme-artifact mode="edit"` worden gestuurd.
+- Bij `patch_scope_too_large` volgt de client de repair response. Als `readContext.currentReadContextValid=true`, mag de volgende stap direct `draft-theme-artifact mode="edit"` met dezelfde structurele `patch`/`patches` en `baseChecksumMd5` zijn. Alleen bij ontbrekende, stale of theme-incompatibele read-context moet de client eerst opnieuw `get-theme-file includeContent=true` doen.
 - Broad rewrites op bestaande grote files blijven beschermd door truncation en lossy-rewrite checks
 - Gebruik `value` alleen als het volledige actuele bestand bewust is ingelezen en preserve-on-edit vervangen moet worden
 - Gebruik in `files[].value` altijd echte volledige bestandsinhoud; context-placeholders, compacte reconstructies of samenvattingen zoals `REWRITE_ALREADY_APPLIED_IN_CONTEXT` zijn ongeldig
@@ -303,7 +305,7 @@ Algemene regel: één background shell is genoeg. Combineer geen `section-proper
 - Gewone chatclients zoals ChatGPT, Claude en Perplexity missen soms server-side sessiecontext tussen toolcalls
 - Daarom retourneren create-conflicts nu expliciet een repair-sequence: `plan-theme-edit intent="existing_edit"` -> exacte read(s) -> `draft-theme-artifact mode="edit"`
 - Full rewrites op bestaande bestanden moeten altijd het volledige nieuwe bestand meesturen; de MCP kan een placeholder-string nooit terugvertalen naar echte Liquid
-- `patch_scope_too_large` retourneert daarom nu bewust `nextTool="get-theme-file"` met `includeContent=true`. De retry-template voor `draft-theme-artifact` is pas de stap daarna en verwacht de volledig bewerkte actuele filebody.
+- `patch_scope_too_large` retourneert daarom expliciet `readContext`, `requiresReread`, `nextTool`, `nextArgsTemplate` en `doNotUse`. Met geldige read-context is `nextTool="draft-theme-artifact"` en mag de retry dezelfde structurele patch uitvoeren; zonder geldige read-context is `nextTool="get-theme-file"` met `includeContent=true`.
 - Bij inspectiefouten zet de response expliciet `writeApplied=false`, `liveFileUnchanged=true` en `writeStatus="blocked_live_file_unchanged"` zodat clients weten dat een failed preflight het theme niet heeft gewijzigd.
 
 ## Read Semantics
@@ -317,7 +319,7 @@ Algemene regel: één background shell is genoeg. Combineer geen `section-proper
 
 ## Token-Efficiënte Flow
 - Plan eerst, lees daarna alleen `nextReadKeys`
-- Gebruik de compacte `generationRecipe` als generation prompt-contract. Dump geen extra volledige theme files om wrapperMode, repeatable blocks of scale opnieuw te raden.
+- Gebruik de compacte `constraints`, `architecture` en eventueel `codegenContract.promptBlock` als generation prompt-contract. Dump geen extra volledige theme files om wrapperMode, repeatable blocks of scale opnieuw te raden.
 - Gebruik `search-theme-files` voor compacte anchors
 - `plan-theme-edit` leest nu minder eager full-content mee:
   - bestaande surgical existing-edits hydrateren niet meer standaard renderer-snippets
