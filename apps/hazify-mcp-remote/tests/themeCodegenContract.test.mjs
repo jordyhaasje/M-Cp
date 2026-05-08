@@ -73,7 +73,7 @@ test("themeCodegenContract - planner contract includes compact prompt block", ()
     requestText: "review carousel",
   });
 
-  assert.equal(contract.version, "2026-04-30");
+  assert.equal(contract.version, "2026-05-08");
   assert.equal(contract.validationProfile, "production_visual");
   assert.equal(contract.sectionKind, "review_carousel");
   assert.match(contract.promptBlock, /CODEGEN CONTRACT/);
@@ -643,6 +643,180 @@ const heroSliderSchema = `{
   ],
   "presets": [{ "name": "Hero slider", "blocks": [{ "type": "slide" }] }]
 }`;
+
+test("themeCodegenContract - rich hero slides remain slide blocks when they include review and avatar fields", () => {
+  const result = preflightSectionLiquid(
+    section({
+      body: `
+        <style>
+          #shopify-section-{{ section.id }} .hero-best { display: block; overflow: hidden; }
+          #shopify-section-{{ section.id }} .hero-best__track { display: flex; transition: transform .45s ease; }
+          #shopify-section-{{ section.id }} .hero-best__slide { flex: 0 0 100%; min-height: 560px; }
+          @media screen and (max-width: 749px) { #shopify-section-{{ section.id }} .hero-best__slide { min-height: 440px; } }
+          @media (prefers-reduced-motion: reduce) { #shopify-section-{{ section.id }} .hero-best__track { transition: none; } }
+        </style>
+        <hero-best class="hero-best" data-section-slider data-section-bounded-shell data-autoplay>
+          <button type="button" data-prev aria-label="Previous slide">Prev</button>
+          <div class="hero-best__track" data-track>
+            {% for block in section.blocks %}
+              <article class="hero-best__slide" data-section-slide {{ block.shopify_attributes }}>
+                {% if block.settings.media_type == 'video' and block.settings.video != blank %}
+                  {{ block.settings.video | video_tag: autoplay: true, muted: true, loop: true, controls: false }}
+                {% elsif block.settings.image != blank %}
+                  {{ block.settings.image | image_url: width: 1800 | image_tag }}
+                {% endif %}
+                {% if block.settings.avatar_1 != blank %}
+                  {{ block.settings.avatar_1 | image_url: width: 96 | image_tag }}
+                {% endif %}
+                <p>{{ block.settings.quote }}</p>
+                <p>{{ block.settings.reviewer }}</p>
+                <h2>{{ block.settings.heading }}</h2>
+                <div>{{ block.settings.text }}</div>
+                <a href="{{ block.settings.button_link }}">{{ block.settings.button_text }}</a>
+                <a href="{{ block.settings.secondary_button_link }}">{{ block.settings.secondary_button_text }}</a>
+              </article>
+            {% endfor %}
+          </div>
+          <button type="button" data-next aria-label="Next slide">Next</button>
+          <div data-dots aria-label="Slide pagination"></div>
+          <script>
+            if (!customElements.get('hero-best')) {
+              customElements.define('hero-best', class extends HTMLElement {
+                connectedCallback() {
+                  this.index = 0;
+                  this.track = this.querySelector('[data-track]');
+                  this.slides = Array.from(this.querySelectorAll('[data-section-slide]'));
+                  this.querySelector('[data-next]')?.addEventListener('click', () => this.goTo(this.index + 1));
+                  this.querySelector('[data-prev]')?.addEventListener('click', () => this.goTo(this.index - 1));
+                  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                    this.timer = setInterval(() => this.goTo(this.index + 1), 5000);
+                  }
+                  this.updateMedia();
+                }
+                disconnectedCallback() { clearInterval(this.timer); }
+                goTo(nextIndex) {
+                  this.index = (nextIndex + this.slides.length) % this.slides.length;
+                  this.track.style.transform = 'translateX(-' + (this.index * 100) + '%)';
+                  this.updateMedia();
+                }
+                updateMedia() {
+                  this.slides.forEach((slide, slideIndex) => {
+                    slide.querySelectorAll('video').forEach((video) => {
+                      if (slideIndex === this.index) video.play?.();
+                      else video.pause?.();
+                    });
+                  });
+                }
+              });
+            }
+            document.addEventListener('shopify:section:load', () => {});
+            document.addEventListener('shopify:block:select', () => {});
+          </script>
+        </hero-best>
+      `,
+      schema: `{
+        "name": "Hero section best",
+        "blocks": [
+          {
+            "type": "slide",
+            "name": "Slide",
+            "settings": [
+              { "type": "select", "id": "media_type", "label": "Media type", "options": [{ "value": "image", "label": "Image" }, { "value": "video", "label": "Video" }], "default": "image" },
+              { "type": "image_picker", "id": "image", "label": "Image" },
+              { "type": "video", "id": "video", "label": "Video" },
+              { "type": "image_picker", "id": "avatar_1", "label": "Avatar 1" },
+              { "type": "textarea", "id": "quote", "label": "Quote", "default": "Premium uitstraling" },
+              { "type": "text", "id": "reviewer", "label": "Reviewer", "default": "Customer" },
+              { "type": "text", "id": "heading", "label": "Heading", "default": "Hero heading" },
+              { "type": "richtext", "id": "text", "label": "Text", "default": "<p>Hero copy</p>" },
+              { "type": "text", "id": "button_text", "label": "Button text", "default": "Shop now" },
+              { "type": "url", "id": "button_link", "label": "Button link" },
+              { "type": "text", "id": "secondary_button_text", "label": "Secondary button text", "default": "Learn more" },
+              { "type": "url", "id": "secondary_button_link", "label": "Secondary button link" }
+            ]
+          }
+        ],
+        "presets": [{ "name": "Hero section best", "blocks": [{ "type": "slide" }, { "type": "slide" }] }]
+      }`,
+    }),
+    {
+      validationProfile: "production_visual",
+      requestText:
+        "Maak een moderne hero slider met meerdere slides, per slide videos en afbeeldingen, autoplay, avatars, reviews, quotes, reviewer name, two buttons, arrows and dots",
+    }
+  );
+
+  assert.equal(result.ok, true);
+  assert.ok(!codes(result).includes("architecture_missing_slide_blocks"));
+  assert.equal(result.promptCoverage.features.perSlideVideo.status, "yes");
+});
+
+test("themeCodegenContract - per-slide video prompt is not satisfied by section-level video only", () => {
+  const result = preflightSectionLiquid(
+    section({
+      body: `
+        <style>
+          #shopify-section-{{ section.id }} .hero-slider { display: block; }
+          #shopify-section-{{ section.id }} .hero-slider__track { display: flex; transition: transform .3s ease; }
+          #shopify-section-{{ section.id }} .hero-slider__slide { flex: 0 0 100%; }
+          @media screen and (max-width: 749px) { #shopify-section-{{ section.id }} .hero-slider__slide { min-height: 360px; } }
+        </style>
+        <hero-slider class="hero-slider" data-section-slider>
+          {% if section.settings.hero_video != blank %}
+            {{ section.settings.hero_video | video_tag: autoplay: true, muted: true, loop: true, controls: false }}
+          {% endif %}
+          <button type="button" data-next aria-label="Next slide">Next</button>
+          <div class="hero-slider__track" data-track>
+            {% for block in section.blocks %}
+              <article class="hero-slider__slide" data-section-slide {{ block.shopify_attributes }}>
+                {% if block.settings.image != blank %}
+                  {{ block.settings.image | image_url: width: 1600 | image_tag }}
+                {% endif %}
+                <h2>{{ block.settings.heading }}</h2>
+                <p>{{ block.settings.text }}</p>
+                <a href="{{ block.settings.button_link }}">{{ block.settings.button_text }}</a>
+              </article>
+            {% endfor %}
+          </div>
+          <script>
+            if (!customElements.get('hero-slider')) {
+              customElements.define('hero-slider', class extends HTMLElement {
+                connectedCallback() {
+                  this.index = 0;
+                  this.track = this.querySelector('[data-track]');
+                  this.querySelector('[data-next]')?.addEventListener('click', () => {
+                    this.index += 1;
+                    this.track.style.transform = 'translateX(-100%)';
+                  });
+                }
+              });
+            }
+            document.addEventListener('shopify:section:load', () => {});
+          </script>
+        </hero-slider>
+      `,
+      schema: `{
+        "name": "Hero slider",
+        "settings": [
+          { "type": "video", "id": "hero_video", "label": "Hero video" }
+        ],
+        "blocks": [
+          ${heroSlideBlockSchema}
+        ],
+        "presets": [{ "name": "Hero slider", "blocks": [{ "type": "slide" }] }]
+      }`,
+    }),
+    {
+      validationProfile: "production_visual",
+      requestText:
+        "Maak een hero slider met per-slide videos en afbeeldingen, heading, text and buttons",
+    }
+  );
+
+  assert.equal(result.ok, false);
+  assert.ok(codes(result).includes("architecture_slide_missing_video_or_external_video"));
+  assert.equal(result.promptCoverage.features.perSlideVideo.status, "partial");
+});
 
 test("themeCodegenContract - slider_controls contract fails if buttons do not change slides", () => {
   const result = preflightSectionLiquid(

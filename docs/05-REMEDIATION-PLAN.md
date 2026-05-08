@@ -9,6 +9,7 @@ Dit document is de actuele releasekaart voor de Hazify monorepo. Het is geen cha
 - MCP Remote gebruikt PostgreSQL voor `theme_drafts`, verify/apply state en advisory locks.
 - License Service production startup vereist sterke admin/MCP secrets, `HAZIFY_FREE_MODE=false`, resource-bound MCP tokens en test-only signup auto-activation uit.
 - Theme generation is gericht op hogere first-pass success rate en lager tokenverbruik via compact planner output, preflight bundling, compact failure responses en server-side context waar veilig.
+- Theme section codegen preflight gebruikt nu tolerante JSON-schema blockrol-detectie: feature-rijke `slide` blocks met video/avatar/review/quote/secondary CTA settings blijven slide blocks, per-slide video-prompts worden niet meer door section-level video als compleet behandeld, en compact diagnostics bevatten gedetecteerde blocks plus prompt-coverage.
 
 ## Release Checklist
 1. Lees `docs/00-START-HERE.md`, `docs/01-TECH-STACK.md`, `docs/02-SYSTEM-FLOW.md` en `AGENTS.md`.

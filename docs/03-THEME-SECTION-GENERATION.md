@@ -109,6 +109,13 @@ Validatieprofielen zijn bewust profiel-gebaseerd:
 - `production_visual`: nieuwe sections en brede visual sections; voegt responsive/card/carousel heuristieken toe.
 - `exact_replica`: `production_visual` plus strengere replica-signalen voor screenshot/exact/pixel-match prompts.
 
+Validatorwaarheid sinds 2026-05-08:
+- Section schema's worden uit het echte `{% schema %}` block als JSON geparsed voordat blockrollen worden beoordeeld. `schema.blocks[].settings[].id/type/label` is de bron van waarheid; vrije stringpositie of compacte raw-string heuristiek mag geen blockdetectie bepalen.
+- Een expliciet `type: "slide"` of `name: "Slide"` blijft een slide-block, ook wanneer het extra review-, quote-, reviewer-, avatar-, secondary CTA-, `video`- of `video_url` settings bevat. Extra settings mogen dus nooit opnieuw `architecture_missing_slide_blocks` veroorzaken zolang de minimale slide-settings aanwezig zijn.
+- Promptfeatures bovenop het minimum worden als minimale vereisten behandeld wanneer de prompt ze expliciet vraagt. Een hero slider met per-slide video moet dus block-level `video`/`video_url` settings plus een block-level renderpad hebben; een section-level video is hooguit `partial` coverage en mag niet als prompt-complete worden beschouwd.
+- Codegen preflight geeft bij architectuurfouten compacte diagnostics terug met `detectedBlocks`, gevonden setting IDs/types en de gevraagde `requiredBlockSettings`. Bij coverage-gaten geeft `promptCoverage` per feature `yes`, `partial` of `no` terug, zodat een retry gericht kan repareren zonder het datamodel te versimpelen.
+- Slider-generatie hoort één coherent interactiepatroon te gebruiken: transform-based `translateX` met vaste slidebreedtes of scroll-snap met index-synchronisatie. Autoplay moet handmatige navigatie bijhouden, pauzeren bij hover/focus, `prefers-reduced-motion` respecteren, dots/active state synchroniseren en video's per actieve slide play/pause beheren.
+
 De planner leidt daarnaast een generieke `sectionKind` af, zoals `hero`, `hero_with_social_proof`, `hero_with_logo_marquee`, `hero_slider`, `hero_slider_with_logo_marquee`, `image_slider`, `video_grid`, `video_slider`, `logo_marquee`, `testimonial_slider`, `review_grid`, `review_carousel`, `comparison`, `faq`, `tabs`, `media_section`, `content`, `product_related` of `unknown`. Die inference mag nooit theme-specifiek zijn: geen hardcoded Impact-classes, snippetnamen, wrappergedrag of schaalwaarden. Theme-context mag alleen via profieldata, `sectionBlueprint`, `generationRecipe` en `scaleProfile` meespelen.
 
 De contractlaag maakt ook de data-architectuur expliciet vóór generatie:

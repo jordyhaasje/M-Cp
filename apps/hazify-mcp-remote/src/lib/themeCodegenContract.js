@@ -1,4 +1,4 @@
-const CODEGEN_CONTRACT_VERSION = "2026-04-30";
+const CODEGEN_CONTRACT_VERSION = "2026-05-08";
 
 const VALIDATION_PROFILES = new Set([
   "syntax_only",
@@ -198,6 +198,8 @@ const createIssue = ({
   message,
   fixSuggestion,
   suggestedReplacement,
+  details,
+  diagnostics,
 }) => ({
   code,
   issueCode: code,
@@ -207,6 +209,8 @@ const createIssue = ({
   problem: message,
   fixSuggestion,
   ...(suggestedReplacement !== undefined ? { suggestedReplacement } : {}),
+  ...(details !== undefined ? { details } : {}),
+  ...(diagnostics !== undefined ? { diagnostics } : {}),
 });
 
 const settingRequiresLabel = (setting) => {
@@ -814,12 +818,20 @@ const inferSectionArchitecture = ({
   const hasBlockMediaHint = /\b(slides?|multiple images?|background images?|gallery|card images?|block image|per[-_ ]?slide)\b/.test(
     semanticHaystack
   );
+  const hasImageHint = /\b(images?|afbeelding(?:en)?|photos?|pictures?|background images?)\b/.test(
+    semanticHaystack
+  );
   const hasRepeatedCardHint = /\b(repeatable|repeated|multiple|cards?|grid|items?|blocks?|per[-_ ]?card)\b/.test(
     semanticHaystack
   ) || hasSchemaBlocks || hasSectionBlocksLoop;
-  const hasBlockVideoHint = /\b(video cards?|card videos?|block video|per[-_ ]?card video|video blocks?|video items?)\b/.test(
+  const hasVideoHint = /\b(videos?|video_url|youtube|vimeo|reels?)\b/.test(
     semanticHaystack
   );
+  const hasBlockVideoHint =
+    /\b(video cards?|card videos?|block video|per[-_ ]?(?:card|slide) video|video blocks?|video items?|slide videos?|slides? with videos?)\b/.test(
+      semanticHaystack
+    ) ||
+    (hasVideoHint && /\b(slides?|slider|carousel|per[-_ ]?slide)\b/.test(semanticHaystack));
   const hasMobileScrollSnapHint = /\b(mobile|mobiel)\b[\s\S]{0,80}\b(scroll[-_ ]?snap|swipe|carousel|slider|horizontal scroll)\b/.test(
     haystack
   );
@@ -835,6 +847,19 @@ const inferSectionArchitecture = ({
   const hasRatingHint = /\b(rating|stars?|star_count|trustpilot|score)\b/.test(
     haystack
   );
+  const hasQuoteHint = /\b(quotes?|reviews?|testimonial|beoordeling(?:en)?|ervaring(?:en)?)\b/.test(
+    semanticHaystack
+  );
+  const hasReviewerNameHint = /\b(reviewer|reviewer name|customer name|author|naam|klantnaam)\b/.test(
+    semanticHaystack
+  ) || hasQuoteHint;
+  const hasExplicitSecondaryButtonHint =
+    /\b(secondary|second|tweede|alternate|outline)\b[\s\S]{0,40}\b(button|cta|link|knop)\b/.test(
+      semanticHaystack
+    ) ||
+    /\b(two|2|twee)\b[\s\S]{0,30}\b(buttons?|ctas?|knoppen)\b/.test(
+      semanticHaystack
+    );
   const requiresReviewRating = [
     "testimonial_slider",
     "review_carousel",
@@ -856,13 +881,13 @@ const inferSectionArchitecture = ({
     case "hero_slider":
       interactionKind = "slider";
       blockModel = "slides";
-      mediaModel = "block_level_media";
+      mediaModel = hasBlockVideoHint ? "block_level_video" : "block_level_media";
       contentModel = "block_settings";
       break;
     case "hero_slider_with_logo_marquee":
       interactionKind = "slider_and_marquee";
       blockModel = "mixed_blocks";
-      mediaModel = "block_level_media";
+      mediaModel = hasBlockVideoHint ? "block_level_video" : "block_level_media";
       contentModel = "mixed";
       break;
     case "image_slider":
@@ -965,18 +990,32 @@ const inferSectionArchitecture = ({
     ...(blockRoles.includes("slide")
       ? {
           slide: uniqueStrings([
-            ...(mediaModel === "block_level_media" || mediaModel === "both"
+            ...(mediaModel === "block_level_media" || mediaModel === "both" || hasImageHint
               ? ["image"]
               : []),
+            ...(mediaModel === "block_level_video" ? ["video_or_external_video"] : []),
             "heading",
             "text",
             ...(sectionKind.startsWith("hero_slider")
               ? ["button_text", "button_link"]
               : []),
+            ...(hasAvatarHint ? ["avatar"] : []),
+            ...(hasQuoteHint ? ["quote_or_comment"] : []),
+            ...(hasReviewerNameHint ? ["author_or_name"] : []),
             ...(hasRatingHint ? ["rating_text_or_star_count"] : []),
+            ...(hasExplicitSecondaryButtonHint
+              ? ["secondary_button_text", "secondary_button_link"]
+              : []),
           ]),
           optionalSlideSettings: uniqueStrings([
             "mobile_image",
+            "video",
+            "external_video",
+            "avatar",
+            "quote",
+            "reviewer",
+            "secondary_button_text",
+            "secondary_button_link",
             ...(hasRatingHint ? ["star_count", "rating_text"] : []),
           ]),
         }
@@ -1147,6 +1186,9 @@ const getContractRules = ({ validationProfile, sectionKind, architecture = null 
       ...(sliderLike || productionLike
         ? [
             "Interactive sliders/carousels need real behavior and Theme Editor-safe reinitialization.",
+            "Prefer one coherent slider strategy: transform-based translateX with flex: 0 0 100%, or scroll-snap with scroll index synchronization; avoid half-wired visual controls.",
+            "Autoplay sliders must pause on hover/focus, respect prefers-reduced-motion, and keep manual navigation/swipe state in sync.",
+            "When slides contain videos, play only the active slide media and pause inactive slide videos.",
           ]
         : []),
     ]),
@@ -1155,6 +1197,7 @@ const getContractRules = ({ validationProfile, sectionKind, architecture = null 
           ...(sliderLike
             ? [
                 "Carousel tracks need scroll-snap or scripted navigation, stable mobile card widths, and working controls when controls are visible.",
+                "Slider pagination/dots should reflect active state and be generated without a second section.blocks loop.",
               ]
             : []),
           ...(cardLike
@@ -1572,6 +1615,9 @@ const blockText = (block) =>
     ].join(" ")
   );
 
+const blockIdentityText = (block) =>
+  normalizeText([block?.type, block?.name].filter(Boolean).join(" "));
+
 const settingMatches = (setting, patterns = [], types = []) => {
   const type = String(setting?.type || "").trim();
   if (types.includes(type)) {
@@ -1588,24 +1634,54 @@ const blockHasSetting = (block, patterns = [], types = []) =>
     settingMatches(setting, patterns, types)
   );
 
+const blockSettingSummaries = (block) =>
+  (Array.isArray(block?.settings) ? block.settings : []).map((setting) => ({
+    type: String(setting?.type || "").trim() || null,
+    id: String(setting?.id || "").trim() || null,
+    label: String(setting?.label || "").trim() || null,
+  }));
+
 const isLogoBlock = (block) =>
   /\b(logos?|brand|publication|press|partner)\b/.test(blockText(block)) ||
   blockHasSetting(block, [/\blogo\b/, /\bbrand\b/, /\bpublication\b/, /\bpress\b/]);
 
 const isReviewBlock = (block) =>
-  /\b(review|testimonial|quote|comment|author|customer|naam|klant)\b/.test(
+  /\b(review|testimonial|quote|comment|author|customer|reviewer|naam|klant)\b/.test(
     blockText(block)
   ) ||
   blockHasSetting(block, [
-    /\b(author|customer|naam)\b/,
+    /\b(author|customer|reviewer|naam)\b/,
     /\b(quote|comment|review|testimonial)\b/,
   ]);
 
-const isSlideBlock = (block) =>
-  !isLogoBlock(block) &&
-  !isReviewBlock(block) &&
-  (/\b(slide|hero|image|media|banner)\b/.test(blockText(block)) ||
-    blockHasSetting(block, [/\b(image|media|background|photo)\b/], ["image_picker"]));
+const isExplicitSlideBlock = (block) =>
+  /\b(slides?|hero|banner|carousel)\b/.test(blockIdentityText(block));
+
+const hasSlideMediaSetting = (block) =>
+  blockHasSetting(
+    block,
+    [/\b(image|media|background|photo|picture|poster|video|external_video)\b/],
+    ["image_picker", "video", "video_url"]
+  );
+
+const hasSlideContentSetting = (block) =>
+  blockHasSetting(block, [/\b(heading|title|headline|button|cta|subheading)\b/]);
+
+const isSlideBlock = (block) => {
+  if (isExplicitSlideBlock(block)) {
+    return !isLogoBlock(block);
+  }
+  if (isLogoBlock(block)) {
+    return false;
+  }
+  if (isReviewBlock(block) && !hasSlideMediaSetting(block)) {
+    return false;
+  }
+  return (
+    /\b(image|media|banner)\b/.test(blockText(block)) ||
+    (hasSlideMediaSetting(block) && hasSlideContentSetting(block))
+  );
+};
 
 const findBlocksByRole = (schema, role) => {
   const blocks = getSchemaBlocks(schema);
@@ -1655,6 +1731,29 @@ const collectMissingBlockSettingIssues = ({
       types: ["url"],
       label: "button link",
     },
+    secondary_button_text: {
+      patterns: [
+        /\b(secondary|second|tweede|alternate|outline)[_-]?(button|cta)?[_-]?(text|label)\b/,
+        /\bsecondary[_-]?button[_-]?text\b/,
+        /\bsecond[_-]?button[_-]?text\b/,
+      ],
+      types: [],
+      label: "secondary button text",
+    },
+    secondary_button_link: {
+      patterns: [
+        /\b(secondary|second|tweede|alternate|outline)[_-]?(button|cta)?[_-]?(link|url)\b/,
+        /\bsecondary[_-]?button[_-]?link\b/,
+        /\bsecond[_-]?button[_-]?link\b/,
+      ],
+      types: [],
+      label: "secondary button link",
+    },
+    avatar: {
+      patterns: [/\b(avatar|customer[_-]?photo|headshot|portrait|person[_-]?image)\b/],
+      types: ["image_picker"],
+      label: "avatar/customer image",
+    },
     logo_image_or_text: {
       patterns: [/\b(logo|brand|publication|press|image|name|text)\b/],
       types: ["image_picker", "text"],
@@ -1666,7 +1765,7 @@ const collectMissingBlockSettingIssues = ({
       label: "quote/comment",
     },
     author_or_name: {
-      patterns: [/\b(author|name|customer|naam|person)\b/],
+      patterns: [/\b(author|name|customer|reviewer|naam|person)\b/],
       types: ["text"],
       label: "author/name",
     },
@@ -1737,6 +1836,18 @@ const collectMissingBlockSettingIssues = ({
           path: [fileKey, "schema", "blocks", blockType, "settings"],
           message: `The ${role} block is missing a merchant-editable ${matcher.label} setting required by the codegen architecture.`,
           fixSuggestion: `Add a ${matcher.label} setting to the ${role} block and render block.settings.* from it.`,
+          details: {
+            role,
+            blockType,
+            requirement,
+            requiredAnyOf: {
+              settingIdOrLabelPatterns: matcher.patterns.map((pattern) =>
+                String(pattern)
+              ),
+              settingTypes: matcher.types,
+            },
+            detectedSettings: blockSettingSummaries(block),
+          },
         })
       );
     }
@@ -1750,6 +1861,282 @@ const sourceHasSectionBlocksLoop = (source) =>
 
 const sourceHasBlockRoleMarker = (source, marker) =>
   new RegExp(escapeRegExp(marker), "i").test(String(source || ""));
+
+const buildArchitectureDiagnostics = ({ schema, architecture } = {}) => {
+  const detectedBlocks = getSchemaBlocks(schema).map((block) => {
+    const type = String(block?.type || "").trim();
+    const name = String(block?.name || "").trim();
+    const settings = blockSettingSummaries(block);
+    const roles = uniqueStrings([
+      isSlideBlock(block) ? "slide" : null,
+      isLogoBlock(block) ? "logo" : null,
+      isReviewBlock(block) ? "review" : null,
+    ]);
+    return {
+      type,
+      name,
+      roles,
+      settings,
+      settingIds: settings.map((setting) => setting.id).filter(Boolean),
+      settingTypes: uniqueStrings(settings.map((setting) => setting.type).filter(Boolean)),
+    };
+  });
+
+  return {
+    blockModel: architecture?.blockModel || "none",
+    interactionKind: architecture?.interactionKind || "static",
+    mediaModel: architecture?.mediaModel || "none",
+    navigationModel: architecture?.navigationModel || "none",
+    requiredBlockSettings: architecture?.requiredBlockSettings || {},
+    detectedBlocks,
+  };
+};
+
+const schemaHasSettingByTypeOrId = (settings = [], { types = [], patterns = [] } = {}) =>
+  (Array.isArray(settings) ? settings : []).some((setting) =>
+    settingMatches(setting, patterns, types)
+  );
+
+const collectAllSchemaSettings = (schema) => [
+  ...(Array.isArray(schema?.settings) ? schema.settings : []),
+  ...getSchemaBlocks(schema).flatMap((block) =>
+    Array.isArray(block?.settings) ? block.settings : []
+  ),
+];
+
+const detectPromptExpectations = (requestText = "") => {
+  const text = normalizeText(requestText);
+  const sliderRequested = /\b(slider|carousel|slideshow|slides?|swipe)\b/.test(text);
+  const videoRequested = /\b(videos?|video_url|youtube|vimeo|reels?)\b/.test(text);
+  const imageRequested = /\b(images?|afbeelding(?:en)?|photos?|pictures?|media)\b/.test(text);
+  const perSlideRequested =
+    /\bper[-_ ]?slide\b/.test(text) ||
+    (sliderRequested && /\b(each|every|per|elke|iedere)\b[\s\S]{0,50}\b(slide|slides)\b/.test(text));
+
+  return {
+    slides: sliderRequested,
+    images: imageRequested,
+    videos: videoRequested,
+    perSlideVideo:
+      videoRequested &&
+      (perSlideRequested ||
+        /\b(slides?|slider|carousel)\b[\s\S]{0,80}\bvideos?\b|\bvideos?\b[\s\S]{0,80}\b(slides?|slider|carousel)\b/.test(
+          text
+        )),
+    autoplay: /\b(auto[-_ ]?play|automatisch afspelen|automatisch door)\b/.test(text),
+    avatars: /\b(avatars?|customer photo|headshot|portrait|profielfoto(?:'s)?)\b/.test(text),
+    reviews: /\b(reviews?|testimonial|beoordeling(?:en)?|ervaring(?:en)?)\b/.test(text),
+    quotes: /\b(quotes?|citaten?|testimonial)\b/.test(text),
+    reviewerNames: /\b(reviewer|reviewer name|customer name|author|naam|klantnaam)\b/.test(text),
+    primaryButton: /\b(button|cta|knop|buttons|knoppen)\b/.test(text),
+    secondaryButton:
+      /\b(secondary|second|tweede|alternate|outline)\b[\s\S]{0,40}\b(button|cta|link|knop)\b/.test(text) ||
+      /\b(two|2|twee)\b[\s\S]{0,30}\b(buttons?|ctas?|knoppen)\b/.test(text),
+    dots: /\b(dots?|pagination|paginatie|bullets?)\b/.test(text),
+  };
+};
+
+const buildPromptCoverage = ({ source, schema, requestText, architecture } = {}) => {
+  const expectations = detectPromptExpectations(requestText);
+  const slideBlocks = findBlocksByRole(schema, "slide");
+  const settings = collectAllSchemaSettings(schema);
+  const sectionSettings = Array.isArray(schema?.settings) ? schema.settings : [];
+  const lowerSource = String(source || "").toLowerCase();
+
+  const slideHas = (config) =>
+    slideBlocks.some((block) =>
+      schemaHasSettingByTypeOrId(block?.settings || [], config)
+    );
+  const anyHas = (config) => schemaHasSettingByTypeOrId(settings, config);
+  const sectionHas = (config) => schemaHasSettingByTypeOrId(sectionSettings, config);
+  const hasVideoMarkup =
+    /<video\b|video_tag\b|<iframe\b|external_video_url\b|external_video_tag\b/i.test(
+      source
+    );
+  const blockVideoRendered =
+    /block\.settings\.[A-Za-z0-9_]*(?:video|external_video)[A-Za-z0-9_]*[\s\S]{0,120}(?:video_tag|external_video_url|external_video_tag)|(?:video_tag|external_video_url|external_video_tag)[\s\S]{0,120}block\.settings\.[A-Za-z0-9_]*(?:video|external_video)[A-Za-z0-9_]*/i.test(
+      source
+    );
+  const features = {
+    slides: {
+      requested: expectations.slides,
+      status:
+        slideBlocks.length > 0 && sourceHasSectionBlocksLoop(source)
+          ? "yes"
+          : slideBlocks.length > 0 || sourceHasSectionBlocksLoop(source)
+            ? "partial"
+            : "no",
+    },
+    images: {
+      requested: expectations.images,
+      status:
+        slideHas({ types: ["image_picker"], patterns: [/\b(image|media|photo|picture)\b/] }) &&
+        /block\.settings\.[A-Za-z0-9_]*(?:image|media|photo|picture)[A-Za-z0-9_]*[\s\S]{0,120}image_url/i.test(
+          source
+        )
+          ? "yes"
+          : anyHas({ types: ["image_picker"], patterns: [/\b(image|media|photo|picture)\b/] })
+            ? "partial"
+            : "no",
+    },
+    videos: {
+      requested: expectations.videos,
+      status:
+        slideHas({
+          types: ["video", "video_url"],
+          patterns: [/\b(video|external_video|youtube|vimeo)\b/],
+        }) && blockVideoRendered
+          ? "yes"
+          : anyHas({
+                types: ["video", "video_url"],
+                patterns: [/\b(video|external_video|youtube|vimeo)\b/],
+              }) && hasVideoMarkup
+            ? "partial"
+            : anyHas({
+                  types: ["video", "video_url"],
+                  patterns: [/\b(video|external_video|youtube|vimeo)\b/],
+                })
+              ? "partial"
+              : "no",
+      scope:
+        slideHas({
+          types: ["video", "video_url"],
+          patterns: [/\b(video|external_video|youtube|vimeo)\b/],
+        })
+          ? "block"
+          : sectionHas({
+                types: ["video", "video_url"],
+                patterns: [/\b(video|external_video|youtube|vimeo)\b/],
+              })
+            ? "section"
+            : "none",
+    },
+    perSlideVideo: {
+      requested: expectations.perSlideVideo,
+      status:
+        slideHas({
+          types: ["video", "video_url"],
+          patterns: [/\b(video|external_video|youtube|vimeo)\b/],
+        }) && blockVideoRendered
+          ? "yes"
+          : sectionHas({
+                types: ["video", "video_url"],
+                patterns: [/\b(video|external_video|youtube|vimeo)\b/],
+              })
+            ? "partial"
+            : "no",
+    },
+    autoplay: {
+      requested: expectations.autoplay,
+      status: /setInterval|data-autoplay|autoplay|requestAnimationFrame/i.test(source)
+        ? "yes"
+        : "no",
+    },
+    avatars: {
+      requested: expectations.avatars,
+      status:
+        slideHas({
+          types: ["image_picker"],
+          patterns: [/\b(avatar|customer[_-]?photo|headshot|portrait)\b/],
+        }) && /block\.settings\.[A-Za-z0-9_]*avatar[A-Za-z0-9_]*/i.test(source)
+          ? "yes"
+          : anyHas({
+                types: ["image_picker"],
+                patterns: [/\b(avatar|customer[_-]?photo|headshot|portrait)\b/],
+              })
+            ? "partial"
+            : "no",
+    },
+    reviews: {
+      requested: expectations.reviews || expectations.quotes,
+      status:
+        slideHas({
+          patterns: [/\b(quote|review|testimonial|comment)\b/],
+          types: ["textarea", "richtext", "inline_richtext", "text"],
+        }) && /block\.settings\.[A-Za-z0-9_]*(?:quote|review|testimonial|comment)[A-Za-z0-9_]*/i.test(source)
+          ? "yes"
+          : /[★☆]|premium uitstraling|review|testimonial|quote/i.test(source)
+            ? "partial"
+            : "no",
+    },
+    reviewerNames: {
+      requested: expectations.reviewerNames || expectations.reviews,
+      status:
+        slideHas({
+          patterns: [/\b(author|customer|reviewer|name|naam|person)\b/],
+          types: ["text"],
+        }) && /block\.settings\.[A-Za-z0-9_]*(?:author|customer|reviewer|name|naam)[A-Za-z0-9_]*/i.test(source)
+          ? "yes"
+          : anyHas({
+                patterns: [/\b(author|customer|reviewer|name|naam|person)\b/],
+                types: ["text"],
+              })
+            ? "partial"
+            : "no",
+    },
+    primaryButton: {
+      requested: expectations.primaryButton,
+      status:
+        slideHas({ patterns: [/\b(button[_-]?text|button[_-]?label|cta[_-]?text)\b/] }) &&
+        slideHas({ patterns: [/\b(button[_-]?link|cta[_-]?link|url)\b/], types: ["url"] })
+          ? "yes"
+          : /<a\b|<button\b/i.test(source)
+            ? "partial"
+            : "no",
+    },
+    secondaryButton: {
+      requested: expectations.secondaryButton,
+      status:
+        slideHas({
+          patterns: [/\bsecondary[_-]?button[_-]?text\b/, /\bsecond[_-]?button[_-]?text\b/],
+        }) &&
+        slideHas({
+          patterns: [/\bsecondary[_-]?button[_-]?link\b/, /\bsecond[_-]?button[_-]?link\b/],
+          types: ["url"],
+        })
+          ? "yes"
+          : /secondary|second|outline/.test(lowerSource)
+            ? "partial"
+            : "no",
+    },
+    dots: {
+      requested: expectations.dots,
+      status: /data-dots|data-dot|pagination|__dot|[-_]dot\b/i.test(source)
+        ? "yes"
+        : "no",
+    },
+  };
+
+  const requestedEntries = Object.entries(features).filter(
+    ([, feature]) => feature.requested
+  );
+  const passed = requestedEntries.filter(([, feature]) => feature.status === "yes")
+    .length;
+  const partial = requestedEntries.filter(
+    ([, feature]) => feature.status === "partial"
+  ).length;
+  const missing = requestedEntries
+    .filter(([, feature]) => feature.status !== "yes")
+    .map(([key, feature]) => ({ key, status: feature.status, scope: feature.scope }));
+
+  return {
+    score:
+      requestedEntries.length === 0
+        ? 1
+        : Number(((passed + partial * 0.5) / requestedEntries.length).toFixed(2)),
+    requestedCount: requestedEntries.length,
+    passedCount: passed,
+    partialCount: partial,
+    missingCount: missing.filter((entry) => entry.status === "no").length,
+    missing,
+    features,
+    architecture: {
+      blockModel: architecture?.blockModel || "none",
+      mediaModel: architecture?.mediaModel || "none",
+      navigationModel: architecture?.navigationModel || "none",
+    },
+  };
+};
 
 const collectArchitectureIssues = ({
   source,
@@ -1768,6 +2155,7 @@ const collectArchitectureIssues = ({
   const interactionKind = architecture.interactionKind;
   const navigationModel = architecture.navigationModel;
   const requiredBlockSettings = architecture.requiredBlockSettings || {};
+  const architectureDiagnostics = buildArchitectureDiagnostics({ schema, architecture });
 
   const requireSectionBlocks = [
     "slides",
@@ -1817,6 +2205,11 @@ const collectArchitectureIssues = ({
             "The codegen architecture requires real slide blocks, but no slide/image/media block type is defined.",
           fixSuggestion:
             "Add a slide block type with merchant-editable image/media, heading, text, and optional CTA settings.",
+          details: {
+            detectedBlocks: architectureDiagnostics.detectedBlocks,
+            required: requiredBlockSettings.slide || ["heading", "text"],
+            result: "fail",
+          },
         })
       );
     }
@@ -2416,6 +2809,16 @@ const preflightSectionLiquid = (
           schema: parsed.schema,
         });
   const effectiveProfile = effectiveContract.validationProfile;
+  const architectureDiagnostics = buildArchitectureDiagnostics({
+    schema: parsed.schema,
+    architecture: effectiveContract.architecture,
+  });
+  const promptCoverage = buildPromptCoverage({
+    source,
+    schema: parsed.schema,
+    requestText,
+    architecture: effectiveContract.architecture,
+  });
   const issues = [];
   const warnings = [];
 
@@ -2518,6 +2921,27 @@ const preflightSectionLiquid = (
   issues.push(...visualInspection.issues);
   warnings.push(...visualInspection.warnings);
 
+  if (
+    VISUAL_PROFILES.has(effectiveProfile) &&
+    promptCoverage.requestedCount > 0 &&
+    promptCoverage.missing.length > 0
+  ) {
+    warnings.push(
+      createIssue({
+        code: "prompt_coverage_partial",
+        severity: "warning",
+        path: [fileKey],
+        message:
+          `Prompt coverage is ${promptCoverage.score}; missing or partial requested features: ${promptCoverage.missing
+            .map((entry) => `${entry.key}${entry.status === "partial" ? " (partial)" : ""}`)
+            .join(", ")}.`,
+        fixSuggestion:
+          "Preserve the requested data model and add targeted merchant-editable settings/render paths instead of simplifying the section to pass validation.",
+        details: promptCoverage,
+      })
+    );
+  }
+
   const blockingIssues = issues.filter((issue) => issue.severity !== "warning");
   const allIssues = [...blockingIssues, ...warnings];
 
@@ -2526,6 +2950,8 @@ const preflightSectionLiquid = (
     validationProfile: effectiveProfile,
     sectionKind,
     codegenContract: effectiveContract,
+    architectureDiagnostics,
+    promptCoverage,
     issues: blockingIssues,
     warnings,
     errors: blockingIssues,

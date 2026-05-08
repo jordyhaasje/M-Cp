@@ -279,12 +279,16 @@ const buildCreateSectionError = ({
   fixSuggestion,
   suggestedReplacement,
   issueCode,
+  details,
+  diagnostics,
 }) => ({
   path,
   problem,
   fixSuggestion,
   ...(issueCode ? { issueCode } : {}),
   ...(suggestedReplacement !== undefined ? { suggestedReplacement } : {}),
+  ...(details !== undefined ? { details } : {}),
+  ...(diagnostics !== undefined ? { diagnostics } : {}),
 });
 
 const normalizeCreateSectionPreflightIssue = (issue = {}, stage = "preflight") => {
@@ -300,6 +304,8 @@ const normalizeCreateSectionPreflightIssue = (issue = {}, stage = "preflight") =
     ...(issue.suggestedReplacement !== undefined
       ? { suggestedReplacement: issue.suggestedReplacement }
       : {}),
+    ...(issue.details !== undefined ? { details: issue.details } : {}),
+    ...(issue.diagnostics !== undefined ? { diagnostics: issue.diagnostics } : {}),
     ...(issue.severity ? { severity: issue.severity } : {}),
   };
 };
@@ -1228,6 +1234,8 @@ const createThemeSectionTool = {
         preflight: {
           validationProfile: codegenPreflight.validationProfile,
           sectionKind: codegenPreflight.sectionKind,
+          architectureDiagnostics: codegenPreflight.architectureDiagnostics,
+          promptCoverage: codegenPreflight.promptCoverage,
           stages: groupedStages,
           issueCount: preflightErrors.length,
         },
