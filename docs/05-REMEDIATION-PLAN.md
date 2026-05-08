@@ -9,6 +9,7 @@ Dit document is geen historische changelog meer. Het is de actuele releasekaart 
 - De MCP Remote gebruikt PostgreSQL voor `theme_drafts` en advisory locks.
 - Railway runtime-start gebruikt direct Node via `railway.json` en `scripts/start-service.mjs`; dit is live bevestigd op MCP Remote deployment `2d3eb307-cd8b-40b5-9bff-25163ddd0124` en License Service deployment `301768ee-8860-494e-8e37-e89ea4a84ce3`.
 - MCP theme edit hardening voor preserve-on-edit rewrites en generieke section authoring contracts is live op commit `553cdce`.
+- MCP theme section retry/payload hardening is live op commit `48ba85b` via MCP Remote deployment `0231b1a5-c2b5-4fda-ab38-f162d65b3976`.
 - Er wordt nu geen document verwijderd.
 
 ## Actieve Patch
