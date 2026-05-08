@@ -1032,6 +1032,14 @@ test("createThemeSection - can continue from plannerHandoff alone when session m
 </style>
 <section class="handoff-review page-width">
   <div class="rte">{{ section.settings.heading }}</div>
+  <div class="handoff-review__items">
+    {% for block in section.blocks %}
+      <article class="handoff-review__item" {{ block.shopify_attributes }}>
+        <blockquote>{{ block.settings.quote }}</blockquote>
+        <p>{{ block.settings.author }}</p>
+      </article>
+    {% endfor %}
+  </div>
 </section>
 {% schema %}
 {
@@ -1039,7 +1047,17 @@ test("createThemeSection - can continue from plannerHandoff alone when session m
   "settings": [
     { "type": "text", "id": "heading", "label": "Heading", "default": "Portable handoff" }
   ],
-  "presets": [{ "name": "Handoff review" }]
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great service." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Customer" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Handoff review", "blocks": [{ "type": "review" }] }]
 }
 {% endschema %}
 `,
@@ -1385,6 +1403,14 @@ test("createThemeSection - auto-hydrates planner reads before writing a new sect
 </style>
 <section class="review-replica page-width">
   <div class="rte">{{ section.settings.heading }}</div>
+  <div class="review-replica__items">
+    {% for block in section.blocks %}
+      <article class="review-replica__item" {{ block.shopify_attributes }}>
+        <blockquote>{{ block.settings.quote }}</blockquote>
+        <p>{{ block.settings.author }}</p>
+      </article>
+    {% endfor %}
+  </div>
 </section>
 {% schema %}
 {
@@ -1392,7 +1418,17 @@ test("createThemeSection - auto-hydrates planner reads before writing a new sect
   "settings": [
     { "type": "text", "id": "heading", "label": "Heading", "default": "Great reviews" }
   ],
-  "presets": [{ "name": "Review replica" }]
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great service." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Customer" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Review replica", "blocks": [{ "type": "review" }] }]
 }
 {% endschema %}
 `,

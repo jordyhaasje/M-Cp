@@ -1155,6 +1155,14 @@ const buildCompactPlanResponse = ({
     doNotUse: writePolicy.doNotUse,
     requiredReads: buildPlanRequiredReads(result),
     constraints: buildPlanConstraints({ result, codegenContract }),
+    sectionContract: codegenContract?.sectionDataContract || null,
+    codegenPrompt: codegenContract?.promptBlock || null,
+    completionGate:
+      codegenContract?.sectionDataContract?.completionGate || {
+        promptCoverageGapsBlockCreate: true,
+        partialCoverageIsNotComplete: true,
+        doNotRemoveRequestedFeaturesToPassValidation: true,
+      },
     readContext: buildPlanReadContext({ context, input, result }),
     architecture: flowArchitecture,
     codegenArchitecture: codegenContract?.architecture || null,
@@ -1183,9 +1191,9 @@ const planThemeEditTool = {
   name: "plan-theme-edit",
   title: "Plan Theme Edit",
   description:
-    "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Geef intent plus themeId of themeRole='main' mee. De standaardoutput is compact en machine-actionable: target, goldenPath, writePolicy, doNotUse, requiredReads, constraints, readContext, architecture, nextTool en writeTool. Gebruik includeContracts=true of verbosity='debug' wanneer een stateless client de volledige plannerHandoff, sectionBlueprint en codegenContract.promptBlock moet doorgeven aan latere write-tools.",
+    "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Geef intent plus themeId of themeRole='main' mee. De standaardoutput is compact en machine-actionable: target, goldenPath, writePolicy, doNotUse, requiredReads, constraints, sectionContract, codegenPrompt, completionGate, readContext, architecture, nextTool en writeTool. Gebruik sectionContract/codegenPrompt als harde generatiebrief: gevraagde features mogen niet worden verwijderd om validatie te halen. Gebruik includeContracts=true of verbosity='debug' alleen wanneer een stateless client de volledige plannerHandoff, sectionBlueprint en debugcontext moet doorgeven aan latere write-tools.",
   docsDescription:
-    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole='main'`; gebruik themeId voor development/unpublished/demo themes. De standaardoutput is compact: `target`, `goldenPath`, `writePolicy`, `doNotUse`, `requiredReads`, `constraints`, `readContext`, `architecture`, `nextTool`, `nextArgsTemplate`, `writeTool` en `writeArgsTemplate`. Zwaardere velden zoals `plannerHandoff`, `sectionBlueprint`, `codegenContract` en `codegenContract.promptBlock` zijn opt-in via `includeContracts=true` of `verbosity='debug'`. Voor native blocks blijft `architecture` de native renderer-architectuur; section-codegen architectuur staat apart onder `codegenArchitecture` en `constraints.architecture`. Gebruik `goldenPath` en `writePolicy.doNotUse` als bron van waarheid voor toolrouting: micro-patches mogen `patch-theme-file`, bounded rewrites gaan naar `draft-theme-artifact`, en net-new sections gebruiken `create-theme-section` als eerste write-tool.",
+    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole='main'`; gebruik themeId voor development/unpublished/demo themes. De standaardoutput is compact: `target`, `goldenPath`, `writePolicy`, `doNotUse`, `requiredReads`, `constraints`, `sectionContract`, `codegenPrompt`, `completionGate`, `readContext`, `architecture`, `nextTool`, `nextArgsTemplate`, `writeTool` en `writeArgsTemplate`. `sectionContract` en `codegenPrompt` zijn altijd compact zichtbaar voor section-generatie en beschrijven de exacte minimale schema-, render-, interactie- en promptdekkingseisen. Zwaardere debugvelden zoals volledige `plannerHandoff`, `sectionBlueprint` en `codegenContract` blijven opt-in via `includeContracts=true` of `verbosity='debug'`. Voor native blocks blijft `architecture` de native renderer-architectuur; section-codegen architectuur staat apart onder `codegenArchitecture` en `constraints.architecture`. Gebruik `goldenPath`, `sectionContract` en `writePolicy.doNotUse` als bron van waarheid voor toolrouting en codegen: micro-patches mogen `patch-theme-file`, bounded rewrites gaan naar `draft-theme-artifact`, en net-new sections gebruiken `create-theme-section` als eerste write-tool.",
   inputSchema: PlanThemeEditPublicObjectSchema,
   schema: PlanThemeEditInputSchema,
   execute: async (rawInput, context = {}) => {

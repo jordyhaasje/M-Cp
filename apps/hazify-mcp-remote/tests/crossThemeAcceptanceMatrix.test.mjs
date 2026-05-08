@@ -155,6 +155,14 @@ function buildPromptOnlyReviewSectionLiquid({ label }) {
     object-fit: cover;
   }
 
+  #shopify-section-{{ section.id }} .matrix-reviews__cta {
+    display: inline-flex;
+    width: fit-content;
+    padding: 12px 20px;
+    border-radius: 999px;
+    text-decoration: none;
+  }
+
   @media screen and (min-width: 750px) {
     #shopify-section-{{ section.id }} .matrix-reviews__grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -164,6 +172,7 @@ function buildPromptOnlyReviewSectionLiquid({ label }) {
 
 <section class="matrix-reviews page-width">
   <h2>{{ section.settings.heading }}</h2>
+  <div class="rte">{{ section.settings.body }}</div>
   <div class="matrix-reviews__grid">
     {% for block in section.blocks %}
       <article class="matrix-reviews__card" {{ block.shopify_attributes }}>
@@ -176,6 +185,11 @@ function buildPromptOnlyReviewSectionLiquid({ label }) {
       </article>
     {% endfor %}
   </div>
+  {% if section.settings.button_url != blank %}
+    <a class="matrix-reviews__cta" href="{{ section.settings.button_url }}">{{ section.settings.button_label }}</a>
+  {% else %}
+    <span class="matrix-reviews__cta">{{ section.settings.button_label }}</span>
+  {% endif %}
 </section>
 
 {% schema %}
@@ -183,6 +197,9 @@ function buildPromptOnlyReviewSectionLiquid({ label }) {
   "name": "${schemaName}",
   "settings": [
     { "type": "text", "id": "heading", "label": "Heading", "default": "${defaultHeading}" },
+    { "type": "richtext", "id": "body", "label": "Body", "default": "<p>Editable review copy for the section introduction.</p>" },
+    { "type": "text", "id": "button_label", "label": "Button label", "default": "Read reviews" },
+    { "type": "url", "id": "button_url", "label": "Button URL" },
     { "type": "range", "id": "padding_top", "label": "Padding top", "min": 0, "max": 80, "step": 4, "default": 24 },
     { "type": "range", "id": "padding_bottom", "label": "Padding bottom", "min": 0, "max": 80, "step": 4, "default": 24 }
   ],

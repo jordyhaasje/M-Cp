@@ -749,6 +749,9 @@ const inferSectionArchetype = ({
   );
   const repeatedReviewLike =
     testimonialLike ||
+    /\b(reviews?|review|testimonial|beoordeling(?:en)?)\b[\s\S]{0,40}\b(section|sectie|blok|component)\b/.test(
+      haystack
+    ) ||
     /\b(review cards?|review grid|review wall|reviews? carousel|reviews? slider|customer reviews?|customer comments?|beoordeling(?:en)?(?:\s+(?:grid|carousel|slider|cards?|kaarten))?)\b/.test(
       haystack
     ) ||

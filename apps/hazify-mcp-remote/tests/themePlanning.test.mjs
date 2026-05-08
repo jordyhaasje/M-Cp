@@ -635,6 +635,12 @@ try {
   assert.equal(compactVideoCardsPlan.success, true);
   assert.equal(compactVideoCardsPlan.plannerHandoff, undefined);
   assert.equal(compactVideoCardsPlan.codegenContract, undefined);
+  assert.ok(compactVideoCardsPlan.sectionContract);
+  assert.match(compactVideoCardsPlan.codegenPrompt, /Required features:/);
+  assert.equal(
+    compactVideoCardsPlan.completionGate?.promptCoverageGapsBlockCreate,
+    true
+  );
   assert.equal(compactVideoCardsPlan.writePolicy?.preferredTool, "create-theme-section");
   assert.deepEqual(compactVideoCardsPlan.writePolicy?.allowedTools, ["create-theme-section"]);
   assert.ok(

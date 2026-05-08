@@ -73,11 +73,14 @@ test("themeCodegenContract - planner contract includes compact prompt block", ()
     requestText: "review carousel",
   });
 
-  assert.equal(contract.version, "2026-05-08");
+  assert.equal(contract.version, "2026-05-08.2");
   assert.equal(contract.validationProfile, "production_visual");
   assert.equal(contract.sectionKind, "review_carousel");
+  assert.ok(contract.sectionDataContract);
+  assert.ok(contract.sectionDataContract.requiredFeatures.includes("reviews"));
   assert.match(contract.promptBlock, /CODEGEN CONTRACT/);
   assert.match(contract.promptBlock, /profile=production_visual/);
+  assert.match(contract.promptBlock, /Required features:/);
 });
 
 test("themeCodegenContract - schema JSON must be valid", () => {
@@ -818,6 +821,89 @@ test("themeCodegenContract - per-slide video prompt is not satisfied by section-
   assert.equal(result.promptCoverage.features.perSlideVideo.status, "partial");
 });
 
+test("themeCodegenContract - prompt coverage gaps block create-mode sections", () => {
+  const result = preflightSectionLiquid(
+    section({
+      body: `
+        <style>
+          #shopify-section-{{ section.id }} .newsletter-lite { padding: 32px; }
+          @media screen and (max-width: 749px) { #shopify-section-{{ section.id }} .newsletter-lite { padding: 20px; } }
+        </style>
+        <section class="newsletter-lite" data-section-bounded-shell>
+          <h2>{{ section.settings.heading }}</h2>
+          <p>{{ section.settings.text }}</p>
+        </section>
+      `,
+      schema: `{
+        "name": "Newsletter lite",
+        "settings": [
+          { "type": "text", "id": "heading", "label": "Heading", "default": "Join the list" },
+          { "type": "textarea", "id": "text", "label": "Text", "default": "Updates soon." }
+        ],
+        "presets": [{ "name": "Newsletter lite" }]
+      }`,
+    }),
+    {
+      mode: "create",
+      intent: "new_section",
+      validationProfile: "production_visual",
+      requestText: "Maak een newsletter signup section met email form en CTA",
+    }
+  );
+
+  assert.equal(result.ok, false);
+  assert.ok(codes(result).includes("prompt_coverage_partial"));
+  assert.equal(result.promptCoverage.features.newsletterSignup.status, "no");
+  assert.equal(
+    result.codegenContract.sectionDataContract.completionGate
+      .promptCoverageGapsBlockCreate,
+    true
+  );
+});
+
+test("themeCodegenContract - FAQ contracts require question and answer blocks", () => {
+  const result = preflightSectionLiquid(
+    section({
+      body: `
+        <style>
+          #shopify-section-{{ section.id }} .faq { display: grid; gap: 12px; }
+          @media screen and (max-width: 749px) { #shopify-section-{{ section.id }} .faq { gap: 8px; } }
+        </style>
+        <section class="faq" data-section-bounded-shell>
+          {% for block in section.blocks %}
+            <details {{ block.shopify_attributes }}>
+              <summary>{{ block.settings.question }}</summary>
+            </details>
+          {% endfor %}
+        </section>
+      `,
+      schema: `{
+        "name": "FAQ",
+        "blocks": [
+          { "type": "faq_item", "name": "FAQ item", "settings": [
+            { "type": "text", "id": "question", "label": "Question", "default": "Question?" }
+          ] }
+        ],
+        "presets": [{ "name": "FAQ", "blocks": [{ "type": "faq_item" }] }]
+      }`,
+    }),
+    {
+      mode: "create",
+      intent: "new_section",
+      validationProfile: "production_visual",
+      requestText: "Maak een FAQ accordion section met vragen en antwoorden",
+    }
+  );
+
+  assert.equal(result.ok, false);
+  assert.ok(codes(result).includes("architecture_faq_item_missing_answer"));
+  assert.equal(
+    result.codegenContract.sectionDataContract.requiredSchema.blockContracts[0]
+      .role,
+    "faq_item"
+  );
+});
+
 test("themeCodegenContract - slider_controls contract fails if buttons do not change slides", () => {
   const result = preflightSectionLiquid(
     section({
@@ -1024,7 +1110,7 @@ test("themeCodegenContract - testimonial slider requires review fields", () => {
 
   assert.equal(result.ok, false);
   assert.ok(codes(result).includes("architecture_review_missing_author_or_name"));
-  assert.ok(codes(result).includes("architecture_review_missing_rating_or_star_count"));
+  assert.ok(!codes(result).includes("architecture_review_missing_rating_or_star_count"));
 });
 
 test("themeCodegenContract - syntax_only profile skips visual architecture checks", () => {
