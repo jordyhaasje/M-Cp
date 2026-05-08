@@ -101,6 +101,8 @@ Maak een comparison table section voor product voordelen met 3 kolommen en CTA.
 
 Wanneer een client zelf Liquid gaat genereren, mag hij `codegenContract.promptBlock` rechtstreeks meegeven aan het codegeneratiemodel. Dit block bevat alleen harde generatie-eisen: schema, Liquid, scoped CSS/JS, responsief gedrag, generieke section-architectuur en waar beschikbaar een theme-afgeleide `scaleProfile`. In compact mode staan dezelfde kernregels machine-readable onder `constraints`.
 
+`create-theme-section` retourneert failure responses standaard compact en geeft meerdere deterministische preflight-fouten in één response terug. Zware debugpayloads zoals `plannerHandoff`, `sectionBlueprint`, `themeContext` en `codegenContract` blijven weg tenzij de caller expliciet `verbosity: "debug"` of `includeContracts: true` gebruikt. `draft-theme-artifact` ondersteunt dezelfde compacte response-vorm wanneer compact expliciet wordt gevraagd of wanneer de create-wrapper hem aanroept.
+
 Validatieprofielen zijn bewust profiel-gebaseerd:
 - `syntax_only`: basis schema/Liquid safety voor micro-patches en kleine patchroutes.
 - `theme_safe`: schema, Liquid en basis scoped CSS/JS checks voor normale existing edits.
@@ -254,6 +256,7 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 - Review sliders en review grids zijn repeatable families: gebruik block-driven review cards met preset blocks. Een single testimonial card of rating badge mag settings gebruiken wanneer het contract expliciet niet-repeatable is.
 - Review slider auxiliary UI hoort niet opnieuw over `section.blocks` te loopen. Gebruik één content-loop met `block.shopify_attributes`; genereer dots, bullets of pagination daarna via component-scoped JS op basis van de gerenderde slides of via non-block data.
 - Review/card-wall schaal moet standaard theme-sized blijven. Content widths rond 1000px, review-card heights rond 300-360px, quote font maxima rond 30px en gaps onder circa 40px zijn de normale baseline tenzij de gebruiker expliciet om oversized, full-bleed of immersive vraagt.
+- Schaalvalidatie onderscheidt heading, subheading, quote text, body text, card title, decoratieve quote marks en icon/stars. Een grote section-heading mag dus niet als quote-oversizing worden geclassificeerd; echte review quote text blijft wel rond de review/card-wall maxima.
 
 ### Wrapper modes en shells
 Nieuwe section recipes gebruiken expliciet `wrapperMode`:

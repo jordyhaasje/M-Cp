@@ -1,15 +1,18 @@
 import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
-import { draftThemeArtifact } from "./draftThemeArtifact.js";
+import {
+  draftThemeArtifact,
+  inspectThemeSectionCreatePreflight,
+} from "./draftThemeArtifact.js";
 import { planThemeEdit } from "../lib/themePlanning.js";
 import { getThemeFiles } from "../lib/themeFiles.js";
 import {
   buildCodegenContract,
+  buildSectionRepairPrompt,
   preflightSectionLiquid,
 } from "../lib/themeCodegenContract.js";
 import {
   inferTemplateSurfaceFromSectionLiquid,
-  inspectSectionGenerationRecipePreflight,
 } from "../lib/themeSectionContext.js";
 import {
   getRecentThemeRead,
@@ -29,6 +32,7 @@ const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main"]);
 const SummaryFieldSchema = z.string().max(4000).optional();
 const PlannerHandoffSchema = z.object({}).passthrough();
+const ResponseVerbositySchema = z.enum(["compact", "debug"]);
 const SECTION_KEY_PATTERN = /^sections\/[A-Za-z0-9._-]+\.liquid$/;
 const SECTION_HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
 const FOLLOW_UP_REFINEMENT_PATTERNS = [
@@ -77,6 +81,8 @@ const normalizeCreateThemeSectionInput = (rawInput) => {
           : rawInput.liquid,
     isStandalone: rawInput.isStandalone ?? rawInput.is_standalone,
     plannerHandoff: rawInput.plannerHandoff ?? rawInput.planner_handoff,
+    verbosity: rawInput.verbosity,
+    includeContracts: rawInput.includeContracts ?? rawInput.include_contracts,
   };
 
   if (summary) {
@@ -193,6 +199,17 @@ const CreateThemeSectionPublicObjectSchema = z
     planner_handoff: PlannerHandoffSchema.optional().describe(
       "Compat alias van plannerHandoff voor generieke wrappers."
     ),
+    verbosity: ResponseVerbositySchema
+      .optional()
+      .describe("Optioneel. Default is compact voor failure responses; gebruik 'debug' voor volledige planner/codegen/theme payloads."),
+    includeContracts: z
+      .boolean()
+      .optional()
+      .describe("Opt-in om volledige planner/codegen/theme context in failure responses terug te krijgen."),
+    include_contracts: z
+      .boolean()
+      .optional()
+      .describe("Compat alias van includeContracts."),
   })
   .strict();
 
@@ -215,6 +232,8 @@ const CreateThemeSectionNormalizedShape = z
     liquid: z.string().optional(),
     isStandalone: z.boolean().optional(),
     plannerHandoff: PlannerHandoffSchema.optional(),
+    verbosity: ResponseVerbositySchema.optional(),
+    includeContracts: z.boolean().optional(),
   })
   .strict()
   .superRefine((input, ctx) => {
@@ -242,6 +261,8 @@ const summarizeNormalizedCreateArgs = (input = {}) => ({
   themeRole: input.themeRole || null,
   key: input.key || null,
   isStandalone: Boolean(input.isStandalone),
+  ...(input.verbosity ? { verbosity: input.verbosity } : {}),
+  ...(input.includeContracts === true ? { includeContracts: true } : {}),
   hasLiquid: typeof input.liquid === "string" && input.liquid.length > 0,
   hasPlannerHandoff:
     input.plannerHandoff &&
@@ -266,6 +287,58 @@ const buildCreateSectionError = ({
   ...(suggestedReplacement !== undefined ? { suggestedReplacement } : {}),
 });
 
+const normalizeCreateSectionPreflightIssue = (issue = {}, stage = "preflight") => {
+  const issueCode = issue.issueCode || issue.code || "preflight_issue";
+  return {
+    stage,
+    ...(issue.code ? { code: issue.code } : {}),
+    issueCode,
+    path: Array.isArray(issue.path) ? issue.path : [],
+    problem: issue.problem || issue.message || "Fix the reported preflight issue.",
+    message: issue.message || issue.problem || "Fix the reported preflight issue.",
+    fixSuggestion: issue.fixSuggestion || "Apply the smallest targeted fix and retry.",
+    ...(issue.suggestedReplacement !== undefined
+      ? { suggestedReplacement: issue.suggestedReplacement }
+      : {}),
+    ...(issue.severity ? { severity: issue.severity } : {}),
+  };
+};
+
+const dedupeCreateSectionIssues = (issues = []) => {
+  const seen = new Set();
+  return (issues || []).filter((issue) => {
+    const fingerprint = JSON.stringify([
+      issue.issueCode || issue.code,
+      issue.stage,
+      issue.path || [],
+      issue.problem || issue.message,
+    ]);
+    if (seen.has(fingerprint)) {
+      return false;
+    }
+    seen.add(fingerprint);
+    return true;
+  });
+};
+
+const shouldIncludeCreateDebugPayloads = ({
+  verbosity = "compact",
+  includeContracts = false,
+} = {}) => includeContracts === true || verbosity === "debug";
+
+const summarizeCreateDebugPayloadOmissions = ({
+  codegenContract,
+  themeContext,
+  sectionBlueprint,
+  plannerHandoff,
+} = {}) =>
+  [
+    codegenContract ? "codegenContract" : null,
+    themeContext ? "themeContext" : null,
+    sectionBlueprint ? "sectionBlueprint" : null,
+    plannerHandoff ? "plannerHandoff" : null,
+  ].filter(Boolean);
+
 const buildCreateSectionRepairResponse = ({
   status = "needs_input",
   message,
@@ -289,43 +362,67 @@ const buildCreateSectionRepairResponse = ({
   repairPrompt,
   codegenContract,
   preflight,
-}) => ({
-  success: false,
-  status,
-  message,
-  errorCode,
-  retryable: true,
-  nextAction,
-  retryMode,
-  nextTool,
-  normalizedArgs,
-  warnings,
-  errors,
-  ...(repairPrompt ? { repairPrompt } : {}),
-  ...(codegenContract ? { codegenContract } : {}),
-  ...(preflight ? { preflight } : {}),
-  ...(themeContext ? { themeContext } : {}),
-  ...(sectionBlueprint ? { sectionBlueprint } : {}),
-  ...(sectionBlueprint?.completionPolicy
-    ? { completionPolicy: sectionBlueprint.completionPolicy }
-    : {}),
-  ...(Array.isArray(newFileSuggestions) && newFileSuggestions.length > 0
-    ? { newFileSuggestions }
-    : {}),
-  ...(alternativeNextArgsTemplates
-    ? { alternativeNextArgsTemplates }
-    : {}),
-  ...(writeTool ? { writeTool } : {}),
-  ...(writeArgsTemplate ? { writeArgsTemplate } : {}),
-  ...(plannerHandoff ? { plannerHandoff } : {}),
-  ...(Array.isArray(requiredToolNames) && requiredToolNames.length > 0
-    ? { requiredToolNames }
-    : {}),
-  ...(Array.isArray(repairSequence) && repairSequence.length > 0
-    ? { repairSequence }
-    : {}),
-  ...(nextArgsTemplate ? { nextArgsTemplate } : {}),
-});
+  verbosity = "compact",
+  includeContracts = false,
+}) => {
+  const includeDebugPayloads = shouldIncludeCreateDebugPayloads({
+    verbosity: normalizedArgs?.verbosity || verbosity,
+    includeContracts: includeContracts || normalizedArgs?.includeContracts === true,
+  });
+  const omittedDebugPayloads = includeDebugPayloads
+    ? []
+    : summarizeCreateDebugPayloadOmissions({
+        codegenContract,
+        themeContext,
+        sectionBlueprint,
+        plannerHandoff,
+      });
+
+  return {
+    success: false,
+    status,
+    message,
+    errorCode,
+    retryable: true,
+    nextAction,
+    retryMode,
+    nextTool,
+    normalizedArgs,
+    warnings,
+    errors,
+    ...(repairPrompt ? { repairPrompt } : {}),
+    ...(includeDebugPayloads && codegenContract ? { codegenContract } : {}),
+    ...(preflight ? { preflight } : {}),
+    ...(includeDebugPayloads && themeContext ? { themeContext } : {}),
+    ...(includeDebugPayloads && sectionBlueprint ? { sectionBlueprint } : {}),
+    ...(sectionBlueprint?.completionPolicy
+      ? { completionPolicy: sectionBlueprint.completionPolicy }
+      : {}),
+    ...(omittedDebugPayloads.length > 0
+      ? {
+          debugPayloadsOmitted: omittedDebugPayloads,
+          debugPayloadHint:
+            "Retry with verbosity='debug' or includeContracts=true to include full planner/codegen/theme context.",
+        }
+      : {}),
+    ...(Array.isArray(newFileSuggestions) && newFileSuggestions.length > 0
+      ? { newFileSuggestions }
+      : {}),
+    ...(alternativeNextArgsTemplates
+      ? { alternativeNextArgsTemplates }
+      : {}),
+    ...(writeTool ? { writeTool } : {}),
+    ...(writeArgsTemplate ? { writeArgsTemplate } : {}),
+    ...(includeDebugPayloads && plannerHandoff ? { plannerHandoff } : {}),
+    ...(Array.isArray(requiredToolNames) && requiredToolNames.length > 0
+      ? { requiredToolNames }
+      : {}),
+    ...(Array.isArray(repairSequence) && repairSequence.length > 0
+      ? { repairSequence }
+      : {}),
+    ...(nextArgsTemplate ? { nextArgsTemplate } : {}),
+  };
+};
 
 const buildCreateSectionArgsTemplate = (input = {}) => ({
   ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
@@ -485,9 +582,9 @@ const createThemeSectionTool = {
   name: "create-theme-section",
   title: "Create Theme Section",
   description:
-    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Never use this tool to modify a section file that already exists, even if that file was just created earlier in the same conversation. Do not use apply-theme-draft first. Required: explicit themeId or themeRole='main', one section file path or handle, and the complete Liquid file with a valid {% schema %}. Use themeId for development/unpublished/demo themes. After plan-theme-edit, the tool prefers the exact nextReadKeys first and now tries to auto-hydrate those exact planner reads when they are safely derivable; if required context still ontbreekt, the write stays blocked. For screenshot/design-replica requests: lever de finale styling in de eerste create-write, niet eerst een veilige baseline gevolgd door een vraag of het pixel-perfect moet worden gemaakt. Screenshot-only replica's zonder losse bron-assets mogen nu wel renderbare demo-media of gestileerde media shells gebruiken zolang de layout, styling en merchant settings exact blijven gericht op de referentie. Exact-match comparison/shell replica's moeten daarnaast hun decoratieve anchors, ster-rating en vergelijking-iconografie direct goed meenemen; generieke tabel-baselines, blokjes als sterren of dubbele background-shells horen door de validator teruggestuurd te worden. Als een gewone chatclient per ongeluk nog eens create-theme-section op exact dezelfde net aangemaakte section-key aanroept voor een refinement, kan de runtime die follow-up nu veilig omzetten naar een existing_edit rewrite in plaats van opnieuw op create vast te lopen.",
+    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Never use this tool to modify a section file that already exists, even if that file was just created earlier in the same conversation. Do not use apply-theme-draft first. Required: explicit themeId or themeRole='main', one section file path or handle, and the complete Liquid file with a valid {% schema %}. Use themeId for development/unpublished/demo themes. After plan-theme-edit, the tool prefers the exact nextReadKeys first and now tries to auto-hydrate those exact planner reads when they are safely derivable; if required context still ontbreekt, the write stays blocked. Preflight bundles deterministic codegen, recipe, editor-contract and local create issues before write; default failure responses stay compact and omit full planner/codegen/theme payloads unless verbosity='debug' or includeContracts=true. For screenshot/design-replica requests: lever de finale styling in de eerste create-write, niet eerst een veilige baseline gevolgd door een vraag of het pixel-perfect moet worden gemaakt. Screenshot-only replica's zonder losse bron-assets mogen nu wel renderbare demo-media of gestileerde media shells gebruiken zolang de layout, styling en merchant settings exact blijven gericht op de referentie. Exact-match comparison/shell replica's moeten daarnaast hun decoratieve anchors, ster-rating en vergelijking-iconografie direct goed meenemen; generieke tabel-baselines, blokjes als sterren of dubbele background-shells horen door de validator teruggestuurd te worden. Als een gewone chatclient per ongeluk nog eens create-theme-section op exact dezelfde net aangemaakte section-key aanroept voor een refinement, kan de runtime die follow-up nu veilig omzetten naar een existing_edit rewrite in plaats van opnieuw op create vast te lopen.",
   docsDescription:
-    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Gebruik deze tool nooit om een bestaand section-bestand te wijzigen, ook niet als dat bestand net in dezelfde sessie is aangemaakt. Zodra de target-key al bestaat moet de flow omschakelen naar `plan-theme-edit intent='existing_edit'` en daarna naar `draft-theme-artifact mode=\"edit\"` of `patch-theme-file`. Voor gewone stateless chatclients zet de runtime een herhaalde create op exact dezelfde net aangemaakte section-key nu ook veilig om naar een existing_edit rewrite wanneer duidelijk is dat het om een refinement-follow-up gaat. Vereist: expliciet `themeId` of `themeRole='main'`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Gebruik themeId voor development/unpublished/demo themes. Lees na `plan-theme-edit` bij voorkeur eerst de exacte `nextReadKeys` in; wanneer die planner-reads veilig exact afleidbaar zijn probeert deze tool ze nu eerst automatisch met `includeContent=true` te hydrateren. Alleen wanneer vereiste theme-context daarna nog ontbreekt, blijft de create-write geblokkeerd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Voor zulke replica-prompts verwacht deze tool directe finale styling in de eerste create-write; vraag dus niet eerst om extra toestemming om het daarna pixel-perfect te maken. Als de referentie alleen screenshot-gedreven is en er geen losse bron-assets zijn, mag de eerste write nu wel renderbare demo-media of een gestileerde media shell gebruiken zolang de compositie, styling en merchant-editable settings trouw aan de referentie blijven. Bij exact-match comparison/shell replica's moeten ook onderscheidende decoratieve anchors zoals floating productmedia, badges/seals, echte ster-ratings, vergelijking-iconografie en de juiste outer-shell strategie in de eerste write aanwezig zijn; te generieke tabel-baselines, blokjes als sterren of dubbele background-shells worden nu expliciet teruggestuurd door de validator. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
+    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Gebruik deze tool nooit om een bestaand section-bestand te wijzigen, ook niet als dat bestand net in dezelfde sessie is aangemaakt. Zodra de target-key al bestaat moet de flow omschakelen naar `plan-theme-edit intent='existing_edit'` en daarna naar `draft-theme-artifact mode=\"edit\"` of `patch-theme-file`. Voor gewone stateless chatclients zet de runtime een herhaalde create op exact dezelfde net aangemaakte section-key nu ook veilig om naar een existing_edit rewrite wanneer duidelijk is dat het om een refinement-follow-up gaat. Vereist: expliciet `themeId` of `themeRole='main'`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Gebruik themeId voor development/unpublished/demo themes. Lees na `plan-theme-edit` bij voorkeur eerst de exacte `nextReadKeys` in; wanneer die planner-reads veilig exact afleidbaar zijn probeert deze tool ze nu eerst automatisch met `includeContent=true` te hydrateren. Alleen wanneer vereiste theme-context daarna nog ontbreekt, blijft de create-write geblokkeerd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. De preflight bundelt deterministische codegen-, recipe-, editor-contract- en lokale create-fouten vóór de write; failure responses blijven standaard compact en laten zware planner/codegen/theme payloads weg tenzij `verbosity='debug'` of `includeContracts=true` wordt gebruikt. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Voor zulke replica-prompts verwacht deze tool directe finale styling in de eerste create-write; vraag dus niet eerst om extra toestemming om het daarna pixel-perfect te maken. Als de referentie alleen screenshot-gedreven is en er geen losse bron-assets zijn, mag de eerste write nu wel renderbare demo-media of een gestileerde media shell gebruiken zolang de compositie, styling en merchant-editable settings trouw aan de referentie blijven. Bij exact-match comparison/shell replica's moeten ook onderscheidende decoratieve anchors zoals floating productmedia, badges/seals, echte ster-ratings, vergelijking-iconografie en de juiste outer-shell strategie in de eerste write aanwezig zijn; te generieke tabel-baselines, blokjes als sterren of dubbele background-shells worden nu expliciet teruggestuurd door de validator. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
   inputSchema: CreateThemeSectionPublicObjectSchema,
   schema: CreateThemeSectionInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -1058,43 +1155,6 @@ const createThemeSectionTool = {
       sectionBlueprint,
       codegenContract: createCodegenContract,
     });
-
-    if (!codegenPreflight.ok) {
-      return buildCreateSectionRepairResponse({
-        status: "inspection_failed",
-        message:
-          `Codegen preflight failed before write: ${codegenPreflight.issues[0]?.message || "fix section contract issues before retrying"}`,
-        errorCode:
-          codegenPreflight.issues[0]?.code ||
-          codegenPreflight.issues[0]?.issueCode ||
-          "preflight_failed",
-        nextAction: "fix_codegen_preflight",
-        retryMode: "same_request_after_fix",
-        nextTool: "create-theme-section",
-        normalizedArgs,
-        nextArgsTemplate: {
-          ...nextArgsTemplate,
-          liquid:
-            "<complete corrected Shopify Liquid section; preserve the design/data model and fix only the reported codegen preflight issues>",
-        },
-        warnings: uniqueStrings([
-          ...internalWarnings,
-          ...(codegenPreflight.warnings || []).map(
-            (warning) => warning.message || warning.problem || String(warning)
-          ),
-        ]),
-        errors: codegenPreflight.issues,
-        repairPrompt: codegenPreflight.repairPrompt,
-        codegenContract: codegenPreflight.codegenContract,
-        preflight: {
-          validationProfile: codegenPreflight.validationProfile,
-          sectionKind: codegenPreflight.sectionKind,
-        },
-        themeContext: themeSectionContext,
-        sectionBlueprint,
-        plannerHandoff,
-      });
-    }
     if ((codegenPreflight.warnings || []).length > 0) {
       internalWarnings.push(
         ...(codegenPreflight.warnings || []).map(
@@ -1103,51 +1163,74 @@ const createThemeSectionTool = {
       );
     }
 
-    const recipePreflight = inspectSectionGenerationRecipePreflight(input.liquid, input.key, {
-      sectionBlueprint,
-      themeContext: themeSectionContext,
-    });
-    if ((recipePreflight.issues || []).length > 0) {
-      const recipeFixes = uniqueStrings(recipePreflight.suggestedFixes || []);
-      const recipeFixInstruction =
-        recipeFixes.length > 0
-          ? recipeFixes.join(" ")
-          : "follow sectionBlueprint.generationRecipe exactly";
+    const localPreflight = inspectThemeSectionCreatePreflight(
+      {
+        key: input.key,
+        value: input.liquid,
+      },
+      {
+        themeContext: themeSectionContext,
+        sectionBlueprint,
+      }
+    );
+    const preflightErrors = dedupeCreateSectionIssues([
+      ...(codegenPreflight.issues || []).map((issue) =>
+        normalizeCreateSectionPreflightIssue(issue, "codegen_preflight")
+      ),
+      ...(localPreflight.issues || []).map((issue) =>
+        normalizeCreateSectionPreflightIssue(issue, "local_theme_preflight")
+      ),
+    ]);
+
+    if (preflightErrors.length > 0) {
+      const primaryIssue = preflightErrors[0] || {};
+      const groupedStages = uniqueStrings(
+        preflightErrors.map((issue) => issue.stage).filter(Boolean)
+      );
+      const suggestedFixes = uniqueStrings([
+        ...(codegenPreflight.suggestedFixes || []),
+        ...(localPreflight.suggestedFixes || []),
+      ]);
       return buildCreateSectionRepairResponse({
         status: "inspection_failed",
         message:
-          `Building Inspection Failed: ${recipePreflight.issues[0].problem}`,
+          preflightErrors.length === 1
+            ? `Create-section preflight failed before write: ${primaryIssue.problem}`
+            : `Create-section preflight found ${preflightErrors.length} blocking issues before write. Fix them in one retry; first issue: ${primaryIssue.problem}`,
         errorCode:
-          recipePreflight.issues.length === 1
-            ? recipePreflight.issues[0].issueCode ||
-              "section_generation_recipe_preflight_failed"
-            : "section_generation_recipe_preflight_failed",
-        nextAction: "fix_generation_recipe_contract",
+          preflightErrors.length === 1
+            ? primaryIssue.issueCode || primaryIssue.code || "preflight_failed"
+            : "preflight_failed_multiple",
+        nextAction:
+          groupedStages.length === 1 && groupedStages[0] === "codegen_preflight"
+            ? "fix_codegen_preflight"
+            : "fix_create_section_preflight",
         retryMode: "same_request_after_fix",
         nextTool: "create-theme-section",
         normalizedArgs,
         nextArgsTemplate: {
           ...nextArgsTemplate,
           liquid:
-            `<complete corrected Shopify Liquid section; fix these recipe contract issues before retrying: ${recipeFixInstruction}>`,
+            suggestedFixes.length > 0
+              ? `<complete corrected Shopify Liquid section; fix all reported preflight issues before retrying: ${suggestedFixes.join(" ")}>`
+              : "<complete corrected Shopify Liquid section; fix all reported preflight issues before retrying>",
         },
         warnings: uniqueStrings([
           ...internalWarnings,
-          ...(recipePreflight.warnings || []),
+          ...(localPreflight.warnings || []),
         ]),
-        errors: recipePreflight.issues.map((issue) =>
-          buildCreateSectionError({
-            path: issue.path || [input.key],
-            problem: issue.problem,
-            fixSuggestion: issue.fixSuggestion,
-            issueCode: issue.issueCode,
-            suggestedReplacement: issue.suggestedReplacement,
-          })
-        ),
+        errors: preflightErrors,
+        repairPrompt: buildSectionRepairPrompt(preflightErrors),
         themeContext: themeSectionContext,
         sectionBlueprint,
         plannerHandoff,
-        codegenContract: createCodegenContract,
+        codegenContract: codegenPreflight.codegenContract || createCodegenContract,
+        preflight: {
+          validationProfile: codegenPreflight.validationProfile,
+          sectionKind: codegenPreflight.sectionKind,
+          stages: groupedStages,
+          issueCount: preflightErrors.length,
+        },
       });
     }
 
@@ -1157,6 +1240,8 @@ const createThemeSectionTool = {
         themeRole: input.themeRole,
         mode: "create",
         isStandalone: input.isStandalone,
+        verbosity: input.verbosity || "compact",
+        includeContracts: input.includeContracts === true,
         files: [
           {
             key: input.key,
@@ -1171,18 +1256,64 @@ const createThemeSectionTool = {
         plannerHandoff,
         codegenContract: createCodegenContract,
         themeContextWarnings: internalWarnings,
+        responseVerbosity: input.verbosity || "compact",
+        includeContracts: input.includeContracts === true,
       }
     );
 
     if (result && typeof result === "object" && result.success === false) {
+      const includeDebugPayloads = shouldIncludeCreateDebugPayloads({
+        verbosity: input.verbosity || "compact",
+        includeContracts: input.includeContracts === true,
+      });
+      if (!includeDebugPayloads) {
+        const {
+          themeContext: resultThemeContext,
+          sectionBlueprint: resultSectionBlueprint,
+          plannerHandoff: resultPlannerHandoff,
+          codegenContract: resultCodegenContract,
+          ...compactResult
+        } = result;
+        const omittedDebugPayloads = uniqueStrings([
+          ...(result.debugPayloadsOmitted || []),
+          ...summarizeCreateDebugPayloadOmissions({
+            codegenContract: resultCodegenContract || createCodegenContract,
+            themeContext: resultThemeContext || themeSectionContext,
+            sectionBlueprint: resultSectionBlueprint || sectionBlueprint,
+            plannerHandoff: resultPlannerHandoff || plannerHandoff,
+          }),
+        ]);
         return {
-          ...result,
+          ...compactResult,
           ...(sectionBlueprint?.completionPolicy && !result.completionPolicy
             ? { completionPolicy: sectionBlueprint.completionPolicy }
             : {}),
           ...(internalWarnings.length > 0
             ? {
                 warnings: Array.from(
+                  new Set([...(result.warnings || []), ...internalWarnings])
+                ),
+              }
+            : {}),
+          ...(omittedDebugPayloads.length > 0
+            ? {
+                debugPayloadsOmitted: omittedDebugPayloads,
+                debugPayloadHint:
+                  "Retry with verbosity='debug' or includeContracts=true to include full planner/codegen/theme context.",
+              }
+            : {}),
+          nextTool: "create-theme-section",
+          nextArgsTemplate: result.nextArgsTemplate || nextArgsTemplate,
+        };
+      }
+      return {
+        ...result,
+        ...(sectionBlueprint?.completionPolicy && !result.completionPolicy
+          ? { completionPolicy: sectionBlueprint.completionPolicy }
+          : {}),
+        ...(internalWarnings.length > 0
+          ? {
+              warnings: Array.from(
                 new Set([...(result.warnings || []), ...internalWarnings])
               ),
             }
@@ -1198,7 +1329,7 @@ const createThemeSectionTool = {
           ? { codegenContract: createCodegenContract }
           : {}),
         nextTool: "create-theme-section",
-        nextArgsTemplate,
+        nextArgsTemplate: result.nextArgsTemplate || nextArgsTemplate,
       };
     }
 

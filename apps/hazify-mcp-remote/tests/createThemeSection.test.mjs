@@ -408,10 +408,18 @@ test("createThemeSection - blocks generation recipe violations before draftTheme
 
   assert.equal(draftCalled, false);
   assert.equal(result.success, false);
-  assert.equal(result.errorCode, "section_recipe_wrapper_mode_mismatch");
+  assert.equal(result.errorCode, "preflight_failed_multiple");
   assert.equal(result.nextTool, "create-theme-section");
   assert.ok(
     result.errors?.some((issue) => issue.issueCode === "section_recipe_wrapper_mode_mismatch")
+  );
+  assert.ok(
+    result.errors?.some(
+      (issue) =>
+        issue.issueCode === "architecture_review_missing_rating_or_star_count" ||
+        issue.issueCode === "section_contract_review_slider_missing_rating_setting"
+    ),
+    "create preflight should surface the missing review rating in the same retry response"
   );
 });
 
@@ -458,10 +466,133 @@ test("createThemeSection - blocks codegen preflight failures before draftThemeAr
 
   assert.equal(draftCalled, false);
   assert.equal(result.success, false);
-  assert.equal(result.errorCode, "css_missing_section_scope");
+  assert.equal(result.errorCode, "preflight_failed_multiple");
   assert.equal(result.nextTool, "create-theme-section");
   assert.match(result.repairPrompt || "", /css_missing_section_scope/);
-  assert.equal(result.codegenContract?.validationProfile, "production_visual");
+  assert.ok(
+    result.errors?.some((issue) => issue.issueCode === "css_missing_section_scope")
+  );
+  assert.equal(result.codegenContract, undefined);
+  assert.ok(result.debugPayloadsOmitted?.includes("codegenContract"));
+});
+
+test("createThemeSection - aggregates JS scope, scale, and review contract errors in one compact response", serial, async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let draftCalled = false;
+  draftThemeArtifact.execute = async () => {
+    draftCalled = true;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/review-slider-multi-preflight.liquid",
+      plannerHandoff: {
+        brief: "Create a review slider with editable review cards and rating stars.",
+        intent: "new_section",
+        themeTarget: { themeId: 123, themeRole: null },
+        themeContext: {
+          usesPageWidth: true,
+          usesSectionPropertiesWrapper: true,
+        },
+        sectionBlueprint: {
+          archetype: "review_slider",
+          category: "hybrid",
+          qualityTarget: "theme_consistent",
+          promptContract: {
+            promptOnly: true,
+            requiresBlockBasedCards: true,
+            requiresReviewCardSurface: true,
+          },
+          generationRecipe: {
+            sectionContractType: "review_slider",
+            wrapperMode: "own_scoped_shell",
+            scaleProfile: {
+              contentMaxWidthDefault: 1000,
+              contentMaxWidthMax: 1120,
+              cardMinHeightDefault: 300,
+              cardMinHeightMax: 360,
+              quoteFontMaxPx: 30,
+              gridGapMaxPx: 40,
+              cardPaddingMaxPx: 26,
+            },
+            desktopMobileLayoutRequirements: {
+              requiresContentWidthWrapper: true,
+            },
+          },
+        },
+      },
+      liquid: `
+<style>
+  #shopify-section-{{ section.id }} .review-slider-multi { display: grid; gap: 20px; }
+  #shopify-section-{{ section.id }} .review-slider-multi__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(260px, 86%);
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+  #shopify-section-{{ section.id }} .review-slider-multi__quote { font-size: 42px; }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .review-slider-multi__track { grid-auto-columns: minmax(240px, 86%); }
+  }
+</style>
+<section class="review-slider-multi page-width" data-section-slider>
+  <button type="button" data-next aria-label="Next review">Next</button>
+  <div class="review-slider-multi__track">
+    {% for block in section.blocks %}
+      <article class="review-slider-multi__card" data-section-review-item {{ block.shopify_attributes }}>
+        <blockquote class="review-slider-multi__quote">{{ block.settings.quote }}</blockquote>
+        <p>{{ block.settings.author }}</p>
+      </article>
+    {% endfor %}
+  </div>
+  <script>
+    document.querySelector('[data-next]')?.addEventListener('click', () => {
+      document.querySelector('.review-slider-multi__track')?.scrollBy({ left: 280, behavior: 'smooth' });
+    });
+  </script>
+</section>
+{% schema %}
+{
+  "name": "Review slider multi",
+  "blocks": [
+    {
+      "type": "review",
+      "name": "Review",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Customer" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Review slider multi", "blocks": [{ "type": "review" }] }]
+}
+{% endschema %}
+`,
+    },
+    { shopifyClient, tokenHash: "create-theme-multi-preflight" }
+  );
+
+  const issueCodes = (result.errors || []).map((issue) => issue.issueCode || issue.code);
+
+  assert.equal(draftCalled, false);
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "preflight_failed_multiple");
+  assert.ok(issueCodes.includes("js_unscoped_selector"));
+  assert.ok(issueCodes.includes("section_recipe_scale_font_size"));
+  assert.ok(
+    issueCodes.includes("architecture_review_missing_rating_or_star_count") ||
+      issueCodes.includes("section_contract_review_slider_missing_rating_setting")
+  );
+  assert.equal(result.codegenContract, undefined);
+  assert.ok(result.debugPayloadsOmitted?.includes("codegenContract"));
 });
 
 test("createThemeSection - reuses precision-first planner metadata for exact screenshot replicas", serial, async () => {
@@ -674,6 +805,7 @@ test("createThemeSection - keeps exact-match planner context even when a compat 
   <div class="review-slider__track">
     {% for block in section.blocks %}
       <article class="review-slider__card" data-section-review-item {{ block.shopify_attributes }}>
+        <div aria-label="{{ block.settings.rating }} star rating">★★★★★</div>
         <blockquote>{{ block.settings.quote }}</blockquote>
         <p>{{ block.settings.author }}</p>
       </article>
@@ -703,7 +835,8 @@ test("createThemeSection - keeps exact-match planner context even when a compat 
       "name": "Review",
       "settings": [
         { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great service." },
-        { "type": "text", "id": "author", "label": "Author", "default": "Customer" }
+        { "type": "text", "id": "author", "label": "Author", "default": "Customer" },
+        { "type": "range", "id": "rating", "label": "Rating", "min": 1, "max": 5, "step": 1, "default": 5 }
       ]
     }
   ],
@@ -891,6 +1024,12 @@ test("createThemeSection - can continue from plannerHandoff alone when session m
       themeId: 123,
       key: "sections/handoff-review.liquid",
       liquid: `
+<style>
+  #shopify-section-{{ section.id }} .handoff-review { display: grid; gap: 16px; }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .handoff-review { gap: 12px; }
+  }
+</style>
 <section class="handoff-review page-width">
   <div class="rte">{{ section.settings.heading }}</div>
 </section>
@@ -997,6 +1136,9 @@ test("createThemeSection - forwards media-oriented blueprint hints for hero/vide
 <style>
   #shopify-section-{{ section.id }} .hero-video {
     min-height: 340px;
+  }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .hero-video { min-height: 260px; }
   }
 </style>
 <section class="hero-video page-width">
@@ -1194,8 +1336,9 @@ test("createThemeSection - blocks overwriting an existing section key", serial, 
     result.writeArgsTemplate?.files?.[0]?.value,
     "<full rewritten file content>"
   );
-  assert.equal(result.plannerHandoff?.intent, "existing_edit");
-  assert.equal(result.plannerHandoff?.targetFile, "sections/existing-section.liquid");
+  assert.equal(result.plannerHandoff, undefined);
+  assert.ok(result.debugPayloadsOmitted?.includes("plannerHandoff"));
+  assert.equal(result.writeArgsTemplate?.files?.[0]?.key, "sections/existing-section.liquid");
   assert.ok(
     result.requiredToolNames?.includes("draft-theme-artifact"),
     "existing-file create conflicts should advertise the correct edit write tool"
@@ -1234,6 +1377,12 @@ test("createThemeSection - auto-hydrates planner reads before writing a new sect
       themeId: 123,
       key: "sections/review-replica.liquid",
       liquid: `
+<style>
+  #shopify-section-{{ section.id }} .review-replica { display: grid; gap: 16px; }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .review-replica { gap: 12px; }
+  }
+</style>
 <section class="review-replica page-width">
   <div class="rte">{{ section.settings.heading }}</div>
 </section>
@@ -1332,6 +1481,7 @@ test("createThemeSection - accepts required planner reads gathered via multiple 
   <div class="review-replica__track">
     {% for block in section.blocks %}
       <article class="review-replica__card" data-section-review-item {{ block.shopify_attributes }}>
+        <div aria-label="{{ block.settings.rating }} star rating">★★★★★</div>
         <blockquote>{{ block.settings.quote }}</blockquote>
         <p>{{ block.settings.author }}</p>
       </article>
@@ -1360,7 +1510,8 @@ test("createThemeSection - accepts required planner reads gathered via multiple 
       "name": "Review",
       "settings": [
         { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great service." },
-        { "type": "text", "id": "author", "label": "Author", "default": "Customer" }
+        { "type": "text", "id": "author", "label": "Author", "default": "Customer" },
+        { "type": "range", "id": "rating", "label": "Rating", "min": 1, "max": 5, "step": 1, "default": 5 }
       ]
     }
   ],
@@ -1488,6 +1639,12 @@ test("planThemeEdit - keeps the last created section as sticky follow-up target"
       themeId: 123,
       key: "sections/hero-trustpilot.liquid",
       liquid: `
+<style>
+  #shopify-section-{{ section.id }} .hero-trustpilot { display: grid; gap: 16px; }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .hero-trustpilot { gap: 12px; }
+  }
+</style>
 <section class="hero-trustpilot page-width">
   <div class="rte">{{ section.settings.heading }}</div>
 </section>

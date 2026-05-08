@@ -34,7 +34,7 @@ import {
 
 export const toolName = "draft-theme-artifact";
 export const title = "Write Theme Files";
-export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, structural patches, or broader theme changes. For a brand-new section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. After patch_scope_too_large, use the nextArgsTemplate returned by patch-theme-file: when currentReadContextValid=true, draft-theme-artifact may apply the same patch with baseChecksumMd5; when read context is missing or stale, re-read with includeContent=true first. For broad visual refinements of an existing section, prefer mode='edit' with a full current-file rewrite over long patch arrays. In mode='edit', files[].value must contain the full rewritten file content, not a placeholder, summary, compact reconstruction, or REWRITE_ALREADY_APPLIED_IN_CONTEXT. Lossy rewrites are blocked unless the planner/user explicitly requested removal or simplification. Do not use apply-theme-draft for the first write.`;
+export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, structural patches, or broader theme changes. For a brand-new section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. After patch_scope_too_large, use the nextArgsTemplate returned by patch-theme-file: when currentReadContextValid=true, draft-theme-artifact may apply the same patch with baseChecksumMd5; when read context is missing or stale, re-read with includeContent=true first. For broad visual refinements of an existing section, prefer mode='edit' with a full current-file rewrite over long patch arrays. In mode='edit', files[].value must contain the full rewritten file content, not a placeholder, summary, compact reconstruction, or REWRITE_ALREADY_APPLIED_IN_CONTEXT. Lossy rewrites are blocked unless the planner/user explicitly requested removal or simplification. In compact responses, full planner/codegen/theme payloads are omitted unless verbosity='debug' or includeContracts=true. Do not use apply-theme-draft for the first write.`;
 export const docsDescription = `Draft and validate Shopify theme files through the guarded pipeline.
 
 Modes:
@@ -74,6 +74,7 @@ Theme-aware section regels:
 - Als de gebruiker een nieuwe section ook op een homepage/productpagina geplaatst wil hebben, maak eerst sections/<handle>.liquid in mode="create" en doe daarna alleen bij expliciete placement-vraag een aparte mode="edit" call voor het relevante templates/*.json of templates/*.liquid bestand op hetzelfde expliciet gekozen thema. Gebruik config/settings_data.json alleen als uitzonderingsroute.
 - Gebruik voor nieuwe sections bij voorkeur enabled_on/disabled_on in de schema in plaats van legacy "templates" wanneer je beschikbaarheid per template wilt sturen.
 - Lokale inspectie en theme-check lint worden waar mogelijk samen als lokale preflight teruggegeven, zodat een retry meerdere deterministische fouten tegelijk kan repareren. Wanneer plannerHandoff aanwezig is, gebruikt deze tool nu ook de planner-afgeleide theme-context en sectionBlueprint zodat stateless clients minder context verliezen.
+- Compacte failure responses laten zware planner/codegen/theme payloads weg wanneer de caller \`verbosity="compact"\` gebruikt; vraag alleen \`verbosity="debug"\` of \`includeContracts=true\` wanneer je die volledige debugcontext echt nodig hebt.
 
 Rules for valid Shopify Liquid:
 
@@ -83,6 +84,7 @@ Use <style> or markup-level CSS variables for section.id scoping`;
 
 const ThemeRoleSchema = z.enum(["main"]);
 const PlannerHandoffSchema = z.object({}).passthrough();
+const ResponseVerbositySchema = z.enum(["compact", "debug"]);
 
 const ThemeDraftPatchSchema = z.object({
   searchString: z.string().min(1).describe("De te vervangen string in het originele bestand. Gebruik een unieke literal anchor die exact één keer voorkomt in het doelbestand."),
@@ -279,6 +281,17 @@ const DraftThemeArtifactPublicObjectSchema = z
     planner_handoff: PlannerHandoffSchema.optional().describe(
       "Compat alias van plannerHandoff voor generieke wrappers."
     ),
+    verbosity: ResponseVerbositySchema.optional().describe(
+      "Optioneel. Gebruik 'compact' om zware debug/context payloads uit failure responses weg te laten; gebruik 'debug' voor volledige contracten."
+    ),
+    includeContracts: z
+      .boolean()
+      .optional()
+      .describe("Opt-in om volledige planner/codegen/theme context in failure responses terug te krijgen."),
+    include_contracts: z
+      .boolean()
+      .optional()
+      .describe("Compat alias van includeContracts."),
   })
   .strict();
 
@@ -305,6 +318,8 @@ const NormalizedThemeDraftArtifactShape = z
     mode: z.enum(["create", "edit"]).optional(),
     isStandalone: z.boolean().optional(),
     plannerHandoff: PlannerHandoffSchema.optional(),
+    verbosity: ResponseVerbositySchema.optional(),
+    includeContracts: z.boolean().optional(),
   })
   .strict()
   .superRefine((data, ctx) => {
@@ -392,6 +407,8 @@ const normalizeDraftThemeArtifactInput = (rawInput) => {
     mode: rawInput.mode,
     isStandalone: rawInput.isStandalone ?? rawInput.is_standalone,
     plannerHandoff: rawInput.plannerHandoff ?? rawInput.planner_handoff,
+    verbosity: rawInput.verbosity,
+    includeContracts: rawInput.includeContracts ?? rawInput.include_contracts,
   };
 
   if (summary) {
@@ -6001,6 +6018,44 @@ function inspectSectionFile(file, { themeContext = null, sectionBlueprint = null
   });
 }
 
+export function inspectThemeSectionCreatePreflight(
+  file,
+  { themeContext = null, sectionBlueprint = null } = {}
+) {
+  const value = String(file?.value || "");
+  const fileKey = file?.key || "sections/<section>.liquid";
+  const issues = [];
+  const warnings = [];
+  const suggestedFixes = [];
+
+  const generationRecipeInspection = inspectSectionGenerationRecipePreflight(
+    value,
+    fileKey,
+    {
+      themeContext,
+      sectionBlueprint,
+    }
+  );
+  issues.push(...(generationRecipeInspection.issues || []));
+  warnings.push(...(generationRecipeInspection.warnings || []));
+  suggestedFixes.push(...(generationRecipeInspection.suggestedFixes || []));
+
+  const editorContractInspection = collectSectionEditorContractSafety(value, fileKey, {
+    sectionBlueprint,
+  });
+  issues.push(...(editorContractInspection.issues || []));
+  warnings.push(...(editorContractInspection.warnings || []));
+  suggestedFixes.push(...(editorContractInspection.suggestedFixes || []));
+
+  return buildInspectionResult({
+    issues,
+    warnings,
+    suggestedFixes,
+    suggestedSchemaRewrites: generationRecipeInspection.suggestedSchemaRewrites,
+    preferSelectFor: generationRecipeInspection.preferSelectFor,
+  });
+}
+
 function inspectThemeBlockFile(file) {
   const value = String(file.value || "");
   const warnings = [];
@@ -6281,6 +6336,8 @@ function summarizeNormalizedDraftArgs(input = {}) {
     themeRole: input.themeRole || null,
     mode: input.mode || null,
     isStandalone: Boolean(input.isStandalone),
+    ...(input.verbosity ? { verbosity: input.verbosity } : {}),
+    ...(input.includeContracts === true ? { includeContracts: true } : {}),
     files: Array.isArray(input.files)
       ? input.files.map((file) => ({
           key: file.key,
@@ -6298,6 +6355,35 @@ function summarizeNormalizedDraftArgs(input = {}) {
       : [],
   };
 }
+
+const shouldIncludeDebugPayloads = ({
+  verbosity,
+  includeContracts,
+  normalizedArgs,
+} = {}) => {
+  if (
+    includeContracts === true ||
+    normalizedArgs?.includeContracts === true ||
+    verbosity === "debug" ||
+    normalizedArgs?.verbosity === "debug"
+  ) {
+    return true;
+  }
+  return !(verbosity === "compact" || normalizedArgs?.verbosity === "compact");
+};
+
+const summarizeDebugPayloadOmissions = ({
+  codegenContract,
+  themeContext,
+  sectionBlueprint,
+  plannerHandoff,
+} = {}) =>
+  [
+    codegenContract ? "codegenContract" : null,
+    themeContext ? "themeContext" : null,
+    sectionBlueprint ? "sectionBlueprint" : null,
+    plannerHandoff ? "plannerHandoff" : null,
+  ].filter(Boolean);
 
 const CONTEXT_PLACEHOLDER_WRITE_PATTERN =
   /^(?:[A-Z0-9]+(?:_[A-Z0-9]+)*)_ALREADY_APPLIED_IN_CONTEXT$/;
@@ -6675,7 +6761,22 @@ function buildFailureResponse({
   diagnosticTargets = [],
   repairPrompt,
   codegenContract,
+  verbosity,
+  includeContracts,
 }) {
+  const includeDebugPayloads = shouldIncludeDebugPayloads({
+    verbosity,
+    includeContracts,
+    normalizedArgs,
+  });
+  const omittedDebugPayloads = includeDebugPayloads
+    ? []
+    : summarizeDebugPayloadOmissions({
+        codegenContract,
+        themeContext,
+        sectionBlueprint,
+        plannerHandoff,
+      });
   const effectivePreferredWriteMode =
     preferredWriteMode ||
     inferPreferredWriteModeFromTemplate(nextArgsTemplate, normalizedArgs);
@@ -6722,7 +6823,7 @@ function buildFailureResponse({
         }
       : {}),
     warnings,
-    ...(codegenContract ? { codegenContract } : {}),
+    ...(includeDebugPayloads && codegenContract ? { codegenContract } : {}),
     ...(draft ? { draft } : {}),
     errorCode,
     retryable,
@@ -6742,9 +6843,16 @@ function buildFailureResponse({
     ...(alternativeNextArgsTemplates ? { alternativeNextArgsTemplates } : {}),
     ...(retryMode ? { retryMode } : {}),
     ...(normalizedArgs ? { normalizedArgs } : {}),
-    ...(themeContext ? { themeContext } : {}),
-    ...(sectionBlueprint ? { sectionBlueprint } : {}),
-    ...(plannerHandoff ? { plannerHandoff } : {}),
+    ...(includeDebugPayloads && themeContext ? { themeContext } : {}),
+    ...(includeDebugPayloads && sectionBlueprint ? { sectionBlueprint } : {}),
+    ...(includeDebugPayloads && plannerHandoff ? { plannerHandoff } : {}),
+    ...(omittedDebugPayloads.length > 0
+      ? {
+          debugPayloadsOmitted: omittedDebugPayloads,
+          debugPayloadHint:
+            "Retry with verbosity='debug' or includeContracts=true to include full planner/codegen/theme context.",
+        }
+      : {}),
     ...(effectiveDiagnosticTargets.length > 0
       ? { diagnosticTargets: effectiveDiagnosticTargets }
       : {}),
@@ -6778,7 +6886,27 @@ function buildAggregatedInspectionFailure({
   plannerHandoff = null,
   codegenContract = null,
 }) {
-  const normalizedIssues = (issues || []).filter(Boolean);
+  const normalizedIssues = (issues || [])
+    .filter(Boolean)
+    .sort((left, right) => {
+      const score = (issue) => {
+        const code = String(issue?.issueCode || "");
+        if (code === "inspection_failed_schema_range") {
+          return 0;
+        }
+        if (code === "inspection_failed_schema") {
+          return 1;
+        }
+        if (/^inspection_failed_schema/.test(code)) {
+          return 2;
+        }
+        if (/^schema_/.test(code)) {
+          return 3;
+        }
+        return 4;
+      };
+      return score(left) - score(right);
+    });
   const primaryIssue = normalizedIssues[0];
   const primaryProblem =
     stripBuildingInspectionPrefix(primaryIssue?.problem) ||
@@ -6786,13 +6914,25 @@ function buildAggregatedInspectionFailure({
   const distinctIssueCodes = Array.from(
     new Set(normalizedIssues.map((issue) => issue?.issueCode).filter(Boolean))
   );
+  const allSchemaIssueCodes =
+    distinctIssueCodes.length > 0 &&
+    distinctIssueCodes.every((code) =>
+      /^(?:inspection_failed_schema|schema_)/.test(String(code || ""))
+    );
+  const hasRangeIssue =
+    preferSelectFor.length > 0 ||
+    distinctIssueCodes.some((code) =>
+      /(?:schema_range|range)/.test(String(code || ""))
+    );
   const errorCode =
-    normalizedIssues.length > 1
-      ? "inspection_failed_multiple"
-      : distinctIssueCodes[0] ||
-        (preferSelectFor.length > 0
-          ? "inspection_failed_schema_range"
-          : "inspection_failed_local_validation");
+    hasRangeIssue && allSchemaIssueCodes
+      ? "inspection_failed_schema_range"
+      : allSchemaIssueCodes && distinctIssueCodes.includes("inspection_failed_schema")
+        ? "inspection_failed_schema"
+        : normalizedIssues.length > 1
+          ? "inspection_failed_multiple"
+          : distinctIssueCodes[0] ||
+            "inspection_failed_local_validation";
 
   return buildFailureResponse({
     status: "inspection_failed",
@@ -7548,6 +7688,9 @@ export const draftThemeArtifact = {
         themeRole,
         mode,
         isStandalone: input.isStandalone,
+        verbosity: input.verbosity || context.responseVerbosity,
+        includeContracts:
+          input.includeContracts === true || context.includeContracts === true,
         files,
       });
 
@@ -8658,10 +8801,7 @@ export const draftThemeArtifact = {
         mergeInspectionIntoAccumulator(
           localInspection,
           buildInspectionResult({
-            issues:
-              (inspection?.issues || []).length > 0
-                ? []
-                : codegenPreflight.issues,
+            issues: codegenPreflight.issues,
             warnings: (codegenPreflight.warnings || []).map(
               (warning) =>
                 warning?.message ||

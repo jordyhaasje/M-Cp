@@ -835,6 +835,11 @@ const inferSectionArchitecture = ({
   const hasRatingHint = /\b(rating|stars?|star_count|trustpilot|score)\b/.test(
     haystack
   );
+  const requiresReviewRating = [
+    "testimonial_slider",
+    "review_carousel",
+    "review_grid",
+  ].includes(sectionKind) || hasRatingHint;
 
   let interactionKind = "static";
   let blockModel = "none";
@@ -997,7 +1002,7 @@ const inferSectionArchitecture = ({
           review: uniqueStrings([
             "quote_or_comment",
             "author_or_name",
-            ...(hasRatingHint ? ["rating_or_star_count"] : []),
+            ...(requiresReviewRating ? ["rating_or_star_count"] : []),
           ]),
           optionalReviewSettings: ["avatar"],
         }
@@ -1665,6 +1670,16 @@ const collectMissingBlockSettingIssues = ({
       types: ["text"],
       label: "author/name",
     },
+    rating_or_star_count: {
+      patterns: [/\b(rating|stars?|star[_-]?count|score|trustpilot)\b/],
+      types: ["range", "number", "select", "text"],
+      label: "rating/star score",
+    },
+    rating_text_or_star_count: {
+      patterns: [/\b(rating|stars?|star[_-]?count|score|trustpilot)\b/],
+      types: ["range", "number", "select", "text"],
+      label: "rating/star score",
+    },
     question: {
       patterns: [/\b(question|vraag|title|heading)\b/],
       types: ["text", "inline_richtext"],
@@ -1709,9 +1724,6 @@ const collectMissingBlockSettingIssues = ({
 
   for (const requirement of requirements) {
     if (requirement.includes("_or_") && !requirementMatchers[requirement]) {
-      continue;
-    }
-    if (requirement === "rating_text_or_star_count" || requirement === "rating_or_star_count") {
       continue;
     }
     const matcher = requirementMatchers[requirement];

@@ -371,7 +371,8 @@ test("themeCodegenContract - scoped custom element with lifecycle passes", () =>
             "name": "Review",
             "settings": [
               { "type": "textarea", "id": "quote", "label": "Quote", "default": "Great service." },
-              { "type": "text", "id": "author", "label": "Author", "default": "Customer" }
+              { "type": "text", "id": "author", "label": "Author", "default": "Customer" },
+              { "type": "range", "id": "rating", "label": "Rating", "min": 1, "max": 5, "step": 1, "default": 5 }
             ]
           }
         ],
@@ -384,6 +385,61 @@ test("themeCodegenContract - scoped custom element with lifecycle passes", () =>
   );
 
   assert.equal(result.ok, true);
+});
+
+test("themeCodegenContract - review recipe scale separates heading and quote font sizes", () => {
+  const recipeContext = {
+    sectionBlueprint: {
+      generationRecipe: {
+        sectionContractType: "review_slider",
+        scaleProfile: {
+          contentMaxWidthMax: 1120,
+          cardMinHeightMax: 360,
+          quoteFontMaxPx: 30,
+          gridGapMaxPx: 40,
+          cardPaddingMaxPx: 26,
+        },
+      },
+    },
+  };
+
+  const headlineResult = inspectSectionGenerationRecipePreflight(
+    validSection(`
+      <style>
+        #shopify-section-{{ section.id }} .reviews__heading { font-size: 64px; }
+        #shopify-section-{{ section.id }} .reviews__quote { font-size: 28px; }
+      </style>
+      <section class="reviews">
+        <h2 class="reviews__heading">Loved by customers</h2>
+        <blockquote class="reviews__quote">Great.</blockquote>
+      </section>
+    `),
+    "sections/reviews.liquid",
+    recipeContext
+  );
+
+  assert.ok(!recipeCodes(headlineResult).includes("section_recipe_scale_font_size"));
+  assert.ok(!recipeCodes(headlineResult).includes("section_recipe_scale_heading_font_size"));
+
+  const quoteResult = inspectSectionGenerationRecipePreflight(
+    validSection(`
+      <style>
+        #shopify-section-{{ section.id }} .reviews__heading { font-size: 44px; }
+        #shopify-section-{{ section.id }} .reviews__quote { font-size: 42px; }
+      </style>
+      <section class="reviews">
+        <h2 class="reviews__heading">Loved by customers</h2>
+        <blockquote class="reviews__quote">Great.</blockquote>
+      </section>
+    `),
+    "sections/reviews.liquid",
+    recipeContext
+  );
+
+  assert.ok(recipeCodes(quoteResult).includes("section_recipe_scale_font_size"));
+  assert.ok(
+    quoteResult.errors?.every((issue) => issue.metric !== "heading/font-size") ?? true
+  );
 });
 
 test("themeCodegenContract - exact replica uses stricter profile", () => {
@@ -794,6 +850,7 @@ test("themeCodegenContract - testimonial slider requires review fields", () => {
 
   assert.equal(result.ok, false);
   assert.ok(codes(result).includes("architecture_review_missing_author_or_name"));
+  assert.ok(codes(result).includes("architecture_review_missing_rating_or_star_count"));
 });
 
 test("themeCodegenContract - syntax_only profile skips visual architecture checks", () => {

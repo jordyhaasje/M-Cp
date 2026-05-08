@@ -373,7 +373,13 @@ const BASE_SECTION_SCALE_PROFILES = {
     contentMaxWidthMax: 1120,
     cardMinHeightDefault: 300,
     cardMinHeightMax: 360,
+    headingFontMaxPx: 64,
+    subheadingFontMaxPx: 28,
     quoteFontMaxPx: 30,
+    bodyFontMaxPx: 18,
+    cardTitleFontMaxPx: 24,
+    decorativeQuoteMarkMaxPx: 72,
+    iconSizeMaxPx: 32,
     gridGapMaxPx: 40,
     cardPaddingMaxPx: 26,
     mobileCardMinHeightMax: 320,
@@ -384,7 +390,13 @@ const BASE_SECTION_SCALE_PROFILES = {
     contentMaxWidthMax: 1120,
     cardMinHeightDefault: 260,
     cardMinHeightMax: 340,
+    headingFontMaxPx: 60,
+    subheadingFontMaxPx: 26,
     quoteFontMaxPx: 30,
+    bodyFontMaxPx: 18,
+    cardTitleFontMaxPx: 24,
+    decorativeQuoteMarkMaxPx: 72,
+    iconSizeMaxPx: 32,
     gridGapMaxPx: 36,
     cardPaddingMaxPx: 26,
     mobileCardMinHeightMax: 300,
@@ -461,7 +473,13 @@ const BASE_SECTION_SCALE_PROFILES = {
     contentMaxWidthMax: 1120,
     cardMinHeightDefault: 0,
     cardMinHeightMax: 360,
+    headingFontMaxPx: 56,
+    subheadingFontMaxPx: 24,
     quoteFontMaxPx: 32,
+    bodyFontMaxPx: 20,
+    cardTitleFontMaxPx: 24,
+    decorativeQuoteMarkMaxPx: 72,
+    iconSizeMaxPx: 36,
     gridGapMaxPx: 36,
     cardPaddingMaxPx: 28,
     mobileCardMinHeightMax: 320,
@@ -1567,9 +1585,29 @@ const buildThemeAwareScaleProfile = ({
   const profile = { ...base };
 
   if (typeof guide.maxExplicitFontSizePx === "number" && guide.maxExplicitFontSizePx > 0) {
+    profile.headingFontMaxPx = capProfileValue(
+      profile.headingFontMaxPx,
+      Math.max(48, guide.maxExplicitFontSizePx + 34, guide.maxExplicitFontSizePx * 2.2)
+    );
+    profile.subheadingFontMaxPx = capProfileValue(
+      profile.subheadingFontMaxPx,
+      Math.max(22, guide.maxExplicitFontSizePx + 8, guide.maxExplicitFontSizePx * 1.35)
+    );
     profile.quoteFontMaxPx = capProfileValue(
       profile.quoteFontMaxPx,
       Math.max(24, guide.maxExplicitFontSizePx + 6, guide.maxExplicitFontSizePx * 1.25)
+    );
+    profile.bodyFontMaxPx = capProfileValue(
+      profile.bodyFontMaxPx,
+      Math.max(18, guide.maxExplicitFontSizePx + 2, guide.maxExplicitFontSizePx * 1.1)
+    );
+    profile.cardTitleFontMaxPx = capProfileValue(
+      profile.cardTitleFontMaxPx,
+      Math.max(20, guide.maxExplicitFontSizePx + 6, guide.maxExplicitFontSizePx * 1.2)
+    );
+    profile.iconSizeMaxPx = capProfileValue(
+      profile.iconSizeMaxPx,
+      Math.max(24, guide.maxExplicitFontSizePx + 8, guide.maxExplicitFontSizePx * 1.35)
     );
   }
 
@@ -2742,6 +2780,44 @@ const buildGuardrails = ({
   return uniqueStrings(guardrails);
 };
 
+const extractSectionFontScaleByRole = (source) => ({
+  headingFontSizePx: extractSelectorPropertyMaxPx(
+    source,
+    /\b(?:h[1-3]|heading|headline|title|section-title|header)\b|__(?:heading|headline|title)\b|[-_](?:heading|headline|title)\b/i,
+    ["font-size"]
+  ),
+  subheadingFontSizePx: extractSelectorPropertyMaxPx(
+    source,
+    /\b(?:subheading|subtitle|eyebrow|kicker|lede)\b|__(?:subheading|subtitle|eyebrow|kicker|lede)\b/i,
+    ["font-size"]
+  ),
+  quoteFontSizePx: extractSelectorPropertyMaxPx(
+    source,
+    /\b(?:blockquote|quote|comment)\b|__(?:quote|comment|testimonial-text|review-text)\b|[-_](?:quote|comment|testimonial-text|review-text)\b/i,
+    ["font-size"]
+  ),
+  bodyFontSizePx: extractSelectorPropertyMaxPx(
+    source,
+    /\b(?:body|copy|caption|description|text|rte|p)\b|__(?:body|copy|caption|description|text)\b/i,
+    ["font-size"]
+  ),
+  cardTitleFontSizePx: extractSelectorPropertyMaxPx(
+    source,
+    /\b(?:author|customer|name|card-title|item-title|slide-title)\b|__(?:author|customer|name|card-title|item-title|slide-title)\b/i,
+    ["font-size"]
+  ),
+  decorativeQuoteMarkFontSizePx: extractSelectorPropertyMaxPx(
+    source,
+    /\b(?:quote-mark|quote-icon|decorative-quote|ornament)\b|__(?:quote-mark|quote-icon|decorative-quote|ornament)\b/i,
+    ["font-size"]
+  ),
+  iconFontSizePx: extractSelectorPropertyMaxPx(
+    source,
+    /\b(?:star|stars|rating|icon|arrow|control|dot|badge|seal)\b|__(?:star|stars|rating|icon|arrow|control|dot|badge|seal)\b/i,
+    ["font-size"]
+  ),
+});
+
 const analyzeSectionScale = (value, { key } = {}) => {
   const source = String(value || "");
   const schema = parseSectionSchema(source);
@@ -2759,6 +2835,7 @@ const analyzeSectionScale = (value, { key } = {}) => {
     hasRteClass: classTokens.includes("rte"),
     hasButtonClass: classTokens.includes("button"),
     maxFontSizePx: extractPropertyMaxPx(source, ["font-size"]),
+    fontScale: extractSectionFontScaleByRole(source),
     maxPaddingYValuePx: extractPropertyMaxPx(source, [
       "padding-top",
       "padding-bottom",
@@ -3202,6 +3279,48 @@ const inspectGenerationRecipeScale = ({
   const candidate = analyzeSectionScale(value, { key: fileKey });
   const issues = [];
   const suggestedFixes = [];
+  const fontScale = candidate.fontScale || {};
+  const sectionContractType = String(recipe.sectionContractType || "section");
+  const isReviewContract = /review|testimonial/i.test(sectionContractType);
+
+  const resolveFontScaleMax = (role) => {
+    const profileKeyByRole = {
+      heading: "headingFontMaxPx",
+      subheading: "subheadingFontMaxPx",
+      quote: "quoteFontMaxPx",
+      body: "bodyFontMaxPx",
+      cardTitle: "cardTitleFontMaxPx",
+      decorativeQuoteMark: "decorativeQuoteMarkMaxPx",
+      icon: "iconSizeMaxPx",
+    };
+    const explicit = scaleProfile[profileKeyByRole[role]];
+    if (typeof explicit === "number" && Number.isFinite(explicit)) {
+      return explicit;
+    }
+    const quoteMax =
+      typeof scaleProfile.quoteFontMaxPx === "number" && Number.isFinite(scaleProfile.quoteFontMaxPx)
+        ? scaleProfile.quoteFontMaxPx
+        : 32;
+    if (role === "heading") {
+      return isReviewContract ? Math.max(64, quoteMax + 30) : Math.max(56, quoteMax + 20);
+    }
+    if (role === "subheading") {
+      return Math.max(24, quoteMax - 2);
+    }
+    if (role === "body") {
+      return Math.max(18, Math.min(quoteMax, 20));
+    }
+    if (role === "cardTitle") {
+      return Math.max(22, Math.min(quoteMax, 24));
+    }
+    if (role === "decorativeQuoteMark") {
+      return Math.max(64, quoteMax * 2);
+    }
+    if (role === "icon") {
+      return Math.max(28, Math.min(quoteMax + 4, 36));
+    }
+    return quoteMax;
+  };
 
   const addScaleIssue = ({
     metric,
@@ -3239,6 +3358,27 @@ const inspectGenerationRecipeScale = ({
     suggestedFixes.push(issue.fixSuggestion);
   };
 
+  const addFontScaleIssue = ({
+    role,
+    metric,
+    actualValue,
+    schemaFallbackPatterns = [],
+    issueCode,
+  }) => {
+    const maxValue = resolveFontScaleMax(role);
+    addScaleIssue({
+      metric,
+      actualValue:
+        actualValue ||
+        (schemaFallbackPatterns.length > 0
+          ? maxNumericSettingValue(schema, schemaFallbackPatterns, "default")
+          : null),
+      maxValue,
+      recommendedValue: maxValue,
+      issueCode,
+    });
+  };
+
   addScaleIssue({
     metric: "content max-width default",
     actualValue: maxNumericSettingValue(schema, [/(content|container|section).*(max.*width|width)|max.*width/], "default"),
@@ -3262,15 +3402,78 @@ const inspectGenerationRecipeScale = ({
     recommendedValue: scaleProfile.cardMinHeightDefault,
     issueCode: "section_recipe_scale_card_min_height",
   });
-  addScaleIssue({
+  addFontScaleIssue({
+    role: "heading",
+    metric: "heading/font-size",
+    actualValue: fontScale.headingFontSizePx,
+    schemaFallbackPatterns: [
+      /(heading|headline|title).*(font.*size|size)|font.*size.*(heading|headline|title)/,
+    ],
+    issueCode: "section_recipe_scale_heading_font_size",
+  });
+  addFontScaleIssue({
+    role: "subheading",
+    metric: "subheading/font-size",
+    actualValue: fontScale.subheadingFontSizePx,
+    schemaFallbackPatterns: [
+      /(subheading|subtitle|eyebrow|kicker).*(font.*size|size)/,
+    ],
+    issueCode: "section_recipe_scale_subheading_font_size",
+  });
+  addFontScaleIssue({
+    role: "quote",
     metric: "quote/font-size",
-    actualValue:
-      candidate.maxFontSizePx ||
-      maxNumericSettingValue(schema, [/(quote|text|heading|font).*(size)|font.*size/], "default"),
-    maxValue: scaleProfile.quoteFontMaxPx,
-    recommendedValue: scaleProfile.quoteFontMaxPx,
+    actualValue: fontScale.quoteFontSizePx,
+    schemaFallbackPatterns: [
+      /(quote|testimonial|review|comment).*(font.*size|size)|font.*size.*(quote|testimonial|review|comment)/,
+    ],
     issueCode: "section_recipe_scale_font_size",
   });
+  addFontScaleIssue({
+    role: "body",
+    metric: "body/font-size",
+    actualValue: fontScale.bodyFontSizePx,
+    schemaFallbackPatterns: [/(body|copy|text|caption).*(font.*size|size)/],
+    issueCode: "section_recipe_scale_body_font_size",
+  });
+  addFontScaleIssue({
+    role: "cardTitle",
+    metric: "card title/font-size",
+    actualValue: fontScale.cardTitleFontSizePx,
+    schemaFallbackPatterns: [/(card|slide|item|author|name).*(font.*size|size)/],
+    issueCode: "section_recipe_scale_card_title_font_size",
+  });
+  addFontScaleIssue({
+    role: "decorativeQuoteMark",
+    metric: "decorative quote mark/font-size",
+    actualValue: fontScale.decorativeQuoteMarkFontSizePx,
+    issueCode: "section_recipe_scale_decorative_quote_font_size",
+  });
+  addFontScaleIssue({
+    role: "icon",
+    metric: "icon/star/font-size",
+    actualValue: fontScale.iconFontSizePx,
+    issueCode: "section_recipe_scale_icon_font_size",
+  });
+  if (
+    typeof candidate.maxFontSizePx === "number" &&
+    Number.isFinite(candidate.maxFontSizePx) &&
+    !Object.values(fontScale).some((value) => typeof value === "number" && Number.isFinite(value))
+  ) {
+    const genericMaxValue = Math.max(
+      resolveFontScaleMax("heading"),
+      resolveFontScaleMax("quote"),
+      resolveFontScaleMax("body"),
+      resolveFontScaleMax("cardTitle")
+    );
+    addScaleIssue({
+      metric: "font-size",
+      actualValue: candidate.maxFontSizePx,
+      maxValue: genericMaxValue,
+      recommendedValue: genericMaxValue,
+      issueCode: "section_recipe_scale_font_size",
+    });
+  }
   addScaleIssue({
     metric: "grid/card gap",
     actualValue:
