@@ -24,6 +24,19 @@ function isEffectiveProductionEnv(env = process.env) {
   return nodeEnv === "production" || isRailwayProductionEnvironment(env);
 }
 
+function isUnsafeProductionSecret(value) {
+  const normalized = String(value || "").trim();
+  const lower = normalized.toLowerCase();
+  return (
+    normalized.length < 32 ||
+    lower.includes("change-this") ||
+    lower.includes("changeme") ||
+    lower.includes("replace-me") ||
+    lower.includes("example") ||
+    lower.includes("test-key")
+  );
+}
+
 function resolveRuntimeConfig(env = process.env) {
   const isProduction = isEffectiveProductionEnv(env);
   return {
@@ -105,8 +118,17 @@ function assertValidRuntimeConfig(nextConfig, env = process.env) {
     if (!String(nextConfig.mcpApiKey || "").trim()) {
       throw new Error("MCP_API_KEY is verplicht in productie.");
     }
+    if (isUnsafeProductionSecret(nextConfig.mcpApiKey)) {
+      throw new Error("MCP_API_KEY moet in productie een sterke secret van minimaal 32 tekens zijn.");
+    }
     if (!String(nextConfig.adminApiKey || "").trim()) {
       throw new Error("ADMIN_API_KEY is verplicht in productie.");
+    }
+    if (isUnsafeProductionSecret(nextConfig.adminApiKey)) {
+      throw new Error("ADMIN_API_KEY moet in productie een sterke secret van minimaal 32 tekens zijn.");
+    }
+    if (String(nextConfig.adminApiKey).trim() === String(nextConfig.mcpApiKey).trim()) {
+      throw new Error("ADMIN_API_KEY en MCP_API_KEY moeten verschillende productie-secrets zijn.");
     }
     if (!String(nextConfig.publicBaseUrl || "").trim()) {
       throw new Error("PUBLIC_BASE_URL is verplicht in productie.");
@@ -116,6 +138,9 @@ function assertValidRuntimeConfig(nextConfig, env = process.env) {
     }
     if (!nextConfig.dbSingleWriterEnforced) {
       throw new Error("DB_SINGLE_WRITER_ENFORCED=true is verplicht in productie.");
+    }
+    if (nextConfig.autoActivateSignupLicenses) {
+      throw new Error("HAZIFY_AUTO_ACTIVATE_SIGNUP_LICENSES mag niet actief zijn in productie.");
     }
   }
 }

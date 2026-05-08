@@ -15,7 +15,7 @@ Dit is het startpunt voor de Hazify monorepo. Deze workspace bevat de productiec
 **Gouden regel:** Als documentatie en code elkaar tegenspreken, is de code *altijd* leidend. Update de documentatie in dezelfde wijziging.
 
 ## 2. Repo Structuur
-De monorepo is opgebouwd via npm workspaces. `src/` is de enige bron van waarheid.
+De monorepo is opgebouwd via npm workspaces. Runtimecode leeft in de app-`src/` mappen; gedeelde code leeft canoniek in `packages/` en wordt voor Railway service-contexten bewust gespiegeld naar `apps/*/packages/`.
 
 - `apps/hazify-license-service/`: Node.js service voor account, OAuth, billing en token-exchange. (Entry: `src/server.js`)
 - `apps/hazify-mcp-remote/`: Remote MCP service via `/mcp`. (Entry: `src/index.js`)

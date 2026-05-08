@@ -21,6 +21,8 @@ async function getFreePort() {
 }
 
 const port = await getFreePort();
+const STRONG_ADMIN_KEY = "admin-production-secret-1234567890";
+const STRONG_MCP_KEY = "mcp-production-secret-123456789012";
 
 await assert.rejects(
   () =>
@@ -57,6 +59,8 @@ const productionHarness = await startLicenseServiceTestServer({
     BACKUP_EXPORT_POLICY: "",
     HAZIFY_FREE_MODE: "false",
     DB_SINGLE_WRITER_ENFORCED: "true",
+    ADMIN_API_KEY: STRONG_ADMIN_KEY,
+    MCP_API_KEY: STRONG_MCP_KEY,
   },
   cacheBuster: `startup-prod-success=${Date.now()}`,
 });

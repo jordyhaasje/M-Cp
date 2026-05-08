@@ -34,6 +34,21 @@ import { verifyThemeFilesTool } from "./verifyThemeFiles.js";
 
 const passthroughObject = () => z.object({}).passthrough();
 const nullableString = () => z.string().nullable();
+const withFailureOutput = (schema) =>
+  schema
+    .partial()
+    .extend({
+      success: z.boolean().optional(),
+      error: z.string().optional(),
+      errorCode: z.string().optional(),
+      message: z.string().optional(),
+      retryable: z.boolean().optional(),
+      nextAction: z.string().optional(),
+      nextTool: z.string().optional(),
+      nextArgsTemplate: passthroughObject().optional(),
+      errors: z.array(passthroughObject()).optional(),
+    })
+    .passthrough();
 const moneySchema = z
   .object({
     amount: z.string(),
@@ -449,7 +464,7 @@ const defineToolManifest = (tool, options = {}) => ({
   description: options.description || tool.description,
   docsDescription: options.docsDescription || tool.docsDescription || options.description || tool.description,
   inputSchema: options.inputSchema || tool.inputSchema || tool.schema || z.object({}),
-  ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}),
+  ...(options.outputSchema ? { outputSchema: withFailureOutput(options.outputSchema) } : {}),
   annotations: options.annotations || createAnnotations(options),
   requiresShopifyClient:
     typeof options.requiresShopifyClient === "boolean" ? options.requiresShopifyClient : true,

@@ -24,6 +24,12 @@ const setOrderTracking = {
             notifyCustomer: input.notifyCustomer,
             fulfillmentId: input.fulfillmentId
         }, context);
+        if (result?.success === false) {
+            return result;
+        }
+        if (!result?.order?.id) {
+            throw new Error("Tracking update returned no order id for verification.");
+        }
         const verificationOrder = await getOrderById.execute({ orderId: result.order.id }, context);
         const shipments = verificationOrder.order?.tracking?.shipments || [];
         const normalizedTrackingCode = input.trackingCode.trim();

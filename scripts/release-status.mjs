@@ -55,6 +55,25 @@ function classifyImpact(files) {
       continue;
     }
 
+    if (normalized === "railway.json" || normalized === "scripts/start-service.mjs") {
+      services.add("Hazify-MCP-Remote");
+      services.add("Hazify-License-Service");
+      buckets.runtime.push(normalized);
+      continue;
+    }
+
+    if (normalized === ".railwayignore" || normalized.endsWith("/.railwayignore")) {
+      services.add("Hazify-MCP-Remote");
+      services.add("Hazify-License-Service");
+      buckets.releaseOps.push(normalized);
+      continue;
+    }
+
+    if (normalized.endsWith(".env.example")) {
+      buckets.docs.push(normalized);
+      continue;
+    }
+
     if (
       normalized === "package.json" ||
       normalized === "package-lock.json" ||

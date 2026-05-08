@@ -1,0 +1,6 @@
+**/node_modules
+**/node_modules_bak_*
+**/package-lock_bak_*
+**/coverage
+apps/hazify-mcp-remote/dist
+.git

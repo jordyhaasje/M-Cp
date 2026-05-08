@@ -8,6 +8,7 @@ import {
   verifyPkceCodeVerifier,
 } from "../src/lib/oauth.js";
 import { getMcpScopeCapabilities, normalizeMcpScopeString } from "@hazify/mcp-common";
+import { normalizeShopDomain } from "@hazify/shopify-core";
 
 function hashToken(value) {
   return crypto.createHash("sha256").update(value, "utf8").digest("hex");
@@ -88,6 +89,22 @@ assert.equal(
   getMcpScopeCapabilities("mcp:admin").write,
   false,
   "unknown MCP scopes must fail closed for write access"
+);
+
+assert.equal(
+  normalizeShopDomain("https://demo-shop.myshopify.com/admin"),
+  "demo-shop.myshopify.com",
+  "valid Shopify URLs should normalize to their hostname"
+);
+assert.equal(
+  normalizeShopDomain("attacker.example?store.myshopify.com"),
+  "",
+  "query-string host spoofing should not pass as a Shopify shop domain"
+);
+assert.equal(
+  normalizeShopDomain("https://demo-shop.myshopify.com.evil.test"),
+  "",
+  "lookalike Shopify domains should be rejected"
 );
 
 const urlWithParams = appendQueryParamsToUrl("https://example.com/callback", {

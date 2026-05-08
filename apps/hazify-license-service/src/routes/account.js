@@ -364,6 +364,7 @@ export function createAccountHandlers({
           typeof payload.mcpTokenName === "string" && payload.mcpTokenName.trim()
             ? payload.mcpTokenName.trim()
             : "onboarding",
+        targetResource: resolvedMcpPublicUrl(req),
       });
       await persistDb();
 
@@ -382,6 +383,7 @@ export function createAccountHandlers({
           name: "Hazify MCP",
           url: resolvedMcpPublicUrl(req),
           bearerToken: token.accessToken,
+          targetResource: token.targetResource || null,
         },
         config: {
           codexToml: `[mcp_servers."Hazify MCP"]\nurl = "${resolvedMcpPublicUrl(

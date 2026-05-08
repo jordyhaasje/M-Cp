@@ -5,8 +5,10 @@ import { deleteProductVariants } from "../src/tools/deleteProductVariants.js";
 import { getOrderById } from "../src/tools/getOrderById.js";
 import { getThemeFileTool } from "../src/tools/getThemeFile.js";
 import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
+import { manageProductOptions } from "../src/tools/manageProductOptions.js";
 import { refundOrder } from "../src/tools/refundOrder.js";
 import { searchThemeFilesTool } from "../src/tools/searchThemeFiles.js";
+import { setOrderTracking } from "../src/tools/setOrderTracking.js";
 import { updateOrder } from "../src/tools/updateOrder.js";
 import { updateProduct } from "../src/tools/updateProduct.js";
 import { verifyThemeFilesTool } from "../src/tools/verifyThemeFiles.js";
@@ -435,6 +437,48 @@ try {
   assert.equal(fulfillmentTrackingRedirect.success, false);
   assert.equal(fulfillmentTrackingRedirect.nextTool, "update-fulfillment-tracking");
 
+  let trackingCallCount = 0;
+  const setTrackingFailure = await setOrderTracking.execute(
+    setOrderTracking.schema.parse({
+      order: "gid://shopify/Order/1",
+      trackingCode: "TRACK-ERR",
+      carrier: "UPS",
+    }),
+    {
+      shopifyClient: {
+        request: async () => {
+          trackingCallCount += 1;
+          if (trackingCallCount === 1) {
+            return {
+              order: {
+                id: "gid://shopify/Order/1",
+                name: "#1001",
+                fulfillments: [
+                  {
+                    id: "gid://shopify/Fulfillment/1",
+                    status: "SUCCESS",
+                    createdAt: "2026-04-22T08:00:00Z",
+                    trackingInfo: [],
+                  },
+                ],
+                fulfillmentOrders: { nodes: [] },
+              },
+            };
+          }
+          return {
+            fulfillmentTrackingInfoUpdate: {
+              fulfillment: null,
+              userErrors: [{ field: ["trackingInfo"], message: "Tracking number is invalid" }],
+            },
+          };
+        },
+      },
+    }
+  );
+  assert.equal(setTrackingFailure.success, false);
+  assert.equal(setTrackingFailure.operation, "fulfillmentTrackingInfoUpdate");
+  assert.equal(trackingCallCount, 2, "set-order-tracking should not perform readback after a structured update failure");
+
   const deleteProductResult = await deleteProduct.execute(
     deleteProduct.schema.parse({
       id: "gid://shopify/Product/1",
@@ -498,6 +542,54 @@ try {
   );
   assert.equal(storedVariantAudit.rows.length, 1);
   assert.equal(storedVariantAudit.rows[0].tool_name, "delete-product-variants");
+
+  assert.equal(
+    manageProductOptions.schema.safeParse({
+      productId: "gid://shopify/Product/1",
+      action: "delete",
+      optionIds: ["gid://shopify/ProductOption/1"],
+    }).success,
+    false,
+    "destructive product option deletes should require confirmation and reason"
+  );
+
+  const deleteOptionsResult = await manageProductOptions.execute(
+    manageProductOptions.schema.parse({
+      productId: "gid://shopify/Product/1",
+      action: "delete",
+      optionIds: ["gid://shopify/ProductOption/1"],
+      confirmation: "DELETE_PRODUCT_OPTIONS",
+      reason: "Cleanup obsolete option",
+    }),
+    {
+      shopifyClient: {
+        request: async () => ({
+          productOptionsDelete: {
+            product: {
+              id: "gid://shopify/Product/1",
+              title: "Demo product",
+              options: [],
+              variants: {
+                edges: [],
+              },
+            },
+            userErrors: [],
+          },
+        }),
+      },
+      tenantId: "tenant_remediation",
+      requestId: "req_delete_options",
+      shopifyDomain: "unit-test-shop.myshopify.com",
+    }
+  );
+  assert.ok(deleteOptionsResult.audit?.auditLogId, "manage-product-options delete should return an audit log id");
+  const storedOptionAudit = await themeDraftDb.pool.query(
+    "SELECT * FROM mutation_audit_logs WHERE id = $1",
+    [deleteOptionsResult.audit.auditLogId]
+  );
+  assert.equal(storedOptionAudit.rows.length, 1);
+  assert.equal(storedOptionAudit.rows[0].tool_name, "manage-product-options");
+  assert.equal(storedOptionAudit.rows[0].reason, "Cleanup obsolete option");
 
   const orderReadResult = await getOrderById.execute(
     getOrderById.schema.parse({

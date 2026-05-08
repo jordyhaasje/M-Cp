@@ -1,26 +1,14 @@
 # Remediation Plan
 Doelgroep: maintainers, release owners en coding agents.
 
-Dit document is geen historische changelog meer. Het is de actuele releasekaart voor de Hazify monorepo: wat is opgelost, wat staat nog open, welke docs blijven actief en wanneer mag een wijziging naar productie.
+Dit document is de actuele releasekaart voor de Hazify monorepo. Het is geen changelog: oude patchrondes, vaste deployment IDs en tijdelijke notities horen niet in actieve docs.
 
 ## Status
-- De acht bekende P1/P2 review findings zijn opgelost in code en beschreven in `docs/04-MCP-REMOTE-AUDIT.md`.
 - De repo draait met een Postgres-only License Service en een HTTP-only Remote MCP.
-- De MCP Remote gebruikt PostgreSQL voor `theme_drafts` en advisory locks.
-- Railway runtime-start gebruikt direct Node via `railway.json` en `scripts/start-service.mjs`; dit is live bevestigd op MCP Remote deployment `2d3eb307-cd8b-40b5-9bff-25163ddd0124` en License Service deployment `301768ee-8860-494e-8e37-e89ea4a84ce3`.
-- MCP theme edit hardening voor preserve-on-edit rewrites en generieke section authoring contracts is live op commit `553cdce`.
-- MCP theme section retry/payload hardening is live op commit `48ba85b` via MCP Remote deployment `0231b1a5-c2b5-4fda-ab38-f162d65b3976`.
-- Er wordt nu geen document verwijderd.
-
-## Actieve Patch
-De production-readiness patch op commit `158d0f3` heeft de resterende operationele en documentatiepunten afgehandeld:
-
-- Root Railway startcommand vastleggen in `railway.json`.
-- Root start scripts laten wijzen naar `scripts/start-service.mjs` zonder geneste `npm run`.
-- `scripts/check-repo-hygiene.mjs` laten falen wanneer startconfig terugvalt naar geneste npm-starts.
-- `docs/04-MCP-REMOTE-AUDIT.md` compact maken tot actuele auditwaarheid.
-- `docs/05-REMEDIATION-PLAN.md` compact maken tot releasekaart.
-- README's en docs-indexen bijwerken zodat nieuwe developers en coding agents de repo direct begrijpen.
+- Railway runtime-start gebruikt direct Node via `railway.json` en `scripts/start-service.mjs`.
+- MCP Remote gebruikt PostgreSQL voor `theme_drafts`, verify/apply state en advisory locks.
+- License Service production startup vereist sterke admin/MCP secrets, `HAZIFY_FREE_MODE=false`, resource-bound MCP tokens en test-only signup auto-activation uit.
+- Theme generation is gericht op hogere first-pass success rate en lager tokenverbruik via compact planner output, preflight bundling, compact failure responses en server-side context waar veilig.
 
 ## Release Checklist
 1. Lees `docs/00-START-HERE.md`, `docs/01-TECH-STACK.md`, `docs/02-SYSTEM-FLOW.md` en `AGENTS.md`.
@@ -33,35 +21,32 @@ De production-readiness patch op commit `158d0f3` heeft de resterende operatione
    ```
 3. Controleer dat `git diff --check` schoon is.
 4. Commit met een duidelijke productie-readiness boodschap.
-5. Merge pas naar `main` wanneer lokale gates groen zijn.
-6. Push `main`.
-7. Redeploy beide Railway services wanneer root runtime, shared packages, license service of MCP remote zijn geraakt.
-8. Draai na deploy:
+5. Push `main`.
+6. Redeploy `Hazify-MCP-Remote` en/of `Hazify-License-Service` volgens `npm run release:status`.
+7. Draai na deploy:
    ```bash
-   npm run smoke:prod
+   HAZIFY_REQUIRE_AUTHENTICATED_MCP_SMOKE=true HAZIFY_REQUIRE_WRITE_SCOPE_GATE=true npm run smoke:prod
    ```
-9. Controleer Railway deployment metadata en logs via Railway MCP.
+8. Controleer Railway deployment metadata en runtime logs voor nieuwe errorreeksen.
 
-## Docs Cleanup Besluit
-- `docs/00-START-HERE.md` blijft de leesvolgorde.
-- `docs/01-TECH-STACK.md` blijft architectuur, env vars, deployment en observability.
-- `docs/02-SYSTEM-FLOW.md` blijft systeemflow en toolruntime.
-- `docs/03-THEME-SECTION-GENERATION.md` blijft de theme generation gids.
-- `docs/04-MCP-REMOTE-AUDIT.md` blijft de actuele audit en code-map.
-- `docs/05-REMEDIATION-PLAN.md` blijft de actuele releasekaart.
-- Oude batchgeschiedenis wordt niet als lang verhaal bewaard in actieve docs. Alleen actuele status, bewijs, open punten en release-acties blijven staan.
+## Redeploy-Regels
+- `apps/hazify-mcp-remote/src/**`, MCP package mirrors of MCP `package.json`: redeploy MCP Remote.
+- `apps/hazify-license-service/src/**`, license package mirrors of license `package.json`: redeploy License Service.
+- `packages/**`, root `package.json`, root `package-lock.json`, `railway.json` of `scripts/start-service.mjs`: redeploy beide services.
+- `docs/**`, `AGENTS.md` en test-only wijzigingen: geen Railway redeploy.
+- Env-only changes kunnen zonder codecommit een redeploy vereisen; noteer dit in de release-output.
+
+## Docs Governance
+- `docs/README.md` is de index van actieve docs.
+- `docs/03-THEME-SECTION-GENERATION.md` blijft de uitgebreide theme generation gids.
+- `docs/04-MCP-REMOTE-AUDIT.md` blijft de compacte audit en code-map.
+- Oude deployment IDs, patchgeschiedenis en “nu gefixt” notities worden verwijderd zodra ze geen operationele waarde meer hebben.
 
 ## Open Punten
 - Maak een aparte read-only MCP smoke-token aan en verifieer live dat write-tools met alleen `mcp:tools:read` worden geweigerd.
+- Breid persistente `mutation_audit_logs` verder uit naar refunds, theme deletes en overige store mutaties.
+- Voeg echte Postgres advisory-lock tests toe aan CI/release wanneer een gedeelde testdatabase beschikbaar is.
 - Blijf de upstream `punycode` waarschuwing vanuit `@shopify/theme-check-node` monitoren wanneer theme linting actief is.
-
-## Productie Waarheid
-- Gebruikers koppelen hun Shopify store in de License Service met een Admin API access token uit een merchant-created custom app.
-- App key/secret blijft ondersteund voor trusted app-achtige setups, maar is niet de primaire merchant-route.
-- Theme file edits vereisen Shopify theme file write access/exemption naast `write_themes`; de MCP meldt ontbrekende toegang als `theme_write_exemption_required`.
-- MCP-clients verbinden met de Remote MCP via de publieke `/mcp` endpoint en een bearer token of API key.
-- De MCP Remote introspecteert credentials bij de License Service, haalt server-side de Shopify access token op via interne token-exchange en geeft die nooit terug aan de client of LLM.
-- Theme writes zijn altijd theme-targeted, guarded, gevalideerd en waar mogelijk verify-after-write bevestigd.
 
 ## Handoff Voor Agents
 - Gebruik de toolregistry als bron van waarheid voor toolnamen.

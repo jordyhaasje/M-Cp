@@ -22,8 +22,9 @@ Railway gebruikt root `railway.json` met `node scripts/start-service.mjs`. `HAZI
 - `DB_SINGLE_WRITER_ENFORCED=true` (actief als enkele writer wegens lock/persistence model).
 - Rolling deploys gebruiken nu een begrensde startup-retry voor de single-writer advisory lock, zodat een nieuwe instance kort kan wachten tot de vorige writer is afgebouwd zonder de lockgarantie los te laten.
 - `HAZIFY_FREE_MODE=false`.
-- `ADMIN_API_KEY` en `MCP_API_KEY` (alias `HAZIFY_MCP_API_KEY`).
+- `ADMIN_API_KEY` en `MCP_API_KEY` (alias `HAZIFY_MCP_API_KEY`) moeten verschillende sterke secrets van minimaal 32 tekens zijn; placeholderwaarden blokkeren production startup.
 - `PUBLIC_BASE_URL` en `MCP_PUBLIC_URL`.
+- `HAZIFY_AUTO_ACTIVATE_SIGNUP_LICENSES=true` is alleen voor tests/local flows en blokkeert production startup.
 - Admin backup-export is in productie feature-gated: de service mag gewoon starten zonder backup-export-config, maar export werkt pas wanneer `BACKUP_EXPORT_KEY`, `BACKUP_EXPORT_DIRECTORY` en `BACKUP_EXPORT_POLICY=encrypted` expliciet zijn gezet.
 
 ### Remote MCP (Productievereisten)
@@ -57,5 +58,5 @@ Railway gebruikt root `railway.json` met `node scripts/start-service.mjs`. `HAZI
 
 ## 3. Persistence
 - Zowel de License Service als de Remote MCP draaien op PostgreSQL-backed persistence. Er is geen JSON-file opslag of runtime in-memory fallback meer buiten tests.
-- Postgres writes via `createStorageAdapter` (`src/repositories/storage-adapter.js`) zijn transactioneel (upsert/delete). Geen destructieve `TRUNCATE + full reinsert`.
+- Postgres writes via `createStorageAdapter` (`apps/hazify-license-service/src/repositories/storage-adapter.js`) zijn transactioneel (upsert/delete). Geen destructieve `TRUNCATE + full reinsert`.
 - Single-writer consistency is gehandhaafd door een exclusieve Postgres advisory lock; er is bewust geen ondersteuning voor meerdere parallelle write-instances tegelijk op de database.

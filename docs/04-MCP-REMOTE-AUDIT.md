@@ -4,13 +4,11 @@ Doelgroep: maintainers, reviewers en coding agents.
 Deze audit is de compacte bron van waarheid voor de Hazify Remote MCP. Code blijft leidend; wanneer deze audit afwijkt van runtime-code of tests, moet de documentatie in dezelfde wijziging worden aangepast.
 
 ## Production Readiness Status
-- Status op 2026-04-27: de section-generation pipeline heeft nu een hardere Theme Editor usability-laag voor planner-gegenereerde sections. Repeatable families zoals sliders, FAQ, reviews/testimonials, comparison rows, logo walls/sliders en tabs moeten editor-bruikbare blocks, block-rendering, `block.shopify_attributes` en preset blocks hebben; featured product/collection flows moeten echte Shopify resource-bronnen gebruiken; generated sections moeten expliciet desktop/mobile responsive gedrag tonen.
-- Status op 2026-04-26: de MCP theme edit pipeline is gehard tegen lossy rewrites, lokaal gevalideerd over meerdere OS 2.0 theme-archetypen en opnieuw gedeployed. De planner/handoff geeft nu ook een generiek `implementationContract` mee voor schema-, render-, media-, interactieve en preserve-on-edit regels, zodat clients niet op use-case-specifieke promptworkarounds hoeven te leunen.
-- Authenticated MCP read-smoke is live groen: `initialize`, `tools/list` met 35 tools en `get-license-status` werken op productie met een geldige MCP credential.
-- Laatste bevestigde productie-baseline op `main`:
-  - Commit: `553cdce`
-  - MCP Remote deployment ID: `2d3eb307-cd8b-40b5-9bff-25163ddd0124`
-  - License Service deployment ID: `301768ee-8860-494e-8e37-e89ea4a84ce3`
+- De actuele codebase exposeert 35 MCP tools via de gedeelde registry.
+- Theme generation gebruikt planner-contracten, compacte reads, lokale preflight, schema-/Liquid-/theme-check inspectie en verify-after-write om retries en tokenverbruik te beperken.
+- Store mutaties zijn write-scope gated; destructieve en financiële acties vereisen confirmation/reason en moeten readback of audittrail hebben.
+- Authenticated MCP read-smoke moet na iedere runtime deploy groen zijn: `initialize`, `tools/list` en `get-license-status` met een geldige MCP credential.
+- Deployment IDs en tijdelijke patchgeschiedenis horen in release-output of Railway, niet als vaste baseline in dit document.
 - Railway runtime-start gebruikt direct Node via `railway.json` en `scripts/start-service.mjs`; de MCP start bouwt `dist/` direct uit `src/` en root `start:mcp`/`start:license` mogen niet terug naar geneste `npm run` starts.
 - De runtime is multi-tenant: Shopify store-context komt uit de License Service token-exchange en wordt per request aan de MCP toolcontext gekoppeld.
 
@@ -37,7 +35,9 @@ Deze audit is de compacte bron van waarheid voor de Hazify Remote MCP. Code blij
 - Verify mismatch, missing of verify-errors blokkeren `preview_ready` en `applied`.
 - Non-main theme roles vereisen `themeId`; alleen `themeRole="main"` mag role-only omdat Shopify maar een live main theme heeft.
 - Fulfillment scopes bevatten zowel read als write fulfillment-order scopes voor trackinggedrag.
-- OAuth resource/audience wordt aan de publieke `/mcp` resource gebonden.
+- OAuth resource/audience en nieuwe dashboard/admin/onboarding MCP tokens worden aan de publieke `/mcp` resource gebonden.
+- Shopify shop domains worden strikt als `*.myshopify.com` host gevalideerd; querystring- of lookalike-host spoofing wordt afgewezen voordat credentials worden opgeslagen of gebruikt.
+- License Service production startup weigert placeholder secrets, hergebruikte admin/MCP secrets en test-only signup auto-activation.
 - Custom-app onboarding stuurt primair op Admin API access token; app key/secret blijft alleen voor trusted app-achtige setups.
 - Theme-write blokkades door ontbrekende Shopify theme file access/exemption worden als `theme_write_exemption_required` teruggegeven.
 
@@ -61,7 +61,9 @@ Deze audit is de compacte bron van waarheid voor de Hazify Remote MCP. Code blij
 - Live plaatsing van sections in templates gebeurt alleen op expliciete gebruikersvraag en op hetzelfde gekozen theme.
 
 ## Actuele Open Punten
-- Een echte read-only MCP smoke-token is nog nodig om live te bewijzen dat write-tools met alleen `mcp:tools:read` worden geweigerd. De code en tests borgen dit al; de productie-smoke vereist aparte credential-aanmaak.
+- Een echte read-only MCP smoke-token is nog nodig om live te bewijzen dat write-tools met alleen `mcp:tools:read` worden geweigerd. De code en tests borgen dit al; de productie-smoke vereist aparte credential-aanmaak en `HAZIFY_REQUIRE_AUTHENTICATED_MCP_SMOKE=true`.
+- Product/media/publication coverage is nog CRUD-lite: inventory levels, collecties, productmedia lifecycle en publication status verdienen aparte tools voordat dit als volledig Shopify catalogusbeheer telt.
+- Persistente auditlogging is aanwezig voor product-delete, variant-delete en destructieve product-option changes; uitbreiding naar alle store mutaties blijft een P1/P2 roadmap-item.
 - `@shopify/theme-check-node` kan upstream nog een `punycode` waarschuwing tonen wanneer de lint-route wordt geladen. Dat is geen startup- of toolcontractblocker; monitoren blijft genoeg zolang er geen tool failure ontstaat.
 
 ## Code Map

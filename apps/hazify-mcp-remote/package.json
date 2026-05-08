@@ -14,8 +14,8 @@
     "build": "node scripts/copy-src-to-dist.mjs ./src ./dist",
     "prestart": "npm run build",
     "start": "node dist/index.js",
-    "start:http": "node dist/index.js",
-    "start:remote": "node dist/index.js",
+    "start:http": "npm run build && node dist/index.js",
+    "start:remote": "npm run build && node dist/index.js",
     "test": "node tests/run.mjs"
   },
   "keywords": [

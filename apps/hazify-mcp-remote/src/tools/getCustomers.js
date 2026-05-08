@@ -4,7 +4,7 @@ import { z } from "zod";
 // Input schema for getCustomers
 const GetCustomersInputSchema = z.object({
     searchQuery: z.string().optional(),
-    limit: z.number().default(10)
+    limit: z.number().int().min(1).max(50).default(10).describe("Max 50 customers per request")
 });
 // Will be initialized in index.ts
 const getCustomers = {

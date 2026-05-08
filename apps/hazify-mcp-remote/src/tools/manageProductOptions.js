@@ -1,4 +1,5 @@
 import { gql } from "../lib/shopifyGraphqlClient.js";
+import { createMutationAuditLog } from "../lib/db.js";
 import { requireShopifyClient } from "./_context.js";
 import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
 import { z } from "zod";
@@ -37,6 +38,8 @@ const ManageProductOptionsInputSchema = z.discriminatedUnion("action", [
             .array(z.string())
             .optional()
             .describe("Value GIDs to delete (action=update)"),
+        confirmation: z.string().optional().describe("Required as DELETE_OPTION_VALUES when valuesToDelete is used"),
+        reason: z.string().optional().describe("Audit reason required when valuesToDelete is used"),
     }),
     ManageProductOptionsBaseSchema.extend({
         action: z.literal("delete"),
@@ -44,6 +47,8 @@ const ManageProductOptionsInputSchema = z.discriminatedUnion("action", [
             .array(z.string())
             .min(1)
             .describe("Option GIDs to delete (action=delete)"),
+        confirmation: z.literal("DELETE_PRODUCT_OPTIONS"),
+        reason: z.string().min(5).describe("Audit reason for deleting product options"),
     }),
 ]);
 // Will be initialized in index.ts
@@ -78,12 +83,20 @@ const PRODUCT_OPTIONS_FRAGMENT = gql `
 `;
 const manageProductOptions = {
     name: "manage-product-options",
-    description: "Create, update, or delete product options (e.g. Size, Color). Use action='create' to add options, 'update' to rename or add/remove values, 'delete' to remove options.",
+    description: "Create, update, or delete product options (e.g. Size, Color). Destructive deletes and valuesToDelete require explicit confirmation and reason.",
     schema: ManageProductOptionsInputSchema,
     execute: async (input, context = {}) => {
       const shopifyClient = requireShopifyClient(context);
         try {
             const { productId, action } = input;
+            const requireDestructiveConfirmation = (expected) => {
+                if (input.confirmation !== expected) {
+                    throw new Error(`confirmation must be ${expected}`);
+                }
+                if (typeof input.reason !== "string" || input.reason.trim().length < 5) {
+                    throw new Error("reason is required for destructive product option changes");
+                }
+            };
             if (action === "create") {
                 if (!input.options?.length) {
                     throw new Error("options array is required for action=create");
@@ -174,8 +187,25 @@ const manageProductOptions = {
                     }));
                 }
                 if (input.valuesToDelete?.length) {
+                    requireDestructiveConfirmation("DELETE_OPTION_VALUES");
                     variables.optionValuesToDelete = input.valuesToDelete;
                 }
+                const auditLog = input.valuesToDelete?.length
+                    ? await createMutationAuditLog({
+                        toolName: "manage-product-options",
+                        tenantId: context.tenantId || null,
+                        shopDomain: context.shopifyDomain || null,
+                        requestId: context.requestId || null,
+                        reason: input.reason,
+                        targetIds: [productId, input.optionId, ...input.valuesToDelete],
+                        payload: {
+                            action,
+                            productId,
+                            optionId: input.optionId,
+                            valuesToDelete: input.valuesToDelete,
+                        },
+                    })
+                    : null;
                 const data = (await shopifyClient.request(query, variables));
                 const userErrorResponse = buildShopifyUserErrorResponse(
                     data.productOptionUpdate.userErrors,
@@ -187,12 +217,16 @@ const manageProductOptions = {
                 if (userErrorResponse) {
                     return userErrorResponse;
                 }
-                return formatProductResponse(data.productOptionUpdate.product);
+                return {
+                    ...formatProductResponse(data.productOptionUpdate.product),
+                    ...(auditLog ? { audit: { auditLogId: auditLog.id || null } } : {}),
+                };
             }
             if (action === "delete") {
                 if (!input.optionIds?.length) {
                     throw new Error("optionIds array is required for action=delete");
                 }
+                requireDestructiveConfirmation("DELETE_PRODUCT_OPTIONS");
                 const query = gql `
           mutation productOptionsDelete(
             $productId: ID!
@@ -214,6 +248,19 @@ const manageProductOptions = {
           }
           ${PRODUCT_OPTIONS_FRAGMENT}
         `;
+                const auditLog = await createMutationAuditLog({
+                    toolName: "manage-product-options",
+                    tenantId: context.tenantId || null,
+                    shopDomain: context.shopifyDomain || null,
+                    requestId: context.requestId || null,
+                    reason: input.reason,
+                    targetIds: [productId, ...input.optionIds],
+                    payload: {
+                        action,
+                        productId,
+                        optionIds: input.optionIds,
+                    },
+                });
                 const data = (await shopifyClient.request(query, {
                     productId,
                     options: input.optionIds,
@@ -228,7 +275,12 @@ const manageProductOptions = {
                 if (userErrorResponse) {
                     return userErrorResponse;
                 }
-                return formatProductResponse(data.productOptionsDelete.product);
+                return {
+                    ...formatProductResponse(data.productOptionsDelete.product),
+                    audit: {
+                        auditLogId: auditLog?.id || null,
+                    },
+                };
             }
             throw new Error(`Unknown action: ${action}`);
         }

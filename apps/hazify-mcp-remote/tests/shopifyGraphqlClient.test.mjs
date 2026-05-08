@@ -3,11 +3,27 @@ import { createShopifyGraphqlClient, gql } from "../src/lib/shopifyGraphqlClient
 
 const originalFetch = global.fetch;
 const calls = [];
+let throttledAttempts = 0;
 
 try {
   global.fetch = async (url, options) => {
     calls.push({ url, options });
     const body = JSON.parse(options.body);
+
+    if (body.query.includes("RetryableQuery")) {
+      throttledAttempts += 1;
+      if (throttledAttempts === 1) {
+        return new Response(
+          JSON.stringify({
+            errors: "Throttled",
+          }),
+          {
+            status: 429,
+            headers: { "content-type": "application/json", "retry-after": "0" },
+          }
+        );
+      }
+    }
 
     if (body.query.includes("BrokenQuery")) {
       return new Response(
@@ -64,6 +80,22 @@ try {
       `),
     /Field does not exist/
   );
+
+  const retryingClient = createShopifyGraphqlClient({
+    domain: "unit-test.myshopify.com",
+    accessToken: "shpat_test",
+    apiVersion: "2026-01",
+    retryBaseDelayMs: 1,
+  });
+  const retryData = await retryingClient.request(gql`
+    query RetryableQuery {
+      shop {
+        name
+      }
+    }
+  `);
+  assert.deepEqual(retryData, { shop: { name: "Hazify Test" } });
+  assert.equal(throttledAttempts, 2, "429 responses should be retried once before succeeding");
 } finally {
   global.fetch = originalFetch;
 }

@@ -15,14 +15,26 @@ const DEFAULT_REQUIRED_SCOPES = [
 
 export const REQUIRED_SHOPIFY_ADMIN_SCOPES = Object.freeze([...DEFAULT_REQUIRED_SCOPES]);
 
+const SHOPIFY_MYSHOPIFY_DOMAIN_REGEX = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/;
+
 export function normalizeShopDomain(value) {
   const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (!raw) {
     return "";
   }
-  const withoutProtocol = raw.replace(/^https?:\/\//, "");
-  const withoutPath = withoutProtocol.split("/")[0] || "";
-  return withoutPath;
+
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.username || parsed.password) {
+      return "";
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    return SHOPIFY_MYSHOPIFY_DOMAIN_REGEX.test(hostname) ? hostname : "";
+  } catch (_error) {
+    return "";
+  }
 }
 
 function extractShopifyScopeHandles(payload) {

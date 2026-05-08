@@ -603,6 +603,7 @@ function listTenantMcpTokens(tenantId) {
       updatedAt: entry.updatedAt || null,
       lastUsedAt: entry.lastUsedAt || null,
       expiresAt: entry.expiresAt || null,
+      targetResource: entry.targetResource || null,
     }));
 }
 
@@ -1124,6 +1125,7 @@ function initializeHandlers() {
     readBody,
     applyRateLimit,
     createMcpTokenForTenant,
+    resolvedMcpPublicUrl,
     oauthConnectionKeyFromRefreshRecord,
     listTenantsForAccount,
   });
@@ -1230,6 +1232,7 @@ function initializeHandlers() {
     validateShopifyCredentialsLive,
     buildTenantShopifyRecord,
     createMcpTokenForTenant,
+    resolvedMcpPublicUrl,
     revokeTenantAuthArtifacts,
     storage,
     logEvent,

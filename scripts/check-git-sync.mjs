@@ -20,6 +20,14 @@ if (!aheadBehind.ok) {
   process.exit(1);
 }
 
+const currentBranch = safeRunGit(["rev-parse", "--abbrev-ref", "HEAD"]);
+if (!currentBranch.ok || currentBranch.output !== "main") {
+  console.error("check:git-sync is de release-gate voor origin/main.");
+  console.error(`Huidige branch: ${currentBranch.ok ? currentBranch.output : "onbekend"}`);
+  console.error("Switch naar main of push je feature branch via een aparte PR-flow.");
+  process.exit(1);
+}
+
 const [behindRaw, aheadRaw] = aheadBehind.output.split(/\s+/);
 const behind = Number.parseInt(behindRaw, 10);
 const ahead = Number.parseInt(aheadRaw, 10);

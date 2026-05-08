@@ -24,6 +24,7 @@ export function createAdminHandlers({
   validateShopifyCredentialsLive,
   buildTenantShopifyRecord,
   createMcpTokenForTenant,
+  resolvedMcpPublicUrl,
   revokeTenantAuthArtifacts,
   storage,
   logEvent,
@@ -206,6 +207,7 @@ export function createAdminHandlers({
       const token = createMcpTokenForTenant(tenantId, {
         name: payload.name,
         expiresInDays: payload.expiresInDays,
+        targetResource: resolvedMcpPublicUrl(req),
       });
 
       await persistDb();
@@ -216,6 +218,7 @@ export function createAdminHandlers({
         tenantId,
         licenseKey: tenant.licenseKey,
         expiresAt: token.expiresAt,
+        targetResource: token.targetResource || null,
         license: canonicalLicense(token.license),
         shopify: {
           domain: tenant.shopify?.domain || null,

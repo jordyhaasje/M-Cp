@@ -37,6 +37,20 @@ const getOrdersDefinition = registry.byName.get("get-orders");
 const parsedGetOrders = getOrdersDefinition.inputSchema.parse({ cursor: "cursor_123" });
 assert.equal(parsedGetOrders.cursor, "cursor_123", "get-orders should expose cursor in the public contract");
 assert.equal(parsedGetOrders.limit, 50, "get-orders should use the canonical default limit");
+assert.equal(
+  registry.byName.get("get-products").inputSchema.safeParse({ limit: 500 }).success,
+  false,
+  "get-products should expose a bounded read limit"
+);
+assert.equal(
+  registry.byName.get("manage-product-options").inputSchema.safeParse({
+    productId: "gid://shopify/Product/1",
+    action: "delete",
+    optionIds: ["gid://shopify/ProductOption/1"],
+  }).success,
+  false,
+  "manage-product-options destructive deletes should require confirmation"
+);
 
 assert.strictEqual(
   registry.byName.get("update-order-tracking").inputSchema,
@@ -129,6 +143,13 @@ registry.byName.get("delete-product-variants").outputSchema.parse({
     title: "Demo product",
     remainingVariants: [],
   },
+});
+
+registry.byName.get("get-theme-file").outputSchema.parse({
+  success: false,
+  errorCode: "theme_target_required",
+  message: "Explicit theme target required.",
+  nextTool: "get-themes",
 });
 
 registry.byName.get("plan-theme-edit").outputSchema.parse({

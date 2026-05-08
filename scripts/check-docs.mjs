@@ -249,7 +249,7 @@ async function main() {
       path.join(repoRoot, "docs/04-MCP-REMOTE-AUDIT.md"),
       [
         "Production Readiness Status",
-        "Authenticated MCP read-smoke is live groen",
+        "Authenticated MCP read-smoke moet na iedere runtime deploy groen zijn",
         "Railway runtime-start gebruikt direct Node",
         "read-only MCP smoke-token",
       ],
@@ -259,7 +259,7 @@ async function main() {
       [
         "Release Checklist",
         "Railway runtime-start gebruikt direct Node",
-        "Er wordt nu geen document verwijderd.",
+        "oude patchrondes, vaste deployment IDs en tijdelijke notities horen niet in actieve docs",
         "read-only MCP smoke-token",
       ],
     ],

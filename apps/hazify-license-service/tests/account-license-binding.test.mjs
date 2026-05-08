@@ -152,6 +152,12 @@ try {
     }),
   });
   assert.equal(connectResponse.status, 201, "paid signup account should be allowed to connect a store");
+  const connectBody = await connectResponse.json();
+  assert.equal(
+    connectBody?.mcp?.targetResource,
+    "https://mcp.example.test/mcp",
+    "onboarding-created MCP tokens should be bound to the public MCP resource"
+  );
 
   const email = `license-adopt-${Date.now()}@example.test`;
   const password = "AdoptLoginPass!123";

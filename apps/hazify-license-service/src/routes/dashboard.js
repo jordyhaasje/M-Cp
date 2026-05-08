@@ -10,6 +10,7 @@ export function createDashboardHandlers({
   readBody,
   applyRateLimit,
   createMcpTokenForTenant,
+  resolvedMcpPublicUrl,
   oauthConnectionKeyFromRefreshRecord,
   listTenantsForAccount,
 }) {
@@ -65,6 +66,7 @@ export function createDashboardHandlers({
       const token = createMcpTokenForTenant(tenant.tenantId, {
         name: payload?.name,
         expiresInDays: payload?.expiresInDays,
+        targetResource: resolvedMcpPublicUrl(req),
       });
       await persistDb();
       return json(res, 201, {
@@ -73,6 +75,7 @@ export function createDashboardHandlers({
           tokenId: token.tokenId,
           accessToken: token.accessToken,
           expiresAt: token.expiresAt || null,
+          targetResource: token.targetResource || null,
         },
         revokedTokenIds,
         dashboard: buildDashboardPayload(req, resolved.account, resolved.session, tenant.tenantId),
