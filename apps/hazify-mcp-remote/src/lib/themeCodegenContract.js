@@ -148,12 +148,53 @@ const stripNegatedFeaturePhrases = (value = "") => {
     );
 };
 
-const normalizeLiquidSourceForBlockParsing = (value) =>
+const normalizeShopifySectionLiquidForWrite = (value) =>
   String(value || "")
+    .normalize("NFC")
     .replace(/^\uFEFF/, "")
+    .replace(/[\u200B-\u200D\u2060]/g, "")
+    .replace(/\u00A0/g, " ")
     .replace(/^\s*```(?:liquid|html)?\s*/i, "")
     .replace(/\s*```\s*$/i, "")
-    .replace(/\\({%-?\s*(?:end)?[A-Za-z_][A-Za-z0-9_]*\s*-?%})/g, "$1");
+    .replace(/&lbrace;|&#123;|&#x7b;/gi, "{")
+    .replace(/&rbrace;|&#125;|&#x7d;/gi, "}")
+    .replace(/&percnt;|&#37;|&#x25;/gi, "%")
+    .replace(/\\({%-?\s*(?:end)?[A-Za-z_][A-Za-z0-9_]*(?:\s+[A-Za-z_][A-Za-z0-9_]*)?\s*-?%})/g, "$1")
+    .replace(/\{\s*%-?\s*schema\s*-?%\s*\}/gi, "{% schema %}")
+    .replace(/\{\s*%-?\s*end\s*schema\s*-?%\s*\}/gi, "{% endschema %}")
+    .replace(/\{\s*%-?\s*endschema\s*-?%\s*\}/gi, "{% endschema %}");
+
+const normalizeLiquidSourceForBlockParsing = (value) =>
+  normalizeShopifySectionLiquidForWrite(value);
+
+const repairTrailingSchemaBlockClosure = (value) => {
+  const source = normalizeShopifySectionLiquidForWrite(value);
+  const openMatches = Array.from(source.matchAll(/\{%-?\s*schema\s*-?%\}/gi));
+  const closeMatches = Array.from(source.matchAll(/\{%-?\s*endschema\s*-?%\}/gi));
+  if (openMatches.length !== 1 || closeMatches.length !== 0) {
+    return { value: source, changed: source !== String(value || ""), repairs: [] };
+  }
+
+  const openMatch = openMatches[0];
+  const openEnd = openMatch.index + openMatch[0].length;
+  const schemaJson = source.slice(openEnd).trim();
+  if (!schemaJson) {
+    return { value: source, changed: source !== String(value || ""), repairs: [] };
+  }
+
+  try {
+    JSON.parse(schemaJson);
+  } catch {
+    return { value: source, changed: source !== String(value || ""), repairs: [] };
+  }
+
+  const repaired = `${source.slice(0, openEnd)}\n${schemaJson}\n{% endschema %}`;
+  return {
+    value: repaired,
+    changed: true,
+    repairs: ["appended_missing_trailing_endschema"],
+  };
+};
 
 const getLiquidBlockContents = (value, tagName) => {
   const source = normalizeLiquidSourceForBlockParsing(value);
@@ -3862,6 +3903,8 @@ const preflightSectionLiquid = (
 ) => {
   const source = String(value || "");
   const parsed = parseSectionSchemaStrict(source);
+  const schemaParseFailed =
+    parsed.schemaBlockCount !== 1 || Boolean(parsed.error) || !parsed.schema;
   const forceSingleMediaStory = shouldForceSingleMediaStoryArchitecture({
     codegenContract,
     requestText,
@@ -3970,12 +4013,37 @@ const preflightSectionLiquid = (
     schema: parsed.schema,
     architecture: effectiveContract.architecture,
   });
-  const promptCoverage = buildPromptCoverage({
-    source,
-    schema: parsed.schema,
-    requestText,
-    architecture: effectiveContract.architecture,
-  });
+  const skippedPromptCoverage = {
+    score: 1,
+    requestedCount: 0,
+    passedCount: 0,
+    partialCount: 0,
+    missingCount: 0,
+    missing: [],
+    features: {},
+    skipped: true,
+    skipReason: schemaParseFailed
+      ? "schema_parse_failed"
+      : "single_media_story_uses_prompt_fidelity_contract",
+    architecture: {
+      blockModel: effectiveContract.architecture?.blockModel || "none",
+      mediaModel: effectiveContract.architecture?.mediaModel || "none",
+      navigationModel: effectiveContract.architecture?.navigationModel || "none",
+    },
+  };
+  const singleMediaStoryContract =
+    effectiveContract.archetype === "single_media_story" ||
+    effectiveContract.promptFidelityContract?.archetype === "single_media_story" ||
+    effectiveContract.sectionDataContract?.archetype === "single_media_story";
+  const promptCoverage =
+    schemaParseFailed || singleMediaStoryContract
+      ? skippedPromptCoverage
+      : buildPromptCoverage({
+          source,
+          schema: parsed.schema,
+          requestText,
+          architecture: effectiveContract.architecture,
+        });
   const issues = [];
   const warnings = [];
   const suppliedBlockModel =
@@ -4022,6 +4090,34 @@ const preflightSectionLiquid = (
           "Fix the schema JSON syntax. Section schemas must be strict JSON, not JSONC.",
       })
     );
+  }
+
+  if (schemaParseFailed) {
+    const blockingIssues = issues.filter((issue) => issue.severity !== "warning");
+    const allIssues = [...blockingIssues, ...warnings];
+
+    return {
+      ok: false,
+      validationProfile: effectiveProfile,
+      sectionKind,
+      codegenContract: effectiveContract,
+      architectureDiagnostics,
+      promptCoverage,
+      promptFidelity: {
+        enforced: false,
+        skipped: true,
+        skipReason: "schema_parse_failed",
+        taskSuccess: false,
+        schemaSuccess: false,
+      },
+      issues: blockingIssues,
+      warnings,
+      errors: blockingIssues,
+      repairPrompt: buildSectionRepairPrompt(blockingIssues),
+      suggestedFixes: uniqueStrings(
+        allIssues.map((issue) => issue.fixSuggestion).filter(Boolean)
+      ),
+    };
   }
 
   if (parsed.schema) {
@@ -4196,6 +4292,8 @@ export {
   inferSectionArchitecture,
   inferSectionKind,
   inferValidationProfile,
+  normalizeShopifySectionLiquidForWrite,
   parseSectionSchemaStrict,
   preflightSectionLiquid,
+  repairTrailingSchemaBlockClosure,
 };

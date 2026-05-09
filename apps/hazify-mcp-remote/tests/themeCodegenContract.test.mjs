@@ -176,6 +176,29 @@ test("themeCodegenContract - stale block contract does not force section.blocks 
   assert.ok(codes({ issues: result.warnings }).includes("stale_block_contract_ignored"));
 });
 
+test("themeCodegenContract - single media story uses fidelity instead of generic prompt coverage", () => {
+  const result = preflightSectionLiquid(
+    buildSingleMediaStorySection({ handle: "sections/dream-1.liquid" }),
+    {
+      mode: "create",
+      intent: "new_section",
+      validationProfile: "production_visual",
+      requestText:
+        `${DREAM_PROMPT} Bewaak de afbeelding, video, CTA, reviewer name en large product media signalen uit de tool-debug.`,
+    }
+  );
+
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+  assert.equal(result.codegenContract.archetype, "single_media_story");
+  assert.equal(result.promptFidelity?.taskSuccess, true);
+  assert.equal(result.promptCoverage.skipped, true);
+  assert.equal(
+    result.promptCoverage.skipReason,
+    "single_media_story_uses_prompt_fidelity_contract"
+  );
+  assert.ok(!codes(result).includes("prompt_coverage_partial"));
+});
+
 test("themeCodegenContract - live Dream carousel fixture fails prompt fidelity", () => {
   const contract = buildSectionContract({
     archetype: "single_media_story",
@@ -487,6 +510,32 @@ test("themeCodegenContract - unclosed schema tags get a specific repair code", (
   assert.equal(result.ok, false);
   assert.ok(codes(result).includes("schema_unclosed_schema_block"));
   assert.ok(!codes(result).includes("schema_missing_schema_block"));
+});
+
+test("themeCodegenContract - schema parse failures do not stack prompt coverage errors", () => {
+  const result = preflightSectionLiquid(
+    `
+      <section>
+        <img src="/placeholder.png" alt="">
+        <a href="/pages/story">Ons verhaal</a>
+      </section>
+      {% schema %}
+      { "name": "Broken media", "presets": [{ "name": "Broken media" }] }
+    `,
+    {
+      mode: "create",
+      intent: "new_section",
+      validationProfile: "production_visual",
+      requestText:
+        "Maak een media section volgens afbeelding met image, video, reviewer name, CTA en large product media.",
+    }
+  );
+
+  assert.equal(result.ok, false);
+  assert.ok(codes(result).includes("schema_unclosed_schema_block"));
+  assert.ok(!codes(result).includes("prompt_coverage_partial"));
+  assert.equal(result.promptCoverage.skipped, true);
+  assert.equal(result.promptCoverage.skipReason, "schema_parse_failed");
 });
 
 test("themeCodegenContract - schema setting ids must be unique", () => {

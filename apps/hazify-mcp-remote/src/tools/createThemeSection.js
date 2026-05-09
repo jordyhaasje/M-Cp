@@ -9,7 +9,9 @@ import { getThemeFiles } from "../lib/themeFiles.js";
 import {
   buildCodegenContract,
   buildSectionRepairPrompt,
+  normalizeShopifySectionLiquidForWrite,
   preflightSectionLiquid,
+  repairTrailingSchemaBlockClosure,
 } from "../lib/themeCodegenContract.js";
 import {
   buildSectionContract,
@@ -803,6 +805,29 @@ const createThemeSectionTool = {
       });
     }
 
+    const liquidNormalizationWarnings = [];
+    const normalizedLiquid = normalizeShopifySectionLiquidForWrite(input.liquid);
+    const repairedLiquid = repairTrailingSchemaBlockClosure(normalizedLiquid);
+    if (repairedLiquid.changed) {
+      input = {
+        ...input,
+        liquid: repairedLiquid.value,
+      };
+      liquidNormalizationWarnings.push(
+        ...(repairedLiquid.repairs || []).includes("appended_missing_trailing_endschema")
+          ? "Liquid schema-tag normalisatie: ontbrekende trailing {% endschema %} veilig toegevoegd omdat de schema JSON tot einde bestand valide was."
+          : "Liquid schema-tag normalisatie toegepast vóór validatie."
+      );
+    } else if (normalizedLiquid !== input.liquid) {
+      input = {
+        ...input,
+        liquid: normalizedLiquid,
+      };
+      liquidNormalizationWarnings.push(
+        "Liquid schema-tag normalisatie toegepast vóór validatie."
+      );
+    }
+
     const shopifyClient = requireShopifyClient(context);
     const memoryState = getThemeEditMemory(context);
     const providedPlannerHandoff =
@@ -841,7 +866,7 @@ const createThemeSectionTool = {
       input.key;
     let themeSectionContext = null;
     let sectionBlueprint = null;
-    const internalWarnings = [];
+    const internalWarnings = [...liquidNormalizationWarnings];
     const plannerArchetype =
       plannerHandoff?.archetype ||
       plannerHandoff?.codegenContract?.archetype ||
@@ -1385,17 +1410,26 @@ const createThemeSectionTool = {
     }
     const effectiveCreateCodegenContract =
       codegenPreflight.codegenContract || createCodegenContract;
-
-    const localPreflight = inspectThemeSectionCreatePreflight(
-      {
-        key: input.key,
-        value: input.liquid,
-      },
-      {
-        themeContext: themeSectionContext,
-        sectionBlueprint,
-      }
+    const hasSchemaBlockingIssue = (codegenPreflight.issues || []).some((issue) =>
+      String(issue.code || issue.issueCode || "").startsWith("schema_")
     );
+
+    const localPreflight = hasSchemaBlockingIssue
+      ? {
+          issues: [],
+          warnings: [],
+          suggestedFixes: [],
+        }
+      : inspectThemeSectionCreatePreflight(
+          {
+            key: input.key,
+            value: input.liquid,
+          },
+          {
+            themeContext: themeSectionContext,
+            sectionBlueprint,
+          }
+        );
     const preflightErrors = dedupeCreateSectionIssues([
       ...(codegenPreflight.issues || []).map((issue) =>
         normalizeCreateSectionPreflightIssue(issue, "codegen_preflight")

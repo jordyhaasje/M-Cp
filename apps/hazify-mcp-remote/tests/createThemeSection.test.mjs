@@ -373,6 +373,79 @@ test("createThemeSection - Dream prompt uses deterministic single-media-story fa
   assert.doesNotMatch(generated, /"type": "card"|Kicker|carousel controls/i);
 });
 
+test("createThemeSection - safely repairs trailing missing endschema before write", serial, async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let capturedInput = null;
+  draftThemeArtifact.execute = async (input) => {
+    capturedInput = input;
+    return {
+      success: true,
+      status: "preview_ready",
+      writeApplied: true,
+      technicalSuccess: true,
+      schemaSuccess: true,
+      taskSuccess: true,
+      warnings: [],
+    };
+  };
+
+  const liquidWithoutClose = buildSingleMediaStorySection({ handle: "dream-1" })
+    .replace(/\s*\{%\s*endschema\s*%\}\s*$/i, "");
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeRole: "main",
+      key: "sections/dream-1.liquid",
+      summary: DREAM_PROMPT,
+      visualBrief: DREAM_PROMPT,
+      liquid: liquidWithoutClose,
+    },
+    { shopifyClient, tokenHash: "dream-repair-endschema" }
+  );
+
+  assert.equal(result.success, true, JSON.stringify(result.errors));
+  assert.match(capturedInput?.files?.[0]?.value || "", /{%\s*endschema\s*%}\s*$/);
+});
+
+test("createThemeSection - schema syntax failures do not stack prompt coverage repairs", serial, async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let draftCalled = false;
+  draftThemeArtifact.execute = async () => {
+    draftCalled = true;
+    return { success: true };
+  };
+
+  const brokenLiquid = `
+    <section>
+      <a href="/pages/story">Ons verhaal</a>
+    </section>
+    {% schema %}
+    { "name": "Broken media", "presets": [{ "name": "Broken media" }] }
+    <div>not-json-after-schema</div>
+  `;
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeRole: "main",
+      key: "sections/dream-1.liquid",
+      summary:
+        `${DREAM_PROMPT} image video reviewer name primaryButton largeProductMedia`,
+      visualBrief: DREAM_PROMPT,
+      liquid: brokenLiquid,
+    },
+    { shopifyClient, tokenHash: "dream-schema-only-failure" }
+  );
+
+  assert.equal(draftCalled, false);
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "schema_unclosed_schema_block");
+  assert.ok(issueCodes(result).includes("schema_unclosed_schema_block"));
+  assert.ok(!issueCodes(result).includes("prompt_coverage_partial"));
+  assert.equal(result.preflight?.promptCoverage?.skipReason, "schema_parse_failed");
+});
+
 test("createThemeSection - Dream prompt rejects old carousel output as task failure", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 

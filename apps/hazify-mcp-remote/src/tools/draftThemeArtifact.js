@@ -7,7 +7,9 @@ import { parseJsonLike } from "../lib/jsonLike.js";
 import {
   buildCodegenContract,
   buildSectionRepairPrompt,
+  normalizeShopifySectionLiquidForWrite,
   preflightSectionLiquid,
+  repairTrailingSchemaBlockClosure,
 } from "../lib/themeCodegenContract.js";
 import { validateGeneratedSectionFidelity } from "../lib/themePromptFidelity.js";
 import {
@@ -507,11 +509,7 @@ function escapeRegExp(value) {
 }
 
 function normalizeLiquidSourceForBlockParsing(value) {
-  return String(value || "")
-    .replace(/^\uFEFF/, "")
-    .replace(/^\s*```(?:liquid|html)?\s*/i, "")
-    .replace(/\s*```\s*$/i, "")
-    .replace(/\\({%-?\s*(?:end)?[A-Za-z_][A-Za-z0-9_]*\s*-?%})/g, "$1");
+  return normalizeShopifySectionLiquidForWrite(value);
 }
 
 function getLiquidBlockContents(value, tagName) {
@@ -7821,6 +7819,31 @@ export const draftThemeArtifact = {
     let mode = requestedMode;
     const warnings = [];
     const suggestedFixes = [];
+    files = files.map((file) => {
+      if (
+        !file ||
+        typeof file.value !== "string" ||
+        !String(file.key || "").startsWith("sections/") ||
+        !String(file.key || "").endsWith(".liquid")
+      ) {
+        return file;
+      }
+      const normalizedValue = normalizeShopifySectionLiquidForWrite(file.value);
+      const repairedValue = repairTrailingSchemaBlockClosure(normalizedValue);
+      if (repairedValue.changed) {
+        warnings.push(
+          ...(repairedValue.repairs || []).includes("appended_missing_trailing_endschema")
+            ? `Liquid schema-tag normalisatie toegepast voor '${file.key}': ontbrekende trailing {% endschema %} veilig toegevoegd omdat de schema JSON tot einde bestand valide was.`
+            : `Liquid schema-tag normalisatie toegepast voor '${file.key}'.`
+        );
+        return { ...file, value: repairedValue.value };
+      }
+      if (normalizedValue !== file.value) {
+        warnings.push(`Liquid schema-tag normalisatie toegepast voor '${file.key}'.`);
+        return { ...file, value: normalizedValue };
+      }
+      return file;
+    });
     const getNormalizedArgs = () =>
       summarizeNormalizedDraftArgs({
         themeId,
