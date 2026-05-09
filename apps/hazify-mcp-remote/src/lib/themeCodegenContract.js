@@ -1,6 +1,7 @@
 import {
   buildSectionContract,
   classifyArchetype,
+  detectGeneratedArchetype,
   validateGeneratedSectionFidelity,
 } from "./themePromptFidelity.js";
 
@@ -1756,6 +1757,39 @@ const requiresSliderControls = (navigationModel) =>
     String(navigationModel || "")
   );
 
+const shouldForceSingleMediaStoryArchitecture = ({
+  codegenContract = null,
+  requestText = "",
+  sectionBlueprint = null,
+  fileKey = "",
+  value = "",
+} = {}) => {
+  const contractArchetype = normalizeText(
+    codegenContract?.promptFidelityContract?.archetype ||
+      codegenContract?.sectionDataContract?.archetype ||
+      codegenContract?.archetype ||
+      sectionBlueprint?.archetype ||
+      ""
+  );
+  if (contractArchetype === "single_media_story") {
+    return true;
+  }
+
+  const classification = classifyArchetype({
+    prompt: requestText,
+    sectionTypeHint: sectionBlueprint?.archetype,
+    fileKey,
+  });
+  if (
+    classification.archetype === "single_media_story" &&
+    Number(classification.confidence || 0) >= 0.72
+  ) {
+    return true;
+  }
+
+  return detectGeneratedArchetype(value) === "single_media_story";
+};
+
 const mergeContractArchitecture = ({
   codegenContract = null,
   sectionKind,
@@ -1765,8 +1799,15 @@ const mergeContractArchitecture = ({
   value,
   schema,
 } = {}) => {
+  const forceSingleMediaStory = shouldForceSingleMediaStoryArchitecture({
+    codegenContract,
+    requestText,
+    sectionBlueprint,
+    fileKey,
+    value,
+  });
   const inferred = inferSectionArchitecture({
-    sectionKind,
+    sectionKind: forceSingleMediaStory ? "static_media_content" : sectionKind,
     requestText,
     sectionBlueprint,
     fileKey,
@@ -1774,53 +1815,64 @@ const mergeContractArchitecture = ({
     schema,
   });
   const supplied =
-    codegenContract?.architecture && typeof codegenContract.architecture === "object"
+    !forceSingleMediaStory &&
+    codegenContract?.architecture &&
+    typeof codegenContract.architecture === "object"
       ? codegenContract.architecture
       : {};
 
-  const interactionKind = INTERACTION_KINDS.has(
-    codegenContract?.interactionKind || supplied.interactionKind
-  )
-    ? codegenContract?.interactionKind || supplied.interactionKind
-    : inferred.interactionKind;
-  const blockModel = BLOCK_MODELS.has(codegenContract?.blockModel || supplied.blockModel)
-    ? codegenContract?.blockModel || supplied.blockModel
-    : inferred.blockModel;
-  const mediaModel = MEDIA_MODELS.has(codegenContract?.mediaModel || supplied.mediaModel)
-    ? codegenContract?.mediaModel || supplied.mediaModel
-    : inferred.mediaModel;
-  const navigationModel = NAVIGATION_MODELS.has(
-    codegenContract?.navigationModel || supplied.navigationModel
-  )
-    ? codegenContract?.navigationModel || supplied.navigationModel
-    : inferred.navigationModel;
-  const contentModel = CONTENT_MODELS.has(
-    codegenContract?.contentModel || supplied.contentModel
-  )
-    ? codegenContract?.contentModel || supplied.contentModel
-    : inferred.contentModel;
+  const interactionKind = forceSingleMediaStory
+    ? "none"
+    : INTERACTION_KINDS.has(codegenContract?.interactionKind || supplied.interactionKind)
+      ? codegenContract?.interactionKind || supplied.interactionKind
+      : inferred.interactionKind;
+  const blockModel = forceSingleMediaStory
+    ? "none"
+    : BLOCK_MODELS.has(codegenContract?.blockModel || supplied.blockModel)
+      ? codegenContract?.blockModel || supplied.blockModel
+      : inferred.blockModel;
+  const mediaModel = forceSingleMediaStory
+    ? "section_level_media"
+    : MEDIA_MODELS.has(codegenContract?.mediaModel || supplied.mediaModel)
+      ? codegenContract?.mediaModel || supplied.mediaModel
+      : inferred.mediaModel;
+  const navigationModel = forceSingleMediaStory
+    ? "none"
+    : NAVIGATION_MODELS.has(codegenContract?.navigationModel || supplied.navigationModel)
+      ? codegenContract?.navigationModel || supplied.navigationModel
+      : inferred.navigationModel;
+  const contentModel = forceSingleMediaStory
+    ? "section_settings"
+    : CONTENT_MODELS.has(codegenContract?.contentModel || supplied.contentModel)
+      ? codegenContract?.contentModel || supplied.contentModel
+      : inferred.contentModel;
 
   return {
     ...inferred,
     ...supplied,
-    sectionKind,
+    sectionKind: forceSingleMediaStory ? "static_media_content" : sectionKind,
     interactionKind,
     blockModel,
     mediaModel,
     navigationModel,
     contentModel,
-    blockRoles: uniqueStrings([
-      ...(Array.isArray(inferred.blockRoles) ? inferred.blockRoles : []),
-      ...(Array.isArray(supplied.blockRoles) ? supplied.blockRoles : []),
-    ]),
+    blockRoles: forceSingleMediaStory
+      ? []
+      : uniqueStrings([
+          ...(Array.isArray(inferred.blockRoles) ? inferred.blockRoles : []),
+          ...(Array.isArray(supplied.blockRoles) ? supplied.blockRoles : []),
+        ]),
     markers: uniqueStrings([
       ...(Array.isArray(inferred.markers) ? inferred.markers : []),
       ...(Array.isArray(supplied.markers) ? supplied.markers : []),
     ]),
-    requiredBlockSettings: {
-      ...(inferred.requiredBlockSettings || {}),
-      ...(supplied.requiredBlockSettings || {}),
-    },
+    requiredBlockSettings: forceSingleMediaStory
+      ? {}
+      : {
+          ...(inferred.requiredBlockSettings || {}),
+          ...(supplied.requiredBlockSettings || {}),
+        },
+    ...(forceSingleMediaStory ? { staleBlockContractIgnored: true } : {}),
   };
 };
 
@@ -3810,8 +3862,17 @@ const preflightSectionLiquid = (
 ) => {
   const source = String(value || "");
   const parsed = parseSectionSchemaStrict(source);
+  const forceSingleMediaStory = shouldForceSingleMediaStoryArchitecture({
+    codegenContract,
+    requestText,
+    sectionBlueprint,
+    fileKey,
+    value: source,
+  });
   const sectionKind =
-    codegenContract?.sectionKind && SECTION_KINDS.has(codegenContract.sectionKind)
+    forceSingleMediaStory
+      ? "static_media_content"
+      : codegenContract?.sectionKind && SECTION_KINDS.has(codegenContract.sectionKind)
       ? codegenContract.sectionKind
       : inferSectionKind({
           requestText,
@@ -3833,6 +3894,19 @@ const preflightSectionLiquid = (
     codegenContract && typeof codegenContract === "object"
       ? {
           ...codegenContract,
+          ...(forceSingleMediaStory
+            ? {
+                archetype: "single_media_story",
+                sectionKind: "static_media_content",
+                blocksAllowed: false,
+                promptFidelityContract:
+                  codegenContract.promptFidelityContract ||
+                  buildSectionContract({
+                    archetype: "single_media_story",
+                    prompt: requestText,
+                  }),
+              }
+            : {}),
           validationProfile: VALIDATION_PROFILES.has(
             codegenContract.validationProfile
           )
@@ -3855,7 +3929,21 @@ const preflightSectionLiquid = (
           contentModel: architecture.contentModel,
           architecture,
           sectionDataContract:
-            codegenContract.sectionDataContract ||
+            forceSingleMediaStory
+              ? {
+                  ...buildSectionDataContract({
+                    requestText,
+                    sectionKind: "static_media_content",
+                    architecture,
+                    sectionBlueprint,
+                  }),
+                  archetype: "single_media_story",
+                  requiredFeatures:
+                    codegenContract.promptFidelityContract?.requiredFeatures || [],
+                  forbiddenFeatures:
+                    codegenContract.promptFidelityContract?.forbiddenFeatures || [],
+                }
+              : codegenContract.sectionDataContract ||
             buildSectionDataContract({
               requestText,
               sectionKind,
@@ -3890,6 +3978,25 @@ const preflightSectionLiquid = (
   });
   const issues = [];
   const warnings = [];
+  const suppliedBlockModel =
+    codegenContract?.blockModel || codegenContract?.architecture?.blockModel || null;
+  if (
+    effectiveContract.architecture?.staleBlockContractIgnored === true &&
+    suppliedBlockModel &&
+    suppliedBlockModel !== "none"
+  ) {
+    warnings.push(
+      createIssue({
+        code: "stale_block_contract_ignored",
+        severity: "warning",
+        path: [fileKey],
+        message:
+          `Ignored stale blockModel='${suppliedBlockModel}' because the prompt/generated section matches single_media_story.`,
+        fixSuggestion:
+          "Keep the corrected single_media_story contract; do not add section.blocks or logo/card blocks for this prompt.",
+      })
+    );
+  }
 
   if (parsed.schemaBlockCount !== 1) {
     issues.push(

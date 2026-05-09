@@ -931,7 +931,7 @@ const buildSingleMediaStorySection = ({ handle = "dream-section12" } = {}) => {
     { "type": "richtext", "id": "text", "label": "Text", "default": "<p>Je leeft maar één keer, dus haal alles eruit! Doe waar jij écht gelukkig van wordt. En als de dag erop zit, leg je hoofd dan op een Cloudpillo om op te laden voor het leven.</p>" },
     { "type": "text", "id": "button_label", "label": "Button label", "default": "Ons verhaal" },
     { "type": "url", "id": "button_link", "label": "Button link" },
-    { "type": "range", "id": "max_width", "label": "Maximum width", "min": 900, "max": 1400, "step": 20, "unit": "px", "default": 1200 },
+    { "type": "range", "id": "max_width", "label": "Maximum width", "min": 900, "max": 1320, "step": 20, "unit": "px", "default": 1200 },
     { "type": "range", "id": "media_radius", "label": "Media radius", "min": 0, "max": 40, "step": 1, "unit": "px", "default": 24 },
     { "type": "range", "id": "mobile_media_radius", "label": "Mobile media radius", "min": 0, "max": 28, "step": 1, "unit": "px", "default": 18 },
     { "type": "range", "id": "padding_top", "label": "Top padding", "min": 0, "max": 140, "step": 4, "unit": "px", "default": 88 },

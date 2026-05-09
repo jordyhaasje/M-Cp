@@ -12,6 +12,7 @@ import {
   rememberThemeRead,
   rememberThemeWrite,
 } from "../src/lib/themeEditMemory.js";
+import { buildSingleMediaStorySection } from "../src/lib/themePromptFidelity.js";
 
 const originalFetch = global.fetch;
 const originalDraftExecute = draftThemeArtifact.execute;
@@ -343,7 +344,16 @@ test("createThemeSection - Dream prompt uses deterministic single-media-story fa
     { shopifyClient, tokenHash: "dream-create-fallback" }
   );
 
-  assert.equal(result.success, true);
+  assert.equal(
+    result.success,
+    true,
+    JSON.stringify({
+      errorCode: result.errorCode,
+      message: result.message,
+      errors: result.errors?.map((issue) => issue.issueCode || issue.code || issue.problem),
+      preflight: result.preflight,
+    })
+  );
   assert.equal(capturedInput?.mode, "create");
   assert.equal(capturedInput?.files?.[0]?.key, "sections/dream-section12.liquid");
   const generated = capturedInput?.files?.[0]?.value || "";
@@ -452,6 +462,70 @@ test("createThemeSection - planner contract conflict points to archetype overrid
   assert.equal(result.nextArgsTemplate?.archetypeOverride, "single_media_story");
   assert.equal(result.nextArgsTemplate?.blockModelOverride, "none");
   assert.equal(result.nextArgsTemplate?.interactionKindOverride, "none");
+});
+
+test("createThemeSection - ignores stale block handoff when generated Dream section is static media story", serial, async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let capturedContext = null;
+  draftThemeArtifact.execute = async (_input, context) => {
+    capturedContext = context;
+    return {
+      success: true,
+      status: "preview_ready",
+      writeApplied: true,
+      technicalSuccess: true,
+      schemaSuccess: true,
+      taskSuccess: true,
+      promptFidelity: 0.96,
+      expectedArchetype: "single_media_story",
+      detectedArchetype: "single_media_story",
+      warnings: [],
+    };
+  };
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeRole: "main",
+      key: "sections/dream-1.liquid",
+      liquid: buildSingleMediaStorySection({ handle: "dream-1" }),
+      plannerHandoff: {
+        codegenContract: {
+          archetype: "logo_marquee",
+          sectionKind: "logo_marquee",
+          interactionKind: "marquee",
+          blockModel: "logos",
+          architecture: {
+            interactionKind: "marquee",
+            blockModel: "logos",
+            requiredBlockSettings: {
+              logo: ["logo_image_or_text", "logo_alt_or_name"],
+            },
+          },
+        },
+      },
+    },
+    { shopifyClient, tokenHash: "dream-stale-handoff" }
+  );
+
+  assert.equal(
+    result.success,
+    true,
+    JSON.stringify({
+      errorCode: result.errorCode,
+      message: result.message,
+      errors: result.errors?.map((issue) => issue.issueCode || issue.code || issue.problem),
+      preflight: result.preflight,
+    })
+  );
+  assert.equal(capturedContext?.codegenContract?.archetype, "single_media_story");
+  assert.equal(capturedContext?.codegenContract?.sectionKind, "static_media_content");
+  assert.equal(capturedContext?.codegenContract?.blockModel, "none");
+  assert.equal(capturedContext?.codegenContract?.architecture?.blockModel, "none");
+  assert.equal(
+    capturedContext?.codegenContract?.architecture?.staleBlockContractIgnored,
+    true
+  );
 });
 
 test("createThemeSection - blocks generation recipe violations before draftThemeArtifact", serial, async () => {

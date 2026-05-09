@@ -15,9 +15,11 @@ import {
   buildSectionContract,
   buildSingleMediaStorySection,
   classifyArchetype,
+  detectGeneratedArchetype,
   validateContractAgainstPrompt,
 } from "../lib/themePromptFidelity.js";
 import {
+  buildSectionGenerationBlueprint,
   inferTemplateSurfaceFromSectionLiquid,
 } from "../lib/themeSectionContext.js";
 import {
@@ -832,8 +834,9 @@ const createThemeSectionTool = {
         themeRole: input.themeRole,
       });
     const planningQuery =
-      plannerHandoff?.brief ||
       summary ||
+      plannerHandoff?.brief ||
+      plannerHandoff?.plannerQuery ||
       recentPlan?.query ||
       input.key;
     let themeSectionContext = null;
@@ -1103,6 +1106,25 @@ const createThemeSectionTool = {
         sectionBlueprint = planningResult?.sectionBlueprint || sectionBlueprint;
       }
 
+      const promptArchetype = classifyArchetype({ prompt: planningQuery });
+      const generatedArchetype = detectGeneratedArchetype(input.liquid);
+      if (
+        sectionBlueprint?.archetype !== "single_media_story" &&
+        (promptArchetype.archetype === "single_media_story" ||
+          generatedArchetype === "single_media_story")
+      ) {
+        sectionBlueprint = buildSectionGenerationBlueprint({
+          templateSurface: inferTemplateSurfaceFromSectionLiquid(input.liquid),
+          query: planningQuery,
+          sectionTypeHint: "single_media_story",
+          themeContext: themeSectionContext,
+          archetypeOverride: "single_media_story",
+        });
+        internalWarnings.push(
+          "Planner sectionBlueprint gecorrigeerd naar single_media_story omdat de actuele prompt of gegenereerde Liquid een statische media story beschrijft."
+        );
+      }
+
       const exactReplicaRequested =
         sectionBlueprint?.completionPolicy?.treatReferenceImagesAsFinalTarget === true;
 
@@ -1361,6 +1383,8 @@ const createThemeSectionTool = {
         )
       );
     }
+    const effectiveCreateCodegenContract =
+      codegenPreflight.codegenContract || createCodegenContract;
 
     const localPreflight = inspectThemeSectionCreatePreflight(
       {
@@ -1456,7 +1480,7 @@ const createThemeSectionTool = {
         themeSectionContext,
         sectionBlueprint,
         plannerHandoff,
-        codegenContract: createCodegenContract,
+        codegenContract: effectiveCreateCodegenContract,
         themeContextWarnings: internalWarnings,
         responseVerbosity: input.verbosity || "compact",
         includeContracts: input.includeContracts === true,

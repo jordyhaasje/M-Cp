@@ -145,6 +145,37 @@ test("themeCodegenContract - deterministic Dream section satisfies prompt fideli
   assert.doesNotMatch(liquid, /"type": "card"|Kicker|carousel controls/i);
 });
 
+test("themeCodegenContract - stale block contract does not force section.blocks for Dream media story", () => {
+  const liquid = buildSingleMediaStorySection({ handle: "sections/dream-1.liquid" });
+  const result = preflightSectionLiquid(liquid, {
+    mode: "create",
+    intent: "new_section",
+    requestText: DREAM_PROMPT,
+    codegenContract: {
+      archetype: "logo_marquee",
+      sectionKind: "logo_marquee",
+      interactionKind: "marquee",
+      blockModel: "logos",
+      architecture: {
+        interactionKind: "marquee",
+        blockModel: "logos",
+        requiredBlockSettings: {
+          logo: ["logo_image_or_text", "logo_alt_or_name"],
+        },
+      },
+    },
+  });
+
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+  assert.equal(result.sectionKind, "static_media_content");
+  assert.equal(result.codegenContract.archetype, "single_media_story");
+  assert.equal(result.codegenContract.blockModel, "none");
+  assert.equal(result.codegenContract.architecture.blockModel, "none");
+  assert.equal(result.codegenContract.architecture.staleBlockContractIgnored, true);
+  assert.ok(!codes(result).some((code) => code.startsWith("architecture_missing")));
+  assert.ok(codes({ issues: result.warnings }).includes("stale_block_contract_ignored"));
+});
+
 test("themeCodegenContract - live Dream carousel fixture fails prompt fidelity", () => {
   const contract = buildSectionContract({
     archetype: "single_media_story",
