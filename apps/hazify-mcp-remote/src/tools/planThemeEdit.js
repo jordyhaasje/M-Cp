@@ -4,11 +4,13 @@ import { planThemeEdit } from "../lib/themePlanning.js";
 import { buildCodegenContract } from "../lib/themeCodegenContract.js";
 import {
   extractThemeToolSummary,
+  extractThemeToolVisualBrief,
   inferIntentFromSummary,
   inferSectionTypeHint,
   inferSingleThemeFile,
   inferTemplateFromSummary,
   inferThemeTargetFromSummary,
+  mergeThemeToolBrief,
 } from "./_themeToolCompatibility.js";
 import {
   getRecentThemeRead,
@@ -54,6 +56,9 @@ const SummaryAliasFieldDescriptions = {
 
 const PLAN_QUERY_PUBLIC_MAX_LENGTH = 4000;
 const PLAN_QUERY_INTERNAL_MAX_LENGTH = 240;
+const VisualBriefSchema = z
+  .union([z.string().max(4000), z.record(z.unknown())])
+  .optional();
 const FOLLOW_UP_SECTION_PATTERNS = [
   /\b(v2|v3|version 2|variant 2)\b/i,
   /\boptimaliseer\b/i,
@@ -78,27 +83,28 @@ const compactPlanQuery = (value) =>
 
 const extractPlannerBrief = (rawInput = {}, normalizedInput = {}) => {
   const summary = extractThemeToolSummary(rawInput);
+  const visualBrief = extractThemeToolVisualBrief(rawInput);
   if (typeof summary === "string" && summary.trim()) {
-    return summary.trim();
+    return mergeThemeToolBrief(summary.trim(), visualBrief);
   }
 
   if (typeof rawInput?.query === "string" && rawInput.query.trim()) {
-    return rawInput.query.trim();
+    return mergeThemeToolBrief(rawInput.query.trim(), visualBrief);
   }
 
   if (typeof rawInput?.description === "string" && rawInput.description.trim()) {
-    return rawInput.description.trim();
+    return mergeThemeToolBrief(rawInput.description.trim(), visualBrief);
   }
 
   if (
     typeof normalizedInput?.analysisText === "string" &&
     normalizedInput.analysisText.trim()
   ) {
-    return normalizedInput.analysisText.trim();
+    return mergeThemeToolBrief(normalizedInput.analysisText.trim(), visualBrief);
   }
 
   if (typeof normalizedInput?.query === "string" && normalizedInput.query.trim()) {
-    return normalizedInput.query.trim();
+    return mergeThemeToolBrief(normalizedInput.query.trim(), visualBrief);
   }
 
   return normalizedInput?.targetFile || "";
@@ -164,6 +170,24 @@ const PlanThemeEditPublicObjectSchema = z
       .max(120)
       .optional()
       .describe("Compat alias van sectionTypeHint voor generieke wrappers."),
+    visualBrief: VisualBriefSchema.describe(
+      "Optionele machine-actionable visuele analyse van een screenshot/referentie, bijvoorbeeld layout, card count, counter, media anchors of feature rows. Wordt aan de planningbrief toegevoegd."
+    ),
+    visual_brief: VisualBriefSchema.describe(
+      "Compat alias van visualBrief."
+    ),
+    referenceAnalysis: VisualBriefSchema.describe(
+      "Compat alias van visualBrief voor screenshot-derived facts."
+    ),
+    reference_analysis: VisualBriefSchema.describe(
+      "Compat alias van referenceAnalysis."
+    ),
+    designBrief: VisualBriefSchema.describe(
+      "Compat alias van visualBrief."
+    ),
+    design_brief: VisualBriefSchema.describe(
+      "Compat alias van designBrief."
+    ),
     _tool_input_summary: z
       .string()
       .max(4000)
@@ -277,6 +301,7 @@ const PlanThemeEditNormalizedShape = z
     analysisText: z.string().max(PLAN_QUERY_PUBLIC_MAX_LENGTH).optional(),
     targetFile: z.string().min(1).optional(),
     sectionTypeHint: z.string().max(120).optional(),
+    visualBrief: z.string().max(PLAN_QUERY_PUBLIC_MAX_LENGTH).optional(),
     snippetLimit: z.number().int().min(1).max(5).default(3),
     verbosity: PlannerVerbositySchema.default("compact"),
     includeContracts: z.boolean().default(false),
@@ -305,6 +330,7 @@ const normalizePlanThemeEditInput = (rawInput) => {
     return rawInput;
   }
 
+  const visualBrief = extractThemeToolVisualBrief(rawInput);
   let normalized = {
     intent: rawInput.intent,
     themeId: rawInput.themeId ?? rawInput.theme_id,
@@ -317,6 +343,7 @@ const normalizePlanThemeEditInput = (rawInput) => {
         : undefined,
     targetFile: rawInput.targetFile ?? rawInput.target_file,
     sectionTypeHint: rawInput.sectionTypeHint ?? rawInput.section_type_hint,
+    visualBrief: visualBrief || undefined,
     snippetLimit: rawInput.snippetLimit ?? rawInput.snippet_limit,
     verbosity: rawInput.verbosity,
     includeContracts: rawInput.includeContracts ?? rawInput.include_contracts,
@@ -341,6 +368,15 @@ const normalizePlanThemeEditInput = (rawInput) => {
 
   if (!normalized.analysisText && descriptionAlias) {
     normalized.analysisText = descriptionAlias;
+  }
+  if (visualBrief) {
+    normalized.analysisText = mergeThemeToolBrief(
+      normalized.analysisText || normalized.query || "",
+      visualBrief
+    ).slice(0, PLAN_QUERY_PUBLIC_MAX_LENGTH);
+    if (!normalized.query) {
+      normalized.query = compactPlanQuery(visualBrief);
+    }
   }
 
   if (!normalized.targetFile && Array.isArray(rawInput.targetFiles) && rawInput.targetFiles.length === 1) {
@@ -370,6 +406,12 @@ const normalizePlanThemeEditInput = (rawInput) => {
     normalized.analysisText = String(summary || "")
       .trim()
       .slice(0, PLAN_QUERY_PUBLIC_MAX_LENGTH);
+  }
+  if (visualBrief) {
+    normalized.analysisText = mergeThemeToolBrief(
+      normalized.analysisText || summary,
+      visualBrief
+    ).slice(0, PLAN_QUERY_PUBLIC_MAX_LENGTH);
   }
   if (!normalized.targetFile && normalized.intent === "existing_edit") {
     normalized.targetFile = inferSingleThemeFile(summary) || normalized.targetFile;
@@ -875,6 +917,35 @@ const buildPlannerHandoff = ({
     : [],
 });
 
+const buildCompactPlannerHandoff = (plannerHandoff = null) => {
+  if (!plannerHandoff || typeof plannerHandoff !== "object") {
+    return null;
+  }
+
+  return {
+    brief: plannerHandoff.brief || null,
+    plannerQuery: plannerHandoff.plannerQuery || null,
+    intent: plannerHandoff.intent || null,
+    template: plannerHandoff.template || null,
+    themeTarget: plannerHandoff.themeTarget || null,
+    targetFile: plannerHandoff.targetFile || null,
+    qualityTarget: plannerHandoff.qualityTarget || null,
+    generationMode: plannerHandoff.generationMode || null,
+    completionPolicy: plannerHandoff.completionPolicy || null,
+    requiredReadKeys: Array.isArray(plannerHandoff.requiredReadKeys)
+      ? plannerHandoff.requiredReadKeys
+      : [],
+    requiredReads: Array.isArray(plannerHandoff.requiredReads)
+      ? plannerHandoff.requiredReads
+      : [],
+    searchQueries: Array.isArray(plannerHandoff.searchQueries)
+      ? plannerHandoff.searchQueries
+      : [],
+    referenceSignals: plannerHandoff.referenceSignals || null,
+    codegenContract: plannerHandoff.codegenContract || null,
+  };
+};
+
 const getPlanTargetFile = (input = {}, result = {}) =>
   input?.targetFile ||
   result?.nextWriteKeys?.[0] ||
@@ -1120,6 +1191,7 @@ const buildCompactPlanResponse = ({
   writeArgsTemplate = null,
   requiredToolNames = [],
   codegenContract = null,
+  plannerHandoff = null,
   normalizedArgs = {},
   stickyTarget = null,
   context = {},
@@ -1166,6 +1238,7 @@ const buildCompactPlanResponse = ({
     readContext: buildPlanReadContext({ context, input, result }),
     architecture: flowArchitecture,
     codegenArchitecture: codegenContract?.architecture || null,
+    plannerHandoff: buildCompactPlannerHandoff(plannerHandoff),
     nextAction: immediateStep.nextAction || null,
     nextTool: immediateStep.nextTool || null,
     nextArgsTemplate: immediateStep.nextArgsTemplate || null,
@@ -1191,9 +1264,9 @@ const planThemeEditTool = {
   name: "plan-theme-edit",
   title: "Plan Theme Edit",
   description:
-    "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Geef intent plus themeId of themeRole='main' mee. De standaardoutput is compact en machine-actionable: target, goldenPath, writePolicy, doNotUse, requiredReads, constraints, sectionContract, codegenPrompt, completionGate, readContext, architecture, nextTool en writeTool. Gebruik sectionContract/codegenPrompt als harde generatiebrief: gevraagde features mogen niet worden verwijderd om validatie te halen. Gebruik includeContracts=true of verbosity='debug' alleen wanneer een stateless client de volledige plannerHandoff, sectionBlueprint en debugcontext moet doorgeven aan latere write-tools.",
+    "Start hier als je eerst wilt weten welke theme files gelezen of geschreven moeten worden. Geef intent plus themeId of themeRole='main' mee. De standaardoutput is compact en machine-actionable: target, goldenPath, writePolicy, doNotUse, requiredReads, constraints, sectionContract, codegenPrompt, completionGate, readContext, architecture, compact plannerHandoff, nextTool en writeTool. Geef screenshot- of URL-analyse mee via visualBrief/referenceAnalysis/designBrief zodat replica-signalen niet uit de generatiebrief vallen. Gebruik sectionContract/codegenPrompt/plannerHandoff als harde generatiebrief: gevraagde features mogen niet worden verwijderd om validatie te halen. Gebruik includeContracts=true of verbosity='debug' alleen wanneer een stateless client de volledige sectionBlueprint en debugcontext moet doorgeven aan latere write-tools.",
   docsDescription:
-    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole='main'`; gebruik themeId voor development/unpublished/demo themes. De standaardoutput is compact: `target`, `goldenPath`, `writePolicy`, `doNotUse`, `requiredReads`, `constraints`, `sectionContract`, `codegenPrompt`, `completionGate`, `readContext`, `architecture`, `nextTool`, `nextArgsTemplate`, `writeTool` en `writeArgsTemplate`. `sectionContract` en `codegenPrompt` zijn altijd compact zichtbaar voor section-generatie en beschrijven de exacte minimale schema-, render-, interactie- en promptdekkingseisen. Zwaardere debugvelden zoals volledige `plannerHandoff`, `sectionBlueprint` en `codegenContract` blijven opt-in via `includeContracts=true` of `verbosity='debug'`. Voor native blocks blijft `architecture` de native renderer-architectuur; section-codegen architectuur staat apart onder `codegenArchitecture` en `constraints.architecture`. Gebruik `goldenPath`, `sectionContract` en `writePolicy.doNotUse` als bron van waarheid voor toolrouting en codegen: micro-patches mogen `patch-theme-file`, bounded rewrites gaan naar `draft-theme-artifact`, en net-new sections gebruiken `create-theme-section` als eerste write-tool.",
+    "Plan een theme edit voordat je bestanden leest of schrijft. Geef bij voorkeur een expliciete intent mee (`existing_edit`, `native_block`, `new_section` of `template_placement`) plus een expliciet `themeId` of `themeRole='main'`; gebruik themeId voor development/unpublished/demo themes. Geef screenshot-, URL- of referentie-analyse mee via `visualBrief`, `referenceAnalysis` of `designBrief`; die feiten worden in de plannerbrief verwerkt en blijven beschikbaar voor stateless clients. De standaardoutput is compact: `target`, `goldenPath`, `writePolicy`, `doNotUse`, `requiredReads`, `constraints`, `sectionContract`, `codegenPrompt`, `completionGate`, `plannerHandoff`, `readContext`, `architecture`, `nextTool`, `nextArgsTemplate`, `writeTool` en `writeArgsTemplate`. `sectionContract`, `codegenPrompt` en de compacte `plannerHandoff` zijn altijd zichtbaar voor section-generatie en beschrijven de exacte minimale schema-, render-, interactie-, referentie- en promptdekkingseisen. Zwaardere debugvelden zoals volledige `sectionBlueprint` en extra context blijven opt-in via `includeContracts=true` of `verbosity='debug'`. Voor native blocks blijft `architecture` de native renderer-architectuur; section-codegen architectuur staat apart onder `codegenArchitecture` en `constraints.architecture`. Gebruik `goldenPath`, `sectionContract`, `plannerHandoff` en `writePolicy.doNotUse` als bron van waarheid voor toolrouting en codegen: micro-patches mogen `patch-theme-file`, bounded rewrites gaan naar `draft-theme-artifact`, en net-new sections gebruiken `create-theme-section` als eerste write-tool.",
   inputSchema: PlanThemeEditPublicObjectSchema,
   schema: PlanThemeEditInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -1346,6 +1419,7 @@ const planThemeEditTool = {
       writeArgsTemplate,
       requiredToolNames,
       codegenContract,
+      plannerHandoff,
       normalizedArgs,
       stickyTarget,
       context,

@@ -28,13 +28,15 @@ import { getShopDomainFromClient, upsertThemeFiles, getThemeFiles, searchThemeFi
 import { requireShopifyClient } from "./_context.js";
 import {
   extractThemeToolSummary,
+  extractThemeToolVisualBrief,
   inferSingleThemeFile,
   inferThemeTargetFromSummary,
+  mergeThemeToolBrief,
 } from "./_themeToolCompatibility.js";
 
 export const toolName = "draft-theme-artifact";
 export const title = "Write Theme Files";
-export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, structural patches, or broader theme changes. For a brand-new section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. After patch_scope_too_large, use the nextArgsTemplate returned by patch-theme-file: when currentReadContextValid=true, draft-theme-artifact may apply the same patch with baseChecksumMd5; when read context is missing or stale, re-read with includeContent=true first. For broad visual refinements of an existing section, prefer mode='edit' with a full current-file rewrite over long patch arrays. In mode='edit', files[].value must contain the full rewritten file content, not a placeholder, summary, compact reconstruction, or REWRITE_ALREADY_APPLIED_IN_CONTEXT. Lossy rewrites are blocked unless the planner/user explicitly requested removal or simplification. In compact responses, full planner/codegen/theme payloads are omitted unless verbosity='debug' or includeContracts=true. Do not use apply-theme-draft for the first write.`;
+export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, structural patches, advanced create-flow validation, or broader theme changes. For a brand-new single section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. After patch_scope_too_large, use the nextArgsTemplate returned by patch-theme-file: when currentReadContextValid=true, draft-theme-artifact may apply the same patch with baseChecksumMd5; when read context is missing or stale, re-read with includeContent=true first. For broad visual refinements of an existing section, prefer mode='edit' with a full current-file rewrite over long patch arrays. In mode='edit', files[].value must contain the full rewritten file content, not a placeholder, summary, compact reconstruction, or REWRITE_ALREADY_APPLIED_IN_CONTEXT. For mode='create', pass plannerHandoff and/or visualBrief/referenceAnalysis/designBrief when available; direct create calls without planner context now use production_visual validation as a backstop for scoped CSS, responsive behavior, real carousel controls and Theme Editor-safe JS. Lossy rewrites are blocked unless the planner/user explicitly requested removal or simplification. In compact responses, full planner/codegen/theme payloads are omitted unless verbosity='debug' or includeContracts=true. Do not use apply-theme-draft for the first write.`;
 export const docsDescription = `Draft and validate Shopify theme files through the guarded pipeline.
 
 Modes:
@@ -50,6 +52,7 @@ Belangrijk: themeRole='main' of een exact themeId is verplicht. Vraag de gebruik
 Theme-aware section regels:
 - Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
 - Compatibele shorthand: voor één file mag een client ook top-level key + value/content/liquid of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Binnen files[] worden value/content/liquid nu ook veilig naar dezelfde canonieke value-write genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
+- Voor mode="create" mogen stateless clients plannerHandoff, visualBrief, referenceAnalysis of designBrief meesturen. Die context wordt aan de generatiebrief toegevoegd zodat screenshot-, URL- en replica-signalen niet wegvallen tussen planner, LLM-codegen en write-validatie.
 - Gebruik in mode="edit" voor full rewrites altijd de volledige nieuwe bestandsinhoud in files[].value op basis van de actuele file-read. Context-placeholders, samenvattingen, compacte reconstructies of geheugen-rewrites zoals REWRITE_ALREADY_APPLIED_IN_CONTEXT zijn ongeldig; gebruik anders een letterlijke patch/patches.
 - Na patch_scope_too_large volg je de repair response van patch-theme-file. Bij currentReadContextValid=true mag draft-theme-artifact mode="edit" dezelfde patch met baseChecksumMd5 uitvoeren; bij ontbrekende of stale read-context lees je eerst opnieuw met includeContent=true. Voor brede visual rewrites blijft een volledige preserve-on-edit value-write de voorkeursroute.
 - Bestaande sections worden in mode="edit" preserve-on-edit gevalideerd: bestaande schema-settings, block types/settings, presets, block.shopify_attributes, image_tag-renderpaden, section.id CSS-scoping en Impact/theme helpers mogen niet verdwijnen tenzij de planner/gebruiker expliciet om verwijderen of versimpelen vroeg.
@@ -73,7 +76,7 @@ Theme-aware section regels:
 - Native-block snippet-writes gebruiken nu ook planner-architectuur en het gerelateerde section-schema voor extra preflight: nieuwe block types of block.settings refs moeten echt in het parent schema bestaan, optionele block-media moet blank-safe blijven, en @theme/content_for('blocks') flows vereisen een echt blocks/*.liquid bestand.
 - Als de gebruiker een nieuwe section ook op een homepage/productpagina geplaatst wil hebben, maak eerst sections/<handle>.liquid in mode="create" en doe daarna alleen bij expliciete placement-vraag een aparte mode="edit" call voor het relevante templates/*.json of templates/*.liquid bestand op hetzelfde expliciet gekozen thema. Gebruik config/settings_data.json alleen als uitzonderingsroute.
 - Gebruik voor nieuwe sections bij voorkeur enabled_on/disabled_on in de schema in plaats van legacy "templates" wanneer je beschikbaarheid per template wilt sturen.
-- Lokale inspectie en theme-check lint worden waar mogelijk samen als lokale preflight teruggegeven, zodat een retry meerdere deterministische fouten tegelijk kan repareren. Wanneer plannerHandoff aanwezig is, gebruikt deze tool nu ook de planner-afgeleide theme-context en sectionBlueprint zodat stateless clients minder context verliezen.
+- Lokale inspectie en theme-check lint worden waar mogelijk samen als lokale preflight teruggegeven, zodat een retry meerdere deterministische fouten tegelijk kan repareren. Wanneer plannerHandoff aanwezig is, gebruikt deze tool nu ook de planner-afgeleide theme-context en sectionBlueprint zodat stateless clients minder context verliezen. Directe mode="create" writes zonder plannercontext worden nu niet langer als lichte syntax-check behandeld: de backstop gebruikt production_visual checks voor scoped CSS, responsive layout, echte carousel/slider controls en Theme Editor-safe interactieve JS.
 - Compacte failure responses laten zware planner/codegen/theme payloads weg wanneer de caller \`verbosity="compact"\` gebruikt; vraag alleen \`verbosity="debug"\` of \`includeContracts=true\` wanneer je die volledige debugcontext echt nodig hebt.
 
 Rules for valid Shopify Liquid:
@@ -85,6 +88,9 @@ Use <style> or markup-level CSS variables for section.id scoping`;
 const ThemeRoleSchema = z.enum(["main"]);
 const PlannerHandoffSchema = z.object({}).passthrough();
 const ResponseVerbositySchema = z.enum(["compact", "debug"]);
+const VisualBriefSchema = z
+  .union([z.string().max(4000), z.record(z.unknown())])
+  .optional();
 
 const ThemeDraftPatchSchema = z.object({
   searchString: z.string().min(1).describe("De te vervangen string in het originele bestand. Gebruik een unieke literal anchor die exact één keer voorkomt in het doelbestand."),
@@ -248,6 +254,18 @@ const DraftThemeArtifactPublicObjectSchema = z
     request: SummaryFieldSchema.describe(
       "Legacy alias van _tool_input_summary voor backwards compatibility."
     ),
+    visualBrief: VisualBriefSchema.describe(
+      "Optionele visuele analyse van een screenshot/referentie. Wordt gebruikt als codegen-brief voor create/replica validatie."
+    ),
+    visual_brief: VisualBriefSchema.describe("Compat alias van visualBrief."),
+    referenceAnalysis: VisualBriefSchema.describe(
+      "Compat alias van visualBrief voor screenshot-derived facts."
+    ),
+    reference_analysis: VisualBriefSchema.describe(
+      "Compat alias van referenceAnalysis."
+    ),
+    designBrief: VisualBriefSchema.describe("Compat alias van visualBrief."),
+    design_brief: VisualBriefSchema.describe("Compat alias van designBrief."),
     themeId: z
       .string()
       .or(z.number())
@@ -390,7 +408,10 @@ const normalizeDraftThemeArtifactInput = (rawInput) => {
     return rawInput;
   }
 
-  const summary = extractThemeToolSummary(rawInput);
+  const summary = mergeThemeToolBrief(
+    extractThemeToolSummary(rawInput),
+    extractThemeToolVisualBrief(rawInput)
+  );
   const normalizedFiles = Array.isArray(rawInput.files)
     ? rawInput.files
         .map((file) => normalizeDraftFileInput(file))
@@ -8522,7 +8543,10 @@ export const draftThemeArtifact = {
     const codegenRequestText = uniqueStrings([
       effectivePlannerHandoff?.brief,
       effectivePlannerHandoff?.plannerQuery,
-      extractThemeToolSummary(rawArgs),
+      mergeThemeToolBrief(
+        extractThemeToolSummary(rawArgs),
+        extractThemeToolVisualBrief(rawArgs)
+      ),
     ]).join("\n");
     const themeTargetForCodegen = {
       ...(themeId !== undefined ? { themeId } : {}),
@@ -8772,7 +8796,7 @@ export const draftThemeArtifact = {
               validationProfile:
                 primaryCodegenContract?.validationProfile ||
                 (!hasCodegenPlanningContext && mode === "create"
-                  ? "theme_safe"
+                  ? "production_visual"
                   : null),
               value: file.value,
             });

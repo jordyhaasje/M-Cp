@@ -6,6 +6,15 @@ const SUMMARY_KEYS = [
   "request",
 ];
 
+const VISUAL_BRIEF_KEYS = [
+  "visualBrief",
+  "visual_brief",
+  "referenceAnalysis",
+  "reference_analysis",
+  "designBrief",
+  "design_brief",
+];
+
 const THEME_FILE_PATH_PATTERN =
   /\b(?:sections|snippets|blocks|assets|config|templates|locales)\/[A-Za-z0-9._/-]+\b/g;
 
@@ -26,6 +35,48 @@ export function extractThemeToolSummary(input) {
   }
 
   return "";
+}
+
+export function extractThemeToolVisualBrief(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return "";
+  }
+
+  for (const key of VISUAL_BRIEF_KEYS) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim()) {
+      return normalizeText(value).slice(0, 4000);
+    }
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const entries = Object.entries(value)
+        .flatMap(([entryKey, entryValue]) => {
+          if (entryValue === undefined || entryValue === null || entryValue === false) {
+            return [];
+          }
+          if (Array.isArray(entryValue)) {
+            return [`${entryKey}: ${entryValue.join(", ")}`];
+          }
+          if (typeof entryValue === "object") {
+            return [`${entryKey}: ${JSON.stringify(entryValue)}`];
+          }
+          return [`${entryKey}: ${String(entryValue)}`];
+        })
+        .filter(Boolean);
+      if (entries.length > 0) {
+        return normalizeText(entries.join("; ")).slice(0, 4000);
+      }
+    }
+  }
+
+  return "";
+}
+
+export function mergeThemeToolBrief(summary, visualBrief) {
+  const parts = [
+    normalizeText(summary),
+    visualBrief ? `Visual reference facts: ${normalizeText(visualBrief)}` : "",
+  ].filter(Boolean);
+  return parts.join("\n").trim();
 }
 
 export function inferThemeTargetFromSummary(input, summary) {

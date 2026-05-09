@@ -97,11 +97,15 @@ Maak een comparison table section voor product voordelen met 3 kolommen en CTA.
 ```
 
 ### Compacte planner-output, Codegen Contract en preflight-profielen
-`plan-theme-edit` retourneert standaard een compacte, machine-actionable route: `target`, `goldenPath`, `writePolicy`, `doNotUse`, `requiredReads`, `constraints`, `readContext`, `architecture`, `nextTool` en `writeTool`. Volledige debugvelden zoals `plannerHandoff`, `sectionBlueprint` en `codegenContract` zijn opt-in via `includeContracts: true` of `verbosity: "debug"`.
+`plan-theme-edit` retourneert standaard een compacte, machine-actionable route: `target`, `goldenPath`, `writePolicy`, `doNotUse`, `requiredReads`, `constraints`, `sectionContract`, `codegenPrompt`, `completionGate`, `plannerHandoff`, `readContext`, `architecture`, `nextTool` en `writeTool`. Volledige debugvelden zoals `sectionBlueprint` en extra context zijn opt-in via `includeContracts: true` of `verbosity: "debug"`.
 
-Wanneer een client zelf Liquid gaat genereren, mag hij `codegenContract.promptBlock` rechtstreeks meegeven aan het codegeneratiemodel. Dit block bevat alleen harde generatie-eisen: schema, Liquid, scoped CSS/JS, responsief gedrag, generieke section-architectuur en waar beschikbaar een theme-afgeleide `scaleProfile`. In compact mode staan dezelfde kernregels machine-readable onder `constraints`.
+De compacte `plannerHandoff` is bewust kleiner dan de debugvariant, maar bewaart wel de generatiekritische velden: `brief`, `plannerQuery`, `themeTarget`, `targetFile`, `qualityTarget`, `generationMode`, `completionPolicy`, `requiredReadKeys`, `referenceSignals` en `codegenContract`. Geef deze handoff door aan `create-theme-section` of `draft-theme-artifact`, vooral wanneer een stateless client zelf Liquid genereert.
 
-`create-theme-section` retourneert failure responses standaard compact en geeft meerdere deterministische preflight-fouten in één response terug. Zware debugpayloads zoals `plannerHandoff`, `sectionBlueprint`, `themeContext` en `codegenContract` blijven weg tenzij de caller expliciet `verbosity: "debug"` of `includeContracts: true` gebruikt. `draft-theme-artifact` ondersteunt dezelfde compacte response-vorm wanneer compact expliciet wordt gevraagd of wanneer de create-wrapper hem aanroept.
+Wanneer een client zelf Liquid gaat genereren, mag hij `codegenContract.promptBlock` rechtstreeks meegeven aan het codegeneratiemodel. Dit block bevat alleen harde generatie-eisen: schema, Liquid, scoped CSS/JS, responsief gedrag, generieke section-architectuur en waar beschikbaar een theme-afgeleide `scaleProfile`. In compact mode staan dezelfde kernregels machine-readable onder `constraints`, `sectionContract`, `codegenPrompt` en `plannerHandoff.codegenContract`.
+
+`create-theme-section` retourneert failure responses standaard compact en geeft meerdere deterministische preflight-fouten in één response terug. Zware debugpayloads zoals volledige planner/debugcontext, `sectionBlueprint`, `themeContext` en volledige `codegenContract` blijven weg tenzij de caller expliciet `verbosity: "debug"` of `includeContracts: true` gebruikt. `draft-theme-artifact` ondersteunt dezelfde compacte response-vorm wanneer compact expliciet wordt gevraagd of wanneer de create-wrapper hem aanroept.
+
+`plan-theme-edit`, `create-theme-section` en `draft-theme-artifact` accepteren daarnaast `visualBrief`, `referenceAnalysis` en `designBrief` als compacte velden voor screenshot-, URL- en visuele analyse. Gebruik die velden voor feiten zoals "links grote productmedia, rechts vier icon rows", "counter 1/6 rechtsboven", "active slide dark" of "desktop toont peeking cards". Vrije samenvattingstekst mag nog steeds nooit de echte Liquid vervangen, maar deze visual brief hoort wel in planner-, codegen- en write-context te blijven.
 
 Validatieprofielen zijn bewust profiel-gebaseerd:
 - `syntax_only`: basis schema/Liquid safety voor micro-patches en kleine patchroutes.
@@ -123,7 +127,7 @@ Generation-contract waarheid sinds 2026-05-08.2:
 - Setting-detectie gebruikt id/label/content als semantische match. Generieke settingtypes zoals `text`, `url`, `range` of `select` mogen niet meer willekeurig een vereiste setting invullen; alleen specifieke resource-types zoals `image_picker`, `video`, `video_url`, `product` en `collection` mogen type-only matchen.
 - FAQ-, tab- en comparison/row-blocks hebben nu dezelfde architecture checks als sliders/reviews: blockrollen worden gedetecteerd, verplichte settings worden per rol gevalideerd en diagnostics tonen welke blocksettings wel gevonden zijn.
 
-De planner leidt daarnaast een generieke `sectionKind` af, zoals `hero`, `hero_with_social_proof`, `hero_with_logo_marquee`, `hero_slider`, `hero_slider_with_logo_marquee`, `image_slider`, `video_grid`, `video_slider`, `logo_marquee`, `testimonial_slider`, `review_grid`, `review_carousel`, `comparison`, `faq`, `tabs`, `media_section`, `content`, `product_related` of `unknown`. Die inference mag nooit theme-specifiek zijn: geen hardcoded Impact-classes, snippetnamen, wrappergedrag of schaalwaarden. Theme-context mag alleen via profieldata, `sectionBlueprint`, `generationRecipe` en `scaleProfile` meespelen.
+De planner leidt daarnaast een generieke `sectionKind` af, zoals `hero`, `hero_with_social_proof`, `hero_with_logo_marquee`, `hero_slider`, `hero_slider_with_logo_marquee`, `image_slider`, `video_grid`, `video_slider`, `logo_marquee`, `testimonial_slider`, `review_grid`, `review_carousel`, `comparison`, `feature_media_list`, `faq`, `tabs`, `media_section`, `content`, `product_related` of `unknown`. Die inference mag nooit theme-specifiek zijn: geen hardcoded Impact-classes, snippetnamen, wrappergedrag of schaalwaarden. Theme-context mag alleen via profieldata, `sectionBlueprint`, `generationRecipe` en `scaleProfile` meespelen.
 
 De contractlaag maakt ook de data-architectuur expliciet vóór generatie:
 - `interactionKind`: `none`, `static`, `slider`, `carousel`, `mobile_scroll_snap`, `marquee`, `slider_and_marquee`, `tabs` of `accordion`
@@ -148,7 +152,7 @@ Bounded content shells mogen theme wrappers zoals `page-width` of `container` ge
 Waarom profiel-gebaseerd:
 - `production_visual` mag nieuwe sections blokkeren op echte productiekwaliteitsproblemen, zoals onstabiele mobile carousel widths, fake controls, ongescope CSS of interactieve JS zonder Theme Editor lifecycle.
 - Diezelfde visuele heuristieken mogen micro-patches, legacy patch edits en kleine `existing_edit` flows niet breken.
-- `draft-theme-artifact` gebruikt de codegen-preflight als backstop voor planner/codegen-gestuurde section rewrites. Directe advanced draft-create calls zonder plannercontext blijven op `theme_safe`, tenzij de planner/codegen-handoff expliciet een strenger profiel meegeeft.
+- `draft-theme-artifact` gebruikt de codegen-preflight als backstop voor planner/codegen-gestuurde section rewrites. Directe advanced draft-create calls zonder plannercontext vallen voor nieuwe sections nu terug naar `production_visual`, zodat ook bypass-clients worden gecontroleerd op scoped CSS, responsive gedrag, echte carousel-controls en Theme Editor-safe JS.
 
 ### Bestaande section edit
 Gebruik wanneer het doelbestand al bestaat of wanneer de gebruiker expliciet bestaande markup wil aanpassen.

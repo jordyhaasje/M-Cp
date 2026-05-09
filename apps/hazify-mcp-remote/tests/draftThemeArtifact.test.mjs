@@ -3069,34 +3069,84 @@ test("draftThemeArtifact - accepts guarded optional block images with fallback i
           {
             key: "sections/safe-carousel.liquid",
             value: `
-<style>
-  #shopify-section-{{ section.id }} .cards {
-    display: grid;
-    gap: 16px;
-  }
-</style>
-<div class="cards">
-  {% for block in section.blocks %}
-    <article class="card" {{ block.shopify_attributes }}>
-      {% if block.settings.image != blank %}
-        {{ block.settings.image | image_url: width: 900 | image_tag }}
-      {% else %}
-        <div class="card__placeholder" aria-hidden="true"></div>
-      {% endif %}
-    </article>
-  {% endfor %}
-</div>
-{% schema %}
-{
-  "name": "Safe carousel",
+	<style>
+		  #shopify-section-{{ section.id }} .safe-carousel {
+		    display: grid;
+		    gap: 16px;
+		  }
+
+		  #shopify-section-{{ section.id }} .cards {
+		    display: grid;
+		    gap: 16px;
+		    grid-auto-flow: column;
+		    grid-auto-columns: minmax(220px, 1fr);
+		    overflow-x: auto;
+		    scroll-snap-type: x mandatory;
+		  }
+		  #shopify-section-{{ section.id }} .card {
+		    min-height: 180px;
+		    padding: 16px;
+		    border-radius: 12px;
+		    scroll-snap-align: start;
+		  }
+		  #shopify-section-{{ section.id }} .safe-carousel__controls {
+		    display: flex;
+		    gap: 8px;
+		  }
+		  @media screen and (max-width: 749px) {
+		    #shopify-section-{{ section.id }} .cards {
+		      gap: 12px;
+		      grid-auto-columns: minmax(84%, 1fr);
+		    }
+		  }
+		</style>
+	<section class="safe-carousel" data-section-root>
+	  <div class="cards" data-section-track>
+	    {% for block in section.blocks %}
+	      <article class="card" data-section-slide {{ block.shopify_attributes }}>
+	        <h3>{{ block.settings.title }}</h3>
+	        {% if block.settings.image != blank %}
+	          {{ block.settings.image | image_url: width: 900 | image_tag }}
+	        {% else %}
+	          <div class="card__placeholder" aria-hidden="true"></div>
+	        {% endif %}
+	      </article>
+	    {% endfor %}
+	  </div>
+	  <div class="safe-carousel__controls" aria-label="Carousel controls">
+	    <button type="button" data-prev aria-label="Previous slide">Previous</button>
+	    <button type="button" data-next aria-label="Next slide">Next</button>
+	  </div>
+	  <script>
+	    (() => {
+	      const init = (root) => {
+	        const track = root?.querySelector('[data-section-track]');
+	        if (!root || !track || root.dataset.sliderReady === 'true') return;
+	        root.dataset.sliderReady = 'true';
+	        const move = (direction) => track.scrollBy({ left: direction * track.clientWidth, behavior: 'smooth' });
+	        root.querySelector('[data-prev]')?.addEventListener('click', () => move(-1));
+	        root.querySelector('[data-next]')?.addEventListener('click', () => move(1));
+	      };
+	      init(document.currentScript.closest('[data-section-root]'));
+	      document.addEventListener('shopify:section:load', (event) => {
+	        const root = event.target?.querySelector?.('[data-section-root]');
+	        init(root);
+	      });
+	    })();
+	  </script>
+	</section>
+	{% schema %}
+	{
+	  "name": "Safe carousel",
   "blocks": [
     {
-      "type": "card",
-      "name": "Card",
-      "settings": [
-        { "type": "image_picker", "id": "image", "label": "Image" }
-      ]
-    }
+	      "type": "card",
+	      "name": "Card",
+	      "settings": [
+	        { "type": "text", "id": "title", "label": "Title", "default": "Image card" },
+	        { "type": "image_picker", "id": "image", "label": "Image" }
+	      ]
+	    }
   ],
   "presets": [
     {
@@ -3360,23 +3410,79 @@ test("draftThemeArtifact - accepts long guarded optional media branches in creat
             key: "sections/long-guard-carousel.liquid",
             value: `
 <style>
+  #shopify-section-{{ section.id }} .long-guard-carousel {
+    display: grid;
+    gap: 18px;
+  }
+
   #shopify-section-{{ section.id }} .cards {
     display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+
+  #shopify-section-{{ section.id }} .card {
+    display: grid;
+    gap: 12px;
+    min-height: 240px;
+    scroll-snap-align: start;
+  }
+
+  #shopify-section-{{ section.id }} .card__placeholder {
+    aspect-ratio: 4 / 3;
+    background: #f4f4f4;
+    border-radius: 12px;
+  }
+
+  #shopify-section-{{ section.id }} .long-guard-carousel__controls {
+    display: flex;
+    gap: 8px;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .cards {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
-<div class="cards">
-  {% for block in section.blocks %}
-    <article class="card" {{ block.shopify_attributes }}>
-      {% if block.settings.image != blank %}
-        <div class="card__copy">${filler}</div>
-        {{ block.settings.image | image_url: width: 900 | image_tag }}
-      {% else %}
-        <div class="card__placeholder" aria-hidden="true"></div>
-      {% endif %}
-    </article>
-  {% endfor %}
-</div>
+<section class="long-guard-carousel" data-section-root data-section-slider>
+  <div class="cards" data-section-track>
+    {% for block in section.blocks %}
+      <article class="card" data-section-slide {{ block.shopify_attributes }}>
+        <h3>{{ block.settings.title }}</h3>
+        {% if block.settings.image != blank %}
+          <div class="card__copy">${filler}</div>
+          {{ block.settings.image | image_url: width: 900 | image_tag }}
+        {% else %}
+          <div class="card__placeholder" aria-hidden="true"></div>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </div>
+  <div class="long-guard-carousel__controls" aria-label="Carousel controls">
+    <button type="button" data-prev aria-label="Previous slide">Previous</button>
+    <button type="button" data-next aria-label="Next slide">Next</button>
+  </div>
+  <script>
+    (() => {
+      const init = (root) => {
+        const track = root?.querySelector('[data-section-track]');
+        if (!root || !track || root.dataset.sliderReady === 'true') return;
+        root.dataset.sliderReady = 'true';
+        const move = (direction) => track.scrollBy({ left: direction * track.clientWidth, behavior: 'smooth' });
+        root.querySelector('[data-prev]')?.addEventListener('click', () => move(-1));
+        root.querySelector('[data-next]')?.addEventListener('click', () => move(1));
+      };
+      init(document.currentScript.closest('[data-section-root]'));
+      document.addEventListener('shopify:section:load', (event) => {
+        const root = event.target?.querySelector?.('[data-section-root]');
+        init(root);
+      });
+    })();
+  </script>
+</section>
 {% schema %}
 {
   "name": "Long guard carousel",
@@ -3385,6 +3491,7 @@ test("draftThemeArtifact - accepts long guarded optional media branches in creat
       "type": "card",
       "name": "Card",
       "settings": [
+        { "type": "text", "id": "title", "label": "Title", "default": "Image card" },
         { "type": "image_picker", "id": "image", "label": "Image" }
       ]
     }
@@ -4574,14 +4681,25 @@ test("draftThemeArtifact - keeps hero-sized hero sections as warnings instead of
           key: "sections/hero-video.liquid",
           value: `
 <style>
-  .hero-video .title {
+  #shopify-section-{{ section.id }} .hero-video .title {
     font-size: 5.6rem;
   }
 
-  .hero-video {
+  #shopify-section-{{ section.id }} .hero-video {
     min-height: 720px;
     display: grid;
     gap: 32px;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .hero-video {
+      min-height: 420px;
+      gap: 20px;
+    }
+
+    #shopify-section-{{ section.id }} .hero-video .title {
+      font-size: 3rem;
+    }
   }
 </style>
 <section class="hero-video">
@@ -4729,9 +4847,24 @@ test("draftThemeArtifact - allows external video_url embeds when no hosted video
             key: "sections/external-video-embed.liquid",
             value: `
 <style>
-  .external-video {
+  #shopify-section-{{ section.id }} .external-video {
     display: grid;
     gap: 24px;
+  }
+
+  #shopify-section-{{ section.id }} .external-video__frame,
+  #shopify-section-{{ section.id }} .external-video__placeholder {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border: 0;
+    border-radius: 12px;
+    background: #f4f4f4;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .external-video {
+      gap: 16px;
+    }
   }
 </style>
 <section class="external-video">
@@ -5610,12 +5743,24 @@ test("draftThemeArtifact - hydrates locale context before running theme-check on
   try {
     const result = await execute(
       draftThemeArtifact.schema.parse({
+        mode: "create",
         themeId: 111,
         files: [
           {
             key: "sections/translatable-social-proof.liquid",
             value: `
 <style>
+  #shopify-section-{{ section.id }} .social-proof {
+    display: grid;
+    gap: 16px;
+  }
+
+  #shopify-section-{{ section.id }} .social-proof__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+  }
+
   #shopify-section-{{ section.id }} .card {
     display: grid;
     gap: 12px;
@@ -5631,7 +5776,20 @@ test("draftThemeArtifact - hydrates locale context before running theme-check on
   }
 </style>
 
-<div class="card">{{ 'custom.social_proof' | t }}</div>
+<section class="social-proof">
+  <div class="social-proof__grid">
+    {% for block in section.blocks %}
+      <article class="card" {{ block.shopify_attributes }}>
+        <p>{{ 'custom.social_proof' | t }}</p>
+        <h3>{{ block.settings.title }}</h3>
+        {{ block.settings.text }}
+        {% if block.settings.label != blank %}
+          <span>{{ block.settings.label }}</span>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </div>
+</section>
 
 {% schema %}
 {
@@ -5640,7 +5798,23 @@ test("draftThemeArtifact - hydrates locale context before running theme-check on
     { "type": "color", "id": "background", "label": "Background", "default": "#ffffff" },
     { "type": "range", "id": "spacing", "label": "Spacing", "min": 0, "max": 40, "step": 4, "default": 16 }
   ],
-  "presets": [{ "name": "Translatable social proof" }]
+  "blocks": [
+    {
+      "type": "proof",
+      "name": "Proof",
+      "settings": [
+        { "type": "text", "id": "title", "label": "Title", "default": "Customer love" },
+        { "type": "richtext", "id": "text", "label": "Text", "default": "<p>Verified customer</p>" },
+        { "type": "text", "id": "label", "label": "Label", "default": "Social proof" }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "Translatable social proof",
+      "blocks": [{ "type": "proof" }, { "type": "proof" }, { "type": "proof" }]
+    }
+  ]
 }
 {% endschema %}
 `,

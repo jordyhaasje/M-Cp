@@ -22,6 +22,7 @@ const SECTION_KINDS = new Set([
   "review_carousel",
   "social_comments",
   "comparison",
+  "feature_media_list",
   "faq",
   "tabs",
   "media_section",
@@ -99,6 +100,7 @@ const CARD_KINDS = new Set([
   "review_grid",
   "review_carousel",
   "comparison",
+  "feature_media_list",
 ]);
 
 const uniqueStrings = (values = []) =>
@@ -686,6 +688,16 @@ const inferSectionKind = ({
   const socialProofLike = /\b(rating|stars?|trustpilot|verified|badge|seal|social proof)\b/.test(
     haystack
   );
+  const featureMediaListLike =
+    /\bfeature[-_ ]?54\b|\bfeature\s*54\b/i.test(haystack) ||
+    (
+      /\b(features?|benefits?|usp|selling points?|icon[-_ ]?(?:list|rows?)|feature[-_ ]?(?:list|rows?))\b/i.test(
+        haystack
+      ) &&
+      /\b(image|media|photo|visual|product|mockup|left|right|links|rechts)\b/i.test(
+        haystack
+      )
+    );
   const testimonialLike = /\b(testimonials?|customer quotes?|quote cards?|klant(?:en)?ervaring(?:en)?)\b/.test(
     semanticHaystack
   );
@@ -737,6 +749,9 @@ const inferSectionKind = ({
   }
   if (/\b(comparison|compare|vergelijk|tabel|table|vs|comparison_table)\b/.test(haystack)) {
     return "comparison";
+  }
+  if (featureMediaListLike) {
+    return "feature_media_list";
   }
   if (/(faq|frequently[-_ ]?asked[-_ ]?questions?|questions?|vragen|antwoorden|accordion|collapsible)/.test(haystack)) {
     return "faq";
@@ -959,6 +974,11 @@ const inferSectionArchitecture = ({
       blockModel = "rows";
       contentModel = "mixed";
       break;
+    case "feature_media_list":
+      blockModel = "rows";
+      mediaModel = "section_level_media";
+      contentModel = "mixed";
+      break;
     case "faq":
       interactionKind = "accordion";
       blockModel = "faq_items";
@@ -1062,7 +1082,14 @@ const inferSectionArchitecture = ({
           optionalReviewSettings: ["avatar"],
         }
       : {}),
-    ...(blockRoles.includes("row") ? { row: ["label_or_title", "content"] } : {}),
+    ...(blockRoles.includes("row")
+      ? {
+          row:
+            sectionKind === "feature_media_list"
+              ? ["icon", "label_or_title", "content"]
+              : ["label_or_title", "content"],
+        }
+      : {}),
     ...(blockRoles.includes("faq_item") ? { faq_item: ["question", "answer"] } : {}),
     ...(blockRoles.includes("tab") ? { tab: ["tab_title", "tab_content"] } : {}),
   };
@@ -1864,6 +1891,11 @@ const collectMissingBlockSettingIssues = ({
       types: ["text", "inline_richtext"],
       label: "label/title",
     },
+    icon: {
+      patterns: [/\b(icon|symbol|pictogram|illustration)\b/],
+      types: ["text", "select", "image_picker"],
+      label: "icon/symbol",
+    },
     content: {
       patterns: [/\b(content|value|text|body|description|copy)\b/],
       types: ["text", "textarea", "richtext", "inline_richtext"],
@@ -2016,6 +2048,8 @@ const collectAllSchemaSettings = (schema) => [
 const detectPromptExpectations = (requestText = "") => {
   const text = normalizeText(stripNegatedFeaturePhrases(requestText));
   const sliderRequested = /\b(slider|carousel|slideshow|slides?|swipe)\b/.test(text);
+  const sliderSevenLike = /\bslider[-_ ]?7\b|\bslider\s+seven\b/i.test(text);
+  const feature54Like = /\bfeature[-_ ]?54\b|\bfeature\s*54\b/i.test(text);
   const videoRequested = /\b(videos?|video_url|youtube|vimeo|reels?)\b/.test(text);
   const imageRequested = /\b(images?|afbeelding(?:en)?|photos?|pictures?|media)\b/.test(text);
   const perSlideRequested =
@@ -2050,6 +2084,39 @@ const detectPromptExpectations = (requestText = "") => {
     collectionSource: /\b(featured collection|collection slider|collection grid|collectie|products grid|productlijst)\b/.test(text),
     newsletterSignup: /\b(newsletter|email signup|e-mail signup|subscribe|inschrijven|aanmelden)\b/.test(text),
     beforeAfter: /\b(before[-_ ]?after|voor[-_ ]?na|comparison slider|range compare)\b/.test(text),
+    featureItems:
+      feature54Like ||
+      /\b(feature rows?|feature list|benefit rows?|benefit list|icon rows?|usp rows?)\b/.test(
+        text
+      ),
+    featureIcons:
+      feature54Like ||
+      /\b(icon|icons?|pictogram|symbol)\b.{0,60}\b(feature|benefit|row|list)\b/.test(
+        text
+      ),
+    largeProductMedia:
+      feature54Like ||
+      /\b(large|grote?)\b.{0,40}\b(product|media|image|visual|mockup|afbeelding|beeld)\b/.test(
+        text
+      ),
+    sliderCounter:
+      sliderSevenLike ||
+      /\b(counter|slide count|current\s*\/\s*total|1\s*\/\s*\d+|pagination counter)\b/.test(
+        text
+      ),
+    activeSlideContrast:
+      sliderSevenLike ||
+      /\b(active|actieve|highlighted|current)\b.{0,40}\b(dark|donker|contrast|black)\b/.test(
+        text
+      ),
+    peekNeighborCards:
+      sliderSevenLike ||
+      /\b(peek|partial|neighbor|neighbour|side cards?|3 visible|three visible|drie zichtbare)\b/.test(
+        text
+      ),
+    sixPresetSlides:
+      sliderSevenLike ||
+      /\b(6|six|zes)\b.{0,30}\b(slides?|cards?|items?)\b/.test(text),
   };
 };
 
@@ -2072,6 +2139,14 @@ const buildPromptCoverage = ({ source, schema, requestText, architecture } = {})
   const settings = collectAllSchemaSettings(schema);
   const sectionSettings = Array.isArray(schema?.settings) ? schema.settings : [];
   const lowerSource = String(source || "").toLowerCase();
+  const presetBlockCount = Math.max(
+    0,
+    ...(Array.isArray(schema?.presets)
+      ? schema.presets.map((preset) =>
+          Array.isArray(preset?.blocks) ? preset.blocks.length : 0
+        )
+      : [])
+  );
 
   const slideHas = (config) =>
     slideBlocks.some((block) =>
@@ -2132,6 +2207,39 @@ const buildPromptCoverage = ({ source, schema, requestText, architecture } = {})
   });
   const sectionButtonRendered =
     /section\.settings\.[A-Za-z0-9_]*(?:button|cta)[A-Za-z0-9_]*(?:label|text)[A-Za-z0-9_]*|section\.settings\.[A-Za-z0-9_]*(?:button|cta)[A-Za-z0-9_]*(?:url|link)[A-Za-z0-9_]*/i.test(
+      source
+    );
+  const rowIconSetting = rowBlocks.some((block) =>
+    schemaHasSettingByTypeOrId(block?.settings || [], {
+      patterns: [/\b(icon|symbol|pictogram|illustration)\b/],
+      types: ["select", "text", "image_picker"],
+    })
+  );
+  const rowIconRendered =
+    /block\.settings\.[A-Za-z0-9_]*(?:icon|symbol|pictogram|illustration)[A-Za-z0-9_]*|data-section-feature-icon|<svg\b/i.test(
+      source
+    );
+  const hasLargeMediaShell =
+    /data-section-large-media|data-section-product-media|feature(?:[-_]{1,2}|__)?media|product(?:[-_]{1,2}|__)?media/i.test(
+      source
+    ) &&
+    /(image_url|image_tag|background:|background-image:|radial-gradient|linear-gradient)/i.test(
+      source
+    );
+  const hasSliderCounter =
+    /data-section-slider-counter|data-current|data-total|aria-live|current\s*\/\s*total|\b1\s*\/\s*\{\{|\{\{\s*[^}]*index[^}]*\}\}\s*\/\s*\{\{/i.test(
+      source
+    );
+  const hasActiveSlideContrast =
+    /(?:is-active|is-current|aria-current|data-active|data-section-active-slide)/i.test(
+      source
+    ) &&
+    /(?:background(?:-color)?\s*:\s*(?:#0|#1|rgb\(0|rgb\(1|black|var\([^)]*(?:dark|black|contrast))|color\s*:\s*(?:#fff|white|rgb\(255))/i.test(
+      source
+    );
+  const hasPeekCardSizing =
+    /(overflow-x|scroll-snap-type|scrollBy|translateX)/i.test(source) &&
+    /(grid-auto-columns|flex\s*:\s*0\s+0|flex-basis|--slide-width|clamp\(|calc\([^)]*%|minmax\()/i.test(
       source
     );
   const features = {
@@ -2402,6 +2510,64 @@ const buildPromptCoverage = ({ source, schema, requestText, architecture } = {})
             ? "partial"
             : "no",
     },
+    featureItems: {
+      requested: expectations.featureItems,
+      status:
+        rowBlocks.length > 0 &&
+        sourceHasSectionBlocksLoop(source) &&
+        presetBlockCount >= 4
+          ? "yes"
+          : rowBlocks.length > 0 && sourceHasSectionBlocksLoop(source)
+            ? "partial"
+            : "no",
+    },
+    featureIcons: {
+      requested: expectations.featureIcons,
+      status:
+        rowIconSetting && rowIconRendered
+          ? "yes"
+          : rowIconSetting || rowIconRendered
+            ? "partial"
+            : "no",
+    },
+    largeProductMedia: {
+      requested: expectations.largeProductMedia,
+      status:
+        (sectionHas({
+          types: ["image_picker"],
+          patterns: [/\b(image|media|photo|picture|product)\b/],
+        }) &&
+          (sectionImageRendered || assignedSectionImageRendered)) ||
+        hasLargeMediaShell
+          ? "yes"
+          : sectionHas({
+                types: ["image_picker"],
+                patterns: [/\b(image|media|photo|picture|product)\b/],
+              })
+            ? "partial"
+            : "no",
+    },
+    sliderCounter: {
+      requested: expectations.sliderCounter,
+      status: hasSliderCounter ? "yes" : "no",
+    },
+    activeSlideContrast: {
+      requested: expectations.activeSlideContrast,
+      status: hasActiveSlideContrast ? "yes" : "no",
+    },
+    peekNeighborCards: {
+      requested: expectations.peekNeighborCards,
+      status: hasPeekCardSizing ? "yes" : "no",
+    },
+    sixPresetSlides: {
+      requested: expectations.sixPresetSlides,
+      status:
+        presetBlockCount >= 6
+          ? "yes"
+          : presetBlockCount > 0
+            ? "partial"
+            : "no",
+    },
   };
 
   const requestedEntries = Object.entries(features).filter(
@@ -2549,6 +2715,37 @@ const buildFeatureContractEntries = ({ expectations, architecture }) => {
   add("beforeAfter", {
     schema: "Use before and after image_picker settings.",
     render: "Render a functional before/after interaction, not two static images only.",
+  });
+  add("featureItems", {
+    schema:
+      "Use at least four preset feature/benefit row blocks with icon, heading/title and text/content settings.",
+    render:
+      "Render feature rows from section.blocks with block.shopify_attributes; do not hardcode the whole feature list.",
+  });
+  add("featureIcons", {
+    schema: "Use a block-level icon setting such as select/text/image_picker.",
+    render: "Render the icon setting inside each feature row with accessible text or hidden decorative markup.",
+  });
+  add("largeProductMedia", {
+    schema: "Use a section-level product/image/media setting for the primary media anchor.",
+    render:
+      "Render the primary media with image_url + image_tag behind blank guards, or provide a deliberate styled media shell fallback.",
+  });
+  add("sliderCounter", {
+    schema: "No block loop is required for the counter, but expose enough data to compute current/total.",
+    render: "Render and update a current / total slider counter from the active slide index.",
+  });
+  add("activeSlideContrast", {
+    schema: "Use slide/card blocks that can receive an active/current state.",
+    render: "Apply a clear active/current state with contrasting card styling.",
+  });
+  add("peekNeighborCards", {
+    schema: "Use slide/card blocks with stable desktop card widths.",
+    render: "Use overflow/scroll-snap or transform sizing so neighboring cards remain partially visible on desktop.",
+  });
+  add("sixPresetSlides", {
+    schema: "Include at least six preset slide/card blocks for the reference carousel.",
+    render: "Render all preset slides through the primary section.blocks loop.",
   });
 
   return entries;

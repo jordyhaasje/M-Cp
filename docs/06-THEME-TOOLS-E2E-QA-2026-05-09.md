@@ -42,6 +42,10 @@ Belangrijk: FAQ, feature-54 en Slider 7 werden niet geblokkeerd door destructiev
 | THEME-QA-005 | Gefixt, lokaal gevalideerd | Image prompt coverage wordt `partial` wanneer image rendering via een assigned Liquid variable loopt. | Assigned image variables tellen nu als render path naar `image_url`/`image_tag`. |
 | THEME-QA-006 | Gefixt, lokaal gevalideerd | `verbosity="compact"` kan nog steeds grote `themeContext`, `sectionBlueprint`, `plannerHandoff` en `codegenContract` payloads teruggeven op success. | Success responses volgen nu dezelfde debug-payload policy als failure responses. |
 | THEME-QA-007 | Gefixt, lokaal gevalideerd | Replica-schaal check classificeert title font-size soms als body font-size door container-class zoals `__copy h3`. | Body-font selector is minder breed zodat heading/card-title niet als body wordt gemeten. |
+| THEME-QA-008 | Gefixt, lokaal gevalideerd | Compacte `plan-theme-edit` output gaf geen bruikbare handoff terug, waardoor stateless LLM-clients de plannerbrief en replica-context kwijtraakten tussen plan en create. | Compacte output bevat nu een compacte `plannerHandoff` met brief, target, reads, referenceSignals en codegenContract. |
+| THEME-QA-009 | Gefixt, lokaal gevalideerd | Screenshot-/URL-analyse kon alleen als vrije summary meelopen en werd daardoor te makkelijk genegeerd of overschreven door compacte toolinputs. | `plan-theme-edit`, `create-theme-section` en `draft-theme-artifact` accepteren nu `visualBrief`, `referenceAnalysis` en `designBrief`. |
+| THEME-QA-010 | Gefixt, lokaal gevalideerd | Directe `draft-theme-artifact mode="create"` calls zonder plannercontext vielen terug naar te lichte validatie, waardoor minimale of visueel incomplete sections konden slagen. | Directe create-writes gebruiken nu `production_visual` als backstop met scoped CSS, responsive, carousel-control en Theme Editor lifecycle checks. |
+| THEME-QA-011 | Gefixt, lokaal gevalideerd | `feature-54` en `Slider 7` replica's werden niet als eigen visuele contracten herkend; generieke feature/slider-baselines konden de specifieke referentie-anchors missen. | Nieuwe `feature_media_list` archetype plus feature-54/Slider-7 prompt coverage: grote media, icon rows, counter, active slide contrast, peek cards en zes preset slides. |
 
 ## Fixplan
 1. Portability: Impact wrappers niet meer verplichten voor nieuwe generieke sections; alleen scoped CSS blijft hard requirement.
@@ -56,6 +60,13 @@ Belangrijk: FAQ, feature-54 en Slider 7 werden niet geblokkeerd door destructiev
 - Command: `npm --prefix apps/hazify-mcp-remote test -- --runInBand tests/draftThemeArtifact.test.mjs tests/themeCodegenContract.test.mjs tests/toolHardening.test.mjs tests/toolRegistry.test.mjs`
 - Resultaat: pass. De runner voerde breder uit dan de opgegeven files en eindigde met `All hazify tests passed`.
 - Belangrijke regressies afgedekt: portable Impact sections zonder wrappers, exclusieve theme target-forwarding in patch-flow, `verify-theme-files` public input schema, negated prompt features, assigned image variables, compacte success payloads en body-font schaalclassificatie.
+
+## Vervolgvalidatie Context- en Replica-fixes
+- Datum: 2026-05-09.
+- Aanleiding: LLM-clients konden nog geen sections betrouwbaar maken of namaken omdat compact planner-contextverlies, vrije visual-summary velden en te lichte direct-create validatie nog open stonden.
+- Command: `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs apps/hazify-mcp-remote/tests/themeCodegenContract.test.mjs apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
+- Resultaat: pass, `168` tests groen.
+- Afgedekt: compact `plannerHandoff`, `visualBrief`/`referenceAnalysis` normalisatie, direct-create `production_visual` backstop, echte carousel-controls met Theme Editor lifecycle, `feature-54` feature/media-list anchors en `Slider 7` counter/peek/active-state anchors.
 
 ## Open Re-test
 - Live MCP runtime opnieuw getest op theme `187324891450`.

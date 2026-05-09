@@ -1270,3 +1270,290 @@ test("themeCodegenContract - static card sections with @media do not become repe
   assert.equal(result.codegenContract.architecture.blockModel, "none");
   assert.ok(!codes(result).some((code) => code.startsWith("architecture_missing")));
 });
+
+test("themeCodegenContract - feature-54 replica requires media, icon rows and four feature presets", () => {
+  const genericResult = preflightSectionLiquid(
+    section({
+      body: `
+        <style>
+          #shopify-section-{{ section.id }} .feature-54 { display: grid; gap: 24px; }
+          @media screen and (max-width: 749px) { #shopify-section-{{ section.id }} .feature-54 { gap: 16px; } }
+        </style>
+        <section class="feature-54" data-section-bounded-shell>
+          <h2>{{ section.settings.heading }}</h2>
+        </section>
+      `,
+      schema: `{
+        "name": "Feature 54",
+        "settings": [
+          { "type": "text", "id": "heading", "label": "Heading", "default": "Pure Ceremonial Energy" }
+        ],
+        "presets": [{ "name": "Feature 54" }]
+      }`,
+    }),
+    {
+      mode: "create",
+      intent: "new_section",
+      validationProfile: "exact_replica",
+      requestText: "Maak feature-54 exact na van de screenshot",
+    }
+  );
+
+  assert.equal(genericResult.ok, false);
+  assert.ok(codes(genericResult).includes("prompt_coverage_partial"));
+  assert.ok(
+    genericResult.promptCoverage.missing.some((entry) => entry.key === "featureItems")
+  );
+  assert.ok(
+    genericResult.promptCoverage.missing.some((entry) => entry.key === "largeProductMedia")
+  );
+
+  const goodResult = preflightSectionLiquid(
+    section({
+      body: `
+        <style>
+          #shopify-section-{{ section.id }} .feature-54 {
+            display: grid;
+            grid-template-columns: minmax(280px, 0.95fr) minmax(320px, 1.1fr);
+            gap: 48px;
+            align-items: center;
+          }
+          #shopify-section-{{ section.id }} .feature-54__media {
+            min-height: 360px;
+            border-radius: 24px;
+            background: radial-gradient(circle at 50% 40%, rgba(166, 190, 94, 0.4), transparent 58%);
+          }
+          #shopify-section-{{ section.id }} .feature-54__panel {
+            display: grid;
+            gap: 20px;
+            padding: 28px;
+            border-radius: 18px;
+            background: rgba(247, 247, 249, 0.95);
+          }
+          #shopify-section-{{ section.id }} .feature-54__row {
+            display: grid;
+            grid-template-columns: 32px 1fr;
+            gap: 16px;
+            min-height: 68px;
+          }
+          @media screen and (max-width: 749px) {
+            #shopify-section-{{ section.id }} .feature-54 { grid-template-columns: 1fr; gap: 24px; }
+            #shopify-section-{{ section.id }} .feature-54__media { min-height: 260px; }
+            #shopify-section-{{ section.id }} .feature-54__panel { padding: 20px; }
+          }
+        </style>
+        <section class="feature-54" data-section-bounded-shell>
+          <div class="feature-54__media" data-section-large-media>
+            {% if section.settings.image != blank %}
+              {{ section.settings.image | image_url: width: 900 | image_tag: loading: 'lazy', sizes: '(min-width: 750px) 45vw, 100vw' }}
+            {% endif %}
+          </div>
+          <div>
+            <h2>{{ section.settings.heading }}</h2>
+            <div class="feature-54__panel">
+              {% for block in section.blocks %}
+                <article class="feature-54__row" {{ block.shopify_attributes }}>
+                  <span data-section-feature-icon>{{ block.settings.icon }}</span>
+                  <div>
+                    <h3>{{ block.settings.title }}</h3>
+                    <p>{{ block.settings.text }}</p>
+                  </div>
+                </article>
+              {% endfor %}
+            </div>
+          </div>
+        </section>
+      `,
+      schema: `{
+        "name": "Feature 54",
+        "settings": [
+          { "type": "image_picker", "id": "image", "label": "Image" },
+          { "type": "text", "id": "heading", "label": "Heading", "default": "Pure Ceremonial Energy" }
+        ],
+        "blocks": [
+          {
+            "type": "feature",
+            "name": "Feature",
+            "settings": [
+              { "type": "select", "id": "icon", "label": "Icon", "default": "check", "options": [
+                { "value": "check", "label": "Check" },
+                { "value": "spark", "label": "Spark" }
+              ] },
+              { "type": "text", "id": "title", "label": "Title", "default": "Authentic Japanese Origin" },
+              { "type": "textarea", "id": "text", "label": "Text", "default": "Sourced directly from heritage farms." }
+            ]
+          }
+        ],
+        "presets": [{ "name": "Feature 54", "blocks": [
+          { "type": "feature" },
+          { "type": "feature" },
+          { "type": "feature" },
+          { "type": "feature" }
+        ] }]
+      }`,
+    }),
+    {
+      mode: "create",
+      intent: "new_section",
+      validationProfile: "exact_replica",
+      requestText: "Maak feature-54 exact na van de screenshot",
+    }
+  );
+
+  assert.equal(goodResult.ok, true);
+  assert.equal(goodResult.sectionKind, "feature_media_list");
+});
+
+test("themeCodegenContract - Slider 7 replica requires counter, peek cards, active state and six presets", () => {
+  const genericResult = preflightSectionLiquid(
+    section({
+      body: `
+        <style>
+          #shopify-section-{{ section.id }} .slider-7 { display: grid; gap: 16px; }
+          @media screen and (max-width: 749px) { #shopify-section-{{ section.id }} .slider-7 { gap: 12px; } }
+        </style>
+        <section class="slider-7" data-section-slider>
+          {% for block in section.blocks %}
+            <article data-section-slide {{ block.shopify_attributes }}>{{ block.settings.heading }}</article>
+          {% endfor %}
+        </section>
+      `,
+      schema: `{
+        "name": "Slider 7",
+        "blocks": [
+          {
+            "type": "slide",
+            "name": "Slide",
+            "settings": [
+              { "type": "text", "id": "heading", "label": "Heading", "default": "AirPods" }
+            ]
+          }
+        ],
+        "presets": [{ "name": "Slider 7", "blocks": [{ "type": "slide" }] }]
+      }`,
+    }),
+    {
+      mode: "create",
+      intent: "new_section",
+      validationProfile: "exact_replica",
+      requestText:
+        "Maak Slider 7 exact na: counter 1 / 6, drie zichtbare peek cards, donkere actieve kaart en product images",
+    }
+  );
+
+  assert.equal(genericResult.ok, false);
+  assert.ok(codes(genericResult).includes("prompt_coverage_partial"));
+  assert.ok(
+    genericResult.promptCoverage.missing.some((entry) => entry.key === "sliderCounter")
+  );
+  assert.ok(
+    genericResult.promptCoverage.missing.some((entry) => entry.key === "sixPresetSlides")
+  );
+
+  const goodResult = preflightSectionLiquid(
+    section({
+      body: `
+        <style>
+          #shopify-section-{{ section.id }} .slider-7 { display: grid; gap: 24px; overflow: hidden; }
+          #shopify-section-{{ section.id }} .slider-7__controls { display: flex; justify-content: flex-end; gap: 16px; align-items: center; }
+          #shopify-section-{{ section.id }} .slider-7__track {
+            display: flex;
+            gap: 28px;
+            overflow-x: auto;
+            scroll-snap-type: x mandatory;
+            padding-inline: 8vw;
+          }
+          #shopify-section-{{ section.id }} .slider-7__card {
+            flex: 0 0 clamp(280px, 40vw, 560px);
+            min-height: 460px;
+            padding: 28px;
+            border-radius: 18px;
+            background: #f7f7f8;
+            scroll-snap-align: center;
+          }
+          #shopify-section-{{ section.id }} .slider-7__card.is-active {
+            background: #050505;
+            color: #fff;
+          }
+          @media screen and (max-width: 749px) {
+            #shopify-section-{{ section.id }} .slider-7__track { padding-inline: 20px; gap: 16px; }
+            #shopify-section-{{ section.id }} .slider-7__card { flex-basis: 86%; min-height: 360px; }
+          }
+        </style>
+        <slider-seven class="slider-7" data-section-slider>
+          <div class="slider-7__controls">
+            <span data-section-slider-counter aria-live="polite">1 / {{ section.blocks.size }}</span>
+            <button type="button" data-prev aria-label="Previous slide">Prev</button>
+            <button type="button" data-next aria-label="Next slide">Next</button>
+          </div>
+          <div class="slider-7__track">
+            {% for block in section.blocks %}
+              <article class="slider-7__card{% if forloop.first %} is-active{% endif %}" data-section-slide aria-current="{% if forloop.first %}true{% else %}false{% endif %}" {{ block.shopify_attributes }}>
+                <p>{{ block.settings.eyebrow }}</p>
+                <h3>{{ block.settings.heading }}</h3>
+                {% if block.settings.image != blank %}
+                  {{ block.settings.image | image_url: width: 900 | image_tag: loading: 'lazy', sizes: '42vw' }}
+                {% endif %}
+              </article>
+            {% endfor %}
+          </div>
+        </slider-seven>
+        <script>
+          if (!customElements.get('slider-seven')) {
+            customElements.define('slider-seven', class extends HTMLElement {
+              connectedCallback() {
+                const track = this.querySelector('.slider-7__track');
+                const slides = Array.from(this.querySelectorAll('[data-section-slide]'));
+                const counter = this.querySelector('[data-section-slider-counter]');
+                const update = () => {
+                  const index = Math.max(0, Math.round(track.scrollLeft / Math.max(1, slides[0]?.offsetWidth || 1)));
+                  slides.forEach((slide, slideIndex) => {
+                    slide.classList.toggle('is-active', slideIndex === index);
+                    slide.setAttribute('aria-current', slideIndex === index ? 'true' : 'false');
+                  });
+                  if (counter) counter.textContent = (index + 1) + ' / ' + slides.length;
+                };
+                this.querySelector('[data-prev]').addEventListener('click', () => track.scrollBy({ left: -320, behavior: 'smooth' }));
+                this.querySelector('[data-next]').addEventListener('click', () => track.scrollBy({ left: 320, behavior: 'smooth' }));
+                track.addEventListener('scroll', update, { passive: true });
+                update();
+              }
+            });
+          }
+        </script>
+      `,
+      schema: `{
+        "name": "Slider 7",
+        "blocks": [
+          {
+            "type": "slide",
+            "name": "Slide",
+            "settings": [
+              { "type": "image_picker", "id": "image", "label": "Image" },
+              { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "NEW" },
+              { "type": "text", "id": "heading", "label": "Heading", "default": "AirPods" }
+            ]
+          }
+        ],
+        "presets": [{ "name": "Slider 7", "blocks": [
+          { "type": "slide" },
+          { "type": "slide" },
+          { "type": "slide" },
+          { "type": "slide" },
+          { "type": "slide" },
+          { "type": "slide" }
+        ] }]
+      }`,
+    }),
+    {
+      mode: "create",
+      intent: "new_section",
+      validationProfile: "exact_replica",
+      requestText:
+        "Maak Slider 7 exact na: counter 1 / 6, drie zichtbare peek cards, donkere actieve kaart en product images",
+    }
+  );
+
+  assert.equal(goodResult.ok, true);
+  assert.equal(goodResult.sectionKind, "image_slider");
+});

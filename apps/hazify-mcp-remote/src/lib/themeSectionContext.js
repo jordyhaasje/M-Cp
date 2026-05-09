@@ -104,6 +104,9 @@ const SECTION_CATEGORY_ORDER = ["interactive", "media", "commerce", "static"];
 
 const SECTION_CATEGORY_PATTERNS = {
   static: [
+    /feature[-_ ]?(?:54|list|rows?)/i,
+    /benefits?/i,
+    /icon[-_ ]?(?:feature|row|list)/i,
     /review/i,
     /testimonial/i,
     /quote/i,
@@ -485,6 +488,22 @@ const BASE_SECTION_SCALE_PROFILES = {
     mobileCardMinHeightMax: 320,
     mobileGapMaxPx: 20,
   },
+  feature_media_list: {
+    contentMaxWidthDefault: 1180,
+    contentMaxWidthMax: 1320,
+    cardMinHeightDefault: 0,
+    cardMinHeightMax: 420,
+    headingFontMaxPx: 64,
+    subheadingFontMaxPx: 24,
+    quoteFontMaxPx: 30,
+    bodyFontMaxPx: 20,
+    cardTitleFontMaxPx: 28,
+    iconSizeMaxPx: 40,
+    gridGapMaxPx: 64,
+    cardPaddingMaxPx: 34,
+    mobileCardMinHeightMax: 360,
+    mobileGapMaxPx: 24,
+  },
 };
 
 const EXPLICIT_MEDIA_SOURCE_PATTERNS = [
@@ -768,6 +787,16 @@ const inferSectionArchetype = ({
     /\b(?:review|testimonial|trustpilot|verified|rating|stars?)\b.{0,50}\b(?:badge|seal|card)\b/.test(
       haystack
     );
+  const featureMediaListLike =
+    /\bfeature[-_ ]?54\b|\bfeature\s*54\b/i.test(haystack) ||
+    (
+      /\b(features?|benefits?|usp|selling points?|icon[-_ ]?(?:list|rows?)|feature[-_ ]?(?:list|rows?))\b/i.test(
+        haystack
+      ) &&
+      /\b(image|media|photo|visual|product|mockup|left|right|links|rechts)\b/i.test(
+        haystack
+      )
+    );
 
   const inferHeroArchetype = () => {
     const heroLike =
@@ -840,6 +869,9 @@ const inferSectionArchetype = ({
   }
   if (/(before[-_ ]?after|before\/after)/.test(haystack)) {
     return "before_after";
+  }
+  if (featureMediaListLike) {
+    return "feature_media_list";
   }
   if (
     /comparison[-_ ]?table/.test(haystack) ||
@@ -1012,6 +1044,7 @@ const inferSectionShellFamily = ({
     case "video_section":
     case "video_slider":
     case "image_slider":
+    case "feature_media_list":
     case "social_strip":
     case "social_slider":
     case "collection_slider":
@@ -1045,6 +1078,8 @@ const buildReferenceSignals = ({
     ? categorySignals
     : [category].filter(Boolean);
   const exactReplicaRequested = qualityTarget === "exact_match";
+  const sliderSevenLike = /\bslider[-_ ]?7\b|\bslider\s+seven\b/i.test(haystack);
+  const feature54Like = /\bfeature[-_ ]?54\b|\bfeature\s*54\b/i.test(haystack);
   const interactiveLike =
     effectiveSignals.includes("interactive") || effectiveSignals.includes("hybrid");
   const mediaLike =
@@ -1184,9 +1219,41 @@ const buildReferenceSignals = ({
       /\b(overlay|gradient|fade|verloop|schaduw)\b/i.test(query),
     requiresNavButtons:
       exactReplicaRequested &&
-      /\b(pijl|pijlen|arrow|arrows|prev|next|navigatie|navigation)\b/i.test(
-        query
-      ),
+      (sliderSevenLike ||
+        /\b(pijl|pijlen|arrow|arrows|prev|next|navigatie|navigation)\b/i.test(
+          query
+        )),
+    requiresFeatureIconRows:
+      exactReplicaRequested &&
+      (feature54Like ||
+        (
+          archetype === "feature_media_list" &&
+          /\b(icon|icons?|feature rows?|benefits?|usp)\b/i.test(query)
+        )),
+    requiresLargeProductMedia:
+      exactReplicaRequested &&
+      (feature54Like ||
+        /\b(large|grote?)\b.{0,40}\b(product|media|image|visual|mockup|afbeelding|beeld)\b/i.test(
+          query
+        )),
+    requiresSliderCounter:
+      exactReplicaRequested &&
+      (sliderSevenLike ||
+        /\b(counter|slide count|current\s*\/\s*total|1\s*\/\s*\d+|pagination counter)\b/i.test(
+          query
+        )),
+    requiresActiveSlideContrast:
+      exactReplicaRequested &&
+      (sliderSevenLike ||
+        /\b(active|actieve|highlighted|current)\b.{0,40}\b(dark|donker|contrast|black)\b/i.test(
+          query
+        )),
+    requiresPeekNeighborCards:
+      exactReplicaRequested &&
+      (sliderSevenLike ||
+        /\b(peek|partial|neighbor|neighbour|side cards?|3 visible|three visible|drie zichtbare)\b/i.test(
+          query
+        )),
     requiresThemeWrapperMirror: exactReplicaWrapperMirror,
     requiresTwoSurfaceComposition: wantsDedicatedInnerCard,
     requiresDedicatedInnerCard: wantsDedicatedInnerCard,
@@ -1195,7 +1262,9 @@ const buildReferenceSignals = ({
       (wantsDedicatedInnerCard ||
         hasScreenshotLikeReference ||
         hasDesktopMobileReferences),
-    requestedVisibleCardsDesktop: extractRequestedVisibleCardCount(query),
+    requestedVisibleCardsDesktop: sliderSevenLike
+      ? 3
+      : extractRequestedVisibleCardCount(query),
   };
 };
 
@@ -1548,6 +1617,8 @@ const resolveSectionContractType = (archetype = "content_section") => {
       return "featured_collection";
     case "comparison_table":
       return "comparison_table";
+    case "feature_media_list":
+      return "feature_media_list";
     case "logo_wall":
     case "logo_slider":
     case "logo_marquee":
@@ -1560,6 +1631,14 @@ const resolveSectionContractType = (archetype = "content_section") => {
 const userExplicitlyAllowsOversizedScale = ({ query = "", referenceSignals = null } = {}) =>
   Boolean(referenceSignals?.heroShellFamily === "media_first_unboxed") ||
   OVERSIZED_SCALE_PATTERNS.some((pattern) => pattern.test(String(query || "")));
+
+const isPortableCrossThemeRequest = (query = "") =>
+  /\b(?:portable|theme[-_\s]?independent|theme[-_\s]?agnostic|cross[-_\s]?theme|generic|universal|os\s*2\.?0)\b/i.test(
+    query
+  ) ||
+  /\b(?:no|zonder|geen)\s+theme[-_\s]?specific\b/i.test(query) ||
+  /\b(?:geen|zonder)\s+theme[-_\s]?specifiek/i.test(query) ||
+  /\b(?:niet|not)\s+hardcoded\b/i.test(query);
 
 const capProfileValue = (value, cap) => {
   if (
@@ -1676,6 +1755,7 @@ const buildSectionGenerationRecipe = ({
       "review_slider",
       "faq",
       "comparison_table",
+      "feature_media_list",
       "logo_slider",
     ].includes(sectionContractType) ||
     [
@@ -1695,13 +1775,7 @@ const buildSectionGenerationRecipe = ({
   const boundedOrMediaShell =
     layoutContract?.sectionShellFamily === "bounded_card_shell" ||
     layoutContract?.sectionShellFamily === "media_surface";
-  const portableCrossThemeRequested =
-    /\b(?:portable|theme[-_\s]?independent|theme[-_\s]?agnostic|cross[-_\s]?theme|generic|universal|os\s*2\.?0)\b/i.test(
-      query
-    ) ||
-    /\b(?:no|zonder|geen)\s+theme[-_\s]?specific\b/i.test(query) ||
-    /\b(?:geen|zonder)\s+theme[-_\s]?specifiek/i.test(query) ||
-    /\b(?:niet|not)\s+hardcoded\b/i.test(query);
+  const portableCrossThemeRequested = isPortableCrossThemeRequest(query);
   const wrapperMode = mediaFirstOrFullBleed
     ? "no_background_shell"
     : portableCrossThemeRequested
@@ -2337,6 +2411,36 @@ const buildCategoryGuardrails = ({
     );
   }
 
+  if (referenceSignals?.requiresFeatureIconRows) {
+    guardrails.push(
+      "Feature-media-list replica's moeten herhaalbare feature rows met icon, heading en body copy gebruiken; maak er geen generieke tekstkolom van."
+    );
+  }
+
+  if (referenceSignals?.requiresLargeProductMedia) {
+    guardrails.push(
+      "Behoud de grote primaire product/media-anchor uit de referentie met een merchant-editable image/media setting of een gestileerde renderbare media shell."
+    );
+  }
+
+  if (referenceSignals?.requiresSliderCounter) {
+    guardrails.push(
+      "Slider-replica's met een zichtbare teller moeten een echte current/total counter renderen en updaten met dezelfde state als de navigatieknoppen."
+    );
+  }
+
+  if (referenceSignals?.requiresActiveSlideContrast) {
+    guardrails.push(
+      "Slider-replica's met een actieve contrasterende kaart moeten een herkenbare active/current state in CSS en markup hebben."
+    );
+  }
+
+  if (referenceSignals?.requiresPeekNeighborCards) {
+    guardrails.push(
+      "Slider-replica's met peek-neighbours moeten desktop kaartbreedtes en overflow/snap zo instellen dat naastliggende kaarten zichtbaar blijven."
+    );
+  }
+
   if (referenceSignals?.avoidDoubleSectionShell) {
     guardrails.push(
       "Gebruik geen dubbele achtergrond-shell. Combineer een theme wrapper helper met een eigen decoratieve shell alleen wanneer duidelijk is welke laag spacing en welke laag de visuele surface beheert."
@@ -2448,7 +2552,12 @@ const buildSectionGenerationBlueprint = ({
         : ""),
   });
 
-  const relevantHelpers = (snippetFiles || [])
+  const portableCrossThemeRequested = isPortableCrossThemeRequest(
+    `${query} ${sectionTypeHint}`
+  );
+  const relevantHelpers = portableCrossThemeRequested
+    ? []
+    : (snippetFiles || [])
     .map((file) => ({
       file,
       score: scoreHelperSnippet(file, {
@@ -2689,6 +2798,31 @@ const buildSectionGenerationBlueprint = ({
             ...(referenceSignals.requiresDecorativeMediaAnchors
               ? [
                   "Behoud onderscheidende decoratieve media-anchors uit de referentie, zoals floating productmedia of een mockupbeeld, en maak ze merchant-editable als losse bron-assets ontbreken.",
+                ]
+              : []),
+            ...(referenceSignals.requiresLargeProductMedia
+              ? [
+                  "Behoud de grote primaire product/media-anchor uit de referentie; gebruik een merchant-editable image/media setting met renderbare fallback of een gestileerde media shell.",
+                ]
+              : []),
+            ...(referenceSignals.requiresFeatureIconRows
+              ? [
+                  "Behoud de icon-feature rows uit de referentie als herhaalbare merchant-editable blocks met icon, heading en tekst.",
+                ]
+              : []),
+            ...(referenceSignals.requiresSliderCounter
+              ? [
+                  "Behoud de slider-counter uit de referentie, bijvoorbeeld current / total, en synchroniseer die met de actieve slide.",
+                ]
+              : []),
+            ...(referenceSignals.requiresActiveSlideContrast
+              ? [
+                  "Behoud de actieve slide/card styling uit de referentie, inclusief contrast/donker actieve kaart wanneer zichtbaar.",
+                ]
+              : []),
+            ...(referenceSignals.requiresPeekNeighborCards
+              ? [
+                  "Behoud desktop peek-cards/neighbour cards; toon meerdere kaarten met gedeeltelijke zijkanten in plaats van één full-width slide.",
                 ]
               : []),
             ...(referenceSignals.requiresDecorativeBadgeAnchors

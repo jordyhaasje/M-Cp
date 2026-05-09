@@ -633,7 +633,12 @@ try {
     { shopifyClient, tokenHash: "compact-video-cards-plan" }
   );
   assert.equal(compactVideoCardsPlan.success, true);
-  assert.equal(compactVideoCardsPlan.plannerHandoff, undefined);
+  assert.equal(compactVideoCardsPlan.plannerHandoff?.intent, "new_section");
+  assert.match(compactVideoCardsPlan.plannerHandoff?.brief || "", /repeatable video cards/);
+  assert.equal(
+    compactVideoCardsPlan.plannerHandoff?.codegenContract?.validationProfile,
+    "production_visual"
+  );
   assert.equal(compactVideoCardsPlan.codegenContract, undefined);
   assert.ok(compactVideoCardsPlan.sectionContract);
   assert.match(compactVideoCardsPlan.codegenPrompt, /Required features:/);
