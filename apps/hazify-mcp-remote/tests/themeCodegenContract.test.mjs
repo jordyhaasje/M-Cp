@@ -165,6 +165,143 @@ test("themeCodegenContract - image coverage accepts assigned Liquid image variab
   assert.ok(!codes(result).includes("prompt_coverage_partial"));
 });
 
+test("themeCodegenContract - static hero social proof can use section settings plus avatar blocks", () => {
+  const result = preflightSectionLiquid(
+    section({
+      body: `
+        <style>
+          #shopify-section-{{ section.id }} .best-hero {
+            display: grid;
+            min-height: 680px;
+            padding: 80px 24px;
+            background: radial-gradient(circle at 20% 10%, rgba(255, 255, 255, .35), transparent 26%), linear-gradient(135deg, #4f46e5, #ec4899);
+            color: #ffffff;
+          }
+          #shopify-section-{{ section.id }} .best-hero__inner {
+            width: min(1120px, 100%);
+            margin-inline: auto;
+            display: grid;
+            grid-template-columns: minmax(0, 1.05fr) minmax(280px, .75fr);
+            gap: 40px;
+            align-items: center;
+          }
+          #shopify-section-{{ section.id }} .best-hero__title { font-size: clamp(42px, 7vw, 88px); line-height: .95; margin: 0; }
+          #shopify-section-{{ section.id }} .best-hero__copy { max-width: 620px; font-size: clamp(17px, 2vw, 22px); }
+          #shopify-section-{{ section.id }} .best-hero__actions { display: flex; flex-wrap: wrap; gap: 14px; }
+          #shopify-section-{{ section.id }} .best-hero__review { display: grid; gap: 16px; padding: 24px; border-radius: 24px; background: rgba(255,255,255,.18); backdrop-filter: blur(20px); }
+          #shopify-section-{{ section.id }} .best-hero__avatars { display: flex; align-items: center; }
+          #shopify-section-{{ section.id }} .best-hero__avatar { width: 48px; height: 48px; border-radius: 999px; overflow: hidden; margin-left: -10px; border: 2px solid rgba(255,255,255,.8); background: rgba(255,255,255,.24); }
+          #shopify-section-{{ section.id }} .best-hero__avatar:first-child { margin-left: 0; }
+          @media screen and (max-width: 749px) {
+            #shopify-section-{{ section.id }} .best-hero { min-height: auto; padding: 56px 18px; }
+            #shopify-section-{{ section.id }} .best-hero__inner { grid-template-columns: 1fr; gap: 24px; }
+          }
+        </style>
+        <section class="best-hero">
+          <div class="best-hero__inner" data-section-bounded-shell>
+            <div>
+              <h1 class="best-hero__title">{{ section.settings.heading }}</h1>
+              <div class="best-hero__copy">{{ section.settings.text }}</div>
+              <div class="best-hero__actions">
+                {% if section.settings.primary_button_text != blank %}
+                  <a href="{{ section.settings.primary_button_link }}" class="best-hero__button">{{ section.settings.primary_button_text }}</a>
+                {% endif %}
+              </div>
+            </div>
+            <aside class="best-hero__review" data-section-rating-badge>
+              <div class="best-hero__stars" aria-label="{{ section.settings.rating_label }}">★★★★★</div>
+              <blockquote>{{ section.settings.review_quote }}</blockquote>
+              <p>{{ section.settings.reviewer_name }} · {{ section.settings.reviewer_role }}</p>
+              <div class="best-hero__avatars">
+                {% for block in section.blocks %}
+                  <span class="best-hero__avatar" {{ block.shopify_attributes }}>
+                    {% if block.settings.image != blank %}
+                      {{ block.settings.image | image_url: width: 96 | image_tag: loading: 'lazy', alt: block.settings.alt_text }}
+                    {% else %}
+                      {{ block.settings.initials }}
+                    {% endif %}
+                  </span>
+                {% endfor %}
+              </div>
+            </aside>
+          </div>
+        </section>
+      `,
+      schema: `{
+        "name": "Best hero",
+        "settings": [
+          { "type": "text", "id": "heading", "label": "Heading", "default": "Make every moment feel electric" },
+          { "type": "richtext", "id": "text", "label": "Text", "default": "<p>Premium experiences with effortless booking and high-impact style.</p>" },
+          { "type": "text", "id": "primary_button_text", "label": "Primary button text", "default": "Start planning" },
+          { "type": "url", "id": "primary_button_link", "label": "Primary button link" },
+          { "type": "text", "id": "rating_label", "label": "Rating label", "default": "5 star rating" },
+          { "type": "textarea", "id": "review_quote", "label": "Review quote", "default": "The setup looked premium and the whole night felt seamless." },
+          { "type": "text", "id": "reviewer_name", "label": "Reviewer name", "default": "Nora James" },
+          { "type": "text", "id": "reviewer_role", "label": "Reviewer role", "default": "Event host" }
+        ],
+        "blocks": [
+          { "type": "avatar", "name": "Avatar", "settings": [
+            { "type": "image_picker", "id": "image", "label": "Image" },
+            { "type": "text", "id": "alt_text", "label": "Alt text", "default": "Customer avatar" },
+            { "type": "text", "id": "initials", "label": "Initials", "default": "NJ" }
+          ] }
+        ],
+        "presets": [{ "name": "Best hero", "blocks": [{ "type": "avatar" }, { "type": "avatar" }, { "type": "avatar" }] }]
+      }`,
+    }),
+    {
+      mode: "create",
+      intent: "new_section",
+      validationProfile: "production_visual",
+      requestText:
+        "Maak een moderne hero opening section met headline, CTA buttons, review quote, reviewer name, meerdere avatars en responsive scoped CSS.",
+    }
+  );
+
+  assert.equal(result.codegenContract.sectionKind, "hero_with_social_proof");
+  assert.equal(result.codegenContract.architecture.blockModel, "none");
+  assert.equal(result.promptCoverage.features.avatars.status, "yes");
+  assert.equal(result.promptCoverage.features.reviews.status, "yes");
+  assert.equal(result.promptCoverage.features.reviewerNames.status, "yes");
+  assert.equal(result.promptCoverage.features.primaryButton.status, "yes");
+  assert.ok(!codes(result).includes("prompt_coverage_partial"));
+});
+
+test("themeCodegenContract - repeated review-card heroes require review blocks", () => {
+  const result = preflightSectionLiquid(
+    section({
+      body: `
+        <style>
+          #shopify-section-{{ section.id }} .hero-reviews { display: grid; gap: 20px; padding: 48px 20px; }
+          @media screen and (max-width: 749px) { #shopify-section-{{ section.id }} .hero-reviews { padding: 32px 16px; } }
+        </style>
+        <section class="hero-reviews">
+          <h1>{{ section.settings.heading }}</h1>
+          <p>{{ section.settings.review_quote }}</p>
+        </section>
+      `,
+      schema: `{
+        "name": "Hero reviews",
+        "settings": [
+          { "type": "text", "id": "heading", "label": "Heading", "default": "Loved by hosts" },
+          { "type": "textarea", "id": "review_quote", "label": "Review quote", "default": "Great." }
+        ],
+        "presets": [{ "name": "Hero reviews" }]
+      }`,
+    }),
+    {
+      mode: "create",
+      intent: "new_section",
+      validationProfile: "production_visual",
+      requestText: "Create a hero with multiple review cards and customer avatars",
+    }
+  );
+
+  assert.equal(result.codegenContract.sectionKind, "hero_with_social_proof");
+  assert.equal(result.codegenContract.architecture.blockModel, "repeated_reviews");
+  assert.ok(codes(result).includes("architecture_missing_blocks"));
+});
+
 test("themeCodegenContract - planner contract includes compact prompt block", () => {
   const contract = buildCodegenContract({
     intent: "new_section",
@@ -173,7 +310,7 @@ test("themeCodegenContract - planner contract includes compact prompt block", ()
     requestText: "review carousel",
   });
 
-  assert.equal(contract.version, "2026-05-08.2");
+  assert.equal(contract.version, "2026-05-09.1");
   assert.equal(contract.validationProfile, "production_visual");
   assert.equal(contract.sectionKind, "review_carousel");
   assert.ok(contract.sectionDataContract);
@@ -191,6 +328,21 @@ test("themeCodegenContract - schema JSON must be valid", () => {
 
   assert.equal(result.ok, false);
   assert.ok(codes(result).includes("schema_invalid_json"));
+});
+
+test("themeCodegenContract - unclosed schema tags get a specific repair code", () => {
+  const result = preflightSectionLiquid(
+    `
+      <section>Ok</section>
+      {% schema %}
+      { "name": "Unclosed", "presets": [{ "name": "Unclosed" }] }
+    `,
+    { mode: "create", validationProfile: "syntax_only" }
+  );
+
+  assert.equal(result.ok, false);
+  assert.ok(codes(result).includes("schema_unclosed_schema_block"));
+  assert.ok(!codes(result).includes("schema_missing_schema_block"));
 });
 
 test("themeCodegenContract - schema setting ids must be unique", () => {
@@ -627,6 +779,65 @@ test("themeCodegenContract - full-width media shell with inner bounded content p
   );
 
   assert.ok(!recipeCodes(result).includes("section_recipe_missing_theme_container"));
+});
+
+test("themeCodegenContract - own media shell allows full-bleed hero backgrounds", () => {
+  const recipeContext = {
+    sectionBlueprint: {
+      generationRecipe: {
+        wrapperMode: "own_media_shell",
+        desktopMobileLayoutRequirements: { requiresContentWidthWrapper: false },
+      },
+    },
+    themeContext: { usesPageWidth: true },
+  };
+  const result = inspectSectionGenerationRecipePreflight(
+    validSection(`
+      <style>
+        #shopify-section-{{ section.id }} .hero-shell {
+          min-height: 680px;
+          background-image: linear-gradient(135deg, #111827, #7c3aed);
+        }
+        #shopify-section-{{ section.id }} .hero-shell__inner {
+          width: min(1120px, calc(100vw - 40px));
+          margin-inline: auto;
+        }
+      </style>
+      <section class="hero-shell">
+        <div class="hero-shell__inner">Hero copy</div>
+      </section>
+    `),
+    "sections/full-bleed-hero.liquid",
+    recipeContext
+  );
+
+  assert.ok(!recipeCodes(result).includes("section_recipe_wrapper_mode_mismatch"));
+});
+
+test("themeCodegenContract - own media shell still rejects section-properties background ownership", () => {
+  const recipeContext = {
+    sectionBlueprint: {
+      generationRecipe: {
+        wrapperMode: "own_media_shell",
+        desktopMobileLayoutRequirements: { requiresContentWidthWrapper: false },
+      },
+    },
+    themeContext: { usesPageWidth: true },
+  };
+  const result = inspectSectionGenerationRecipePreflight(
+    validSection(`
+      <style>
+        #shopify-section-{{ section.id }} .hero-shell { background: linear-gradient(135deg, #111827, #7c3aed); }
+      </style>
+      <section class="hero-shell">
+        <div {% render 'section-properties', background: section.settings.background, text_color: section.settings.text_color %}>Hero copy</div>
+      </section>
+    `),
+    "sections/full-bleed-hero-double-bg.liquid",
+    recipeContext
+  );
+
+  assert.ok(recipeCodes(result).includes("section_recipe_wrapper_mode_mismatch"));
 });
 
 test("themeCodegenContract - hero with rating badge and logo marquee is not a review section", () => {

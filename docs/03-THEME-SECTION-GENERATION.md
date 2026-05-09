@@ -120,12 +120,15 @@ Validatorwaarheid sinds 2026-05-08:
 - Codegen preflight geeft bij architectuurfouten compacte diagnostics terug met `detectedBlocks`, gevonden setting IDs/types en de gevraagde `requiredBlockSettings`. Bij coverage-gaten geeft `promptCoverage` per feature `yes`, `partial` of `no` terug, zodat een retry gericht kan repareren zonder het datamodel te versimpelen.
 - Slider-generatie hoort één coherent interactiepatroon te gebruiken: transform-based `translateX` met vaste slidebreedtes of scroll-snap met index-synchronisatie. Autoplay moet handmatige navigatie bijhouden, pauzeren bij hover/focus, `prefers-reduced-motion` respecteren, dots/active state synchroniseren en video's per actieve slide play/pause beheren.
 
-Generation-contract waarheid sinds 2026-05-08.2:
+Generation-contract waarheid sinds 2026-05-09.1:
 - `plan-theme-edit` geeft in compacte output altijd `sectionContract`, `codegenPrompt` en `completionGate` terug voor codegen-gestuurde sectionflows. Clients zoals ChatGPT, Claude, Claude Code en Codex moeten die velden als harde generatiebrief behandelen, ook wanneer `includeContracts` niet is gezet.
 - `sectionContract` beschrijft machine-readable de exacte minimale data-architectuur: `requiredFeatures`, `dataModel`, `requiredSchema.blockContracts`, `requiredRenderPaths`, `interactionRequirements` en feature-specifieke schema/renderregels.
 - Nieuwe section creates blokkeren nu op `prompt_coverage_partial` wanneer expliciet gevraagde features ontbreken of slechts gedeeltelijk zijn geïmplementeerd. Een technisch geldige baseline mag dus niet meer live/draft geschreven worden als de prompt bijvoorbeeld newsletter-formulieren, per-slide video, avatars, FAQ-antwoorden, tabs of comparison-rows vroeg.
 - Setting-detectie gebruikt id/label/content als semantische match. Generieke settingtypes zoals `text`, `url`, `range` of `select` mogen niet meer willekeurig een vereiste setting invullen; alleen specifieke resource-types zoals `image_picker`, `video`, `video_url`, `product` en `collection` mogen type-only matchen.
 - FAQ-, tab- en comparison/row-blocks hebben nu dezelfde architecture checks als sliders/reviews: blockrollen worden gedetecteerd, verplichte settings worden per rol gevalideerd en diagnostics tonen welke blocksettings wel gevonden zijn.
+- Setting- en promptdetectie normaliseert nu snake_case, kebab-case, camelCase en spaties voordat feature-coverage wordt bepaald. Geldige IDs zoals `primary_button_text`, `primaryButtonText`, `customer_photo`, `review_quote` en `reviewer_name` mogen dus niet als `partial` falen wanneer ze correct gerenderd worden.
+- Een `hero_with_social_proof` met één review of rating badge mag section-level review/reviewer/CTA settings gebruiken. Alleen wanneer de prompt herhaalbare review cards, review grids of testimonial blocks vraagt, wordt `blockModel="repeated_reviews"` en zijn review blocks verplicht.
+- Schema parsing onderscheidt echte ontbrekende schema blocks van malformed/unclosed blocks. Een zichtbare `{% schema %}` zonder bijpassende `{% endschema %}` krijgt een specifieke unclosed/unbalanced schema repair in plaats van de misleidende `schema_missing_schema_block`.
 
 De planner leidt daarnaast een generieke `sectionKind` af, zoals `hero`, `hero_with_social_proof`, `hero_with_logo_marquee`, `hero_slider`, `hero_slider_with_logo_marquee`, `image_slider`, `video_grid`, `video_slider`, `logo_marquee`, `testimonial_slider`, `review_grid`, `review_carousel`, `comparison`, `feature_media_list`, `faq`, `tabs`, `media_section`, `content`, `product_related` of `unknown`. Die inference mag nooit theme-specifiek zijn: geen hardcoded Impact-classes, snippetnamen, wrappergedrag of schaalwaarden. Theme-context mag alleen via profieldata, `sectionBlueprint`, `generationRecipe` en `scaleProfile` meespelen.
 
@@ -280,6 +283,7 @@ Deze regels zijn de referentie voor vervolgwerk en remediation. De planner onder
 Nieuwe section recipes gebruiken expliciet `wrapperMode`:
 - `use_theme_section_properties`: theme helpers zoals `section-properties` beheren outer background/spacing; voeg geen tweede root background shell toe.
 - `own_scoped_shell`: de section beheert zelf de outer visual shell; hou theme helpers neutraal en geef geen `background`/`text_color` door aan `section-properties`.
+- `own_media_shell`: full-bleed/media-first sections, zoals moderne hero openings, mogen zelf een outer media-, gradient- of overlay-shell beheren. Theme containers/helpers blijven dan op een inner contentlaag of neutraal.
 - `no_background_shell`: gebruik geen outer background shell; hou eventuele theme containers op een inner contentlaag wanneer dat bij het archetype past.
 
 Algemene regel: één background shell is genoeg. Combineer geen `section-properties` background/text-color helper met een eigen root background surface. Impact-like themes mogen Impact-conventies blijven volgen, maar alleen wanneer de recipe en detectie aangeven welke laag de outer surface beheert.

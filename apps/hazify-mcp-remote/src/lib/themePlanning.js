@@ -142,8 +142,15 @@ const safeParseJson = (value) => {
 
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+const normalizeLiquidSourceForBlockParsing = (value) =>
+  String(value || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/^\s*```(?:liquid|html)?\s*/i, "")
+    .replace(/\s*```\s*$/i, "")
+    .replace(/\\({%-?\s*(?:end)?[A-Za-z_][A-Za-z0-9_]*\s*-?%})/g, "$1");
+
 const getLiquidBlockContents = (value, tagName) => {
-  const source = String(value || "");
+  const source = normalizeLiquidSourceForBlockParsing(value);
   const normalizedTagName = escapeRegExp(tagName);
   const openPattern = new RegExp(`{%-?\\s*${normalizedTagName}\\s*-?%}`, "gi");
   const closePattern = new RegExp(`{%-?\\s*end${normalizedTagName}\\s*-?%}`, "gi");

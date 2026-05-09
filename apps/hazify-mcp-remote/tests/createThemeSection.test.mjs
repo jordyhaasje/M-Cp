@@ -259,6 +259,9 @@ test("createThemeSection - forwards static section blueprint and theme context f
 
   assert.equal(capturedInput.mode, "create");
   assert.equal(capturedInput.files[0].key, "sections/review-replica.liquid");
+  assert.match(capturedInput.files[0].value, /{%\s*schema\s*%}/);
+  assert.match(capturedInput.files[0].value, /{%\s*endschema\s*%}/);
+  assert.match(capturedInput.files[0].value, /Review replica/);
   assert.equal(
     capturedContext.themeSectionContext?.representativeSection?.key,
     "sections/testimonials.liquid"

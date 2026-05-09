@@ -505,8 +505,16 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function normalizeLiquidSourceForBlockParsing(value) {
+  return String(value || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/^\s*```(?:liquid|html)?\s*/i, "")
+    .replace(/\s*```\s*$/i, "")
+    .replace(/\\({%-?\s*(?:end)?[A-Za-z_][A-Za-z0-9_]*\s*-?%})/g, "$1");
+}
+
 function getLiquidBlockContents(value, tagName) {
-  const source = String(value || "");
+  const source = normalizeLiquidSourceForBlockParsing(value);
   const normalizedTagName = escapeRegExp(tagName);
   const openPattern = new RegExp(`{%-?\\s*${normalizedTagName}\\s*-?%}`, "gi");
   const closePattern = new RegExp(`{%-?\\s*end${normalizedTagName}\\s*-?%}`, "gi");
@@ -534,6 +542,17 @@ function getLiquidBlockContents(value, tagName) {
   return contents;
 }
 
+function countLiquidBlockTags(value, tagName) {
+  const source = normalizeLiquidSourceForBlockParsing(value);
+  const normalizedTagName = escapeRegExp(tagName);
+  const openPattern = new RegExp(`{%-?\\s*${normalizedTagName}\\s*-?%}`, "gi");
+  const closePattern = new RegExp(`{%-?\\s*end${normalizedTagName}\\s*-?%}`, "gi");
+  return {
+    openCount: Array.from(source.matchAll(openPattern)).length,
+    closeCount: Array.from(source.matchAll(closePattern)).length,
+  };
+}
+
 function hasLiquidBlockTag(value, tagName) {
   return new RegExp(`{%-?\\s*${escapeRegExp(tagName)}\\s*-?%}`, "i").test(String(value || ""));
 }
@@ -545,32 +564,65 @@ function extractSchemaJson(value) {
 
 function parseSectionSchema(value) {
   const schemaBlocks = getLiquidBlockContents(value, "schema");
-  if (schemaBlocks.length > 1) {
+  const tagCounts = countLiquidBlockTags(value, "schema");
+  if (schemaBlocks.length !== 1) {
+    if (tagCounts.openCount > 1 || tagCounts.closeCount > 1) {
+      return {
+        schema: null,
+        error: "Multiple {% schema %} blocks gevonden. Gebruik exact één schema block per section file.",
+        errorCode: "schema_multiple_schema_blocks",
+        schemaOpenCount: tagCounts.openCount,
+        schemaCloseCount: tagCounts.closeCount,
+      };
+    }
+    if (tagCounts.openCount > 0 && tagCounts.closeCount === 0) {
+      return {
+        schema: null,
+        error: "Found {% schema %} without a matching {% endschema %} block.",
+        errorCode: "schema_unclosed_schema_block",
+        schemaOpenCount: tagCounts.openCount,
+        schemaCloseCount: tagCounts.closeCount,
+      };
+    }
+    if (tagCounts.openCount === 0 && tagCounts.closeCount > 0) {
+      return {
+        schema: null,
+        error: "Found {% endschema %} without a matching {% schema %} block.",
+        errorCode: "schema_unopened_schema_block",
+        schemaOpenCount: tagCounts.openCount,
+        schemaCloseCount: tagCounts.closeCount,
+      };
+    }
     return {
       schema: null,
-      error: "Multiple {% schema %} blocks gevonden. Gebruik exact één schema block per section file.",
+      error: "Missing {% schema %} block.",
+      errorCode: "schema_missing_schema_block",
+      schemaOpenCount: tagCounts.openCount,
+      schemaCloseCount: tagCounts.closeCount,
     };
   }
 
   const [schemaJsonRaw] = schemaBlocks;
   const schemaJson = schemaJsonRaw === undefined ? null : String(schemaJsonRaw).trim();
   if (schemaJson === null) {
-    return { schema: null, error: "Missing {% schema %} block." };
+    return { schema: null, error: "Missing {% schema %} block.", errorCode: "schema_missing_schema_block" };
   }
 
   if (schemaJson.length === 0) {
-    return { schema: null, error: "Empty {% schema %} block." };
+    return { schema: null, error: "Empty {% schema %} block.", errorCode: "schema_empty_schema_block" };
   }
 
   try {
     return {
       schema: JSON.parse(schemaJson),
       error: null,
+      errorCode: null,
     };
   } catch (error) {
     return {
       schema: null,
       error: `Invalid schema JSON: ${error.message}`,
+      errorCode: "schema_invalid_json",
     };
   }
 }

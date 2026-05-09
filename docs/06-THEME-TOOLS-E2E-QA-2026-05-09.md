@@ -46,6 +46,9 @@ Belangrijk: FAQ, feature-54 en Slider 7 werden niet geblokkeerd door destructiev
 | THEME-QA-009 | Gefixt, lokaal gevalideerd | Screenshot-/URL-analyse kon alleen als vrije summary meelopen en werd daardoor te makkelijk genegeerd of overschreven door compacte toolinputs. | `plan-theme-edit`, `create-theme-section` en `draft-theme-artifact` accepteren nu `visualBrief`, `referenceAnalysis` en `designBrief`. |
 | THEME-QA-010 | Gefixt, lokaal gevalideerd | Directe `draft-theme-artifact mode="create"` calls zonder plannercontext vielen terug naar te lichte validatie, waardoor minimale of visueel incomplete sections konden slagen. | Directe create-writes gebruiken nu `production_visual` als backstop met scoped CSS, responsive, carousel-control en Theme Editor lifecycle checks. |
 | THEME-QA-011 | Gefixt, lokaal gevalideerd | `feature-54` en `Slider 7` replica's werden niet als eigen visuele contracten herkend; generieke feature/slider-baselines konden de specifieke referentie-anchors missen. | Nieuwe `feature_media_list` archetype plus feature-54/Slider-7 prompt coverage: grote media, icon rows, counter, active slide contrast, peek cards en zes preset slides. |
+| THEME-QA-012 | Gefixt, lokaal gevalideerd | Hero/social-proof sections met geldige section-level review, reviewer, CTA en avatar renderpaden konden onterecht `prompt_coverage_partial` krijgen door brittle id-detectie en block-only contracts. | Feature coverage normaliseert snake/kebab/camel/spatievarianten en accepteert single-review hero settings; herhaalbare review cards vereisen pas review blocks wanneer de prompt dat semantisch vraagt. |
+| THEME-QA-013 | Gefixt, lokaal gevalideerd | Moderne full-bleed hero sections konden falen op `section_recipe_wrapper_mode_mismatch` omdat `no_background_shell` een outer gradient/media shell blokkeerde. | Nieuw `own_media_shell` wrapper-mode staat full-bleed media/gradient roots toe en blokkeert alleen dubbele ownership via `section-properties` background/text-color. |
+| THEME-QA-014 | Gefixt, lokaal gevalideerd | Een malformed of unclosed `{% schema %}` kon als `schema_missing_schema_block` terugkomen, wat retries richting de verkeerde fix stuurde. | Schema tag parsing normaliseert code fences/escaped tags en rapporteert unclosed/unopened/unbalanced schema blocks expliciet. |
 
 ## Fixplan
 1. Portability: Impact wrappers niet meer verplichten voor nieuwe generieke sections; alleen scoped CSS blijft hard requirement.
@@ -53,8 +56,9 @@ Belangrijk: FAQ, feature-54 en Slider 7 werden niet geblokkeerd door destructiev
 3. Tool schema: `verify-theme-files` public schema herstel.
 4. Codegen contract: negatie- en image-renderdetectie verbeteren.
 5. Responses: compact success payloads echt compact maken.
-6. Tests: regressietests toevoegen/aanpassen voor bovenstaande bugs.
-7. Re-test: na lokale tests opnieuw live theme tool-flow testen op Impact zonder theme-specifieke snippets.
+6. Generic create-section robustness: hero/social-proof datamodel, semantic feature coverage, full-bleed media shells en schema diagnostics generiek maken voor alle OS 2.0 themes.
+7. Tests: regressietests toevoegen/aanpassen voor bovenstaande bugs.
+8. Re-test: na lokale tests opnieuw live theme tool-flow testen op Impact zonder theme-specifieke snippets.
 
 ## Lokale Validatie Na Fixes
 - Command: `npm --prefix apps/hazify-mcp-remote test -- --runInBand tests/draftThemeArtifact.test.mjs tests/themeCodegenContract.test.mjs tests/toolHardening.test.mjs tests/toolRegistry.test.mjs`

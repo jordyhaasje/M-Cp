@@ -593,8 +593,15 @@ const safeParseJson = (value) => {
   }
 };
 
+const normalizeLiquidSourceForBlockParsing = (value) =>
+  String(value || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/^\s*```(?:liquid|html)?\s*/i, "")
+    .replace(/\s*```\s*$/i, "")
+    .replace(/\\({%-?\s*(?:end)?[A-Za-z_][A-Za-z0-9_]*\s*-?%})/g, "$1");
+
 const getLiquidBlockContents = (value, tagName) => {
-  const source = String(value || "");
+  const source = normalizeLiquidSourceForBlockParsing(value);
   const normalizedTagName = escapeRegExp(tagName);
   const openPattern = new RegExp(
     `{%-?\\s*${normalizedTagName}\\s*-?%}`,
@@ -1777,7 +1784,7 @@ const buildSectionGenerationRecipe = ({
     layoutContract?.sectionShellFamily === "media_surface";
   const portableCrossThemeRequested = isPortableCrossThemeRequest(query);
   const wrapperMode = mediaFirstOrFullBleed
-    ? "no_background_shell"
+    ? "own_media_shell"
     : portableCrossThemeRequested
       ? "own_scoped_shell"
     : boundedOrMediaShell
@@ -1812,6 +1819,11 @@ const buildSectionGenerationRecipe = ({
       ...(wrapperMode === "no_background_shell"
         ? [
             "Keep the outer shell free of page-width, container, section-properties background, or custom decorative background wrappers.",
+          ]
+        : []),
+      ...(wrapperMode === "own_media_shell"
+        ? [
+            "Full-bleed/media-first sections may own the outer media or gradient shell, but must not wrap that outer shell in page-width, container, or section-properties background helpers.",
           ]
         : []),
     ]),
@@ -3364,14 +3376,14 @@ const sourceHasOwnRootBackgroundShell = (source) => {
   const text = String(source || "");
   const rootClassTokens = extractRootClassTokens(text);
   const rootElementMatch = text.match(/<(?:section|div)\b[^>]*>/i);
-  if (/\bstyle\s*=\s*["'][^"']*\bbackground(?:-color)?\s*:/i.test(rootElementMatch?.[0] || "")) {
+  if (/\bstyle\s*=\s*["'][^"']*\bbackground(?:-(?:color|image))?\s*:/i.test(rootElementMatch?.[0] || "")) {
     return true;
   }
 
   if (
     rootClassTokens.some((className) =>
       new RegExp(
-        `\\.${escapeRegExp(className)}\\b[^{}]*\\{[^}]*background(?:-color)?\\s*:`,
+        `\\.${escapeRegExp(className)}\\b[^{}]*\\{[^}]*background(?:-(?:color|image))?\\s*:`,
         "i"
       ).test(text)
     )
@@ -3732,6 +3744,26 @@ const inspectSectionGenerationRecipePreflight = (
     );
     suggestedFixes.push(
       "Keep no-background-shell sections neutral at the outer layer."
+    );
+  }
+
+  if (wrapperMode === "own_media_shell" && usesSectionPropertiesBackground) {
+    issues.push(
+      createRecipeIssue({
+        fileKey,
+        problem:
+          "The generation recipe chose wrapperMode=own_media_shell, but the section also passes background/text_color through section-properties.",
+        fixSuggestion:
+          "Let the full-bleed/media root own the visual background and keep section-properties off that outer background layer.",
+        issueCode: "section_recipe_wrapper_mode_mismatch",
+        suggestedReplacement: {
+          wrapperMode: "own_media_shell",
+          requiredFix: "Remove background/text_color arguments from section-properties on the outer media shell.",
+        },
+      })
+    );
+    suggestedFixes.push(
+      "For own-media-shell sections, keep the outer media/gradient background in the section itself and do not also pass background/text_color to section-properties."
     );
   }
 

@@ -1,4 +1,4 @@
-const CODEGEN_CONTRACT_VERSION = "2026-05-08.2";
+const CODEGEN_CONTRACT_VERSION = "2026-05-09.1";
 
 const VALIDATION_PROFILES = new Set([
   "syntax_only",
@@ -111,6 +111,13 @@ const normalizeText = (value) =>
     .trim()
     .toLowerCase();
 
+const normalizeSearchableText = (value) =>
+  String(value || "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .toLowerCase();
+
 const escapeRegExp = (value) =>
   String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -120,8 +127,15 @@ const stripNegatedFeaturePhrases = (value = "") =>
     " "
   );
 
+const normalizeLiquidSourceForBlockParsing = (value) =>
+  String(value || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/^\s*```(?:liquid|html)?\s*/i, "")
+    .replace(/\s*```\s*$/i, "")
+    .replace(/\\({%-?\s*(?:end)?[A-Za-z_][A-Za-z0-9_]*\s*-?%})/g, "$1");
+
 const getLiquidBlockContents = (value, tagName) => {
-  const source = String(value || "");
+  const source = normalizeLiquidSourceForBlockParsing(value);
   const normalizedTagName = escapeRegExp(tagName);
   const openPattern = new RegExp(`{%-?\\s*${normalizedTagName}\\s*-?%}`, "gi");
   const closePattern = new RegExp(`{%-?\\s*end${normalizedTagName}\\s*-?%}`, "gi");
@@ -148,19 +162,46 @@ const getLiquidBlockContents = (value, tagName) => {
   return contents;
 };
 
+const countLiquidBlockTags = (value, tagName) => {
+  const source = normalizeLiquidSourceForBlockParsing(value);
+  const normalizedTagName = escapeRegExp(tagName);
+  const openPattern = new RegExp(`{%-?\\s*${normalizedTagName}\\s*-?%}`, "gi");
+  const closePattern = new RegExp(`{%-?\\s*end${normalizedTagName}\\s*-?%}`, "gi");
+  return {
+    openCount: Array.from(source.matchAll(openPattern)).length,
+    closeCount: Array.from(source.matchAll(closePattern)).length,
+  };
+};
+
 const getSpecialBlockContents = (value, tagName) =>
   getLiquidBlockContents(value, tagName).map((entry) => String(entry || ""));
 
 const parseSectionSchemaStrict = (value) => {
   const schemaBlocks = getLiquidBlockContents(value, "schema");
+  const tagCounts = countLiquidBlockTags(value, "schema");
   if (schemaBlocks.length !== 1) {
+    let errorCode = "schema_missing_schema_block";
+    let error = "Missing {% schema %} block.";
+    if (tagCounts.openCount > 1 || tagCounts.closeCount > 1) {
+      errorCode = "schema_multiple_schema_blocks";
+      error = "Multiple {% schema %} blocks found.";
+    } else if (tagCounts.openCount > 0 && tagCounts.closeCount === 0) {
+      errorCode = "schema_unclosed_schema_block";
+      error = "Found {% schema %} without a matching {% endschema %} block.";
+    } else if (tagCounts.openCount === 0 && tagCounts.closeCount > 0) {
+      errorCode = "schema_unopened_schema_block";
+      error = "Found {% endschema %} without a matching {% schema %} block.";
+    } else if (tagCounts.openCount !== tagCounts.closeCount) {
+      errorCode = "schema_unbalanced_schema_block";
+      error = "The {% schema %} and {% endschema %} tags are unbalanced.";
+    }
     return {
       schema: null,
       schemaBlockCount: schemaBlocks.length,
-      error:
-        schemaBlocks.length === 0
-          ? "Missing {% schema %} block."
-          : "Multiple {% schema %} blocks found.",
+      schemaOpenCount: tagCounts.openCount,
+      schemaCloseCount: tagCounts.closeCount,
+      errorCode,
+      error,
     };
   }
 
@@ -169,6 +210,9 @@ const parseSectionSchemaStrict = (value) => {
     return {
       schema: null,
       schemaBlockCount: 1,
+      schemaOpenCount: tagCounts.openCount,
+      schemaCloseCount: tagCounts.closeCount,
+      errorCode: "schema_empty_schema_block",
       error: "Empty {% schema %} block.",
     };
   }
@@ -177,12 +221,18 @@ const parseSectionSchemaStrict = (value) => {
     return {
       schema: JSON.parse(schemaJson),
       schemaBlockCount: 1,
+      schemaOpenCount: tagCounts.openCount,
+      schemaCloseCount: tagCounts.closeCount,
+      errorCode: null,
       error: null,
     };
   } catch (error) {
     return {
       schema: null,
       schemaBlockCount: 1,
+      schemaOpenCount: tagCounts.openCount,
+      schemaCloseCount: tagCounts.closeCount,
+      errorCode: "schema_invalid_json",
       error: `Invalid schema JSON: ${error.message}`,
     };
   }
@@ -685,7 +735,7 @@ const inferSectionKind = ({
   const logoLike = /\b(logos?|brands?|publications?|press|featured in|as seen in)\b/.test(
     haystack
   );
-  const socialProofLike = /\b(rating|stars?|trustpilot|verified|badge|seal|social proof)\b/.test(
+  const socialProofLike = /\b(rating|stars?|trustpilot|verified|badge|seal|social proof|reviews?|testimonials?|customer avatars?)\b/.test(
     haystack
   );
   const featureMediaListLike =
@@ -896,6 +946,12 @@ const inferSectionArchitecture = ({
     sectionKind.startsWith("hero_slider") || hasBodyTextHint || hasQuoteHint;
   const requiresSlideButton =
     sectionKind.startsWith("hero_slider") || hasButtonHint;
+  const repeatedHeroReviewHint =
+    sectionKind === "hero_with_social_proof" &&
+    hasQuoteHint &&
+    /\b(review cards?|testimonial cards?|reviews? grid|review wall|multiple reviews?|several reviews?|meerdere reviews?|review blocks?|testimonial blocks?)\b/.test(
+      semanticHaystack
+    );
 
   let interactionKind = "static";
   let blockModel = "none";
@@ -1009,6 +1065,12 @@ const inferSectionArchitecture = ({
     blockModel = "slides";
     mediaModel = "block_level_media";
     contentModel = "block_settings";
+  }
+
+  if (repeatedHeroReviewHint) {
+    blockModel = "repeated_reviews";
+    mediaModel = hasAvatarHint ? "block_level_avatar" : mediaModel;
+    contentModel = "mixed";
   }
 
   const navigationModel = inferNavigationModel({ haystack, interactionKind });
@@ -1697,12 +1759,48 @@ const TYPE_ONLY_SAFE_SETTING_TYPES = new Set([
   "link_list",
 ]);
 
+const buildSemanticTextCandidates = (...values) => {
+  const raw = normalizeSearchableText(values.filter(Boolean).join(" "));
+  const expanded = raw.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  const tokens = expanded.split(/[^a-z0-9]+/).filter(Boolean);
+  const compactPairs = [];
+  const compactTriples = [];
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    compactPairs.push(`${tokens[index]}${tokens[index + 1]}`);
+  }
+  for (let index = 0; index < tokens.length - 2; index += 1) {
+    compactTriples.push(`${tokens[index]}${tokens[index + 1]}${tokens[index + 2]}`);
+  }
+  return uniqueStrings([
+    raw,
+    expanded,
+    tokens.join(" "),
+    tokens.join(""),
+    ...compactPairs,
+    ...compactTriples,
+  ]);
+};
+
+const patternMatchesAnyCandidate = (pattern, candidates) => {
+  if (!(pattern instanceof RegExp)) {
+    return false;
+  }
+  return candidates.some((candidate) => {
+    pattern.lastIndex = 0;
+    return pattern.test(candidate);
+  });
+};
+
 const settingMatches = (setting, patterns = [], types = []) => {
   const type = String(setting?.type || "").trim();
-  const text = normalizeText(
-    [setting?.id, setting?.label, setting?.content].join(" ")
+  const textCandidates = buildSemanticTextCandidates(
+    setting?.id,
+    setting?.label,
+    setting?.content
   );
-  const patternMatches = patterns.some((pattern) => pattern.test(text));
+  const patternMatches = patterns.some((pattern) =>
+    patternMatchesAnyCandidate(pattern, textCandidates)
+  );
   if (patternMatches) {
     return true;
   }
@@ -1736,6 +1834,16 @@ const isReviewBlock = (block) =>
     /\b(author|customer|reviewer|naam)\b/,
     /\b(quote|comment|review|testimonial)\b/,
   ]);
+
+const isAvatarBlock = (block) =>
+  /\b(avatar|customer photo|headshot|portrait|person photo|profielfoto)\b/.test(
+    blockText(block)
+  ) &&
+  blockHasSetting(
+    block,
+    [/\b(avatar|image|photo|picture|headshot|portrait)\b/],
+    ["image_picker"]
+  );
 
 const isFaqBlock = (block) =>
   /\b(faq|question|answer|vraag|antwoord)\b/.test(blockText(block)) ||
@@ -1788,6 +1896,9 @@ const findBlocksByRole = (schema, role) => {
   }
   if (role === "review") {
     return blocks.filter(isReviewBlock);
+  }
+  if (role === "avatar") {
+    return blocks.filter(isAvatarBlock);
   }
   if (role === "slide") {
     return blocks.filter(isSlideBlock);
@@ -2009,6 +2120,7 @@ const buildArchitectureDiagnostics = ({ schema, architecture } = {}) => {
       isSlideBlock(block) ? "slide" : null,
       isLogoBlock(block) ? "logo" : null,
       isReviewBlock(block) ? "review" : null,
+      isAvatarBlock(block) ? "avatar" : null,
       isFaqBlock(block) ? "faq_item" : null,
       isTabBlock(block) ? "tab" : null,
       isRowBlock(block) ? "row" : null,
@@ -2046,7 +2158,7 @@ const collectAllSchemaSettings = (schema) => [
 ];
 
 const detectPromptExpectations = (requestText = "") => {
-  const text = normalizeText(stripNegatedFeaturePhrases(requestText));
+  const text = normalizeSearchableText(stripNegatedFeaturePhrases(requestText));
   const sliderRequested = /\b(slider|carousel|slideshow|slides?|swipe)\b/.test(text);
   const sliderSevenLike = /\bslider[-_ ]?7\b|\bslider\s+seven\b/i.test(text);
   const feature54Like = /\bfeature[-_ ]?54\b|\bfeature\s*54\b/i.test(text);
@@ -2124,6 +2236,7 @@ const buildPromptCoverage = ({ source, schema, requestText, architecture } = {})
   const expectations = detectPromptExpectations(requestText);
   const slideBlocks = findBlocksByRole(schema, "slide");
   const reviewBlocks = findBlocksByRole(schema, "review");
+  const avatarBlocks = findBlocksByRole(schema, "avatar");
   const logoBlocks = findBlocksByRole(schema, "logo");
   const faqBlocks = findBlocksByRole(schema, "faq_item");
   const tabBlocks = findBlocksByRole(schema, "tab");
@@ -2156,8 +2269,37 @@ const buildPromptCoverage = ({ source, schema, requestText, architecture } = {})
     reviewBlocks.some((block) =>
       schemaHasSettingByTypeOrId(block?.settings || [], config)
     );
+  const avatarHas = (config) =>
+    avatarBlocks.some((block) =>
+      schemaHasSettingByTypeOrId(block?.settings || [], config)
+    );
   const anyHas = (config) => schemaHasSettingByTypeOrId(settings, config);
   const sectionHas = (config) => schemaHasSettingByTypeOrId(sectionSettings, config);
+  const matchingSettingIds = (settingsToSearch, config) =>
+    (Array.isArray(settingsToSearch) ? settingsToSearch : [])
+      .filter((setting) => settingMatches(setting, config.patterns || [], config.types || []))
+      .map((setting) => String(setting?.id || "").trim())
+      .filter(Boolean);
+  const matchingBlockSettingIds = (blocks, config) =>
+    (Array.isArray(blocks) ? blocks : []).flatMap((block) =>
+      matchingSettingIds(block?.settings || [], config)
+    );
+  const sourceHasSettingRef = (owner, ids, extraPattern = null) =>
+    (ids || []).some((id) => {
+      const refPattern = `${escapeRegExp(owner)}\\.settings\\.${escapeRegExp(id)}\\b`;
+      const ref = new RegExp(refPattern, "i");
+      if (!ref.test(source)) {
+        return false;
+      }
+      if (!extraPattern) {
+        return true;
+      }
+      const aroundRef = new RegExp(
+        `${refPattern}[\\s\\S]{0,220}${extraPattern.source}|${extraPattern.source}[\\s\\S]{0,220}${refPattern}`,
+        "i"
+      );
+      return aroundRef.test(source);
+    });
   const hasVideoMarkup =
     /<video\b|video_tag\b|<iframe\b|external_video_url\b|external_video_tag\b/i.test(
       source
@@ -2209,6 +2351,41 @@ const buildPromptCoverage = ({ source, schema, requestText, architecture } = {})
     /section\.settings\.[A-Za-z0-9_]*(?:button|cta)[A-Za-z0-9_]*(?:label|text)[A-Za-z0-9_]*|section\.settings\.[A-Za-z0-9_]*(?:button|cta)[A-Za-z0-9_]*(?:url|link)[A-Za-z0-9_]*/i.test(
       source
     );
+  const avatarConfig = {
+    types: ["image_picker"],
+    patterns: [/\b(avatar|customer[_-]?photo|customer photo|headshot|portrait|person[_-]?image|photo|image|picture)\b/],
+  };
+  const reviewTextConfig = {
+    patterns: [/\b(quote|comment|review|testimonial|body|text|copy)\b/],
+    types: ["textarea", "richtext", "inline_richtext", "text"],
+  };
+  const reviewerNameConfig = {
+    patterns: [/\b(author|customer|reviewer|name|naam|person|role)\b/],
+    types: ["text", "inline_richtext"],
+  };
+  const blockAvatarSettingIds = matchingBlockSettingIds(
+    [...slideBlocks, ...reviewBlocks, ...avatarBlocks],
+    avatarConfig
+  );
+  const sectionAvatarSettingIds = matchingSettingIds(sectionSettings, avatarConfig);
+  const blockReviewSettingIds = matchingBlockSettingIds(
+    [...slideBlocks, ...reviewBlocks],
+    reviewTextConfig
+  );
+  const sectionReviewSettingIds = matchingSettingIds(sectionSettings, reviewTextConfig);
+  const blockReviewerNameSettingIds = matchingBlockSettingIds(
+    [...slideBlocks, ...reviewBlocks],
+    reviewerNameConfig
+  );
+  const sectionReviewerNameSettingIds = matchingSettingIds(
+    sectionSettings,
+    reviewerNameConfig
+  );
+  const imageRenderPattern = /\b(?:image_url|image_tag|placeholder_svg_tag)\b/;
+  const avatarBlocksRendered =
+    avatarBlocks.length > 0 &&
+    sourceHasSectionBlocksLoop(source) &&
+    sourceHasSettingRef("block", blockAvatarSettingIds, imageRenderPattern);
   const rowIconSetting = rowBlocks.some((block) =>
     schemaHasSettingByTypeOrId(block?.settings || [], {
       patterns: [/\b(icon|symbol|pictogram|illustration)\b/],
@@ -2323,57 +2500,41 @@ const buildPromptCoverage = ({ source, schema, requestText, architecture } = {})
     avatars: {
       requested: expectations.avatars,
       status:
-        (slideHas({
-          types: ["image_picker"],
-          patterns: [/\b(avatar|customer[_-]?photo|headshot|portrait)\b/],
-        }) ||
-          reviewHas({
-            types: ["image_picker"],
-            patterns: [/\b(avatar|customer[_-]?photo|headshot|portrait)\b/],
-          })) &&
-        /block\.settings\.[A-Za-z0-9_]*avatar[A-Za-z0-9_]*/i.test(source)
+        (blockAvatarSettingIds.length > 0 &&
+          sourceHasSettingRef("block", blockAvatarSettingIds, imageRenderPattern)) ||
+        avatarBlocksRendered ||
+        (sectionAvatarSettingIds.length > 0 &&
+          sourceHasSettingRef("section", sectionAvatarSettingIds, imageRenderPattern))
           ? "yes"
-          : anyHas({
-                types: ["image_picker"],
-                patterns: [/\b(avatar|customer[_-]?photo|headshot|portrait)\b/],
-              })
+          : slideHas(avatarConfig) || reviewHas(avatarConfig) || avatarHas(avatarConfig) || sectionHas(avatarConfig)
             ? "partial"
             : "no",
     },
     reviews: {
       requested: expectations.reviews || expectations.quotes,
       status:
-        (slideHas({
-          patterns: [/\b(quote|review|testimonial|comment)\b/],
-          types: ["textarea", "richtext", "inline_richtext", "text"],
-        }) ||
-          reviewHas({
-            patterns: [/\b(quote|review|testimonial|comment)\b/],
-            types: ["textarea", "richtext", "inline_richtext", "text"],
-          })) &&
-        /block\.settings\.[A-Za-z0-9_]*(?:quote|review|testimonial|comment)[A-Za-z0-9_]*/i.test(source)
+        (blockReviewSettingIds.length > 0 &&
+          sourceHasSettingRef("block", blockReviewSettingIds)) ||
+        (sectionReviewSettingIds.length > 0 &&
+          sourceHasSettingRef("section", sectionReviewSettingIds))
           ? "yes"
-          : /[★☆]|premium uitstraling|review|testimonial|quote/i.test(source)
+          : slideHas(reviewTextConfig) || reviewHas(reviewTextConfig) || sectionHas(reviewTextConfig)
             ? "partial"
-            : "no",
+            : /[★☆]|premium uitstraling|review|testimonial|quote/i.test(source)
+              ? "partial"
+              : "no",
     },
     reviewerNames: {
       requested: expectations.reviewerNames || expectations.reviews,
       status:
-        (slideHas({
-          patterns: [/\b(author|customer|reviewer|name|naam|person)\b/],
-          types: ["text"],
-        }) ||
-          reviewHas({
-            patterns: [/\b(author|customer|reviewer|name|naam|person)\b/],
-            types: ["text"],
-          })) &&
-        /block\.settings\.[A-Za-z0-9_]*(?:author|customer|reviewer|name|naam)[A-Za-z0-9_]*/i.test(source)
+        (blockReviewerNameSettingIds.length > 0 &&
+          sourceHasSettingRef("block", blockReviewerNameSettingIds)) ||
+        (sectionReviewerNameSettingIds.length > 0 &&
+          sourceHasSettingRef("section", sectionReviewerNameSettingIds))
           ? "yes"
-          : anyHas({
-                patterns: [/\b(author|customer|reviewer|name|naam|person)\b/],
-                types: ["text"],
-              })
+          : slideHas(reviewerNameConfig) ||
+              reviewHas(reviewerNameConfig) ||
+              sectionHas(reviewerNameConfig)
             ? "partial"
             : "no",
     },
@@ -2655,20 +2816,32 @@ const buildFeatureContractEntries = ({ expectations, architecture }) => {
       "Autoplay must respect prefers-reduced-motion and pause on hover/focus/manual interaction.",
   });
   add("avatars", {
-    schema: "Use block-level image_picker avatar/customer photo settings.",
-    render: "Render avatars from block.settings with image_url + image_tag behind blank guards.",
+    schema: blockLevel
+      ? "Use block-level image_picker avatar/customer photo settings."
+      : "Use section-level image_picker avatar settings or auxiliary avatar blocks for social-proof avatars.",
+    render: blockLevel
+      ? "Render avatars from block.settings with image_url + image_tag behind blank guards."
+      : "Render avatars from section.settings or avatar blocks with image_url + image_tag behind blank guards.",
   });
   add("reviews", {
-    schema: "Use block-level quote/comment/review text settings.",
-    render: "Render merchant-editable quote/review text from block.settings.",
+    schema: blockLevel
+      ? "Use block-level quote/comment/review text settings."
+      : "Use section-level quote/comment/review text settings for a single hero/social-proof review.",
+    render: blockLevel
+      ? "Render merchant-editable quote/review text from block.settings."
+      : "Render merchant-editable quote/review text from section.settings.",
   });
   add("quotes", {
     schema: "Use block-level quote/comment richtext or textarea settings.",
     render: "Render quotes from block.settings, not hardcoded fallback-only copy.",
   });
   add("reviewerNames", {
-    schema: "Use block-level author/reviewer/customer name settings.",
-    render: "Render reviewer names from block.settings.",
+    schema: blockLevel
+      ? "Use block-level author/reviewer/customer name settings."
+      : "Use section-level author/reviewer/customer name settings for a single review badge.",
+    render: blockLevel
+      ? "Render reviewer names from block.settings."
+      : "Render reviewer names from section.settings.",
   });
   add("primaryButton", {
     schema: "Use merchant-editable button_text/button_link or CTA label/link settings.",
@@ -3611,9 +3784,10 @@ const preflightSectionLiquid = (
     issues.push(
       createIssue({
         code:
-          parsed.schemaBlockCount === 0
+          parsed.errorCode ||
+          (parsed.schemaBlockCount === 0
             ? "schema_missing_schema_block"
-            : "schema_multiple_schema_blocks",
+            : "schema_multiple_schema_blocks"),
         path: [fileKey, "schema"],
         message: parsed.error,
         fixSuggestion:
@@ -3623,7 +3797,7 @@ const preflightSectionLiquid = (
   } else if (parsed.error) {
     issues.push(
       createIssue({
-        code: "schema_invalid_json",
+        code: parsed.errorCode || "schema_invalid_json",
         path: [fileKey, "schema"],
         message: parsed.error,
         fixSuggestion:
