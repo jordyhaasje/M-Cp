@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
+import { readFileSync } from "node:fs";
 import { createThemeSectionTool } from "../src/tools/createThemeSection.js";
 import { getThemeFileTool } from "../src/tools/getThemeFile.js";
 import { getThemeFilesTool } from "../src/tools/getThemeFiles.js";
@@ -62,6 +63,19 @@ function createGraphqlFetch(files) {
     const payload = JSON.parse(init.body || "{}");
     const query = String(payload.query || "");
     const variables = payload.variables || {};
+
+    if (query.includes("query ThemeList")) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            themes: {
+              nodes: [themeNode],
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
 
     if (query.includes("query ThemeById")) {
       return new Response(
@@ -148,6 +162,22 @@ const plannerFiles = {
     <button class="button button--primary">{{ label }}</button>
   `),
 };
+
+const DREAM_PROMPT =
+  "Maak een sectie na zoals op de afbeelding. Noem het dream-section12 en doe dit in het live thema. " +
+  "lichte/off-white achtergrond; section centered. Media card width circa 92%, rounded corners 24px, 16:9-ish image/video preview with palm/walkway style placeholder when no media set; small logo top right optional overlay; dark pill play button bottom-right over media with white play triangle and text 'Bekijk video'. Large centered title below, bold sans 'Live your' and italic serif 'dreams.' Body centered, Dutch copy: 'Je leeft maar één keer, dus haal alles eruit! Doe waar jij écht gelukkig van wordt. En als de dag erop zit, leg je hoofd dan op een Cloudpillo om op te laden voor het leven.' Orange CTA pill 'Ons verhaal'. Desktop: generous spacing, max-width around 1200, media height responsive 520-600px possible, title around 64px. Mobile: media full width with radius 18, overlay button smaller, title around 40-46px, text around 24-30px with balanced wrapping, button centered. Treat this as a static media/content section, not a logo marquee, carousel or card grid.";
+
+const BAD_DREAM_CAROUSEL = readFileSync(
+  new URL("./fixtures/dream-12-live-carousel.liquid", import.meta.url),
+  "utf8"
+);
+
+const issueCodes = (result) =>
+  [
+    ...(result.errors || []),
+    ...(result.preflight?.errors || []),
+    ...(result.preflight?.issues || []),
+  ].map((issue) => issue.issueCode || issue.code || issue.errorCode);
 
 test.afterEach(() => {
   global.fetch = originalFetch;
@@ -281,6 +311,147 @@ test("createThemeSection - forwards static section blueprint and theme context f
     "static",
     "create-theme-section should surface planner metadata back to the client"
   );
+});
+
+test("createThemeSection - Dream prompt uses deterministic single-media-story fallback", serial, async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let capturedInput = null;
+  draftThemeArtifact.execute = async (input) => {
+    capturedInput = input;
+    return {
+      success: true,
+      status: "preview_ready",
+      writeApplied: true,
+      technicalSuccess: true,
+      schemaSuccess: true,
+      taskSuccess: true,
+      promptFidelity: 0.96,
+      expectedArchetype: "single_media_story",
+      detectedArchetype: "single_media_story",
+      warnings: [],
+    };
+  };
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeRole: "main",
+      key: "sections/dream-section12.liquid",
+      summary: DREAM_PROMPT,
+      visualBrief: DREAM_PROMPT,
+    },
+    { shopifyClient, tokenHash: "dream-create-fallback" }
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(capturedInput?.mode, "create");
+  assert.equal(capturedInput?.files?.[0]?.key, "sections/dream-section12.liquid");
+  const generated = capturedInput?.files?.[0]?.value || "";
+  assert.match(generated, /Bekijk video/);
+  assert.match(generated, /Live your/);
+  assert.match(generated, /dreams\./);
+  assert.match(generated, /Je leeft maar één keer/);
+  assert.match(generated, /Ons verhaal/);
+  assert.match(generated, /"type": "image_picker"/);
+  assert.match(generated, /"type": "video"/);
+  assert.match(generated, /"type": "video_url"/);
+  assert.match(generated, /aspect-ratio\s*:/);
+  assert.match(generated, /border-radius\s*:/);
+  assert.match(generated, /@media\b/);
+  assert.match(generated, /prefers-reduced-motion/);
+  assert.doesNotMatch(generated, /data-dream-prev|data-dream-next|scrollBy|Previous card|Next card/);
+  assert.doesNotMatch(generated, /"type": "card"|Kicker|carousel controls/i);
+});
+
+test("createThemeSection - Dream prompt rejects old carousel output as task failure", serial, async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let draftCalled = false;
+  draftThemeArtifact.execute = async () => {
+    draftCalled = true;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeRole: "main",
+      key: "sections/dream-section12.liquid",
+      summary: DREAM_PROMPT,
+      visualBrief: DREAM_PROMPT,
+      liquid: BAD_DREAM_CAROUSEL,
+    },
+    { shopifyClient, tokenHash: "dream-create-bad-carousel" }
+  );
+
+  assert.equal(draftCalled, false);
+  assert.equal(result.success, false);
+  assert.equal(result.taskSuccess, false);
+  assert.equal(
+    result.schemaSuccess,
+    true,
+    JSON.stringify({
+      errorCode: result.errorCode,
+      schemaSuccess: result.schemaSuccess,
+      errors: result.errors?.map((issue) => issue.issueCode || issue.code || issue.errorCode),
+    })
+  );
+  assert.ok(result.promptFidelity < 0.85);
+  assert.equal(result.expectedArchetype, "single_media_story");
+  assert.equal(result.detectedArchetype, "carousel_cards");
+  assert.ok(
+    result.errorCode === "prompt_fidelity_failed" ||
+      issueCodes(result).includes("prompt_fidelity_failed")
+  );
+  assert.ok(result.missingRequiredFeatures?.includes("Bekijk video"));
+  assert.ok(result.unexpectedFeatures?.includes("scrollBy"));
+});
+
+test("createThemeSection - planner contract conflict points to archetype override", serial, async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let draftCalled = false;
+  draftThemeArtifact.execute = async () => {
+    draftCalled = true;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeRole: "main",
+      key: "sections/dream-section12.liquid",
+      summary: DREAM_PROMPT,
+      plannerHandoff: {
+        brief: DREAM_PROMPT,
+        archetype: "logo_marquee",
+        codegenContract: {
+          archetype: "logo_marquee",
+          sectionKind: "logo_marquee",
+          architecture: {
+            interactionKind: "marquee",
+            blockModel: "logos",
+          },
+        },
+      },
+    },
+    { shopifyClient, tokenHash: "dream-planner-conflict" }
+  );
+
+  assert.equal(draftCalled, false);
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "planner_contract_conflict");
+  assert.equal(result.taskSuccess, false);
+  assert.equal(result.nextAction, "replan_with_archetype_override");
+  assert.equal(result.nextArgsTemplate?.archetypeOverride, "single_media_story");
+  assert.equal(result.nextArgsTemplate?.blockModelOverride, "none");
+  assert.equal(result.nextArgsTemplate?.interactionKindOverride, "none");
 });
 
 test("createThemeSection - blocks generation recipe violations before draftThemeArtifact", serial, async () => {

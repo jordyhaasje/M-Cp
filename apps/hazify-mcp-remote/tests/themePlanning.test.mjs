@@ -52,6 +52,19 @@ function createGraphqlFetch(files) {
     const query = String(payload.query || "");
     const variables = payload.variables || {};
 
+    if (query.includes("query ThemeList")) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            themes: {
+              nodes: [themeNode],
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
     if (query.includes("query ThemeById")) {
       return new Response(
         JSON.stringify({
@@ -166,6 +179,10 @@ const homepageJsonFiles = {
     <button class="button button--primary">{{ label }}</button>
   `),
 };
+
+const DREAM_PROMPT =
+  "Maak een sectie na zoals op de afbeelding. Zorg voor juiste versie van desktop en mobiel en de juiste instellingen. Noem het dream-section12 en doe dit in het live thema. " +
+  "lichte/off-white achtergrond; section centered. Media card width circa 92%, rounded corners 24px, 16:9-ish image/video preview with palm/walkway style placeholder when no media set; small logo top right optional overlay; dark pill play button bottom-right over media with white play triangle and text 'Bekijk video'. Large centered title below, bold sans 'Live your' and italic serif 'dreams.' Body centered, Dutch copy: 'Je leeft maar één keer, dus haal alles eruit! Doe waar jij écht gelukkig van wordt. En als de dag erop zit, leg je hoofd dan op een Cloudpillo om op te laden voor het leven.' Orange CTA pill 'Ons verhaal'. Desktop: generous spacing, max-width around 1200, media height responsive 520-600px possible, title around 64px. Mobile: media full width with radius 18, overlay button smaller, title around 40-46px, text around 24-30px with balanced wrapping, button centered. Treat this as a static media/content section, not a logo marquee, carousel or card grid.";
 
 const homepageMissingRepresentativeFiles = {
   "templates/index.json": makeTextAsset(
@@ -323,6 +340,53 @@ try {
   assert.ok(
     searchResult.hits.some((hit) => hit.snippets.some((snippet) => snippet.toLowerCase().includes("headline"))),
     "search-theme-files snippets should include the matched text"
+  );
+
+  const dreamPlan = await planThemeEditTool.execute(
+    {
+      themeRole: "main",
+      intent: "new_section",
+      template: "homepage",
+      query: DREAM_PROMPT,
+      visualBrief: DREAM_PROMPT,
+      includeContracts: true,
+      verbosity: "debug",
+    },
+    { shopifyClient, tokenHash: "dream-planner-classification" }
+  );
+  assert.equal(dreamPlan.success, true);
+  assert.equal(dreamPlan.archetype, "single_media_story");
+  assert.equal(dreamPlan.sectionBlueprint?.archetype, "single_media_story");
+  assert.equal(dreamPlan.codegenContract?.archetype, "single_media_story");
+  assert.equal(dreamPlan.codegenContract?.sectionKind, "static_media_content");
+  assert.equal(dreamPlan.codegenContract?.architecture?.interactionKind, "none");
+  assert.equal(dreamPlan.codegenContract?.architecture?.blockModel, "none");
+  assert.equal(dreamPlan.codegenContract?.blocksAllowed, false);
+  assert.notEqual(dreamPlan.codegenContract?.sectionKind, "logo_marquee");
+  for (const feature of [
+    "single_media_card",
+    "image_picker",
+    "video",
+    "overlay_play_button",
+    "split_heading_with_italic_accent",
+    "primary_cta",
+  ]) {
+    assert.ok(
+      dreamPlan.codegenContract?.requiredFeatures?.includes(feature),
+      `Dream plan should require ${feature}`
+    );
+  }
+  for (const feature of ["carousel", "marquee", "card_blocks"]) {
+    assert.ok(
+      dreamPlan.codegenContract?.forbiddenFeatures?.includes(feature),
+      `Dream plan should forbid ${feature}`
+    );
+  }
+  assert.ok(
+    dreamPlan.codegenContract?.archetypeDebug?.rejectedArchetypes?.some(
+      (entry) => entry.archetype === "logo_marquee"
+    ),
+    "small logo overlay should reject logo_marquee rather than require logo blocks"
   );
 
   global.fetch = createGraphqlFetch(productBlockFiles);

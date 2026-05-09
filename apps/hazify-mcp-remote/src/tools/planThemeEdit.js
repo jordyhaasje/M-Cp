@@ -2,6 +2,7 @@ import { z } from "zod";
 import { requireShopifyClient } from "./_context.js";
 import { planThemeEdit } from "../lib/themePlanning.js";
 import { buildCodegenContract } from "../lib/themeCodegenContract.js";
+import { STRICT_ARCHETYPES } from "../lib/themePromptFidelity.js";
 import {
   extractThemeToolSummary,
   extractThemeToolVisualBrief,
@@ -27,7 +28,47 @@ const PLAN_INTENT_VALUES = [
   "new_section",
   "template_placement",
 ];
+const PLAN_SECTION_KIND_OVERRIDES = [
+  "single_media_story",
+  "media_content",
+  "static_media_content",
+  "hero_banner",
+  "logo_marquee",
+  "review_carousel",
+  "testimonial_carousel",
+  "faq",
+  "comparison_table",
+  "feature_grid",
+  "image_with_text",
+  "custom_static_section",
+];
+const PLAN_BLOCK_MODEL_OVERRIDES = [
+  "none",
+  "slides",
+  "logos",
+  "repeated_cards",
+  "repeated_reviews",
+  "mixed_blocks",
+  "rows",
+  "faq_items",
+  "tabs",
+];
+const PLAN_INTERACTION_KIND_OVERRIDES = [
+  "none",
+  "static",
+  "slider",
+  "carousel",
+  "mobile_scroll_snap",
+  "marquee",
+  "slider_and_marquee",
+  "tabs",
+  "accordion",
+];
 const IntentSchema = z.enum(PLAN_INTENT_VALUES);
+const ArchetypeOverrideSchema = z.enum(STRICT_ARCHETYPES);
+const SectionKindOverrideSchema = z.enum(PLAN_SECTION_KIND_OVERRIDES);
+const BlockModelOverrideSchema = z.enum(PLAN_BLOCK_MODEL_OVERRIDES);
+const InteractionKindOverrideSchema = z.enum(PLAN_INTERACTION_KIND_OVERRIDES);
 const TemplateSchema = z.enum([
   "product",
   "homepage",
@@ -170,6 +211,30 @@ const PlanThemeEditPublicObjectSchema = z
       .max(120)
       .optional()
       .describe("Compat alias van sectionTypeHint voor generieke wrappers."),
+    archetypeOverride: ArchetypeOverrideSchema
+      .optional()
+      .describe("Veilige expliciete archetype override uit de bekende taxonomy, bijvoorbeeld single_media_story wanneer de planner een logo overlay verkeerd als logo_marquee ziet."),
+    archetype_override: ArchetypeOverrideSchema
+      .optional()
+      .describe("Compat alias van archetypeOverride."),
+    sectionKindOverride: SectionKindOverrideSchema
+      .optional()
+      .describe("Veilige expliciete section-kind override voor codegen contracts."),
+    section_kind_override: SectionKindOverrideSchema
+      .optional()
+      .describe("Compat alias van sectionKindOverride."),
+    blockModelOverride: BlockModelOverrideSchema
+      .optional()
+      .describe("Veilige expliciete block-model override. Gebruik none voor statische section-level content."),
+    block_model_override: BlockModelOverrideSchema
+      .optional()
+      .describe("Compat alias van blockModelOverride."),
+    interactionKindOverride: InteractionKindOverrideSchema
+      .optional()
+      .describe("Veilige expliciete interaction-kind override. Gebruik none voor statische media/content sections."),
+    interaction_kind_override: InteractionKindOverrideSchema
+      .optional()
+      .describe("Compat alias van interactionKindOverride."),
     visualBrief: VisualBriefSchema.describe(
       "Optionele machine-actionable visuele analyse van een screenshot/referentie, bijvoorbeeld layout, card count, counter, media anchors of feature rows. Wordt aan de planningbrief toegevoegd."
     ),
@@ -301,6 +366,10 @@ const PlanThemeEditNormalizedShape = z
     analysisText: z.string().max(PLAN_QUERY_PUBLIC_MAX_LENGTH).optional(),
     targetFile: z.string().min(1).optional(),
     sectionTypeHint: z.string().max(120).optional(),
+    archetypeOverride: ArchetypeOverrideSchema.optional(),
+    sectionKindOverride: SectionKindOverrideSchema.optional(),
+    blockModelOverride: BlockModelOverrideSchema.optional(),
+    interactionKindOverride: InteractionKindOverrideSchema.optional(),
     visualBrief: z.string().max(PLAN_QUERY_PUBLIC_MAX_LENGTH).optional(),
     snippetLimit: z.number().int().min(1).max(5).default(3),
     verbosity: PlannerVerbositySchema.default("compact"),
@@ -343,6 +412,13 @@ const normalizePlanThemeEditInput = (rawInput) => {
         : undefined,
     targetFile: rawInput.targetFile ?? rawInput.target_file,
     sectionTypeHint: rawInput.sectionTypeHint ?? rawInput.section_type_hint,
+    archetypeOverride: rawInput.archetypeOverride ?? rawInput.archetype_override,
+    sectionKindOverride:
+      rawInput.sectionKindOverride ?? rawInput.section_kind_override,
+    blockModelOverride:
+      rawInput.blockModelOverride ?? rawInput.block_model_override,
+    interactionKindOverride:
+      rawInput.interactionKindOverride ?? rawInput.interaction_kind_override,
     visualBrief: visualBrief || undefined,
     snippetLimit: rawInput.snippetLimit ?? rawInput.snippet_limit,
     verbosity: rawInput.verbosity,
@@ -442,6 +518,10 @@ const summarizeNormalizedPlanInput = (input = {}) => ({
   analysisText: input.analysisText || null,
   targetFile: input.targetFile || null,
   sectionTypeHint: input.sectionTypeHint || null,
+  archetypeOverride: input.archetypeOverride || null,
+  sectionKindOverride: input.sectionKindOverride || null,
+  blockModelOverride: input.blockModelOverride || null,
+  interactionKindOverride: input.interactionKindOverride || null,
   snippetLimit: input.snippetLimit ?? 3,
   verbosity: input.verbosity || "compact",
   includeContracts: input.includeContracts === true,
@@ -875,6 +955,10 @@ const buildPlannerHandoff = ({
   },
   targetFile: String(input?.targetFile || "").trim() || null,
   archetype: result?.sectionBlueprint?.archetype || null,
+  archetypeOverride: input?.archetypeOverride || null,
+  sectionKindOverride: input?.sectionKindOverride || null,
+  blockModelOverride: input?.blockModelOverride || null,
+  interactionKindOverride: input?.interactionKindOverride || null,
   layoutContract: result?.sectionBlueprint?.layoutContract || null,
   themeWrapperStrategy: result?.sectionBlueprint?.themeWrapperStrategy || null,
   generationRecipe: result?.sectionBlueprint?.generationRecipe || null,
@@ -929,6 +1013,11 @@ const buildCompactPlannerHandoff = (plannerHandoff = null) => {
     template: plannerHandoff.template || null,
     themeTarget: plannerHandoff.themeTarget || null,
     targetFile: plannerHandoff.targetFile || null,
+    archetype: plannerHandoff.archetype || null,
+    archetypeOverride: plannerHandoff.archetypeOverride || null,
+    sectionKindOverride: plannerHandoff.sectionKindOverride || null,
+    blockModelOverride: plannerHandoff.blockModelOverride || null,
+    interactionKindOverride: plannerHandoff.interactionKindOverride || null,
     qualityTarget: plannerHandoff.qualityTarget || null,
     generationMode: plannerHandoff.generationMode || null,
     completionPolicy: plannerHandoff.completionPolicy || null,
@@ -1177,6 +1266,63 @@ const buildPlanSafetyWarnings = ({ result = {}, input = {} } = {}) => {
   return warnings;
 };
 
+const normalizeSectionKindOverride = (value) => {
+  if (value === "single_media_story") {
+    return "static_media_content";
+  }
+  if (value === "testimonial_carousel") {
+    return "review_carousel";
+  }
+  if (value === "feature_grid") {
+    return "feature_media_list";
+  }
+  if (value === "image_with_text") {
+    return "media_content";
+  }
+  if (value === "custom_static_section") {
+    return "content";
+  }
+  return value || null;
+};
+
+const applyPlanCodegenOverrides = (contract = null, input = {}) => {
+  if (!contract || typeof contract !== "object") {
+    return contract;
+  }
+  const sectionKindOverride = normalizeSectionKindOverride(input.sectionKindOverride);
+  const blockModelOverride = input.blockModelOverride || null;
+  const interactionKindOverride = input.interactionKindOverride || null;
+  if (!sectionKindOverride && !blockModelOverride && !interactionKindOverride) {
+    return contract;
+  }
+
+  const architecture = {
+    ...(contract.architecture || {}),
+    ...(sectionKindOverride ? { sectionKind: sectionKindOverride } : {}),
+    ...(blockModelOverride ? { blockModel: blockModelOverride } : {}),
+    ...(interactionKindOverride ? { interactionKind: interactionKindOverride } : {}),
+  };
+  return {
+    ...contract,
+    ...(sectionKindOverride ? { sectionKind: sectionKindOverride } : {}),
+    ...(blockModelOverride ? { blockModel: blockModelOverride } : {}),
+    ...(interactionKindOverride ? { interactionKind: interactionKindOverride } : {}),
+    blocksAllowed:
+      blockModelOverride === "none"
+        ? false
+        : blockModelOverride
+          ? true
+          : contract.blocksAllowed,
+    architecture,
+    promptBlock: [
+      contract.promptBlock,
+      `Planner overrides: sectionKind=${sectionKindOverride || contract.sectionKind}; blockModel=${blockModelOverride || contract.blockModel}; interactionKind=${interactionKindOverride || contract.interactionKind}.`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
+};
+
 const mergePlanWarningStrings = (resultWarnings = [], safetyWarnings = []) =>
   uniqueStrings([
     ...(Array.isArray(resultWarnings) ? resultWarnings : []),
@@ -1228,6 +1374,14 @@ const buildCompactPlanResponse = ({
     requiredReads: buildPlanRequiredReads(result),
     constraints: buildPlanConstraints({ result, codegenContract }),
     sectionContract: codegenContract?.sectionDataContract || null,
+    archetype: codegenContract?.archetype || result?.sectionBlueprint?.archetype || null,
+    expectedArchetype:
+      codegenContract?.sectionDataContract?.promptFidelity?.expectedArchetype ||
+      codegenContract?.archetype ||
+      result?.sectionBlueprint?.archetype ||
+      null,
+    promptFidelityContract:
+      codegenContract?.sectionDataContract?.promptFidelity || null,
     codegenPrompt: codegenContract?.promptBlock || null,
     completionGate:
       codegenContract?.sectionDataContract?.completionGate || {
@@ -1365,24 +1519,27 @@ const planThemeEditTool = {
     const writeTool = typeof result?.shouldUse === "string" ? result.shouldUse : undefined;
     const writeArgsTemplate = buildPlanWriteArgsTemplate(input, result);
     const immediateStep = buildPlanImmediateNextStep(input, result);
-    const codegenContract = buildCodegenContract({
-      intent: input.intent,
-      mode: writeArgsTemplate?.mode || (writeTool === "create-theme-section" ? "create" : null),
-      targetFile:
-        input.targetFile ||
-        result?.nextWriteKeys?.[0] ||
-        result?.newFileSuggestions?.[0] ||
-        null,
-      themeTarget: {
-        themeId:
-          input.themeId === undefined || input.themeId === null
-            ? null
-            : Number(input.themeId),
-        themeRole: String(input.themeRole || "").trim() || null,
-      },
-      plannerResult: result,
-      requestText: extractPlannerBrief(rawInput, input),
-    });
+    const codegenContract = applyPlanCodegenOverrides(
+      buildCodegenContract({
+        intent: input.intent,
+        mode: writeArgsTemplate?.mode || (writeTool === "create-theme-section" ? "create" : null),
+        targetFile:
+          input.targetFile ||
+          result?.nextWriteKeys?.[0] ||
+          result?.newFileSuggestions?.[0] ||
+          null,
+        themeTarget: {
+          themeId:
+            input.themeId === undefined || input.themeId === null
+              ? null
+              : Number(input.themeId),
+          themeRole: String(input.themeRole || "").trim() || null,
+        },
+        plannerResult: result,
+        requestText: extractPlannerBrief(rawInput, input),
+      }),
+      input
+    );
     const plannerHandoff = buildPlannerHandoff({
       brief: extractPlannerBrief(rawInput, input),
       input,

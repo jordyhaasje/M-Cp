@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
+import { readFileSync } from "node:fs";
 import {
   buildCodegenContract,
   inferSectionKind,
@@ -9,6 +10,12 @@ import {
 import {
   inspectSectionGenerationRecipePreflight,
 } from "../src/lib/themeSectionContext.js";
+import {
+  buildSectionContract,
+  buildSingleMediaStorySection,
+  classifyArchetype,
+  validateGeneratedSectionFidelity,
+} from "../src/lib/themePromptFidelity.js";
 
 const section = ({ body = "<section>Ok</section>", schema }) => `
 ${body}
@@ -32,6 +39,15 @@ const codes = (result) => [
   ...(result.issues || []),
   ...(result.warnings || []),
 ].map((issue) => issue.code || issue.issueCode);
+
+const DREAM_PROMPT =
+  "Maak een sectie na zoals op de afbeelding. Noem het dream-section12 en doe dit in het live thema. " +
+  "lichte/off-white achtergrond; section centered. Media card width circa 92%, rounded corners 24px, 16:9-ish image/video preview with palm/walkway style placeholder when no media set; small logo top right optional overlay; dark pill play button bottom-right over media with white play triangle and text 'Bekijk video'. Large centered title below, bold sans 'Live your' and italic serif 'dreams.' Body centered, Dutch copy: 'Je leeft maar één keer, dus haal alles eruit! Doe waar jij écht gelukkig van wordt. En als de dag erop zit, leg je hoofd dan op een Cloudpillo om op te laden voor het leven.' Orange CTA pill 'Ons verhaal'. Desktop: generous spacing, max-width around 1200, media height responsive 520-600px possible, title around 64px. Mobile: media full width with radius 18, overlay button smaller, title around 40-46px, text around 24-30px with balanced wrapping, button centered. Treat this as a static media/content section, not a logo marquee, carousel or card grid.";
+
+const BAD_DREAM_CAROUSEL = readFileSync(
+  new URL("./fixtures/dream-12-live-carousel.liquid", import.meta.url),
+  "utf8"
+);
 
 test("themeCodegenContract - infers profile and section kind conservatively", () => {
   assert.equal(
@@ -67,6 +83,103 @@ test("themeCodegenContract - infers profile and section kind conservatively", ()
     inferSectionKind({ requestText: "Build a FAQ accordion with no slider and no images" }),
     "faq"
   );
+});
+
+test("themeCodegenContract - Dream prompt classifies as single media story, not logo marquee", () => {
+  const classification = classifyArchetype({
+    prompt: DREAM_PROMPT,
+  });
+  assert.equal(classification.archetype, "single_media_story");
+  assert.equal(classification.sectionKind, "static_media_content");
+  assert.equal(classification.interactionKind, "none");
+  assert.equal(classification.blockModel, "none");
+  assert.equal(classification.blocksAllowed, false);
+  assert.notEqual(classification.archetype, "logo_marquee");
+
+  const contract = buildSectionContract({
+    archetype: classification.archetype,
+    facts: classification.facts,
+  });
+  assert.ok(contract.requiredFeatures.includes("single_media_card"));
+  assert.ok(contract.requiredFeatures.includes("image_picker"));
+  assert.ok(contract.requiredFeatures.includes("video"));
+  assert.ok(contract.requiredFeatures.includes("overlay_play_button"));
+  assert.ok(contract.requiredFeatures.includes("split_heading_with_italic_accent"));
+  assert.ok(contract.requiredFeatures.includes("primary_cta"));
+  assert.ok(contract.forbiddenFeatures.includes("carousel"));
+  assert.ok(contract.forbiddenFeatures.includes("marquee"));
+  assert.ok(contract.forbiddenFeatures.includes("card_blocks"));
+});
+
+test("themeCodegenContract - deterministic Dream section satisfies prompt fidelity", () => {
+  const liquid = buildSingleMediaStorySection({ handle: "sections/dream-section12.liquid" });
+  const contract = buildSectionContract({
+    archetype: "single_media_story",
+    prompt: DREAM_PROMPT,
+  });
+  const result = validateGeneratedSectionFidelity({
+    liquid,
+    contract,
+    prompt: DREAM_PROMPT,
+  });
+
+  assert.equal(result.taskSuccess, true);
+  assert.ok(result.promptFidelity >= 0.85);
+  for (const expected of [
+    "Bekijk video",
+    "Live your",
+    "dreams.",
+    "Je leeft maar een keer",
+    "Ons verhaal",
+  ]) {
+    assert.ok(!result.missingAnchors.includes(expected), `${expected} should be covered`);
+  }
+  assert.match(liquid, /"type": "image_picker"/);
+  assert.match(liquid, /"type": "video"/);
+  assert.match(liquid, /"type": "video_url"/);
+  assert.match(liquid, /aspect-ratio\s*:/);
+  assert.match(liquid, /border-radius\s*:/);
+  assert.match(liquid, /@media\b/);
+  assert.match(liquid, /prefers-reduced-motion/);
+  assert.doesNotMatch(liquid, /data-dream-prev|data-dream-next|scrollBy|Previous card|Next card/);
+  assert.doesNotMatch(liquid, /"type": "card"|Kicker|carousel controls/i);
+});
+
+test("themeCodegenContract - live Dream carousel fixture fails prompt fidelity", () => {
+  const contract = buildSectionContract({
+    archetype: "single_media_story",
+    prompt: DREAM_PROMPT,
+  });
+  const fidelity = validateGeneratedSectionFidelity({
+    liquid: BAD_DREAM_CAROUSEL,
+    contract,
+    prompt: DREAM_PROMPT,
+  });
+
+  assert.equal(fidelity.taskSuccess, false);
+  assert.ok(fidelity.promptFidelity < 0.85);
+  assert.equal(fidelity.expectedArchetype, "single_media_story");
+  assert.equal(fidelity.actualArchetypeDetected, "carousel_cards");
+  assert.ok(fidelity.missingAnchors.includes("Bekijk video"));
+  assert.ok(fidelity.missingAnchors.includes("Live your"));
+  assert.ok(fidelity.missingAnchors.includes("dreams."));
+  assert.ok(fidelity.missingAnchors.includes("Ons verhaal"));
+  assert.ok(fidelity.unexpectedArtifacts.includes("data-dream-prev"));
+  assert.ok(fidelity.unexpectedArtifacts.includes("data-dream-next"));
+  assert.ok(fidelity.unexpectedArtifacts.includes("scrollBy"));
+  assert.ok(fidelity.unexpectedArtifacts.includes("Card block schema"));
+
+  const preflight = preflightSectionLiquid(BAD_DREAM_CAROUSEL, {
+    mode: "create",
+    intent: "new_section",
+    validationProfile: "production_visual",
+    requestText: DREAM_PROMPT,
+  });
+  assert.equal(preflight.ok, false);
+  assert.ok(codes(preflight).includes("prompt_fidelity_failed"));
+  assert.equal(preflight.promptFidelity?.taskSuccess, false);
+  assert.equal(preflight.promptFidelity?.technicalSuccess, false);
+  assert.equal(preflight.promptFidelity?.schemaSuccess, true);
 });
 
 test("themeCodegenContract - negated prompt features do not become requirements", () => {

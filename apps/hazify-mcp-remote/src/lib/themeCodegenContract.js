@@ -1,3 +1,9 @@
+import {
+  buildSectionContract,
+  classifyArchetype,
+  validateGeneratedSectionFidelity,
+} from "./themePromptFidelity.js";
+
 const CODEGEN_CONTRACT_VERSION = "2026-05-09.1";
 
 const VALIDATION_PROFILES = new Set([
@@ -25,6 +31,8 @@ const SECTION_KINDS = new Set([
   "feature_media_list",
   "faq",
   "tabs",
+  "media_content",
+  "static_media_content",
   "media_section",
   "content",
   "product_related",
@@ -121,11 +129,23 @@ const normalizeSearchableText = (value) =>
 const escapeRegExp = (value) =>
   String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const stripNegatedFeaturePhrases = (value = "") =>
-  String(value || "").replace(
-    /\b(?:no|not|without|geen|niet|zonder)\s+(?:a\s+|an\s+|een\s+)?(?:slider|carousel|slideshow|slides?|images?|afbeelding(?:en)?|photos?|pictures?|media|videos?|video_url|youtube|vimeo|autoplay|auto[-_ ]?play)\b/gi,
-    " "
-  );
+const stripNegatedFeaturePhrases = (value = "") => {
+  const source = String(value || "");
+  const feature =
+    "(?:logo\\s+marquee|logo\\s+strip|logo\\s+wall|card\\s+grid|card\\s+blocks?|slider|carousel|slideshow|slides?|marquee|images?|afbeelding(?:en)?|photos?|pictures?|media|videos?|video_url|youtube|vimeo|autoplay|auto[-_ ]?play)";
+  return source
+    .replace(
+      new RegExp(
+        `\\b(?:no|not|without|geen|niet|zonder)\\s+(?:a\\s+|an\\s+|een\\s+)?${feature}(?:\\s*(?:,|or|and|of|en|/)\\s*${feature})*\\b`,
+        "gi"
+      ),
+      " "
+    )
+    .replace(
+      /\b(?:no|not|without|geen|niet|zonder)\s+(?:a\s+|an\s+|een\s+)?(?:slider|carousel|slideshow|slides?|images?|afbeelding(?:en)?|photos?|pictures?|media|videos?|video_url|youtube|vimeo|autoplay|auto[-_ ]?play)\b/gi,
+      " "
+    );
+};
 
 const normalizeLiquidSourceForBlockParsing = (value) =>
   String(value || "")
@@ -704,6 +724,18 @@ const inferSectionKind = ({
   schema = null,
 } = {}) => {
   const archetype = normalizeText(sectionBlueprint?.archetype);
+  const strictClassification = classifyArchetype({
+    prompt: requestText,
+    sectionTypeHint: archetype,
+    fileKey,
+  });
+  if (
+    strictClassification.confidence >= 0.88 &&
+    strictClassification.archetype === "single_media_story" &&
+    SECTION_KINDS.has(strictClassification.sectionKind)
+  ) {
+    return strictClassification.sectionKind;
+  }
   const valueWithoutStyleBlocks = String(value || "").replace(
     /<style\b[^>]*>[\s\S]*?<\/style>|\{%\s*stylesheet\s*%\}[\s\S]*?\{%\s*endstylesheet\s*%\}/gi,
     " "
@@ -1045,6 +1077,13 @@ const inferSectionArchitecture = ({
       blockModel = "tabs";
       contentModel = "block_settings";
       break;
+    case "static_media_content":
+    case "media_content":
+      interactionKind = "none";
+      blockModel = "none";
+      mediaModel = "section_level_media";
+      contentModel = "section_settings";
+      break;
     case "media_section":
       mediaModel =
         hasBlockVideoHint ? "block_level_video" : hasBlockMediaHint ? "block_level_media" : "section_level_media";
@@ -1234,6 +1273,8 @@ const inferValidationProfile = ({
       "hero_with_social_proof",
       "hero_with_logo_marquee",
       "logo_marquee",
+      "static_media_content",
+      "media_content",
       "media_section",
       "image_slider",
     ].includes(sectionKind) ||
@@ -1446,6 +1487,20 @@ const buildCodegenContract = ({
   const effectivePreferredWriteMode =
     preferredWriteMode || plannerResult?.preferredWriteMode || null;
   const effectiveIntent = intent || plannerResult?.intent || null;
+  const archetypeClassification = classifyArchetype({
+    prompt: requestText,
+    sectionTypeHint: effectiveBlueprint?.archetype,
+    fileKey: targetFile,
+  });
+  const promptFidelityContract = buildSectionContract({
+    archetype: archetypeClassification.archetype,
+    facts: archetypeClassification.facts,
+    prompt: requestText,
+  });
+  const hasStrictPromptFidelityContract =
+    promptFidelityContract.archetype === "single_media_story" &&
+    ((promptFidelityContract.requiredFeatures || []).length > 0 ||
+      (promptFidelityContract.forbiddenArtifacts || []).length > 0);
   const sectionKind = inferSectionKind({
     requestText,
     sectionBlueprint: effectiveBlueprint,
@@ -1476,12 +1531,38 @@ const buildCodegenContract = ({
     sectionKind,
     architecture,
   });
-  const sectionDataContract = buildSectionDataContract({
+  const baseSectionDataContract = buildSectionDataContract({
     requestText,
     sectionKind,
     architecture,
     sectionBlueprint: effectiveBlueprint,
   });
+  const sectionDataContract = {
+    ...baseSectionDataContract,
+    archetype: hasStrictPromptFidelityContract
+      ? promptFidelityContract.archetype
+      : baseSectionDataContract.archetype,
+    requiredFeatures: uniqueStrings([
+      ...(baseSectionDataContract.requiredFeatures || []),
+      ...(promptFidelityContract.requiredFeatures || []),
+    ]),
+    forbiddenFeatures: uniqueStrings([
+      ...(baseSectionDataContract.forbiddenFeatures || []),
+      ...(promptFidelityContract.forbiddenFeatures || []),
+    ]),
+    promptFidelity: {
+      expectedArchetype: hasStrictPromptFidelityContract
+        ? promptFidelityContract.archetype
+        : baseSectionDataContract.archetype || null,
+      threshold: promptFidelityContract.threshold,
+      requiredAnchors: (promptFidelityContract.requiredAnchors || []).map(
+        (entry) => entry.label
+      ),
+      forbiddenArtifacts: (promptFidelityContract.forbiddenArtifacts || []).map(
+        (entry) => entry.label
+      ),
+    },
+  };
   const scaleProfile =
     effectiveBlueprint?.generationRecipe?.scaleProfile ||
     effectiveBlueprint?.scaleProfile ||
@@ -1493,13 +1574,36 @@ const buildCodegenContract = ({
     version: CODEGEN_CONTRACT_VERSION,
     validationProfile: effectiveProfile,
     sectionKind,
+    archetype: hasStrictPromptFidelityContract
+      ? promptFidelityContract.archetype
+      : effectiveBlueprint?.archetype || null,
     interactionKind: architecture.interactionKind,
     blockModel: architecture.blockModel,
+    blocksAllowed: hasStrictPromptFidelityContract
+      ? promptFidelityContract.blocksAllowed
+      : architecture.blockModel !== "none",
     mediaModel: architecture.mediaModel,
     navigationModel: architecture.navigationModel,
     contentModel: architecture.contentModel,
     architecture,
     sectionDataContract,
+    ...(hasStrictPromptFidelityContract ? { promptFidelityContract } : {}),
+    requiredFeatures: promptFidelityContract.requiredFeatures || [],
+    forbiddenFeatures: promptFidelityContract.forbiddenFeatures || [],
+    archetypeDebug: {
+      rawUserQuery: requestText || "",
+      normalizedPrompt: archetypeClassification.facts?.normalizedText || "",
+      extractedVisualFacts: {
+        positiveSignals: archetypeClassification.positiveSignals || [],
+        negativeSignals: archetypeClassification.negativeSignals || [],
+      },
+      positiveSignals: archetypeClassification.positiveSignals || [],
+      negativeSignals: archetypeClassification.negativeSignals || [],
+      chosenArchetype: archetypeClassification.archetype,
+      rejectedArchetypes: archetypeClassification.rejectedArchetypes || [],
+      confidence: archetypeClassification.confidence,
+      source: archetypeClassification.source,
+    },
     target: {
       intent: effectiveIntent,
       file: targetFile || null,
@@ -2159,6 +2263,10 @@ const collectAllSchemaSettings = (schema) => [
 
 const detectPromptExpectations = (requestText = "") => {
   const text = normalizeSearchableText(stripNegatedFeaturePhrases(requestText));
+  const promptClassification = classifyArchetype({ prompt: requestText });
+  const singleMediaStoryPrompt =
+    promptClassification.archetype === "single_media_story" &&
+    promptClassification.confidence >= 0.88;
   const sliderRequested = /\b(slider|carousel|slideshow|slides?|swipe)\b/.test(text);
   const sliderSevenLike = /\bslider[-_ ]?7\b|\bslider\s+seven\b/i.test(text);
   const feature54Like = /\bfeature[-_ ]?54\b|\bfeature\s*54\b/i.test(text);
@@ -2169,7 +2277,7 @@ const detectPromptExpectations = (requestText = "") => {
     (sliderRequested && /\b(each|every|per|elke|iedere)\b[\s\S]{0,50}\b(slide|slides)\b/.test(text));
 
   return {
-    slides: sliderRequested,
+    slides: !singleMediaStoryPrompt && sliderRequested,
     images: imageRequested,
     videos: videoRequested,
     perSlideVideo:
@@ -2188,7 +2296,9 @@ const detectPromptExpectations = (requestText = "") => {
       /\b(secondary|second|tweede|alternate|outline)\b[\s\S]{0,40}\b(button|cta|link|knop)\b/.test(text) ||
       /\b(two|2|twee)\b[\s\S]{0,30}\b(buttons?|ctas?|knoppen)\b/.test(text),
     dots: /\b(dots?|pagination|paginatie|bullets?)\b/.test(text),
-    logos: /\b(logos?|brands?|merken|publications?|press|as seen in|featured in)\b/.test(text),
+    logos:
+      !singleMediaStoryPrompt &&
+      /\b(logos?|brands?|merken|publications?|press|as seen in|featured in)\b/.test(text),
     faqItems: /\b(faq|frequently asked|questions?|vragen|accordion|collapsible)\b/.test(text),
     tabs: /\b(tabs?|tabbladen|panels?)\b/.test(text),
     comparisonRows: /\b(comparison|vergelijk(?:ing)?|compare|table|tabel|rows?|rijen|specs?)\b/.test(text),
@@ -2951,6 +3061,7 @@ const buildSectionDataContract = ({
     sectionKind,
     archetype: sectionBlueprint?.archetype || null,
     requiredFeatures,
+    forbiddenFeatures: [],
     dataModel: {
       interactionKind: architecture?.interactionKind || "static",
       blockModel: architecture?.blockModel || "none",
@@ -3880,6 +3991,39 @@ const preflightSectionLiquid = (
   issues.push(...visualInspection.issues);
   warnings.push(...visualInspection.warnings);
 
+  const promptFidelity = validateGeneratedSectionFidelity({
+    liquid: source,
+    contract: effectiveContract.promptFidelityContract || null,
+    prompt: requestText,
+  });
+  if (promptFidelity.enforced && !promptFidelity.taskSuccess) {
+    issues.push(
+      createIssue({
+        code:
+          promptFidelity.errorCode === "planner_contract_conflict"
+            ? "planner_contract_conflict"
+            : "prompt_fidelity_failed",
+        path: [fileKey],
+        message:
+          promptFidelity.errorCode === "planner_contract_conflict"
+            ? "Planner contract conflicts with the user prompt archetype."
+            : `Prompt fidelity is ${promptFidelity.promptFidelity}; expected ${promptFidelity.expectedArchetype} but detected ${promptFidelity.actualArchetypeDetected}.`,
+        fixSuggestion:
+          promptFidelity.errorCode === "planner_contract_conflict"
+            ? "Replan with archetypeOverride='single_media_story' and blocksAllowed=false instead of adding logo/card blocks."
+            : "Regenerate the section from the expected archetype contract, preserve the required visual/text anchors, and remove forbidden carousel/card/marquee artifacts.",
+        details: promptFidelity,
+        diagnostics: {
+          expectedArchetype: promptFidelity.expectedArchetype,
+          actualArchetypeDetected: promptFidelity.actualArchetypeDetected,
+          missingAnchors: promptFidelity.missingAnchors,
+          unexpectedArtifacts: promptFidelity.unexpectedArtifacts,
+          suggestedPlannerOverride: promptFidelity.suggestedPlannerOverride,
+        },
+      })
+    );
+  }
+
   if (
     VISUAL_PROFILES.has(effectiveProfile) &&
     promptCoverage.requestedCount > 0 &&
@@ -3926,6 +4070,7 @@ const preflightSectionLiquid = (
     codegenContract: effectiveContract,
     architectureDiagnostics,
     promptCoverage,
+    promptFidelity,
     issues: blockingIssues,
     warnings,
     errors: blockingIssues,

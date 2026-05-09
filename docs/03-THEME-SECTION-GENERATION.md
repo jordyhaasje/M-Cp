@@ -109,6 +109,31 @@ Wanneer een client zelf Liquid gaat genereren, mag hij `codegenContract.promptBl
 
 `plan-theme-edit`, `create-theme-section` en `draft-theme-artifact` accepteren daarnaast `visualBrief`, `referenceAnalysis` en `designBrief` als compacte velden voor screenshot-, URL- en visuele analyse. Gebruik die velden voor feiten zoals "links grote productmedia, rechts vier icon rows", "counter 1/6 rechtsboven", "active slide dark" of "desktop toont peeking cards". Vrije samenvattingstekst mag nog steeds nooit de echte Liquid vervangen, maar deze visual brief hoort wel in planner-, codegen- en write-context te blijven.
 
+### Success-semantiek en prompt-fidelity
+Een theme write is pas succesvol wanneer drie onafhankelijke lagen waar zijn:
+
+- `technicalSuccess=true`: Shopify write/read/verify is technisch gelukt.
+- `schemaSuccess=true`: Liquid, schema, lokale preflight en relevante build/lint checks zijn geslaagd.
+- `taskSuccess=true`: de opgeslagen section matcht de gebruikersprompt, het gekozen archetype en de vereiste visuele/content-anchors.
+
+Gebruik `success` alleen nog als samengestelde status voor alle drie de lagen. Een bestand dat technisch is aangemaakt maar inhoudelijk het verkeerde archetype bevat, moet dus `technicalSuccess=true`, `schemaSuccess=true`, `taskSuccess=false` en `success=false` teruggeven. Responses horen daarnaast minimaal `writeApplied`, `promptFidelity`, `expectedArchetype`, `detectedArchetype`/`generatedArchetype`, `missingRequiredFeatures`, `unexpectedFeatures`, `warnings` en `nextAction` te bevatten wanneer prompt-fidelity relevant is.
+
+Voor `new_section` classificeert de planner eerst naar een strikte archetype-taxonomie, zoals `single_media_story`, `hero_banner`, `image_with_text`, `feature_grid`, `testimonial_carousel`, `logo_marquee`, `faq`, `comparison_table`, `product_showcase`, `collection_grid`, `before_after`, `newsletter`, `tabs` of `custom_static_section`. Die keuze is hard-binding voor codegen en validatie. Een `small logo top right overlay` in een media screenshot is een `optional_logo_overlay` setting binnen `single_media_story`; het is geen `logo_marquee` en mag geen logo-blocks afdwingen.
+
+Prompt-fidelity validatie draait vóór write-succes en na write-readback op de werkelijk opgeslagen file. Required anchors en forbidden artifacts zijn archetype-specifiek. Voor een Dream/media-story prompt zijn anchors bijvoorbeeld `Bekijk video`, `Live your`, `dreams.`, de Nederlandse bodycopy, `Ons verhaal`, section-level `image_picker`, `video`, optionele `video_url`, overlay play button, `aspect-ratio`, `border-radius`, responsive `@media` en `prefers-reduced-motion`. Forbidden artifacts zijn onder meer carousel/slider/marquee-signalen, `scrollBy`, prev/next controls, card block schema en generieke placeholdercopy.
+
+Nieuwe failure modes:
+
+- `planner_contract_conflict`: plannercontract botst met promptsignalen, bijvoorbeeld `logo_marquee` terwijl de brief `single_media_story` zegt.
+- `prompt_fidelity_failed`: technische/schema-checks kunnen geldig zijn, maar required anchors ontbreken of forbidden artifacts zijn gevonden.
+- `archetype_mismatch`: de gegenereerde of opgeslagen Liquid lijkt op een ander archetype dan gepland.
+- `missing_required_visual_anchors`: expliciete tekst, media, CTA, responsive of motion anchors ontbreken.
+- `unexpected_archetype_artifacts`: output bevat verboden patronen zoals carousel-controls, logo-marquee blocks of card grids.
+- `technical_write_failed`: Shopify write/read/verify faalde.
+- `schema_validation_failed`: Liquid/schema/preflight/build checks faalden.
+
+Bij `themeRole="main"` moet lage prompt-fidelity standaard vóór de live write blokkeren met `blocked_by_prompt_fidelity` of `inspection_failed_prompt_fidelity`. Als een fout bestand al geschreven is, moet de response `writeApplied=true` en `taskSuccess=false` teruggeven met een rollback/delete/regenerate next action.
+
 Representative read fallback sinds 2026-05-09.2:
 - `plan-theme-edit intent="new_section"` valideert representative `requiredReads` tegen de echte theme files voordat ze aan de client worden teruggegeven.
 - Een missend voorbeeldbestand, zoals een stale `sections/glozzy-premium-reviews.liquid`, wordt vervangen door `sections/animated-header.liquid` wanneer aanwezig of door een bestaande content-like section uit `sections/*.liquid`.

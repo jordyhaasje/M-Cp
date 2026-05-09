@@ -12,6 +12,12 @@ import {
   preflightSectionLiquid,
 } from "../lib/themeCodegenContract.js";
 import {
+  buildSectionContract,
+  buildSingleMediaStorySection,
+  classifyArchetype,
+  validateContractAgainstPrompt,
+} from "../lib/themePromptFidelity.js";
+import {
   inferTemplateSurfaceFromSectionLiquid,
 } from "../lib/themeSectionContext.js";
 import {
@@ -414,10 +420,45 @@ const buildCreateSectionRepairResponse = ({
         sectionBlueprint,
         plannerHandoff,
       });
+  const semanticTaskFailureCodes = new Set([
+    "prompt_fidelity_failed",
+    "planner_contract_conflict",
+    "prompt_coverage_partial",
+    "section_recipe_missing_theme_container",
+  ]);
+  const failureCodes = (errors || [])
+    .map((issue) => issue.issueCode || issue.code || issue.errorCode)
+    .filter(Boolean);
+  const schemaSuccess =
+    semanticTaskFailureCodes.has(errorCode) ||
+    (preflight?.promptFidelity?.schemaSuccess === true &&
+      failureCodes.length > 0 &&
+      failureCodes.every((code) => semanticTaskFailureCodes.has(code)));
 
   return {
     success: false,
     status,
+    writeApplied: false,
+    technicalSuccess: false,
+    schemaSuccess,
+    taskSuccess: false,
+    ...(preflight?.promptFidelity
+      ? {
+          promptFidelity: preflight.promptFidelity.promptFidelity,
+          expectedArchetype: preflight.promptFidelity.expectedArchetype,
+          detectedArchetype:
+            preflight.promptFidelity.actualArchetypeDetected ||
+            preflight.promptFidelity.generatedArchetype,
+          missingRequiredFeatures:
+            preflight.promptFidelity.missingRequiredFeatures ||
+            preflight.promptFidelity.missingAnchors ||
+            [],
+          unexpectedFeatures:
+            preflight.promptFidelity.unexpectedFeatures ||
+            preflight.promptFidelity.unexpectedArtifacts ||
+            [],
+        }
+      : {}),
     message,
     errorCode,
     retryable: true,
@@ -650,7 +691,7 @@ const createThemeSectionTool = {
       });
     }
 
-    const input = normalizedParse.data;
+    let input = normalizedParse.data;
     const summary = mergeThemeToolBrief(
       extractThemeToolSummary(rawInput),
       extractThemeToolVisualBrief(rawInput)
@@ -724,6 +765,22 @@ const createThemeSectionTool = {
     }
 
     if (typeof input.liquid !== "string" || input.liquid.trim().length === 0) {
+      const fallbackClassification = classifyArchetype({
+        prompt:
+          summary ||
+          input.plannerHandoff?.brief ||
+          input.plannerHandoff?.plannerQuery ||
+          input.key,
+      });
+      if (fallbackClassification.archetype === "single_media_story") {
+        input = {
+          ...input,
+          liquid: buildSingleMediaStorySection({ handle: input.key }),
+        };
+      }
+    }
+
+    if (typeof input.liquid !== "string" || input.liquid.trim().length === 0) {
       return buildCreateSectionRepairResponse({
         message:
           "Deze create-flow mist de volledige Liquid-inhoud van de nieuwe section.",
@@ -782,6 +839,54 @@ const createThemeSectionTool = {
     let themeSectionContext = null;
     let sectionBlueprint = null;
     const internalWarnings = [];
+    const plannerArchetype =
+      plannerHandoff?.archetype ||
+      plannerHandoff?.codegenContract?.archetype ||
+      plannerHandoff?.codegenContract?.sectionDataContract?.archetype ||
+      plannerHandoff?.codegenContract?.sectionKind ||
+      null;
+    if (plannerArchetype) {
+      const promptClassification = classifyArchetype({
+        prompt: planningQuery,
+      });
+      const contractCheck = validateContractAgainstPrompt({
+        contract: buildSectionContract({
+          archetype: plannerArchetype,
+          facts: promptClassification.facts,
+          prompt: planningQuery,
+        }),
+        promptFacts: promptClassification.facts,
+      });
+      if (!contractCheck.ok) {
+        return buildCreateSectionRepairResponse({
+          status: "inspection_failed",
+          message: contractCheck.errors[0]?.message || "Planner contract conflicts with user intent.",
+          errorCode: "planner_contract_conflict",
+          nextAction: "replan_with_archetype_override",
+          retryMode: "replan_with_archetype_override",
+          nextTool: "plan-theme-edit",
+          normalizedArgs,
+          nextArgsTemplate: {
+            themeId: input.themeId,
+            themeRole: input.themeRole,
+            intent: "new_section",
+            query: planningQuery,
+            archetypeOverride: "single_media_story",
+            blockModelOverride: "none",
+            interactionKindOverride: "none",
+          },
+          errors: contractCheck.errors.map((entry) =>
+            buildCreateSectionError({
+              path: ["plannerHandoff", "archetype"],
+              problem: entry.message,
+              fixSuggestion:
+                "Corrigeer het plannercontract met archetypeOverride='single_media_story' in plaats van logo/card blocks toe te voegen.",
+            })
+          ),
+          warnings: internalWarnings,
+        });
+      }
+    }
 
     try {
       const existingResult = await getThemeFiles(shopifyClient, API_VERSION, {
@@ -1324,6 +1429,7 @@ const createThemeSectionTool = {
           sectionKind: codegenPreflight.sectionKind,
           architectureDiagnostics: codegenPreflight.architectureDiagnostics,
           promptCoverage: codegenPreflight.promptCoverage,
+          promptFidelity: codegenPreflight.promptFidelity,
           stages: groupedStages,
           issueCount: preflightErrors.length,
         },

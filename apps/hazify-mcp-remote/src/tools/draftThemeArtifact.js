@@ -9,6 +9,7 @@ import {
   buildSectionRepairPrompt,
   preflightSectionLiquid,
 } from "../lib/themeCodegenContract.js";
+import { validateGeneratedSectionFidelity } from "../lib/themePromptFidelity.js";
 import {
   analyzeSectionScale,
   classifySectionGeneration,
@@ -6827,6 +6828,11 @@ function buildFailureResponse({
   diagnosticTargets = [],
   repairPrompt,
   codegenContract,
+  promptFidelity,
+  technicalSuccess,
+  schemaSuccess,
+  taskSuccess,
+  writeApplied,
   verbosity,
   includeContracts,
 }) {
@@ -6873,9 +6879,43 @@ function buildFailureResponse({
     status,
     ...(writeBlockedBeforeApply
       ? {
-          writeApplied: false,
+          writeApplied: writeApplied ?? false,
           liveFileUnchanged: true,
           writeStatus: "blocked_live_file_unchanged",
+        }
+      : writeApplied !== undefined
+        ? { writeApplied }
+      : {}),
+    technicalSuccess:
+      technicalSuccess ??
+      (writeBlockedBeforeApply ? false : false),
+    schemaSuccess:
+      schemaSuccess ??
+      (errorCode === "prompt_fidelity_failed" ||
+      errorCode === "planner_contract_conflict"
+        ? true
+        : false),
+    taskSuccess: taskSuccess ?? false,
+    ...(promptFidelity
+      ? {
+          promptFidelity: promptFidelity.promptFidelity,
+          expectedArchetype: promptFidelity.expectedArchetype,
+          detectedArchetype:
+            promptFidelity.actualArchetypeDetected ||
+            promptFidelity.generatedArchetype,
+          generatedArchetype:
+            promptFidelity.generatedArchetype ||
+            promptFidelity.actualArchetypeDetected,
+          missingRequiredFeatures:
+            promptFidelity.missingRequiredFeatures ||
+            promptFidelity.missingAnchors ||
+            [],
+          unexpectedFeatures:
+            promptFidelity.unexpectedFeatures ||
+            promptFidelity.unexpectedArtifacts ||
+            [],
+          missingAnchors: promptFidelity.missingAnchors || [],
+          unexpectedArtifacts: promptFidelity.unexpectedArtifacts || [],
         }
       : {}),
     ...(draftId ? { draftId } : {}),
@@ -7003,6 +7043,12 @@ function buildAggregatedInspectionFailure({
   const distinctIssueCodes = Array.from(
     new Set(normalizedIssues.map((issue) => issue?.issueCode).filter(Boolean))
   );
+  const promptFidelity =
+    normalizedIssues.find((issue) =>
+      ["prompt_fidelity_failed", "planner_contract_conflict"].includes(
+        issue?.issueCode || issue?.code
+      )
+    )?.details || null;
   const allSchemaIssueCodes =
     distinctIssueCodes.length > 0 &&
     distinctIssueCodes.every((code) =>
@@ -7040,6 +7086,10 @@ function buildAggregatedInspectionFailure({
     sectionBlueprint,
     plannerHandoff,
     codegenContract,
+    promptFidelity,
+    technicalSuccess: false,
+    schemaSuccess: Boolean(promptFidelity),
+    taskSuccess: false,
     suggestedSchemaRewrites,
     preferSelectFor,
   });
@@ -9161,6 +9211,93 @@ export const draftThemeArtifact = {
             role: themeRole,
           };
 
+      let postWritePromptFidelity = null;
+      const shouldPostVerifyFidelity = files.some(
+        (file) =>
+          file.key.startsWith("sections/") &&
+          file.key.endsWith(".liquid") &&
+          primaryCodegenContract?.promptFidelityContract
+      );
+      if (shouldPostVerifyFidelity) {
+        const postWriteRead = await getThemeFiles(shopifyClient, apiVersion, {
+          themeId: themeId ? String(themeId) : undefined,
+          themeRole,
+          keys: files
+            .filter((file) => file.key.startsWith("sections/") && file.key.endsWith(".liquid"))
+            .map((file) => file.key),
+          includeContent: true,
+        });
+        const postWriteFidelityResults = (postWriteRead.files || [])
+          .filter((file) => file.found && typeof file.value === "string")
+          .map((file) => ({
+            key: file.key,
+            ...validateGeneratedSectionFidelity({
+              liquid: file.value,
+              contract: primaryCodegenContract.promptFidelityContract,
+              prompt: codegenRequestText,
+            }),
+          }));
+        postWritePromptFidelity =
+          postWriteFidelityResults.find(
+            (entry) => entry.enforced && !entry.taskSuccess
+          ) || postWriteFidelityResults[0] || null;
+        if (postWritePromptFidelity?.enforced && !postWritePromptFidelity.taskSuccess) {
+          draftRecord = await updateThemeDraftRecord(draftId, {
+            status: "preview_failed",
+            verifyResult: {
+              summary: upsertResult.verifySummary || null,
+              results: upsertResult.results || [],
+              promptFidelity: postWriteFidelityResults,
+            },
+          });
+          return buildFailureResponse({
+            status: "prompt_fidelity_failed",
+            draftId,
+            message:
+              "Shopify write/read/verify is gelukt, maar de opgeslagen section voldoet niet aan de prompt/archetype-fidelity.",
+            warnings,
+            errors: [
+              {
+                issueCode: "prompt_fidelity_failed",
+                path: [postWritePromptFidelity.key],
+                problem: `Prompt fidelity is ${postWritePromptFidelity.promptFidelity}; expected ${postWritePromptFidelity.expectedArchetype} but detected ${postWritePromptFidelity.actualArchetypeDetected}.`,
+                fixSuggestion:
+                  "Regenerate from the expected archetype contract and remove forbidden carousel/card/marquee artifacts. For live themes consider rollback/delete/regenerate.",
+                details: postWritePromptFidelity,
+              },
+            ],
+            draft: buildDraftPayload(draftRecord, {
+              targetTheme,
+              verifySummary: upsertResult.verifySummary || null,
+              verifyResults: upsertResult.results || [],
+              warnings,
+            }),
+            errorCode: "prompt_fidelity_failed",
+            retryable: true,
+            suggestedFixes: uniqueStrings([
+              ...suggestedFixes,
+              "Regenerate with the expected archetype and required prompt anchors.",
+              "Remove carousel/card/marquee artifacts before retrying.",
+            ]),
+            nextAction:
+              String(targetTheme?.role || themeRole || "").toLowerCase() === "main"
+                ? "rollback_delete_or_regenerate"
+                : "regenerate_with_expected_archetype",
+            retryMode: "same_request_after_regeneration",
+            normalizedArgs: getNormalizedArgs(),
+            themeContext: effectiveThemeSectionContext,
+            sectionBlueprint: effectiveSectionBlueprint,
+            plannerHandoff: effectivePlannerHandoff,
+            codegenContract: primaryCodegenContract,
+            promptFidelity: postWritePromptFidelity,
+            writeApplied: true,
+            technicalSuccess: true,
+            schemaSuccess: true,
+            taskSuccess: false,
+          });
+        }
+      }
+
       rememberThemeWrite(context, {
         themeId,
         themeRole,
@@ -9191,6 +9328,33 @@ export const draftThemeArtifact = {
       return {
         success: true,
         status: "preview_ready",
+        writeApplied: true,
+        technicalSuccess: true,
+        schemaSuccess: true,
+        taskSuccess: true,
+        ...(postWritePromptFidelity
+          ? {
+              promptFidelity: postWritePromptFidelity.promptFidelity,
+              expectedArchetype: postWritePromptFidelity.expectedArchetype,
+              detectedArchetype:
+                postWritePromptFidelity.actualArchetypeDetected ||
+                postWritePromptFidelity.generatedArchetype,
+              generatedArchetype:
+                postWritePromptFidelity.generatedArchetype ||
+                postWritePromptFidelity.actualArchetypeDetected,
+              missingRequiredFeatures:
+                postWritePromptFidelity.missingRequiredFeatures || [],
+              unexpectedFeatures:
+                postWritePromptFidelity.unexpectedFeatures || [],
+            }
+          : {
+              promptFidelity: 1,
+              expectedArchetype: primaryCodegenContract?.archetype || null,
+              detectedArchetype: primaryCodegenContract?.archetype || null,
+              generatedArchetype: primaryCodegenContract?.archetype || null,
+              missingRequiredFeatures: [],
+              unexpectedFeatures: [],
+            }),
         draftId,
         themeId: appliedThemeId,
         editorUrl: appliedThemeId ? `https://${shopDomain}/admin/themes/${appliedThemeId}/editor` : null,

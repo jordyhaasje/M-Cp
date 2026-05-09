@@ -1,4 +1,8 @@
 import { parseJsonLike } from "./jsonLike.js";
+import {
+  buildSectionContract,
+  classifyArchetype,
+} from "./themePromptFidelity.js";
 
 const KNOWN_TEMPLATE_SURFACES = new Set([
   "homepage",
@@ -427,6 +431,23 @@ const BASE_SECTION_SCALE_PROFILES = {
     mobileCardMinHeightMax: 360,
     mobileGapMaxPx: 20,
   },
+  single_media_story: {
+    contentMaxWidthDefault: 1200,
+    contentMaxWidthMax: 1320,
+    cardMinHeightDefault: 520,
+    cardMinHeightMax: 620,
+    headingFontMaxPx: 76,
+    subheadingFontMaxPx: 32,
+    quoteFontMaxPx: 36,
+    bodyFontMaxPx: 45,
+    cardTitleFontMaxPx: 32,
+    decorativeQuoteMarkMaxPx: 0,
+    iconSizeMaxPx: 48,
+    gridGapMaxPx: 68,
+    cardPaddingMaxPx: 40,
+    mobileCardMinHeightMax: 420,
+    mobileGapMaxPx: 28,
+  },
   featured_product: {
     contentMaxWidthDefault: 1040,
     contentMaxWidthMax: 1180,
@@ -757,7 +778,21 @@ const inferSectionArchetype = ({
   sectionTypeHint = "",
   category = "static",
   categorySignals = [],
+  archetypeOverride = null,
 } = {}) => {
+  const strictClassification = classifyArchetype({
+    prompt: query,
+    sectionTypeHint,
+    archetypeOverride,
+  });
+  if (
+    strictClassification.source === "override" ||
+    (strictClassification.confidence >= 0.88 &&
+      strictClassification.archetype === "single_media_story")
+  ) {
+    return strictClassification.archetype;
+  }
+
   const haystack = normalizeText(`${query} ${sectionTypeHint}`);
   const effectiveSignals = Array.isArray(categorySignals) && categorySignals.length > 0
     ? categorySignals
@@ -1048,6 +1083,7 @@ const inferSectionShellFamily = ({
     case "review_section":
       return "bounded_card_shell";
     case "hero_slider":
+    case "single_media_story":
     case "video_section":
     case "video_slider":
     case "image_slider":
@@ -1615,6 +1651,8 @@ const resolveSectionContractType = (archetype = "content_section") => {
     case "video_section":
     case "video_slider":
       return "video";
+    case "single_media_story":
+      return "single_media_story";
     case "featured_product_section":
     case "pdp_section":
     case "commerce_section":
@@ -2068,6 +2106,7 @@ const buildPromptOnlyContract = ({
     archetype === "review_slider" || archetype === "review_section";
   const videoLike =
     archetype === "video_section" || archetype === "video_slider";
+  const singleMediaStoryLike = archetype === "single_media_story";
   const repeatedVideoCardsLike =
     videoLike &&
     /\b(repeatable|repeated|multiple|cards?|grid|items?|blocks?|per[-_ ]?card)\b/.test(
@@ -2124,8 +2163,8 @@ const buildPromptOnlyContract = ({
     requiresSliderBehavior: carouselLike,
     requiresInteractiveBehavior: interactiveLike,
     requiresThemeEditorSafeInteractivity: interactiveLike,
-    requiresVideoSourceSetting: videoLike,
-    requiresVideoRenderablePath: videoLike,
+    requiresVideoSourceSetting: videoLike || singleMediaStoryLike,
+    requiresVideoRenderablePath: videoLike || singleMediaStoryLike,
     requiresProductContextOrSetting: commerceLike,
     requiresCollectionContextOrSetting: collectionLike,
     requiresCommerceActionSignal: commerceLike,
@@ -2134,6 +2173,14 @@ const buildPromptOnlyContract = ({
       ...(interactiveLike ? ["functional_interactive_behavior"] : []),
       ...(marqueeLike ? ["merchant_editable_logo_items"] : []),
       ...(videoLike ? ["video_or_external_embed_render_path"] : []),
+      ...(singleMediaStoryLike
+        ? [
+            "single_media_card",
+            "overlay_play_button",
+            "split_heading_with_italic_accent",
+            "primary_cta",
+          ]
+        : []),
       ...(commerceLike
         ? ["product_context_or_product_setting", "commerce_action_or_product_helper"]
         : []),
@@ -2141,7 +2188,10 @@ const buildPromptOnlyContract = ({
     ]),
     requiredSchemaSignals: uniqueStrings([
       ...(reviewLike && !singleReviewRequested ? ["review_blocks"] : []),
-      ...(videoLike ? ["video_or_video_url_setting"] : []),
+      ...(videoLike || singleMediaStoryLike ? ["video_or_video_url_setting"] : []),
+      ...(singleMediaStoryLike
+        ? ["section_image_picker", "richtext_body", "cta_label_and_link"]
+        : []),
       ...(repeatedVideoCardsLike ? ["video_card_blocks"] : []),
       ...(commerceLike ? ["product_setting_or_product_context"] : []),
       ...(collectionLike ? ["collection_setting_or_collection_context"] : []),
@@ -2173,6 +2223,12 @@ const buildPromptOnlyContract = ({
                     ? "Gebruik voor tabs een echte tablist/tab/tabpanel-structuur met werkende state-switching per section instance."
                     : "Gebruik voor interactieve sections echte werking per section instance; zichtbare controls, toggles of handles mogen geen styling-only mock zijn.",
             "Scope interactieve logica per section-root en maak scripted gedrag veilig voor Theme Editor reload/select events.",
+          ]
+        : []),
+      ...(singleMediaStoryLike
+        ? [
+            "Gebruik voor deze media/story section section-level settings in plaats van verplichte blocks: image_picker, video, video_url, logo overlay, play label, split heading, body en CTA.",
+            "Voeg geen carousel, slider, marquee of card blocks toe wanneer de prompt één grote media card met content eronder vraagt.",
           ]
         : []),
       ...(videoLike
@@ -2382,6 +2438,14 @@ const buildCategoryGuardrails = ({
     );
   }
 
+  if (archetype === "single_media_story") {
+    guardrails.push(
+      "Behandel een kleine logo-overlay als section setting binnen de media card; maak er geen logo marquee of logo blocks van.",
+      "Deze archetype is statisch: geen carousel, slider, scrollBy, prev/next controls of verplichte section.blocks.",
+      "Gebruik section-level image_picker, video, video_url, split heading, richtext body en CTA settings."
+    );
+  }
+
   if (
     promptContract?.promptOnly &&
     (archetype === "pdp_section" || archetype === "commerce_section")
@@ -2540,6 +2604,7 @@ const buildSectionGenerationBlueprint = ({
   representativeSectionType = null,
   snippetFiles = [],
   themeContext = null,
+  archetypeOverride = null,
 } = {}) => {
   const source = representativeSectionFile?.value || "";
   const schema = parseSectionSchema(source);
@@ -2623,11 +2688,22 @@ const buildSectionGenerationBlueprint = ({
   const effectiveScaleGuide = themeContext?.scaleGuide || {};
   const effectiveSpacingSettings = themeContext?.spacingSettings || [];
   const completionPolicy = buildCompletionPolicy({ qualityTarget });
+  const archetypeClassification = classifyArchetype({
+    prompt: query,
+    sectionTypeHint,
+    archetypeOverride,
+  });
   const archetype = inferSectionArchetype({
     query,
     sectionTypeHint,
     category: profile.category,
     categorySignals: profile.categorySignals,
+    archetypeOverride,
+  });
+  const promptFidelityContract = buildSectionContract({
+    archetype,
+    facts: archetypeClassification.facts,
+    prompt: query,
   });
   const referenceSignals = buildReferenceSignals({
     query,
@@ -2735,6 +2811,27 @@ const buildSectionGenerationBlueprint = ({
 
   return {
     archetype,
+    sectionKind: promptFidelityContract.sectionKind,
+    interactionKind: promptFidelityContract.interactionKind,
+    blockModel: promptFidelityContract.blockModel,
+    blocksAllowed: promptFidelityContract.blocksAllowed,
+    requiredFeatures: promptFidelityContract.requiredFeatures || [],
+    forbiddenFeatures: promptFidelityContract.forbiddenFeatures || [],
+    promptFidelityContract,
+    archetypeDebug: {
+      rawUserQuery: query || "",
+      normalizedPrompt: archetypeClassification.facts?.normalizedText || "",
+      extractedVisualFacts: {
+        positiveSignals: archetypeClassification.positiveSignals || [],
+        negativeSignals: archetypeClassification.negativeSignals || [],
+      },
+      positiveSignals: archetypeClassification.positiveSignals || [],
+      negativeSignals: archetypeClassification.negativeSignals || [],
+      chosenArchetype: archetype,
+      rejectedArchetypes: archetypeClassification.rejectedArchetypes || [],
+      confidence: archetypeClassification.confidence,
+      source: archetypeClassification.source,
+    },
     category: profile.category,
     categorySignals: profile.categorySignals,
     qualityTarget,

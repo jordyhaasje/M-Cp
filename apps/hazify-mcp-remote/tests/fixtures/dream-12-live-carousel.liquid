@@ -1,0 +1,136 @@
+{% comment %}
+Regression fixture based on the live-created Shopify file:
+key: sections/dream-12.liquid
+checksumMd5: v2PyT4+eUWVpQwjgQ++vBw==
+size: 10924
+
+This fixture preserves the failure signatures that must not pass the Dream
+single-media-story prompt: generic carousel copy, card blocks, prev/next
+controls and scrollBy JavaScript.
+{% endcomment %}
+
+{% liquid
+  assign section_root = 'dream-12-' | append: section.id
+%}
+
+<style>
+  #shopify-section-{{ section.id }} .dream-12 {
+    display: block;
+    background: #f6f4ef;
+    padding: 72px 20px;
+  }
+
+  #shopify-section-{{ section.id }} .dream-12__shell {
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+
+  #shopify-section-{{ section.id }} .dream-12__eyebrow {
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    font-size: 12px;
+  }
+
+  #shopify-section-{{ section.id }} .dream-12__heading {
+    max-width: 720px;
+    font-size: clamp(36px, 6vw, 72px);
+    line-height: .96;
+  }
+
+  #shopify-section-{{ section.id }} .dream-12__track {
+    display: flex;
+    gap: 20px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+
+  #shopify-section-{{ section.id }} .dream-12__card {
+    flex: 0 0 min(420px, 86vw);
+    min-height: 440px;
+    padding: 28px;
+    border-radius: 28px;
+    background: #ffffff;
+    scroll-snap-align: start;
+  }
+
+  #shopify-section-{{ section.id }} .dream-12__controls {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+  }
+
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .dream-12__track {
+      gap: 14px;
+    }
+  }
+</style>
+
+<dream-carousel id="{{ section_root }}" class="dream-12" data-section-slider>
+  <div class="dream-12__shell">
+    <p class="dream-12__eyebrow">{{ section.settings.eyebrow }}</p>
+    <h2 class="dream-12__heading">{{ section.settings.heading }}</h2>
+
+    <div class="dream-12__controls" aria-label="carousel controls">
+      <button type="button" data-dream-prev aria-label="Previous card">Previous card</button>
+      <button type="button" data-dream-next aria-label="Next card">Next card</button>
+    </div>
+
+    <div class="dream-12__track">
+      {% for block in section.blocks %}
+        <article class="dream-12__card" {{ block.shopify_attributes }}>
+          <p class="dream-12__card-kicker">{{ block.settings.kicker }}</p>
+          <h3>{{ block.settings.title }}</h3>
+          <div>{{ block.settings.text }}</div>
+        </article>
+      {% endfor %}
+    </div>
+  </div>
+</dream-carousel>
+
+<script>
+  if (!customElements.get('dream-carousel')) {
+    customElements.define('dream-carousel', class extends HTMLElement {
+      connectedCallback() {
+        const track = this.querySelector('.dream-12__track');
+        this.querySelector('[data-dream-prev]')?.addEventListener('click', () => {
+          track?.scrollBy({ left: -360, behavior: 'smooth' });
+        });
+        this.querySelector('[data-dream-next]')?.addEventListener('click', () => {
+          track?.scrollBy({ left: 360, behavior: 'smooth' });
+        });
+      }
+    });
+  }
+</script>
+
+{% schema %}
+{
+  "name": "Dream 12",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "Built for momentum" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "A sharper way to launch every moment." }
+  ],
+  "blocks": [
+    {
+      "type": "card",
+      "name": "Card",
+      "settings": [
+        { "type": "text", "id": "kicker", "label": "Kicker", "default": "Kicker" },
+        { "type": "text", "id": "title", "label": "Title", "default": "Card title" },
+        { "type": "richtext", "id": "text", "label": "Text", "default": "<p>Generic card copy.</p>" }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "Dream 12 carousel",
+      "blocks": [
+        { "type": "card" },
+        { "type": "card" },
+        { "type": "card" }
+      ]
+    }
+  ]
+}
+{% endschema %}

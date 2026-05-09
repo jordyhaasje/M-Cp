@@ -1221,6 +1221,10 @@ export const planThemeEdit = async (
     analysisText,
     targetFile,
     sectionTypeHint,
+    archetypeOverride,
+    sectionKindOverride,
+    blockModelOverride,
+    interactionKindOverride,
     snippetLimit = DEFAULT_SNIPPET_LIMIT,
   } = {}
 ) => {
@@ -1538,6 +1542,7 @@ export const planThemeEdit = async (
           templateSurface,
           query: analysisText || query,
           sectionTypeHint,
+          archetypeOverride,
           representativeSectionFile: sectionFile,
           representativeSectionType: templateAnalysis.primarySection?.type || null,
           snippetFiles,
