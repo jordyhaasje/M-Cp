@@ -82,11 +82,21 @@ Conclusie hertest: de lokale fixes zijn gevalideerd, maar de verbonden/live Hazi
 - Railway MCP status: pass; Railway CLI is geïnstalleerd en geauthenticeerd. Gekoppelde service: `Hazify-MCP-Remote`.
 
 ## Doelstatus
-Lokaal is het hoofddoel technisch haalbaar gemaakt voor de geteste regressies: de MCP-server kan portable Online Store 2.0 sections valideren zonder theme-specifieke Impact hardcoding, prompt-negaties correct interpreteren, image-renderpaden via Liquid variables herkennen, compacte responses geven en theme targets veiliger doorgeven.
+Lokaal en in de gedeployde code is het hoofddoel technisch haalbaar gemaakt voor de geteste regressies: de MCP-server kan portable Online Store 2.0 sections valideren zonder theme-specifieke Impact hardcoding, prompt-negaties correct interpreteren, image-renderpaden via Liquid variables herkennen, compacte responses geven en theme targets veiliger doorgeven.
 
-Nog niet volledig live bewezen totdat `Hazify-MCP-Remote` opnieuw gedeployed is en dezelfde live hertests passeren. Pas na die deploy moet opnieuw worden gecontroleerd:
+Production smoke is groen na deploy, maar de store-gekoppelde Codex/Hazify appconnector gaf daarna `token_invalidated`. Daardoor is de post-deploy live store hertest nog niet volledig bewezen met echte store data. Zodra de connector opnieuw is geauthenticeerd, moet opnieuw worden gecontroleerd:
 - portable FAQ create zonder Impact wrappers;
 - `feature-54` replica create zonder verplichte Impact wrappers;
 - `Slider 7` replica create zonder verplichte Impact wrappers;
 - `plan-theme-edit` met "No images, no slider" zonder foutieve `slides`/`images` requirements;
 - MCP metadata voor `verify-theme-files` met zichtbaar `expected[]` input schema.
+
+## Deploy Status
+- Commit: `931a8a4 fix: harden portable theme section workflows`.
+- Push: `origin/main` bijgewerkt.
+- Railway service: `Hazify-MCP-Remote`.
+- Deployment: `55dce8e6-fc89-47a2-965b-0dce630d6b9a`.
+- Deployment status: `SUCCESS`.
+- Post-deploy smoke: pass via `npm run release:postdeploy`.
+- Railway deploy logs filter `error OR warn`: leeg.
+- Live MCP appconnector hertest na deploy: blocked door connector-auth `token_invalidated`; er zijn daardoor geen extra live theme files geschreven na de redeploy.
