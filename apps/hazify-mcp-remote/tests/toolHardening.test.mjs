@@ -385,6 +385,15 @@ try {
   };
 
   try {
+    rememberThemePlan(
+      { tokenHash: "patch-theme-read-hardening" },
+      {
+        themeId: 123,
+        themeRole: "main",
+        intent: "existing_edit",
+        targetFile: "snippets/product-info.liquid",
+      }
+    );
     const patchThemeFileRequiresReadResult = await patchThemeFileTool.execute(
       patchThemeFileTool.schema.parse({
         themeId: 123,
@@ -398,6 +407,12 @@ try {
     );
     assert.equal(patchThemeFileRequiresReadResult.success, true);
     assert.equal(capturedPatchDraftInput.mode, "edit");
+    assert.equal(capturedPatchDraftInput.themeId, 123);
+    assert.equal(
+      capturedPatchDraftInput.themeRole,
+      undefined,
+      "patch-theme-file should not forward a sticky themeRole when the caller explicitly provided themeId"
+    );
     assert.equal(capturedPatchDraftInput.files[0].key, "snippets/product-info.liquid");
     assert.ok(
       patchThemeFileRequiresReadResult.warnings?.some((warning) =>

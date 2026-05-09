@@ -66,7 +66,7 @@ Theme-aware section regels:
 - Exact-match comparison/shell replica's worden nu ook expliciet gecontroleerd op onderscheidende decoratieve anchors uit de referentie, zoals floating productmedia of badges/seals, plus op dubbele background-shells wanneer theme wrappers zoals section-properties al een outer surface impliceren.
 - Renderer-veilige Liquid blijft verplicht: geen geneste {{ ... }} of {% ... %} binnen dezelfde output-tag of filter-argumentstring; bouw zulke waarden eerst op via assign/capture en geef daarna de variabele door.
 - Wanneer over section.blocks wordt geloopt, moet {{ block.shopify_attributes }} binnen dezelfde loop-body op de top-level block-wrapper staan; een los attribuut buiten de loop telt niet.
-- In Impact-like theme context moeten normale sections de bestaande Impact wrapper-conventies volgen, zoals section-spacing-collapsing en/of section-properties waar passend, lokale CSS scopen onder #shopify-section-{{ section.id }}, dubbele background-shells vermijden en Shopify media via image_url + image_tag renderen.
+- In Impact-like theme context mogen wrappers zoals section-spacing-collapsing en/of section-properties als aanbeveling of theme-specifieke integratie worden gespiegeld, maar ze mogen portable Online Store 2.0 sections niet blokkeren. Harde eisen blijven: lokale CSS scopen onder #shopify-section-{{ section.id }}, dubbele background-shells vermijden wanneer een helper wél gebruikt wordt, en Shopify media via image_url + image_tag renderen.
 - Gebruik setting type "video" voor merchant-uploaded video bestanden. Gebruik "video_url" alleen voor externe YouTube/Vimeo URLs.
 - Gebruik "color_scheme" alleen als het doeltheme al globale color schemes heeft in config/settings_schema.json + config/settings_data.json. Anders: gebruik simpele "color" settings of patch die config eerst in een aparte mode="edit" call.
 - Voor native blocks binnen een bestaande section (bijv. product-info of main-product): gebruik mode="edit" en patch de bestaande schema.blocks plus de render markup/snippet. Dit is geen los blocks/*.liquid bestand.
@@ -3805,18 +3805,11 @@ function collectImpactThemeConventionIssues(
     /render\s+['"]section-spacing-collapsing['"]/i.test(source);
 
   if (!fullBleedMediaSection && !usesSectionProperties && !usesSectionSpacing) {
-    issues.push(
-      createInspectionIssue({
-        path: [fileKey],
-        problem:
-          "Building Inspection Failed: Impact-like theme context detected, maar de section gebruikt geen section-properties of section-spacing-collapsing wrapper/helper.",
-        fixSuggestion:
-          "Gebruik de Impact wrapper-conventie, bijvoorbeeld {% render 'section-spacing-collapsing' %} en een wrapper met {% render 'section-properties', tight: true %} waar passend.",
-        issueCode: "inspection_failed_impact_wrapper",
-      })
+    warnings.push(
+      "Impact-like theme context detected. Deze section gebruikt geen Impact wrapper/helper; dit is toegestaan voor portable OS 2.0 sections zolang CSS lokaal gescoped blijft."
     );
     suggestedFixes.push(
-      "Gebruik Impact wrappers zoals section-spacing-collapsing en section-properties voor normale content sections."
+      "Overweeg Impact wrappers zoals section-spacing-collapsing en section-properties alleen wanneer de gebruiker expliciet theme-specifieke integratie wil."
     );
   }
 
@@ -9017,6 +9010,22 @@ export const draftThemeArtifact = {
             : null,
       });
 
+      const normalizedArgs = getNormalizedArgs();
+      const includeDebugPayloads = shouldIncludeDebugPayloads({
+        verbosity: input.verbosity || context.responseVerbosity,
+        includeContracts:
+          input.includeContracts === true || context.includeContracts === true,
+        normalizedArgs,
+      });
+      const omittedDebugPayloads = includeDebugPayloads
+        ? []
+        : summarizeDebugPayloadOmissions({
+            codegenContract: primaryCodegenContract,
+            themeContext: effectiveThemeSectionContext,
+            sectionBlueprint: effectiveSectionBlueprint,
+            plannerHandoff: effectivePlannerHandoff,
+          });
+
       return {
         success: true,
         status: "preview_ready",
@@ -9036,15 +9045,26 @@ export const draftThemeArtifact = {
           verifyResults: upsertResult.results || [],
           warnings,
         }),
-        normalizedArgs: getNormalizedArgs(),
-        ...(effectiveThemeSectionContext
+        normalizedArgs,
+        ...(includeDebugPayloads && effectiveThemeSectionContext
           ? { themeContext: effectiveThemeSectionContext }
           : {}),
-        ...(effectiveSectionBlueprint
+        ...(includeDebugPayloads && effectiveSectionBlueprint
           ? { sectionBlueprint: effectiveSectionBlueprint }
           : {}),
-        ...(effectivePlannerHandoff ? { plannerHandoff: effectivePlannerHandoff } : {}),
-        ...(primaryCodegenContract ? { codegenContract: primaryCodegenContract } : {}),
+        ...(includeDebugPayloads && effectivePlannerHandoff
+          ? { plannerHandoff: effectivePlannerHandoff }
+          : {}),
+        ...(includeDebugPayloads && primaryCodegenContract
+          ? { codegenContract: primaryCodegenContract }
+          : {}),
+        ...(omittedDebugPayloads.length > 0
+          ? {
+              debugPayloadsOmitted: omittedDebugPayloads,
+              debugPayloadHint:
+                "Retry with verbosity='debug' or includeContracts=true to include full planner/codegen/theme context.",
+            }
+          : {}),
         suggestedFixes: uniqueStrings(suggestedFixes),
       };
     } catch (error) {

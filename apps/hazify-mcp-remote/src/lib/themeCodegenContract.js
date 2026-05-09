@@ -112,6 +112,12 @@ const normalizeText = (value) =>
 const escapeRegExp = (value) =>
   String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+const stripNegatedFeaturePhrases = (value = "") =>
+  String(value || "").replace(
+    /\b(?:no|not|without|geen|niet|zonder)\s+(?:a\s+|an\s+|een\s+)?(?:slider|carousel|slideshow|slides?|images?|afbeelding(?:en)?|photos?|pictures?|media|videos?|video_url|youtube|vimeo|autoplay|auto[-_ ]?play)\b/gi,
+    " "
+  );
+
 const getLiquidBlockContents = (value, tagName) => {
   const source = String(value || "");
   const normalizedTagName = escapeRegExp(tagName);
@@ -650,9 +656,10 @@ const inferSectionKind = ({
     /<style\b[^>]*>[\s\S]*?<\/style>|\{%\s*stylesheet\s*%\}[\s\S]*?\{%\s*endstylesheet\s*%\}/gi,
     " "
   );
+  const sanitizedRequestText = stripNegatedFeaturePhrases(requestText);
   const haystack = normalizeText(
     [
-      requestText,
+      sanitizedRequestText,
       fileKey,
       valueWithoutStyleBlocks.slice(0, 1200),
       schema?.name,
@@ -660,7 +667,7 @@ const inferSectionKind = ({
     ].join(" ")
   );
   const semanticHaystack = normalizeText(
-    [requestText, fileKey, schema?.name, archetype].join(" ")
+    [sanitizedRequestText, fileKey, schema?.name, archetype].join(" ")
   );
 
   const heroLike = /\b(hero|banner|masthead|cover|slideshow|hero_)\b/.test(
@@ -796,7 +803,7 @@ const inferSectionArchitecture = ({
 } = {}) => {
   const haystack = normalizeText(
     [
-      requestText,
+      stripNegatedFeaturePhrases(requestText),
       fileKey,
       value.slice(0, 1600),
       schema?.name,
@@ -806,7 +813,7 @@ const inferSectionArchitecture = ({
   );
   const semanticHaystack = normalizeText(
     [
-      requestText,
+      stripNegatedFeaturePhrases(requestText),
       fileKey,
       schema?.name,
       sectionBlueprint?.archetype,
@@ -2007,7 +2014,7 @@ const collectAllSchemaSettings = (schema) => [
 ];
 
 const detectPromptExpectations = (requestText = "") => {
-  const text = normalizeText(requestText);
+  const text = normalizeText(stripNegatedFeaturePhrases(requestText));
   const sliderRequested = /\b(slider|carousel|slideshow|slides?|swipe)\b/.test(text);
   const videoRequested = /\b(videos?|video_url|youtube|vimeo|reels?)\b/.test(text);
   const imageRequested = /\b(images?|afbeelding(?:en)?|photos?|pictures?|media)\b/.test(text);
@@ -2088,10 +2095,34 @@ const buildPromptCoverage = ({ source, schema, requestText, architecture } = {})
     /block\.settings\.[A-Za-z0-9_]*(?:image|media|photo|picture)[A-Za-z0-9_]*[\s\S]{0,160}image_url|image_url[\s\S]{0,160}block\.settings\.[A-Za-z0-9_]*(?:image|media|photo|picture)[A-Za-z0-9_]*/i.test(
       source
     );
+  const blockImageAssignedVars = Array.from(
+    String(source || "").matchAll(
+      /\bassign\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*block\.settings\.[A-Za-z0-9_]*(?:image|media|photo|picture)[A-Za-z0-9_]*(?:\s*\|\s*default:\s*block\.settings\.[A-Za-z0-9_]*(?:image|media|photo|picture)[A-Za-z0-9_]*)?/gi
+    ),
+    (match) => match[1]
+  );
+  const assignedBlockImageRendered = blockImageAssignedVars.some((variableName) =>
+    new RegExp(
+      `\\b${escapeRegExp(variableName)}\\s*\\|\\s*image_url|image_url[\\s\\S]{0,160}\\b${escapeRegExp(variableName)}\\b`,
+      "i"
+    ).test(source)
+  );
   const sectionImageRendered =
     /section\.settings\.[A-Za-z0-9_]*(?:image|media|photo|picture)[A-Za-z0-9_]*[\s\S]{0,180}image_url|image_url[\s\S]{0,180}section\.settings\.[A-Za-z0-9_]*(?:image|media|photo|picture)[A-Za-z0-9_]*/i.test(
       source
     );
+  const sectionImageAssignedVars = Array.from(
+    String(source || "").matchAll(
+      /\bassign\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*section\.settings\.[A-Za-z0-9_]*(?:image|media|photo|picture)[A-Za-z0-9_]*(?:\s*\|\s*default:\s*section\.settings\.[A-Za-z0-9_]*(?:image|media|photo|picture)[A-Za-z0-9_]*)?/gi
+    ),
+    (match) => match[1]
+  );
+  const assignedSectionImageRendered = sectionImageAssignedVars.some((variableName) =>
+    new RegExp(
+      `\\b${escapeRegExp(variableName)}\\s*\\|\\s*image_url|image_url[\\s\\S]{0,180}\\b${escapeRegExp(variableName)}\\b`,
+      "i"
+    ).test(source)
+  );
   const sectionButtonTextSetting = sectionHas({
     patterns: [/\b(button[_-]?(?:text|label)|cta[_-]?(?:text|label))\b/],
   });
@@ -2117,12 +2148,12 @@ const buildPromptCoverage = ({ source, schema, requestText, architecture } = {})
       requested: expectations.images,
       status:
         slideHas({ types: ["image_picker"], patterns: [/\b(image|media|photo|picture)\b/] }) &&
-        blockImageRendered
+        (blockImageRendered || assignedBlockImageRendered)
           ? "yes"
           : sectionHas({
                 types: ["image_picker"],
                 patterns: [/\b(image|media|photo|picture)\b/],
-              }) && sectionImageRendered
+              }) && (sectionImageRendered || assignedSectionImageRendered)
           ? "yes"
           : anyHas({ types: ["image_picker"], patterns: [/\b(image|media|photo|picture)\b/] })
             ? "partial"

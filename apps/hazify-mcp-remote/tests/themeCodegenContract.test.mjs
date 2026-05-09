@@ -63,6 +63,106 @@ test("themeCodegenContract - infers profile and section kind conservatively", ()
     inferSectionKind({ requestText: "Build a product comparison table" }),
     "comparison"
   );
+  assert.equal(
+    inferSectionKind({ requestText: "Build a FAQ accordion with no slider and no images" }),
+    "faq"
+  );
+});
+
+test("themeCodegenContract - negated prompt features do not become requirements", () => {
+  const result = preflightSectionLiquid(
+    section({
+      body: `
+        <style>
+          #shopify-section-{{ section.id }} .faq { display: grid; gap: 12px; }
+          @media screen and (max-width: 749px) { #shopify-section-{{ section.id }} .faq { gap: 8px; } }
+        </style>
+        <section class="faq" data-section-bounded-shell>
+          {% for block in section.blocks %}
+            <details {{ block.shopify_attributes }}>
+              <summary>{{ block.settings.question }}</summary>
+              <div>{{ block.settings.answer }}</div>
+            </details>
+          {% endfor %}
+        </section>
+      `,
+      schema: `{
+        "name": "FAQ",
+        "blocks": [
+          { "type": "faq_item", "name": "FAQ item", "settings": [
+            { "type": "text", "id": "question", "label": "Question", "default": "Question?" },
+            { "type": "richtext", "id": "answer", "label": "Answer", "default": "<p>Answer.</p>" }
+          ] }
+        ],
+        "presets": [{ "name": "FAQ", "blocks": [{ "type": "faq_item" }] }]
+      }`,
+    }),
+    {
+      mode: "create",
+      intent: "new_section",
+      validationProfile: "production_visual",
+      requestText: "Create a FAQ accordion section. No images, no slider.",
+    }
+  );
+
+  assert.equal(result.promptCoverage.features.faqItems.requested, true);
+  assert.equal(result.promptCoverage.features.images.requested, false);
+  assert.equal(result.promptCoverage.features.slides.requested, false);
+  assert.ok(!codes(result).includes("prompt_coverage_partial"));
+});
+
+test("themeCodegenContract - image coverage accepts assigned Liquid image variables", () => {
+  const result = preflightSectionLiquid(
+    section({
+      body: `
+        <style>
+          #shopify-section-{{ section.id }} .assigned-slider { display: grid; gap: 16px; }
+          #shopify-section-{{ section.id }} .assigned-slider__track { display: flex; gap: 16px; overflow-x: auto; scroll-snap-type: x mandatory; }
+          #shopify-section-{{ section.id }} .assigned-slider__slide { flex: 0 0 320px; scroll-snap-align: start; padding: 20px; border-radius: 12px; }
+          @media screen and (max-width: 749px) { #shopify-section-{{ section.id }} .assigned-slider__slide { flex-basis: 84vw; } }
+        </style>
+        <section class="assigned-slider" data-section-slider>
+          <button type="button" data-next aria-label="Next slide">Next</button>
+          <div class="assigned-slider__track">
+            {% for block in section.blocks %}
+              {% assign slide_image = block.settings.mobile_image | default: block.settings.image %}
+              <article class="assigned-slider__slide" data-section-slide {{ block.shopify_attributes }}>
+                <h3>{{ block.settings.heading }}</h3>
+                <p>{{ block.settings.text }}</p>
+                {% if slide_image != blank %}
+                  {{ slide_image | image_url: width: 900 | image_tag: loading: 'lazy' }}
+                {% endif %}
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+        <script>
+          document.addEventListener('shopify:section:load', function() {});
+        </script>
+      `,
+      schema: `{
+        "name": "Assigned image slider",
+        "blocks": [
+          { "type": "slide", "name": "Slide", "settings": [
+            { "type": "image_picker", "id": "image", "label": "Image" },
+            { "type": "image_picker", "id": "mobile_image", "label": "Mobile image" },
+            { "type": "text", "id": "heading", "label": "Heading", "default": "Slide" },
+            { "type": "textarea", "id": "text", "label": "Text", "default": "Text" }
+          ] }
+        ],
+        "presets": [{ "name": "Assigned image slider", "blocks": [{ "type": "slide" }] }]
+      }`,
+    }),
+    {
+      mode: "create",
+      intent: "new_section",
+      validationProfile: "production_visual",
+      requestText: "Create a slider with slides and images",
+    }
+  );
+
+  assert.equal(result.promptCoverage.features.images.status, "yes");
+  assert.ok(!codes(result).includes("prompt_coverage_partial"));
 });
 
 test("themeCodegenContract - planner contract includes compact prompt block", () => {

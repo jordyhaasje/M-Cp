@@ -397,7 +397,7 @@ Algemene regel: één background shell is genoeg. Combineer geen `section-proper
 - Hosted `<video>`/`video_tag` markup met alleen schema type `video_url` hoort hard te falen; gebruik `video` voor merchant-uploaded video en `video_url` voor externe embeds
 - Select defaults moeten overeenkomen met een bestaande option value en select options moeten merchant-zichtbare labels hebben
 - Presets moeten aanwezig en render-safe blijven; edit-rewrites mogen bestaande presets niet stilzwijgend verwijderen
-- In Impact-like theme context hoort de validator normale sections te blokkeren wanneer `section-spacing-collapsing`/`section-properties` of equivalente wrapperconventies ontbreken, lokale CSS niet onder `#shopify-section-{{ section.id }}` is gescoped, of een dubbele background-shell wordt gebouwd rond een helper die de outer surface al beheert
+- In Impact-like theme context hoort de validator portable Online Store 2.0 sections zonder `section-spacing-collapsing`/`section-properties` niet te blokkeren. Ontbrekende theme wrappers zijn hooguit een waarschuwing; harde blockers blijven ongescopete lokale CSS, dubbele background-shells rond een helper die de outer surface al beheert, en onveilige Shopify media-rendering
 - Theme-scale guardrails mogen content sections blokkeren wanneer ze onbedoeld hero-groot worden
 - Theme-scale guardrails kijken nu niet alleen naar losse maxima, maar ook naar gecombineerde visuele massa. Middelgrote overschrijdingen in font-size, padding, gap en sticky compositie kunnen samen dus alsnog een `inspection_failed_theme_scale` opleveren.
 - Parser-onveilige JS/Liquid combinaties falen vóór preview upload

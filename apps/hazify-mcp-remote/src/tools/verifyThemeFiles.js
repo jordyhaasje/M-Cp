@@ -10,7 +10,7 @@ import {
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main"]);
 
-const VerifyThemeFilesInputSchema = z
+const VerifyThemeFilesPublicObjectSchema = z
   .object({
     themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
     themeRole: ThemeRoleSchema.optional().describe("Expliciete theme role. Alleen 'main' is role-only toegestaan; gebruik themeId voor development/unpublished/demo themes."),
@@ -25,7 +25,9 @@ const VerifyThemeFilesInputSchema = z
       .min(1)
       .max(10)
       .describe("Expected metadata to verify per file (hard limit: 10 files max)"),
-  })
+  });
+
+const VerifyThemeFilesInputSchema = VerifyThemeFilesPublicObjectSchema
   .superRefine((input, ctx) => {
     const keys = input.expected.map((entry) => String(entry.key).trim());
     if (new Set(keys).size !== keys.length) {
@@ -40,6 +42,7 @@ const VerifyThemeFilesInputSchema = z
 const verifyThemeFilesTool = {
   name: "verify-theme-files",
   description: "Verify multiple theme files by expected metadata (size/checksumMd5). Geef in editflows expliciet themeId of themeRole mee zodat je verify-context overeenkomt met je planner/read/write-flow. Als dezelfde flow al eerder een theme target bevestigde, mag die sticky worden hergebruikt; anders blokkeert deze tool met een repair response. Minimaal geldig voorbeeld: { expected: [{ key: 'sections/hero.liquid', checksumMd5: '...' }] }.",
+  inputSchema: VerifyThemeFilesPublicObjectSchema,
   schema: VerifyThemeFilesInputSchema,
   execute: async (input, context = {}) => {
     const shopifyClient = requireShopifyClient(context);

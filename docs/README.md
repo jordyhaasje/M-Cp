@@ -10,11 +10,13 @@ Start met `docs/00-START-HERE.md`. Dit bestand is bewust een dunne index; de ech
 - `docs/03-THEME-SECTION-GENERATION.md`
 - `docs/04-MCP-REMOTE-AUDIT.md`
 - `docs/05-REMEDIATION-PLAN.md`
+- `docs/06-THEME-TOOLS-E2E-QA-2026-05-09.md`
 
 ## Rollen
 - `docs/03-THEME-SECTION-GENERATION.md`: generation-regels, canonical section/block flows en theme-aware implementatieafspraken
 - `docs/04-MCP-REMOTE-AUDIT.md`: actuele auditbron voor MCP-capabilities, beveiligingswaarheid, code-map, bewijs en open punten
 - `docs/05-REMEDIATION-PLAN.md`: actuele releasekaart voor production readiness, release-gates en handoff
+- `docs/06-THEME-TOOLS-E2E-QA-2026-05-09.md`: live theme-tools QA-log, bugtracker, fixplan en hertest-status voor section generation op OS 2.0 themes
 
 ## Opschoning
 - Actieve docs bevatten alleen actuele runtimewaarheid, release-gates en open punten.

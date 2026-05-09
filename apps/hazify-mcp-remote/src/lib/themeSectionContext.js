@@ -1695,8 +1695,17 @@ const buildSectionGenerationRecipe = ({
   const boundedOrMediaShell =
     layoutContract?.sectionShellFamily === "bounded_card_shell" ||
     layoutContract?.sectionShellFamily === "media_surface";
+  const portableCrossThemeRequested =
+    /\b(?:portable|theme[-_\s]?independent|theme[-_\s]?agnostic|cross[-_\s]?theme|generic|universal|os\s*2\.?0)\b/i.test(
+      query
+    ) ||
+    /\b(?:no|zonder|geen)\s+theme[-_\s]?specific\b/i.test(query) ||
+    /\b(?:geen|zonder)\s+theme[-_\s]?specifiek/i.test(query) ||
+    /\b(?:niet|not)\s+hardcoded\b/i.test(query);
   const wrapperMode = mediaFirstOrFullBleed
     ? "no_background_shell"
+    : portableCrossThemeRequested
+      ? "own_scoped_shell"
     : boundedOrMediaShell
       ? "own_scoped_shell"
       : themeWrapperStrategy?.usesSectionPropertiesWrapper
@@ -1706,10 +1715,11 @@ const buildSectionGenerationRecipe = ({
   return {
     sectionContractType,
     wrapperMode,
+    portableCrossThemeRequested,
     allowedThemeHelpers: uniqueStrings([
-      ...helperKeys,
-      ...(themeContext?.usesPageWidth ? ["page-width/container equivalent"] : []),
-      ...(themeWrapperStrategy?.usesSectionPropertiesWrapper
+      ...(portableCrossThemeRequested ? [] : helperKeys),
+      ...(themeContext?.usesPageWidth && !portableCrossThemeRequested ? ["page-width/container equivalent"] : []),
+      ...(themeWrapperStrategy?.usesSectionPropertiesWrapper && !portableCrossThemeRequested
         ? ["section-properties without duplicate background shells"]
         : []),
     ]),
@@ -2801,7 +2811,7 @@ const extractSectionFontScaleByRole = (source) => ({
   ),
   bodyFontSizePx: extractSelectorPropertyMaxPx(
     source,
-    /\b(?:body|copy|caption|description|text|rte|p)\b|__(?:body|copy|caption|description|text)\b/i,
+    /\b(?:body|caption|description|text|rte|p)\b|__(?:body|caption|description|text)\b/i,
     ["font-size"]
   ),
   cardTitleFontSizePx: extractSelectorPropertyMaxPx(

@@ -407,6 +407,16 @@ const pickRememberedPatchTarget = (memoryState = {}, { themeId, themeRole } = {}
   return null;
 };
 
+const buildExclusiveThemeTargetArgs = ({ themeId, themeRole } = {}) => {
+  if (themeId !== undefined && themeId !== null && themeId !== "") {
+    return { themeId };
+  }
+  if (themeRole) {
+    return { themeRole };
+  }
+  return {};
+};
+
 const patchThemeFileTool = {
   name: "patch-theme-file",
   description:
@@ -420,7 +430,10 @@ const patchThemeFileTool = {
     const summary = extractThemeToolSummary(input);
     let effectiveThemeId = input.themeId;
     let effectiveThemeRole = input.themeRole;
+    const hasExplicitThemeTarget =
+      effectiveThemeId !== undefined || Boolean(effectiveThemeRole);
     if (
+      !hasExplicitThemeTarget &&
       memoryState?.themeTarget &&
       themeTargetsCompatible(memoryState.themeTarget, {
         themeId: effectiveThemeId,
@@ -475,8 +488,10 @@ const patchThemeFileTool = {
         nextAction: "identify_target_file",
         nextTool: "plan-theme-edit",
         nextArgsTemplate: {
-          ...(effectiveThemeId !== undefined ? { themeId: effectiveThemeId } : {}),
-          ...(effectiveThemeRole ? { themeRole: effectiveThemeRole } : {}),
+          ...buildExclusiveThemeTargetArgs({
+            themeId: effectiveThemeId,
+            themeRole: effectiveThemeRole,
+          }),
           intent: "existing_edit",
           ...(summary ? { query: summary } : {}),
         },
@@ -512,8 +527,10 @@ const patchThemeFileTool = {
       requireContent: true,
     });
     const readArgsTemplate = {
-      ...(effectiveThemeId !== undefined ? { themeId: effectiveThemeId } : {}),
-      ...(effectiveThemeRole ? { themeRole: effectiveThemeRole } : {}),
+      ...buildExclusiveThemeTargetArgs({
+        themeId: effectiveThemeId,
+        themeRole: effectiveThemeRole,
+      }),
       key: effectiveKey,
       includeContent: true,
     };
@@ -651,15 +668,19 @@ const patchThemeFileTool = {
         nextAction: "use_draft_theme_artifact_for_structural_patch",
         nextTool: "draft-theme-artifact",
         nextArgsTemplate: {
-          ...(effectiveThemeId !== undefined ? { themeId: effectiveThemeId } : {}),
-          ...(effectiveThemeRole ? { themeRole: effectiveThemeRole } : {}),
+          ...buildExclusiveThemeTargetArgs({
+            themeId: effectiveThemeId,
+            themeRole: effectiveThemeRole,
+          }),
           mode: "edit",
           files: [draftPatchFile],
         },
         alternativeNextArgsTemplates: {
           preserveFullRewrite: {
-            ...(effectiveThemeId !== undefined ? { themeId: effectiveThemeId } : {}),
-            ...(effectiveThemeRole ? { themeRole: effectiveThemeRole } : {}),
+            ...buildExclusiveThemeTargetArgs({
+              themeId: effectiveThemeId,
+              themeRole: effectiveThemeRole,
+            }),
             mode: "edit",
             files: [
               {
@@ -764,8 +785,10 @@ const patchThemeFileTool = {
         diagnosticTargets: [diagnosticTarget],
         alternativeNextArgsTemplates: {
           patchRetry: {
-            ...(effectiveThemeId !== undefined ? { themeId: effectiveThemeId } : {}),
-            ...(effectiveThemeRole ? { themeRole: effectiveThemeRole } : {}),
+            ...buildExclusiveThemeTargetArgs({
+              themeId: effectiveThemeId,
+              themeRole: effectiveThemeRole,
+            }),
             key: effectiveKey,
             searchString:
               diagnosticTarget.anchorCandidates?.[0] ||
@@ -779,8 +802,10 @@ const patchThemeFileTool = {
 
     const result = await draftThemeArtifact.execute(
       {
-        themeId: effectiveThemeId,
-        themeRole: effectiveThemeRole,
+        ...buildExclusiveThemeTargetArgs({
+          themeId: effectiveThemeId,
+          themeRole: effectiveThemeRole,
+        }),
         mode: "edit",
         files: [
           {

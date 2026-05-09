@@ -70,6 +70,15 @@ assert.strictEqual(
   "read-theme-files should reuse the canonical get-theme-files schema"
 );
 
+assert.equal(
+  registry.byName.get("verify-theme-files").inputSchema.safeParse({
+    themeId: 123,
+    expected: [{ key: "sections/hero.liquid", checksumMd5: "abc" }],
+  }).success,
+  true,
+  "verify-theme-files should expose expected[] in the public MCP input schema"
+);
+
 for (const criticalToolName of [
   "apply-theme-draft",
   "create-theme-section",

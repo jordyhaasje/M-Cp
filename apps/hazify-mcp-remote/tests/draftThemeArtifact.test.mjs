@@ -5090,7 +5090,7 @@ test("draftThemeArtifact - classifies standalone sections with only minimal loca
   assert.match(result.message, /te minimaal|premium standalone section/i);
 });
 
-test("draftThemeArtifact - rejects Impact-like sections without theme wrapper conventions and scoped CSS", async () => {
+test("draftThemeArtifact - treats missing Impact wrappers as warnings but still rejects unscoped CSS", async () => {
   const mockShopifyClient = {
     url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
     requestConfig: {
@@ -5152,13 +5152,124 @@ test("draftThemeArtifact - rejects Impact-like sections without theme wrapper co
   assert.equal(result.success, false);
   assert.equal(result.status, "inspection_failed");
   assert.ok(
-    result.errors?.some((issue) => issue.issueCode === "inspection_failed_impact_wrapper"),
-    "Impact-like themes should require their section wrapper convention"
+    !result.errors?.some((issue) => issue.issueCode === "inspection_failed_impact_wrapper"),
+    "Impact-like themes should no longer require theme-specific wrappers for portable sections"
+  );
+  assert.ok(
+    result.warnings?.some((warning) =>
+      String(warning).includes("Impact-like theme context detected")
+    ),
+    "Impact-like themes should still warn when portable sections do not use theme wrappers"
   );
   assert.ok(
     result.errors?.some((issue) => issue.issueCode === "inspection_failed_unscoped_css"),
     "Impact-like sections should reject unscoped local CSS"
   );
+});
+
+test("draftThemeArtifact - allows portable scoped sections in Impact-like themes without hardcoded wrappers", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/portable-card.liquid",
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "create",
+        themeId: 111,
+        files: [
+          {
+            key: "sections/portable-card.liquid",
+            value: goodSectionLiquid.replace("Test section", "Portable card"),
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        themeSectionContext: {
+          usesImpactSectionConventions: true,
+          usesSectionPropertiesWrapper: true,
+          usesPageWidth: true,
+        },
+      }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, "preview_ready");
+    assert.ok(!result.errors?.some((issue) => issue.issueCode === "inspection_failed_impact_wrapper"));
+    assert.ok(themeMock.getValue().includes("Portable card"));
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - compact success responses omit heavy debug payloads", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFileFetchMock({
+    key: "sections/compact-card.liquid",
+    initialValue: "",
+    existing: false,
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock.handler;
+
+  try {
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        mode: "create",
+        themeId: 111,
+        verbosity: "compact",
+        files: [
+          {
+            key: "sections/compact-card.liquid",
+            value: goodSectionLiquid.replace("Test section", "Compact card"),
+          },
+        ],
+      }),
+      {
+        shopifyClient: mockShopifyClient,
+        themeSectionContext: {
+          representativeSection: { key: "sections/reference.liquid" },
+        },
+        sectionBlueprint: {
+          archetype: "content",
+          category: "static",
+        },
+        plannerHandoff: {
+          brief: "Create compact test section",
+        },
+      }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.themeContext, undefined);
+    assert.equal(result.sectionBlueprint, undefined);
+    assert.equal(result.plannerHandoff, undefined);
+    assert.ok(result.debugPayloadsOmitted?.includes("themeContext"));
+    assert.ok(result.debugPayloadsOmitted?.includes("sectionBlueprint"));
+    assert.ok(result.debugPayloadsOmitted?.includes("plannerHandoff"));
+  } finally {
+    global.fetch = previousFetch;
+  }
 });
 
 test("draftThemeArtifact - does not apply Impact wrapper rules to generic OS 2.0 themes", async () => {
