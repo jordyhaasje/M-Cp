@@ -1122,6 +1122,193 @@ test("createThemeSection - can continue from plannerHandoff alone when session m
   );
 });
 
+test("createThemeSection - accepts substituteRepresentativeRead when planner required read is missing", serial, async () => {
+  global.fetch = createGraphqlFetch({
+    "sections/animated-header.liquid": makeTextAsset(`
+      <section class="animated-header page-width">
+        <div class="rte">{{ section.settings.heading }}</div>
+      </section>
+      {% schema %}
+      {
+        "name": "Animated header",
+        "settings": [
+          { "type": "range", "id": "padding_top", "label": "Padding top", "min": 0, "max": 80, "step": 4, "default": 40 },
+          { "type": "range", "id": "padding_bottom", "label": "Padding bottom", "min": 0, "max": 80, "step": 4, "default": 40 },
+          { "type": "richtext", "id": "heading", "label": "Heading", "default": "<p>Hello</p>" }
+        ],
+        "presets": [{ "name": "Animated header" }]
+      }
+      {% endschema %}
+    `),
+  });
+
+  let capturedInput = null;
+  draftThemeArtifact.execute = async (input) => {
+    capturedInput = input;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const requestContext = { shopifyClient, tokenHash: "create-theme-substitute-read" };
+  await getThemeFilesTool.execute(
+    {
+      themeId: 123,
+      keys: ["sections/animated-header.liquid"],
+      includeContent: true,
+    },
+    requestContext
+  );
+
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/dream-12.liquid",
+      liquid: `
+<style>
+  #shopify-section-{{ section.id }} .dream-12 { display: grid; gap: 16px; padding: 24px; }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .dream-12 { gap: 12px; padding: 16px; }
+  }
+</style>
+<section class="dream-12 page-width">
+  <h2>{{ section.settings.heading }}</h2>
+</section>
+{% schema %}
+{
+  "name": "Dream 12",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Dream section" }
+  ],
+  "presets": [{ "name": "Dream 12" }]
+}
+{% endschema %}
+`,
+      plannerHandoff: {
+        brief: "Maak een nieuwe standalone section",
+        intent: "new_section",
+        themeTarget: { themeId: 123, themeRole: null },
+        themeContext: {
+          representativeSection: { key: "sections/glozzy-premium-reviews.liquid" },
+        },
+        sectionBlueprint: {
+          category: "static",
+          qualityTarget: "theme_consistent",
+          requiredReads: [
+            {
+              key: "sections/glozzy-premium-reviews.liquid",
+              reason: "representative content section",
+            },
+          ],
+          safeUnitStrategy: { spacing: "mirror_reference_section" },
+        },
+        requiredReadKeys: ["sections/glozzy-premium-reviews.liquid"],
+      },
+    },
+    requestContext
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(capturedInput.mode, "create");
+  assert.ok(
+    result.warnings?.some((warning) =>
+      warning.includes("substituteRepresentativeRead") &&
+      warning.includes("sections/animated-header.liquid")
+    ),
+    "create-theme-section should warn about representative read substitution instead of blocking on the stale key"
+  );
+  assert.ok(
+    !JSON.stringify(result).includes("missing_theme_context_reads"),
+    "stale missing representative reads should not leak as missing_theme_context_reads"
+  );
+});
+
+test("createThemeSection - substituteRepresentativeRead does not waive missing helper reads", serial, async () => {
+  global.fetch = createGraphqlFetch({
+    "sections/animated-header.liquid": makeTextAsset(`
+      <section class="animated-header page-width">
+        <div class="rte">{{ section.settings.heading }}</div>
+      </section>
+      {% schema %}
+      {
+        "name": "Animated header",
+        "settings": [
+          { "type": "range", "id": "padding_top", "label": "Padding top", "min": 0, "max": 80, "step": 4, "default": 40 },
+          { "type": "range", "id": "padding_bottom", "label": "Padding bottom", "min": 0, "max": 80, "step": 4, "default": 40 }
+        ],
+        "presets": [{ "name": "Animated header" }]
+      }
+      {% endschema %}
+    `),
+  });
+
+  draftThemeArtifact.execute = async () => {
+    throw new Error("draftThemeArtifact should not run while exact helper context is missing");
+  };
+
+  const requestContext = { shopifyClient, tokenHash: "create-theme-mixed-missing-reads" };
+  const result = await createThemeSectionTool.execute(
+    {
+      themeId: 123,
+      key: "sections/dream-13.liquid",
+      liquid: `
+<style>
+  #shopify-section-{{ section.id }} .dream-13 { display: grid; gap: 16px; padding: 24px; }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .dream-13 { gap: 12px; padding: 16px; }
+  }
+</style>
+<section class="dream-13 page-width">
+  <h2>{{ section.settings.heading }}</h2>
+</section>
+{% schema %}
+{
+  "name": "Dream 13",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Dream section" }
+  ],
+  "presets": [{ "name": "Dream 13" }]
+}
+{% endschema %}
+`,
+      plannerHandoff: {
+        brief: "Maak een nieuwe standalone section met helpercontext",
+        intent: "new_section",
+        themeTarget: { themeId: 123, themeRole: null },
+        sectionBlueprint: {
+          category: "static",
+          requiredReads: [
+            {
+              key: "sections/glozzy-premium-reviews.liquid",
+              reason: "representative content section",
+            },
+            {
+              key: "snippets/missing-card-helper.liquid",
+              reason: "theme helper snippet",
+            },
+          ],
+        },
+        requiredReadKeys: [
+          "sections/glozzy-premium-reviews.liquid",
+          "snippets/missing-card-helper.liquid",
+        ],
+      },
+    },
+    requestContext
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "missing_theme_context_reads");
+  assert.equal(result.nextTool, "get-theme-file");
+  assert.equal(result.nextArgsTemplate?.key, "snippets/missing-card-helper.liquid");
+  assert.ok(
+    !JSON.stringify(result.nextArgsTemplate).includes("glozzy-premium-reviews"),
+    "stale representative reads should not be returned as the next required read when a substitute exists"
+  );
+});
+
 test("createThemeSection - forwards media-oriented blueprint hints for hero/video sections", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 

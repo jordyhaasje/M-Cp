@@ -21,7 +21,7 @@ import {
   rememberThemeWrite,
   themeTargetsCompatible,
 } from "../lib/themeEditMemory.js";
-import { hydrateExactThemeReads } from "../lib/themeReadHydration.js";
+import { hydrateThemeReadsWithRepresentativeFallback } from "../lib/themeReadHydration.js";
 import {
   extractThemeToolSummary,
   extractThemeToolVisualBrief,
@@ -289,6 +289,20 @@ const summarizeNormalizedCreateArgs = (input = {}) => ({
 
 const uniqueStrings = (values) =>
   Array.from(new Set((values || []).filter(Boolean)));
+
+const isSectionReadKey = (key) =>
+  /^sections\/[A-Za-z0-9._-]+\.liquid$/.test(String(key || ""));
+
+const getRepresentativeFallbackReadKeys = (requiredReads = [], readKeys = []) => {
+  const explicit = uniqueStrings(
+    (Array.isArray(requiredReads) ? requiredReads : [])
+      .filter((entry) => /representative/i.test(String(entry?.reason || "")))
+      .map((entry) => entry?.key)
+  );
+  return explicit.length > 0
+    ? explicit
+    : uniqueStrings(readKeys.filter(isSectionReadKey));
+};
 
 const buildCreateSectionError = ({
   path,
@@ -605,9 +619,9 @@ const createThemeSectionTool = {
   name: "create-theme-section",
   title: "Create Theme Section",
   description:
-    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Never use this tool to modify a section file that already exists, even if that file was just created earlier in the same conversation. Do not use apply-theme-draft first. Required: explicit themeId or themeRole='main', one section file path or handle, and the complete Liquid file with a valid {% schema %}. Use themeId for development/unpublished/demo themes. After plan-theme-edit, pass the compact plannerHandoff when available and keep screenshot/URL facts in visualBrief/referenceAnalysis/designBrief so exact replica signals survive stateless clients. The tool prefers the exact nextReadKeys first and tries to auto-hydrate those exact planner reads when safely derivable; if required context still ontbreekt, the write stays blocked. Preflight bundles deterministic codegen, recipe, editor-contract and local create issues before write; default failure responses stay compact and omit full planner/codegen/theme payloads unless verbosity='debug' or includeContracts=true. For screenshot/design-replica requests: lever de finale styling in de eerste create-write, niet eerst een veilige baseline gevolgd door een vraag of het pixel-perfect moet worden gemaakt. Screenshot-only replica's zonder losse bron-assets mogen nu wel renderbare demo-media of gestileerde media shells gebruiken zolang de layout, styling en merchant settings exact blijven gericht op de referentie. Exact-match comparison/shell replica's moeten daarnaast hun decoratieve anchors, ster-rating en vergelijking-iconografie direct goed meenemen; feature-54-achtige feature/media sections moeten grote media plus icon rows behouden, en Slider 7-achtige sliders moeten counter, peek cards, active state en echte controls bevatten. Als een gewone chatclient per ongeluk nog eens create-theme-section op exact dezelfde net aangemaakte section-key aanroept voor een refinement, kan de runtime die follow-up nu veilig omzetten naar een existing_edit rewrite in plaats van opnieuw op create vast te lopen.",
+    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Never use this tool to modify a section file that already exists, even if that file was just created earlier in the same conversation. Do not use apply-theme-draft first. Required: explicit themeId or themeRole='main', one section file path or handle, and the complete Liquid file with a valid {% schema %}. Use themeId for development/unpublished/demo themes. After plan-theme-edit, pass the compact plannerHandoff when available and keep screenshot/URL facts in visualBrief/referenceAnalysis/designBrief so exact replica signals survive stateless clients. The tool prefers exact nextReadKeys and auto-hydrates them when safely derivable; for net-new standalone sections, a missing representative planner read can be replaced by an existing section/snippet/layout read with includeContent=true and is returned as substituteRepresentativeRead instead of blocking on stale context. Non-representative required context remains protected. Preflight bundles deterministic codegen, recipe, editor-contract and local create issues before write; default failure responses stay compact and omit full planner/codegen/theme payloads unless verbosity='debug' or includeContracts=true. For screenshot/design-replica requests: lever de finale styling in de eerste create-write, niet eerst een veilige baseline gevolgd door een vraag of het pixel-perfect moet worden gemaakt. Screenshot-only replica's zonder losse bron-assets mogen nu wel renderbare demo-media of gestileerde media shells gebruiken zolang de layout, styling en merchant settings exact blijven gericht op de referentie. Exact-match comparison/shell replica's moeten daarnaast hun decoratieve anchors, ster-rating en vergelijking-iconografie direct goed meenemen; feature-54-achtige feature/media sections moeten grote media plus icon rows behouden, en Slider 7-achtige sliders moeten counter, peek cards, active state en echte controls bevatten. Als een gewone chatclient per ongeluk nog eens create-theme-section op exact dezelfde net aangemaakte section-key aanroept voor een refinement, kan de runtime die follow-up nu veilig omzetten naar een existing_edit rewrite in plaats van opnieuw op create vast te lopen.",
   docsDescription:
-    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Gebruik deze tool nooit om een bestaand section-bestand te wijzigen, ook niet als dat bestand net in dezelfde sessie is aangemaakt. Zodra de target-key al bestaat moet de flow omschakelen naar `plan-theme-edit intent='existing_edit'` en daarna naar `draft-theme-artifact mode=\"edit\"` of `patch-theme-file`. Voor gewone stateless chatclients zet de runtime een herhaalde create op exact dezelfde net aangemaakte section-key nu ook veilig om naar een existing_edit rewrite wanneer duidelijk is dat het om een refinement-follow-up gaat. Vereist: expliciet `themeId` of `themeRole='main'`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Gebruik themeId voor development/unpublished/demo themes. Geef na `plan-theme-edit` de compacte `plannerHandoff` door wanneer die beschikbaar is, en geef screenshot-, URL- of referentie-analyse mee via `visualBrief`, `referenceAnalysis` of `designBrief` zodat stateless clients geen replica-context verliezen. Lees na `plan-theme-edit` bij voorkeur eerst de exacte `nextReadKeys` in; wanneer die planner-reads veilig exact afleidbaar zijn probeert deze tool ze nu eerst automatisch met `includeContent=true` te hydrateren. Alleen wanneer vereiste theme-context daarna nog ontbreekt, blijft de create-write geblokkeerd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. De preflight bundelt deterministische codegen-, recipe-, editor-contract- en lokale create-fouten vóór de write; failure responses blijven standaard compact en laten zware planner/codegen/theme payloads weg tenzij `verbosity='debug'` of `includeContracts=true` wordt gebruikt. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Voor zulke replica-prompts verwacht deze tool directe finale styling in de eerste create-write; vraag dus niet eerst om extra toestemming om het daarna pixel-perfect te maken. Als de referentie alleen screenshot-gedreven is en er geen losse bron-assets zijn, mag de eerste write nu wel renderbare demo-media of een gestileerde media shell gebruiken zolang de compositie, styling en merchant-editable settings trouw aan de referentie blijven. Bij exact-match comparison/shell replica's moeten ook onderscheidende decoratieve anchors zoals floating productmedia, badges/seals, echte ster-ratings, vergelijking-iconografie en de juiste outer-shell strategie in de eerste write aanwezig zijn; te generieke tabel-baselines, blokjes als sterren of dubbele background-shells worden nu expliciet teruggestuurd door de validator. Feature-54-achtige replica's moeten als feature/media-list worden behandeld met grote productmedia en icon-feature-rows. Slider 7-achtige replica's moeten counter, peek-neighbour cards, active-slide contrast, zes preset-slides en echte slidercontrols bevatten. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
+    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Gebruik deze tool nooit om een bestaand section-bestand te wijzigen, ook niet als dat bestand net in dezelfde sessie is aangemaakt. Zodra de target-key al bestaat moet de flow omschakelen naar `plan-theme-edit intent='existing_edit'` en daarna naar `draft-theme-artifact mode=\"edit\"` of `patch-theme-file`. Voor gewone stateless chatclients zet de runtime een herhaalde create op exact dezelfde net aangemaakte section-key nu ook veilig om naar een existing_edit rewrite wanneer duidelijk is dat het om een refinement-follow-up gaat. Vereist: expliciet `themeId` of `themeRole='main'`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Gebruik themeId voor development/unpublished/demo themes. Geef na `plan-theme-edit` de compacte `plannerHandoff` door wanneer die beschikbaar is, en geef screenshot-, URL- of referentie-analyse mee via `visualBrief`, `referenceAnalysis` of `designBrief` zodat stateless clients geen replica-context verliezen. Lees na `plan-theme-edit` bij voorkeur eerst de exacte `nextReadKeys` in; wanneer die planner-reads veilig exact afleidbaar zijn probeert deze tool ze nu eerst automatisch met `includeContent=true` te hydrateren. Als zo'n planner-read alleen representatieve theme-context voor een net-new standalone section was en ontbreekt in het doeltheme, accepteert de tool een bestaande section/snippet/layout-read op hetzelfde theme als `substituteRepresentativeRead` in plaats van te blijven blokkeren op de stale key. Wanneer er helemaal geen fallback bestaat, gaat de net-new standalone create door met generieke Shopify OS 2.0-validatie en een waarschuwing; exacte contextreads voor bestaande edits/native flows blijven hard beschermd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme zonder willekeurige section-creatie te blokkeren op een niet-bestaand voorbeeldbestand. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `_tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. De preflight bundelt deterministische codegen-, recipe-, editor-contract- en lokale create-fouten vóór de write; failure responses blijven standaard compact en laten zware planner/codegen/theme payloads weg tenzij `verbosity='debug'` of `includeContracts=true` wordt gebruikt. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Voor zulke replica-prompts verwacht deze tool directe finale styling in de eerste create-write; vraag dus niet eerst om extra toestemming om het daarna pixel-perfect te maken. Als de referentie alleen screenshot-gedreven is en er geen losse bron-assets zijn, mag de eerste write nu wel renderbare demo-media of een gestileerde media shell gebruiken zolang de compositie, styling en merchant-editable settings trouw aan de referentie blijven. Bij exact-match comparison/shell replica's moeten ook onderscheidende decoratieve anchors zoals floating productmedia, badges/seals, echte ster-ratings, vergelijking-iconografie en de juiste outer-shell strategie in de eerste write aanwezig zijn; te generieke tabel-baselines, blokjes als sterren of dubbele background-shells worden nu expliciet teruggestuurd door de validator. Feature-54-achtige replica's moeten als feature/media-list worden behandeld met grote productmedia en icon-feature-rows. Slider 7-achtige replica's moeten counter, peek-neighbour cards, active-slide contrast, zes preset-slides en echte slidercontrols bevatten. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
   inputSchema: CreateThemeSectionPublicObjectSchema,
   schema: CreateThemeSectionInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -1032,6 +1046,10 @@ const createThemeSectionTool = {
             )
           )
         : [];
+      const representativeFallbackReadKeys = getRepresentativeFallbackReadKeys(
+        sectionBlueprint?.requiredReads,
+        requiredReadKeys
+      );
 
       let missingRequiredReadKeys = [];
       if (requiredReadKeys.length > 0) {
@@ -1043,12 +1061,14 @@ const createThemeSectionTool = {
 
         if (!alreadySatisfied) {
           try {
-            const hydrationResult = await hydrateExactThemeReads(context, {
+            const hydrationResult = await hydrateThemeReadsWithRepresentativeFallback(context, {
               shopifyClient,
               apiVersion: API_VERSION,
               themeId: input.themeId,
               themeRole: input.themeRole,
               keys: requiredReadKeys,
+              allowRepresentativeFallback: true,
+              representativeFallbackKeys: representativeFallbackReadKeys,
             });
             missingRequiredReadKeys = hydrationResult.missingKeys || [];
             if ((hydrationResult.hydratedKeys || []).length > 0) {
@@ -1056,11 +1076,59 @@ const createThemeSectionTool = {
                 `Planner-required theme-context reads zijn automatisch opgehaald: ${hydrationResult.hydratedKeys.join(", ")}.`
               );
             }
+            if (hydrationResult.substituteRepresentativeRead?.key) {
+              internalWarnings.push(
+                `Planner-required representative read '${(hydrationResult.staleMissingKeys || []).join(", ")}' bestaat niet in dit theme; '${hydrationResult.substituteRepresentativeRead.key}' telt als substituteRepresentativeRead voor deze net-new section create.`
+              );
+              if (sectionBlueprint && typeof sectionBlueprint === "object") {
+                sectionBlueprint = {
+                  ...sectionBlueprint,
+                  requiredReads: [
+                    ...(Array.isArray(sectionBlueprint.requiredReads)
+                      ? sectionBlueprint.requiredReads.filter(
+                          (entry) =>
+                            !hydrationResult.staleMissingKeys?.includes(entry?.key)
+                        )
+                      : []),
+                    {
+                      key: hydrationResult.substituteRepresentativeRead.key,
+                      reason: "substitute representative content section",
+                      substitutedFor: hydrationResult.staleMissingKeys || [],
+                    },
+                  ],
+                  substituteRepresentativeRead: hydrationResult.substituteRepresentativeRead,
+                };
+              }
+              if (themeSectionContext && typeof themeSectionContext === "object") {
+                themeSectionContext = {
+                  ...themeSectionContext,
+                  substituteRepresentativeRead: hydrationResult.substituteRepresentativeRead,
+                };
+              }
+            } else if (
+              hydrationResult.representativeFallbackAttempted &&
+              (hydrationResult.unsatisfiedRepresentativeReadKeys || []).length > 0
+            ) {
+              internalWarnings.push(
+                `Planner-required representative reads ontbreken (${hydrationResult.unsatisfiedRepresentativeReadKeys.join(", ")}), maar er is geen fallback representative section gevonden. De net-new section create gaat voor die representatieve context door met generieke Shopify OS 2.0-validatie.`
+              );
+            }
           } catch (error) {
-            missingRequiredReadKeys = requiredReadKeys;
-            internalWarnings.push(
-              `Automatisch ophalen van planner-required theme-context reads mislukte: ${error.message}`
+            const representativeFallbackSet = new Set(representativeFallbackReadKeys);
+            const strictRequiredReadKeys = requiredReadKeys.filter(
+              (key) => !representativeFallbackSet.has(key)
             );
+            if (strictRequiredReadKeys.length > 0) {
+              missingRequiredReadKeys = strictRequiredReadKeys;
+              internalWarnings.push(
+                `Automatisch ophalen van planner-required theme-context reads mislukte: ${error.message}. Niet-representatieve required reads blijven verplicht: ${strictRequiredReadKeys.join(", ")}.`
+              );
+            } else {
+              internalWarnings.push(
+                `Automatisch ophalen van planner-required representative reads mislukte: ${error.message}. De net-new section create gaat door met generieke Shopify OS 2.0-validatie.`
+              );
+              missingRequiredReadKeys = [];
+            }
           }
         }
       }

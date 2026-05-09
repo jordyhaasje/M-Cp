@@ -44,7 +44,7 @@ Gebruik wanneer de gebruiker een screenshot, referentiebeeld of termen als `exac
 
 1. `get-themes` alleen als theme discovery nodig is; sla deze stap over als de gebruiker al een expliciet `themeId` of `themeRole` heeft gegeven
 2. `plan-theme-edit` met `intent="new_section"` op het expliciete target theme
-3. Lees exact `nextReadKeys` met `includeContent=true`
+3. Lees exact `nextReadKeys` met `includeContent=true`; bij een missende representatieve read hoort de planner al een bestaande fallback section terug te geven
 4. `create-theme-section`
 5. Alleen bij bredere visuele refinements: `draft-theme-artifact mode="edit"` met volledige rewrite
 
@@ -52,6 +52,7 @@ Verwachte plannertruth:
 - `qualityTarget = "exact_match"`
 - `generationMode = "precision_first"`
 - `completionPolicy.deliveryExpectation = "final_reference_match_in_first_write"`
+- `requiredReads` bevat alleen files die in het doeltheme bestaan. Als de template-analyse naar een missende section wijst, kiest de planner een fallback representative read, bijvoorbeeld `sections/animated-header.liquid` of een gescoorde content section met padding/media/richtext/button-signalen.
 - De planner bewaart naast de compacte `query` nu ook een langere analysetekst in de handoff, zodat desktop/mobile-, screenshot- en exact-match-signalen niet wegvallen als ze alleen in `description`, `_tool_input_summary` of later in een langere prompt staan.
 - Geen baseline-first vraag of extra toestemming voor pixel-perfect styling
 - Screenshot-only referenties zonder losse bron-assets mogen `previewMediaPolicy = "best_effort_demo_media"` gebruiken. Dan blijft de layout/styling precisie-first, maar mag de eerste write renderbare demo-media of een gestileerde media shell bevatten in plaats van een hard fail op placeholder-only media.
@@ -71,12 +72,13 @@ Gebruik wanneer de gebruiker geen referentiebeeld geeft, maar wel een duidelijke
 
 1. `get-themes` alleen als theme discovery nodig is; sla deze stap over als de gebruiker al een expliciet `themeId` of `themeRole` heeft gegeven
 2. `plan-theme-edit` met `intent="new_section"`
-3. Lees exact `nextReadKeys`
+3. Lees exact `nextReadKeys`; wanneer de voorgestelde representative file niet bestaat, gebruik de fallback die de planner teruggeeft
 4. `create-theme-section`
 
 Verwachte plannertruth:
 - `qualityTarget = "theme_consistent"`
 - Theme wrappers/helpers/scales worden gespiegeld uit representatieve theme files
+- Een ontbrekende representative/context section wordt nooit als stale hard dependency in de handoff bewaard. `requiredReads`, `nextReadKeys`, `readContext` en `plannerHandoff.requiredReadKeys` moeten naar de vervangende bestaande file wijzen, of leeg blijven met een waarschuwing als er geen fallback beschikbaar is.
 - `plan-theme-edit` geeft voor nieuwe sections een compacte `generationRecipe` terug, zowel top-level als binnen `sectionBlueprint.generationRecipe`. Die recipe is de pre-generation waarheid voor de eerste write en bevat minimaal:
   - `sectionContractType`
   - `wrapperMode`
@@ -106,6 +108,12 @@ Wanneer een client zelf Liquid gaat genereren, mag hij `codegenContract.promptBl
 `create-theme-section` retourneert failure responses standaard compact en geeft meerdere deterministische preflight-fouten in één response terug. Zware debugpayloads zoals volledige planner/debugcontext, `sectionBlueprint`, `themeContext` en volledige `codegenContract` blijven weg tenzij de caller expliciet `verbosity: "debug"` of `includeContracts: true` gebruikt. `draft-theme-artifact` ondersteunt dezelfde compacte response-vorm wanneer compact expliciet wordt gevraagd of wanneer de create-wrapper hem aanroept.
 
 `plan-theme-edit`, `create-theme-section` en `draft-theme-artifact` accepteren daarnaast `visualBrief`, `referenceAnalysis` en `designBrief` als compacte velden voor screenshot-, URL- en visuele analyse. Gebruik die velden voor feiten zoals "links grote productmedia, rechts vier icon rows", "counter 1/6 rechtsboven", "active slide dark" of "desktop toont peeking cards". Vrije samenvattingstekst mag nog steeds nooit de echte Liquid vervangen, maar deze visual brief hoort wel in planner-, codegen- en write-context te blijven.
+
+Representative read fallback sinds 2026-05-09.2:
+- `plan-theme-edit intent="new_section"` valideert representative `requiredReads` tegen de echte theme files voordat ze aan de client worden teruggegeven.
+- Een missend voorbeeldbestand, zoals een stale `sections/glozzy-premium-reviews.liquid`, wordt vervangen door `sections/animated-header.liquid` wanneer aanwezig of door een bestaande content-like section uit `sections/*.liquid`.
+- `create-theme-section` en `draft-theme-artifact mode="create"` accepteren zo'n bestaande read als `substituteRepresentativeRead` zolang theme target, filetype en `includeContent=true` kloppen.
+- Alleen net-new standalone section creates mogen met fallback of generieke OS 2.0-validatie doorgaan. Existing edits, native blocks en template placement moeten nog steeds de exacte geplande context lezen.
 
 Validatieprofielen zijn bewust profiel-gebaseerd:
 - `syntax_only`: basis schema/Liquid safety voor micro-patches en kleine patchroutes.

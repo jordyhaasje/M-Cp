@@ -22,7 +22,7 @@ import {
   rememberThemeWrite,
   themeTargetsCompatible,
 } from "../lib/themeEditMemory.js";
-import { hydrateExactThemeReads } from "../lib/themeReadHydration.js";
+import { hydrateThemeReadsWithRepresentativeFallback } from "../lib/themeReadHydration.js";
 import { loadThemeCheck } from "../lib/themeCheck.js";
 import { getShopDomainFromClient, upsertThemeFiles, getThemeFiles, searchThemeFiles } from "../lib/themeFiles.js";
 import { requireShopifyClient } from "./_context.js";
@@ -36,7 +36,7 @@ import {
 
 export const toolName = "draft-theme-artifact";
 export const title = "Write Theme Files";
-export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, structural patches, advanced create-flow validation, or broader theme changes. For a brand-new single section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. After patch_scope_too_large, use the nextArgsTemplate returned by patch-theme-file: when currentReadContextValid=true, draft-theme-artifact may apply the same patch with baseChecksumMd5; when read context is missing or stale, re-read with includeContent=true first. For broad visual refinements of an existing section, prefer mode='edit' with a full current-file rewrite over long patch arrays. In mode='edit', files[].value must contain the full rewritten file content, not a placeholder, summary, compact reconstruction, or REWRITE_ALREADY_APPLIED_IN_CONTEXT. For mode='create', pass plannerHandoff and/or visualBrief/referenceAnalysis/designBrief when available; direct create calls without planner context now use production_visual validation as a backstop for scoped CSS, responsive behavior, real carousel controls and Theme Editor-safe JS. Lossy rewrites are blocked unless the planner/user explicitly requested removal or simplification. In compact responses, full planner/codegen/theme payloads are omitted unless verbosity='debug' or includeContracts=true. Do not use apply-theme-draft for the first write.`;
+export const description = `Advanced write tool for Shopify theme files. Use this for multi-file edits, full rewrites, structural patches, advanced create-flow validation, or broader theme changes. For a brand-new single section prefer create-theme-section first. For small single-file literal fixes prefer patch-theme-file. After patch_scope_too_large, use the nextArgsTemplate returned by patch-theme-file: when currentReadContextValid=true, draft-theme-artifact may apply the same patch with baseChecksumMd5; when read context is missing or stale, re-read with includeContent=true first. For broad visual refinements of an existing section, prefer mode='edit' with a full current-file rewrite over long patch arrays. In mode='edit', files[].value must contain the full rewritten file content, not a placeholder, summary, compact reconstruction, or REWRITE_ALREADY_APPLIED_IN_CONTEXT. For mode='create', pass plannerHandoff and/or visualBrief/referenceAnalysis/designBrief when available; missing representative planner reads for net-new sections can be satisfied by a substituteRepresentativeRead from the same theme instead of blocking on stale context, while existing_edit/native exact reads stay protected. Direct create calls without planner context now use production_visual validation as a backstop for scoped CSS, responsive behavior, real carousel controls and Theme Editor-safe JS. Lossy rewrites are blocked unless the planner/user explicitly requested removal or simplification. In compact responses, full planner/codegen/theme payloads are omitted unless verbosity='debug' or includeContracts=true. Do not use apply-theme-draft for the first write.`;
 export const docsDescription = `Draft and validate Shopify theme files through the guarded pipeline.
 
 Modes:
@@ -58,7 +58,7 @@ Theme-aware section regels:
 - Bestaande sections worden in mode="edit" preserve-on-edit gevalideerd: bestaande schema-settings, block types/settings, presets, block.shopify_attributes, image_tag-renderpaden, section.id CSS-scoping en Impact/theme helpers mogen niet verdwijnen tenzij de planner/gebruiker expliciet om verwijderen of versimpelen vroeg.
 - Een full rewrite die duidelijk kleiner wordt dan de actuele file wordt als lossy geblokkeerd met inspection_failed_lossy_rewrite en een repair response die opnieuw lezen verplicht stelt.
 - Gebruik plan-theme-edit voordat je native product-blocks, theme blocks of template placement probeert. Zo weet je eerst of het theme een single-file patch, multi-file edit of losse section-flow nodig heeft.
-- Wanneer plan-theme-edit eerst exact nextReadKeys voorschrijft, probeert deze tool die planner-reads nu eerst veilig exact te hydrateren. Alleen als vereiste reads daarna nog ontbreken, blijft dezelfde write-flow geblokkeerd en krijgt de client een expliciete read-repair terug.
+- Wanneer plan-theme-edit eerst exact nextReadKeys voorschrijft, probeert deze tool die planner-reads nu eerst veilig exact te hydrateren. Voor mode="create" + new_section mag een ontbrekende representatieve planner-read worden vervangen door een bestaande section/snippet/layout-read op hetzelfde theme met includeContent=true; de response noemt dit substituteRepresentativeRead en blokkeert niet langer op de stale key. Als er geen fallback bestaat, gaat een net-new standalone section door met generieke Shopify OS 2.0-validatie plus waarschuwing. Voor bestaande edits, native blocks en template placement blijven ontbrekende exacte reads hard blockers met een expliciete read-repair.
 - Nieuwe sections en edit-rewrites worden vooraf gecontroleerd op Shopify schema-basisregels, waaronder verplichte velden zoals setting/block labels, types, ids, names en content waar relevant, geldige presets, geldige range defaults binnen min/max, geldige step-alignment, maximaal 101 stappen per range setting en select-defaults die echt in options bestaan. Bij range- en select-fouten geeft de tool exacte suggestedReplacement/default-hints terug.
 - Nieuwe sections/blocks én nieuwe edit-writes op bestaande sections/blocks moeten blank-safe resource rendering gebruiken. Optionele settings zoals image_picker, video en video_url mogen niet onbeschermd door image_url, video_tag of external_video_* lopen; gebruik eerst een if/unless-guard of een expliciete default/fallback. Bestaande legacy-markup elders in het bestand blijft bewerkbaar zolang de nieuwe write geen extra onveilige resource-chain introduceert.
 - Wanneer de create-flow compacte theme-context heeft afgeleid, controleert de pipeline ook op hero-achtige oversizing van typography, spacing, gaps en min-heights ten opzichte van representatieve content sections in het doeltheme.
@@ -6933,6 +6933,29 @@ function uniqueStrings(values) {
   return Array.from(new Set((values || []).filter(Boolean)));
 }
 
+function isSectionReadKey(key) {
+  return /^sections\/[A-Za-z0-9._-]+\.liquid$/.test(String(key || ""));
+}
+
+function getRepresentativeFallbackReadKeys({
+  requiredReads = [],
+  readKeys = [],
+  themeContext = null,
+} = {}) {
+  const explicit = uniqueStrings([
+    ...(Array.isArray(requiredReads)
+      ? requiredReads
+          .filter((entry) => /representative/i.test(String(entry?.reason || "")))
+          .map((entry) => entry?.key)
+      : []),
+    themeContext?.representativeSection?.key,
+  ]).filter((key) => readKeys.includes(key));
+
+  return explicit.length > 0
+    ? explicit
+    : uniqueStrings(readKeys.filter(isSectionReadKey));
+}
+
 function stripBuildingInspectionPrefix(value) {
   return String(value || "").replace(/^(?:Building Inspection Failed:\s*)+/i, "");
 }
@@ -8020,6 +8043,13 @@ export const draftThemeArtifact = {
           effectivePlanIntent === "new_section" &&
           files.every((file) => String(file.key || "").startsWith("sections/")))
       );
+    const representativePlannedReadKeys = getRepresentativeFallbackReadKeys({
+      requiredReads: Array.isArray(effectiveSectionBlueprint?.requiredReads)
+        ? effectiveSectionBlueprint.requiredReads
+        : effectivePlannerHandoff?.requiredReads,
+      readKeys: plannedReadKeys,
+      themeContext: effectiveThemeSectionContext,
+    });
 
     let missingPlannedReadKeys = [];
     if (shouldEnforcePlannedReads) {
@@ -8031,12 +8061,16 @@ export const draftThemeArtifact = {
 
       if (!alreadySatisfied) {
         try {
-          const hydrationResult = await hydrateExactThemeReads(context, {
+          const allowRepresentativeFallback =
+            mode === "create" && effectivePlanIntent === "new_section";
+          const hydrationResult = await hydrateThemeReadsWithRepresentativeFallback(context, {
             shopifyClient,
             apiVersion: process.env.SHOPIFY_API_VERSION || "2026-01",
             themeId,
             themeRole,
             keys: plannedReadKeys,
+            allowRepresentativeFallback,
+            representativeFallbackKeys: representativePlannedReadKeys,
           });
           missingPlannedReadKeys = hydrationResult.missingKeys || [];
           if ((hydrationResult.hydratedKeys || []).length > 0) {
@@ -8044,11 +8078,63 @@ export const draftThemeArtifact = {
               `Planner-required theme-context reads zijn automatisch opgehaald: ${hydrationResult.hydratedKeys.join(", ")}.`
             );
           }
+          if (hydrationResult.substituteRepresentativeRead?.key) {
+            warnings.push(
+              `Planner-required representative read '${(hydrationResult.staleMissingKeys || []).join(", ")}' bestaat niet in dit theme; '${hydrationResult.substituteRepresentativeRead.key}' telt als substituteRepresentativeRead voor deze net-new section create.`
+            );
+            if (effectivePlannerHandoff && typeof effectivePlannerHandoff === "object") {
+              effectivePlannerHandoff.requiredReadKeys = uniqueStrings([
+                ...plannedReadKeys.filter(
+                  (key) => !hydrationResult.staleMissingKeys?.includes(key)
+                ),
+                hydrationResult.substituteRepresentativeRead.key,
+              ]);
+              if (Array.isArray(effectivePlannerHandoff.requiredReads)) {
+                effectivePlannerHandoff.requiredReads = [
+                  ...effectivePlannerHandoff.requiredReads.filter(
+                    (entry) =>
+                      !hydrationResult.staleMissingKeys?.includes(entry?.key)
+                  ),
+                  {
+                    key: hydrationResult.substituteRepresentativeRead.key,
+                    reason: "substitute representative content section",
+                    substitutedFor: hydrationResult.staleMissingKeys || [],
+                  },
+                ];
+              }
+            }
+          } else if (
+            allowRepresentativeFallback &&
+            hydrationResult.representativeFallbackAttempted &&
+            (hydrationResult.unsatisfiedRepresentativeReadKeys || []).length > 0
+          ) {
+            warnings.push(
+              `Planner-required representative reads ontbreken (${hydrationResult.unsatisfiedRepresentativeReadKeys.join(", ")}), maar er is geen fallback representative section gevonden. De net-new create-flow gaat voor die representatieve context door met generieke Shopify OS 2.0-validatie.`
+            );
+          }
         } catch (error) {
-          missingPlannedReadKeys = plannedReadKeys;
-          warnings.push(
-            `Automatisch ophalen van planner-required theme-context reads mislukte: ${error.message}`
-          );
+          if (mode === "create" && effectivePlanIntent === "new_section") {
+            const representativeFallbackSet = new Set(representativePlannedReadKeys);
+            const strictPlannedReadKeys = plannedReadKeys.filter(
+              (key) => !representativeFallbackSet.has(key)
+            );
+            if (strictPlannedReadKeys.length > 0) {
+              missingPlannedReadKeys = strictPlannedReadKeys;
+              warnings.push(
+                `Automatisch ophalen van planner-required theme-context reads mislukte: ${error.message}. Niet-representatieve required reads blijven verplicht: ${strictPlannedReadKeys.join(", ")}.`
+              );
+            } else {
+              warnings.push(
+                `Automatisch ophalen van planner-required representative reads mislukte: ${error.message}. De net-new create-flow gaat door met generieke Shopify OS 2.0-validatie.`
+              );
+              missingPlannedReadKeys = [];
+            }
+          } else {
+            missingPlannedReadKeys = plannedReadKeys;
+            warnings.push(
+              `Automatisch ophalen van planner-required theme-context reads mislukte: ${error.message}`
+            );
+          }
         }
       }
     }

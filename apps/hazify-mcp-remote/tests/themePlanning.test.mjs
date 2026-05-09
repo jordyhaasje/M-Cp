@@ -167,6 +167,40 @@ const homepageJsonFiles = {
   `),
 };
 
+const homepageMissingRepresentativeFiles = {
+  "templates/index.json": makeTextAsset(
+    JSON.stringify({
+      sections: {
+        reviews: { type: "glozzy-premium-reviews" },
+      },
+      order: ["reviews"],
+    })
+  ),
+  "sections/animated-header.liquid": makeTextAsset(`
+    <section class="animated-header page-width">
+      <div class="rte">{{ section.settings.heading }}</div>
+      {% if section.settings.image != blank %}
+        {{ section.settings.image | image_url: width: 1200 | image_tag }}
+      {% endif %}
+      <a class="button" href="{{ section.settings.button_link }}">{{ section.settings.button_label }}</a>
+    </section>
+    {% schema %}
+    {
+      "name": "Animated header",
+      "settings": [
+        { "type": "text", "id": "heading", "label": "Heading", "default": "Hello" },
+        { "type": "image_picker", "id": "image", "label": "Image" },
+        { "type": "text", "id": "button_label", "label": "Button label", "default": "Shop now" },
+        { "type": "url", "id": "button_link", "label": "Button link" },
+        { "type": "range", "id": "padding_top", "label": "Padding top", "min": 0, "max": 80, "step": 4, "default": 40 },
+        { "type": "range", "id": "padding_bottom", "label": "Padding bottom", "min": 0, "max": 80, "step": 4, "default": 40 }
+      ],
+      "presets": [{ "name": "Animated header" }]
+    }
+    {% endschema %}
+  `),
+};
+
 const homepageLiquidFiles = {
   "templates/index.liquid": makeTextAsset(`
     {% section 'hero-banner' %}
@@ -578,6 +612,41 @@ try {
     ),
     "section blueprint should expose forbidden patterns for generic section generation"
   );
+
+  global.fetch = createGraphqlFetch(homepageMissingRepresentativeFiles);
+  const missingRepresentativePlan = await planThemeEdit(shopifyClient, "2026-01", {
+    themeId: 123,
+    intent: "new_section",
+    template: "homepage",
+    query: "Maak een nieuwe review section",
+  });
+
+  assert.ok(
+    missingRepresentativePlan.nextReadKeys.includes("sections/animated-header.liquid"),
+    "new_section planning should substitute an existing representative section when the template-referenced section file is missing"
+  );
+  assert.ok(
+    !missingRepresentativePlan.nextReadKeys.includes("sections/glozzy-premium-reviews.liquid"),
+    "stale missing representative files must not remain in nextReadKeys"
+  );
+  assert.equal(
+    missingRepresentativePlan.themeContext?.representativeSection?.key,
+    "sections/animated-header.liquid"
+  );
+  assert.ok(
+    missingRepresentativePlan.sectionBlueprint?.requiredReads?.some(
+      (entry) => entry.key === "sections/animated-header.liquid"
+    )
+  );
+  assert.ok(
+    missingRepresentativePlan.warnings.some((warning) =>
+      warning.includes("glozzy-premium-reviews") &&
+      warning.includes("animated-header")
+    ),
+    "planner should explain representative read substitution"
+  );
+
+  global.fetch = createGraphqlFetch(homepageJsonFiles);
 
   const mediaSectionPlan = await planThemeEdit(shopifyClient, "2026-01", {
     themeId: 123,

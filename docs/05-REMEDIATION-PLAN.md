@@ -11,6 +11,7 @@ Dit document is de actuele releasekaart voor de Hazify monorepo. Het is geen cha
 - Theme generation is gericht op hogere first-pass success rate en lager tokenverbruik via compact planner output, preflight bundling, compact failure responses en server-side context waar veilig.
 - Theme section codegen preflight gebruikt nu tolerante JSON-schema blockrol-detectie: feature-rijke `slide` blocks met video/avatar/review/quote/secondary CTA settings blijven slide blocks, per-slide video-prompts worden niet meer door section-level video als compleet behandeld, en compact diagnostics bevatten gedetecteerde blocks plus prompt-coverage.
 - Section generation is nu contract-first: compacte `plan-theme-edit` responses bevatten `sectionContract`, `codegenPrompt` en `completionGate`; create-mode writes blokkeren op ontbrekende of partial prompt coverage; generieke settingtype-matches zijn aangescherpt; FAQ/tab/comparison blockrollen krijgen specifieke schema-diagnostics.
+- New-section theme-context is fallback-aware: een missende representatieve planner-read wordt vóór handoff vervangen door een bestaande section en write-tools accepteren `substituteRepresentativeRead` voor net-new standalone creates, terwijl missende helper/native/edit reads hard blockers blijven.
 
 ## Release Checklist
 1. Lees `docs/00-START-HERE.md`, `docs/01-TECH-STACK.md`, `docs/02-SYSTEM-FLOW.md` en `AGENTS.md`.

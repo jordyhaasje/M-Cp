@@ -58,6 +58,10 @@ const CONTENT_SECTION_HINTS = [
   /content/i,
 ];
 
+const FALLBACK_REPRESENTATIVE_SECTION_KEYS = [
+  "sections/animated-header.liquid",
+];
+
 const NON_CONTENT_SECTION_HINTS = [
   /hero/i,
   /banner/i,
@@ -402,6 +406,71 @@ const choosePrimaryTemplateFile = (files, templateSurface) => {
         scoreTemplateCandidate(left.key, templateSurface)
     );
   return candidates[0] || null;
+};
+
+const scoreRepresentativeSectionFile = (file) => {
+  const key = String(file?.key || "");
+  const source = String(file?.value || "");
+  let score = 0;
+
+  if (!file?.found || !/^sections\/[A-Za-z0-9._-]+\.liquid$/.test(key)) {
+    return -Infinity;
+  }
+  if (key === "sections/animated-header.liquid") score += 140;
+  if (CONTENT_SECTION_HINTS.some((pattern) => pattern.test(key))) score += 85;
+  if (NON_CONTENT_SECTION_HINTS.some((pattern) => pattern.test(key))) score -= 25;
+  if (/{%\s*schema\s*%}/i.test(source)) score += 35;
+  if (/"presets"\s*:/i.test(source)) score += 25;
+  if (/padding_top|padding_bottom|section_padding|section-spacing/i.test(source)) {
+    score += 65;
+  }
+  if (/image_picker|type"\s*:\s*"video"|video_url|richtext|button|href=|image_tag/i.test(source)) {
+    score += 45;
+  }
+
+  return score;
+};
+
+const chooseRepresentativeSectionFile = (files = []) =>
+  (Array.isArray(files) ? files : [])
+    .map((file) => ({ file, score: scoreRepresentativeSectionFile(file) }))
+    .filter((entry) => Number.isFinite(entry.score))
+    .sort((left, right) => right.score - left.score)[0]?.file || null;
+
+const findFallbackRepresentativeSectionFile = async (
+  shopifyClient,
+  apiVersion,
+  { themeId, themeRole } = {}
+) => {
+  const exactFallback = await getThemeFiles(shopifyClient, apiVersion, {
+    themeId,
+    themeRole,
+    keys: FALLBACK_REPRESENTATIVE_SECTION_KEYS,
+    includeContent: true,
+  });
+  const exactRepresentative = chooseRepresentativeSectionFile(exactFallback.files || []);
+  if (exactRepresentative) {
+    return {
+      file: exactRepresentative,
+      theme: exactFallback.theme,
+      source: "fallback_exact",
+    };
+  }
+
+  const sectionSearch = await searchThemeFiles(shopifyClient, apiVersion, {
+    themeId,
+    themeRole,
+    patterns: ["sections/*.liquid"],
+    includeContent: true,
+    resultLimit: 10,
+  });
+  const representative = chooseRepresentativeSectionFile(sectionSearch.files || []);
+  return {
+    file: representative,
+    theme: sectionSearch.theme,
+    source: "fallback_search",
+    truncated: sectionSearch.truncated === true,
+  };
 };
 
 const scoreSectionEntry = (
@@ -1389,6 +1458,7 @@ export const planThemeEdit = async (
   });
 
   let sectionFile = null;
+  const representativeReadWarnings = [];
   if (templateAnalysis.primarySection?.fileKey) {
     const sectionReadback = await getThemeFiles(shopifyClient, apiVersion, {
       themeId,
@@ -1397,6 +1467,36 @@ export const planThemeEdit = async (
       includeContent: true,
     });
     sectionFile = sectionReadback.files.find((file) => file.key === templateAnalysis.primarySection.fileKey) || null;
+    if (intent === "new_section" && (!sectionFile || sectionFile.found === false || sectionFile.missing === true)) {
+      const fallbackResult = await findFallbackRepresentativeSectionFile(
+        shopifyClient,
+        apiVersion,
+        { themeId, themeRole }
+      );
+      if (fallbackResult.file?.found) {
+        representativeReadWarnings.push(
+          `Planner-required representative read '${templateAnalysis.primarySection.fileKey}' bestaat niet in dit theme; gebruik '${fallbackResult.file.key}' als fallback representative section.`
+        );
+        sectionFile = fallbackResult.file;
+      } else {
+        representativeReadWarnings.push(
+          `Planner-required representative read '${templateAnalysis.primarySection.fileKey}' bestaat niet in dit theme en er is geen fallback representative section gevonden. Nieuwe standalone sections mogen daarom met generieke theme-validatie doorgaan.`
+        );
+        sectionFile = null;
+      }
+    }
+  } else if (intent === "new_section") {
+    const fallbackResult = await findFallbackRepresentativeSectionFile(
+      shopifyClient,
+      apiVersion,
+      { themeId, themeRole }
+    );
+    if (fallbackResult.file?.found) {
+      representativeReadWarnings.push(
+        `Geen primary template-section gevonden; gebruik '${fallbackResult.file.key}' als fallback representative section.`
+      );
+      sectionFile = fallbackResult.file;
+    }
   }
 
   const sectionAnalysis = sectionFile?.found
@@ -1458,6 +1558,12 @@ export const planThemeEdit = async (
     sectionBlueprint,
     query,
   });
+  if (representativeReadWarnings.length > 0) {
+    plan.warnings = uniqueStrings([
+      ...(Array.isArray(plan.warnings) ? plan.warnings : []),
+      ...representativeReadWarnings,
+    ]);
+  }
 
   return {
     theme: {

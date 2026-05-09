@@ -7391,6 +7391,205 @@ test("draftThemeArtifact - missing batch-read files do not satisfy required read
   }
 });
 
+test("draftThemeArtifact - create mode accepts substituteRepresentativeRead for stale missing new_section reads", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFilesFetchMock({
+    files: {
+      "sections/animated-header.liquid": `
+<section class="animated-header page-width">
+  <div class="rte">{{ section.settings.heading }}</div>
+</section>
+{% schema %}
+{
+  "name": "Animated header",
+  "settings": [
+    { "type": "range", "id": "padding_top", "label": "Padding top", "min": 0, "max": 80, "step": 4, "default": 40 },
+    { "type": "range", "id": "padding_bottom", "label": "Padding bottom", "min": 0, "max": 80, "step": 4, "default": 40 }
+  ],
+  "presets": [{ "name": "Animated header" }]
+}
+{% endschema %}
+`,
+    },
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock;
+  const context = {
+    shopifyClient: mockShopifyClient,
+    tokenHash: "draft-create-substitute-representative",
+  };
+
+  rememberThemePlan(context, {
+    themeId: 111,
+    intent: "new_section",
+    template: "homepage",
+    nextReadKeys: ["sections/glozzy-premium-reviews.liquid"],
+    nextWriteKeys: ["sections/dream-12.liquid"],
+    immediateNextTool: "get-theme-file",
+    writeTool: "draft-theme-artifact",
+    plannerHandoff: {
+      intent: "new_section",
+      themeTarget: { themeId: 111, themeRole: null },
+      requiredReadKeys: ["sections/glozzy-premium-reviews.liquid"],
+      nextWriteKeys: ["sections/dream-12.liquid"],
+      requiredReads: [
+        {
+          key: "sections/glozzy-premium-reviews.liquid",
+          reason: "representative content section",
+        },
+      ],
+    },
+  });
+
+  try {
+    await getThemeFilesTool.execute(
+      {
+        themeId: 111,
+        keys: ["sections/animated-header.liquid"],
+        includeContent: true,
+      },
+      context
+    );
+
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff: {
+          intent: "new_section",
+          themeTarget: { themeId: 111, themeRole: null },
+          requiredReadKeys: ["sections/glozzy-premium-reviews.liquid"],
+          nextWriteKeys: ["sections/dream-12.liquid"],
+        },
+        files: [
+          {
+            key: "sections/dream-12.liquid",
+            value: goodSectionLiquid,
+          },
+        ],
+      }),
+      context
+    );
+
+    assert.equal(result.success, true);
+    assert.ok(
+      result.warnings?.some((warning) =>
+        warning.includes("substituteRepresentativeRead") &&
+        warning.includes("sections/animated-header.liquid")
+      ),
+      "draft create should satisfy stale representative reads with the fallback read"
+    );
+    assert.ok(
+      !JSON.stringify(result).includes("missing_theme_context_reads"),
+      "draft create should not report the stale missing representative read as a blocker"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("draftThemeArtifact - substituteRepresentativeRead does not waive missing helper reads", async () => {
+  const mockShopifyClient = {
+    url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+    requestConfig: {
+      headers: new Headers({ "x-shopify-access-token": "fake-token" })
+    },
+    session: { shop: "unit-test.myshopify.com" },
+    request: async () => {}
+  };
+  const themeMock = createThemeFilesFetchMock({
+    files: {
+      "sections/animated-header.liquid": `
+<section class="animated-header page-width">
+  <div class="rte">{{ section.settings.heading }}</div>
+</section>
+{% schema %}
+{
+  "name": "Animated header",
+  "settings": [
+    { "type": "range", "id": "padding_top", "label": "Padding top", "min": 0, "max": 80, "step": 4, "default": 40 },
+    { "type": "range", "id": "padding_bottom", "label": "Padding bottom", "min": 0, "max": 80, "step": 4, "default": 40 }
+  ],
+  "presets": [{ "name": "Animated header" }]
+}
+{% endschema %}
+`,
+    },
+  });
+  const previousFetch = global.fetch;
+  global.fetch = themeMock;
+  const context = {
+    shopifyClient: mockShopifyClient,
+    tokenHash: "draft-create-mixed-missing-reads",
+  };
+
+  const plannerHandoff = {
+    intent: "new_section",
+    themeTarget: { themeId: 111, themeRole: null },
+    requiredReadKeys: [
+      "sections/glozzy-premium-reviews.liquid",
+      "snippets/missing-card-helper.liquid",
+    ],
+    nextWriteKeys: ["sections/dream-13.liquid"],
+    requiredReads: [
+      {
+        key: "sections/glozzy-premium-reviews.liquid",
+        reason: "representative content section",
+      },
+      {
+        key: "snippets/missing-card-helper.liquid",
+        reason: "theme helper snippet",
+      },
+    ],
+  };
+
+  try {
+    rememberThemePlan(context, {
+      themeId: 111,
+      intent: "new_section",
+      template: "homepage",
+      nextReadKeys: plannerHandoff.requiredReadKeys,
+      nextWriteKeys: plannerHandoff.nextWriteKeys,
+      immediateNextTool: "get-theme-file",
+      writeTool: "draft-theme-artifact",
+      plannerHandoff,
+    });
+
+    const result = await execute(
+      draftThemeArtifact.schema.parse({
+        themeId: 111,
+        mode: "create",
+        plannerHandoff,
+        files: [
+          {
+            key: "sections/dream-13.liquid",
+            value: goodSectionLiquid,
+          },
+        ],
+      }),
+      context
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, "missing_theme_context_reads");
+    assert.equal(result.nextTool, "get-theme-file");
+    assert.equal(result.nextArgsTemplate?.key, "snippets/missing-card-helper.liquid");
+    assert.ok(
+      !JSON.stringify(result.nextArgsTemplate).includes("glozzy-premium-reviews"),
+      "stale representative reads should not be returned as the next required read when a substitute exists"
+    );
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("draftThemeArtifact - rejects prompt-only review sections that degrade to generic content", async () => {
   const key = "sections/review-cards.liquid";
   const mockShopifyClient = {

@@ -49,6 +49,7 @@ Belangrijk: FAQ, feature-54 en Slider 7 werden niet geblokkeerd door destructiev
 | THEME-QA-012 | Gefixt, lokaal gevalideerd | Hero/social-proof sections met geldige section-level review, reviewer, CTA en avatar renderpaden konden onterecht `prompt_coverage_partial` krijgen door brittle id-detectie en block-only contracts. | Feature coverage normaliseert snake/kebab/camel/spatievarianten en accepteert single-review hero settings; herhaalbare review cards vereisen pas review blocks wanneer de prompt dat semantisch vraagt. |
 | THEME-QA-013 | Gefixt, lokaal gevalideerd | Moderne full-bleed hero sections konden falen op `section_recipe_wrapper_mode_mismatch` omdat `no_background_shell` een outer gradient/media shell blokkeerde. | Nieuw `own_media_shell` wrapper-mode staat full-bleed media/gradient roots toe en blokkeert alleen dubbele ownership via `section-properties` background/text-color. |
 | THEME-QA-014 | Gefixt, lokaal gevalideerd | Een malformed of unclosed `{% schema %}` kon als `schema_missing_schema_block` terugkomen, wat retries richting de verkeerde fix stuurde. | Schema tag parsing normaliseert code fences/escaped tags en rapporteert unclosed/unopened/unbalanced schema blocks expliciet. |
+| THEME-QA-015 | Gefixt, lokaal gevalideerd | `plan-theme-edit` kon voor `new_section` een niet-bestaande representative read zoals `sections/glozzy-premium-reviews.liquid` blijven eisen, waarna create/draft writes met `missing_theme_context_reads` blokkeerden ondanks een gelezen fallback section. | Planner valideert representative reads tegen echte theme files en substitueert een bestaande fallback; create/draft accepteren `substituteRepresentativeRead` alleen voor net-new representative context en blijven missende helper/native/edit reads blokkeren. |
 
 ## Fixplan
 1. Portability: Impact wrappers niet meer verplichten voor nieuwe generieke sections; alleen scoped CSS blijft hard requirement.
@@ -71,6 +72,16 @@ Belangrijk: FAQ, feature-54 en Slider 7 werden niet geblokkeerd door destructiev
 - Command: `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs apps/hazify-mcp-remote/tests/themeCodegenContract.test.mjs apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
 - Resultaat: pass, `168` tests groen.
 - Afgedekt: compact `plannerHandoff`, `visualBrief`/`referenceAnalysis` normalisatie, direct-create `production_visual` backstop, echte carousel-controls met Theme Editor lifecycle, `feature-54` feature/media-list anchors en `Slider 7` counter/peek/active-state anchors.
+
+## Vervolgvalidatie Representative Read Fallback
+- Datum: 2026-05-09.
+- Aanleiding: ChatGPT kon `new_section` creates niet afronden wanneer de planner een stale, niet-bestaand representative bestand vereiste.
+- Commands:
+  - `node --test apps/hazify-mcp-remote/tests/themePlanning.test.mjs`
+  - `node --test apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
+  - `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+- Resultaat: pass, `1` planner-testfile, `19` create-theme-section tests en `129` draft/apply tests groen.
+- Afgedekt: planner substitute naar `sections/animated-header.liquid`, `create-theme-section` en `draft-theme-artifact mode="create"` accepteren `substituteRepresentativeRead`, stale `glozzy-premium-reviews` komt niet terug als missing read, en gemengde required reads blokkeren nog steeds op een missende helper-snippet.
 
 ## Live Re-test Status
 Vorige live hertest vóór deployment `110cbfd7-08ef-4d6a-9851-9b22939b38ba`:
