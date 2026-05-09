@@ -93,19 +93,21 @@ Vorige live hertest vóór deployment `110cbfd7-08ef-4d6a-9851-9b22939b38ba`:
 - `patch-theme-file` non-mutating repair-test: pass voor exclusieve target-normalisatie; `nextArgsTemplate` bevatte alleen `themeId`, geen dubbele `themeRole`.
 - `plan-theme-edit` negatie-test met "No images, no slider": fail in oude live runtime; `sectionContract.requiredFeatures` bevatte nog `slides` en `images`.
 
-Na deployment `110cbfd7-08ef-4d6a-9851-9b22939b38ba`:
+Na deployment `2ea428fe-4f89-4d2e-a76e-3e53d7c90f0f`:
 - Railway deployment: `SUCCESS`.
 - MCP HTTP anonymous smoke: pass via `npm run release:postdeploy`; `/mcp` zonder token geeft correct `401`.
-- Railway deploy logs filter `error OR warn`: leeg.
-- Store-gekoppelde authenticated Hazify MCP tooltest: niet uitgevoerd in deze shell, omdat er geen `HAZIFY_MCP_SMOKE_TOKEN`/`MCP_SMOKE_TOKEN` is geconfigureerd en de Codex-toolnamespace voor `hazify_mcp` hier niet beschikbaar is. Eerdere appconnector-hertest gaf `token_invalidated`. Er zijn daardoor na deze deployment geen extra live theme files geschreven.
+- Store-gekoppelde authenticated Hazify MCP tooltest: pass op live main theme `187324891450`.
+- Intentionele stale read-test: `get-theme-file sections/glozzy-premium-reviews.liquid` gaf `NOT_FOUND`.
+- Representative fallback-read: `get-theme-file sections/animated-header.liquid includeContent=true` pass, checksum `lUY6fldV7NS5QllW+3F2Eg==`.
+- Planner hertest: `plan-theme-edit intent="new_section"` voor `dream-12` retourneerde `sections/animated-header.liquid` in `requiredReads`, `nextReadKeys`, `readContext` en `plannerHandoff`; de stale `glozzy-premium-reviews` key kwam niet terug als verplichte read.
+- Write hertest: `create-theme-section` kon `sections/dream-12.liquid` in het live main theme aanmaken met scoped CSS, repeated card blocks, CTA, scroll-snap carousel controls, Theme Editor lifecycle JS en geldig schema.
+- Verify hertest: `get-theme-file sections/dream-12.liquid includeContent=true` en `verify-theme-files` pass; checksum `v2PyT4+eUWVpQwjgQ++vBw==`, size `10924`.
+- Railway deploy logs filter `error OR warn`: bevat de bewuste `NOT_FOUND` voor `sections/glozzy-premium-reviews.liquid` uit de stale-read test en een bestaande Node `punycode` deprecation warning; geen nieuwe runtime failure gezien.
 
-Nog opnieuw te bewijzen zodra de store-gekoppelde MCP-auth beschikbaar is:
-- portable FAQ create zonder Impact wrappers;
-- `feature-54` replica create met grote media + icon rows;
-- `Slider 7` replica create met counter, peek cards, active contrast en echte controls;
-- `plan-theme-edit` compact response met bruikbare `plannerHandoff`;
-- `visualBrief`/`referenceAnalysis` doorvoer van plan naar create/draft;
-- MCP metadata voor `verify-theme-files` met zichtbaar `expected[]` input schema.
+Nog breder te bewijzen in aparte flows:
+- `feature-54` replica create met grote media + icon rows op de actuele gedeployde runtime;
+- `Slider 7` replica create met counter, peek cards, active contrast en echte controls op de actuele gedeployde runtime;
+- end-to-end template placement na section create wanneer de gebruiker expliciet plaatsing op een pagina vraagt.
 
 ## Release Validatie
 - `npm run release:preflight`: pass.
@@ -122,16 +124,16 @@ Nog opnieuw te bewijzen zodra de store-gekoppelde MCP-auth beschikbaar is:
 - Railway MCP status: pass; Railway CLI is geïnstalleerd en geauthenticeerd. Gekoppelde service: `Hazify-MCP-Remote`.
 
 ## Doelstatus
-Lokaal en in de gedeployde code is het hoofddoel technisch dichterbij en technisch haalbaar voor de geteste regressies: de MCP-server kan portable Online Store 2.0 sections valideren zonder theme-specifieke Impact hardcoding, prompt-negaties correct interpreteren, image-renderpaden via Liquid variables herkennen, compacte responses geven, theme targets veiliger doorgeven, stateless planner-context bewaren en exacte feature/slider-replica anchors afdwingen.
+Lokaal, in de gedeployde code en via de store-gekoppelde Hazify MCP toolnamespace is het hoofdprobleem voor `new_section` representative reads opgelost: een stale missend voorbeeldbestand wordt niet langer als harde dependency meegedragen, de planner retourneert een bestaande fallback-read, en de write/verify-flow kan een nieuwe standalone OS 2.0 section in het live main theme aanmaken en verifiëren.
 
-Belangrijk: production smoke en Railway deploy zijn groen, maar de store-gekoppelde authenticated Hazify MCP-hertest is nog niet volledig bewezen na deze deployment zolang de connector/token ontbreekt. De code- en Shopify Dev-validatie bewijzen de lokale en generieke theme-compatibiliteit; echte store-data hertest moet alsnog worden uitgevoerd zodra authenticated MCP-tooling beschikbaar is.
+Het bredere productdoel is hiermee technisch haalbaar voor generieke section creation/editing workflows, maar blijft afhankelijk van goede codegen binnen het contract: replica-flows en template placement moeten per archetype nog live blijven worden gehard, vooral voor visuele exactheid en pagina-insertie.
 
 ## Deploy Status
-- Commit: `6e57481 fix: preserve section replica context`.
+- Runtime deploy commit: `e510b24 fix: tolerate missing new-section context reads`.
 - Push: `origin/main` bijgewerkt.
 - Railway service: `Hazify-MCP-Remote`.
-- Deployment: `110cbfd7-08ef-4d6a-9851-9b22939b38ba`.
+- Deployment: `2ea428fe-4f89-4d2e-a76e-3e53d7c90f0f`.
 - Deployment status: `SUCCESS`.
 - Post-deploy smoke: pass via `npm run release:postdeploy`.
-- Railway deploy logs filter `error OR warn`: leeg.
-- Live MCP authenticated hertest na deploy: blocked door ontbrekende smoke token/toolnamespace; er zijn daardoor geen extra live theme files geschreven na de redeploy.
+- Railway deploy logs filter `error OR warn`: alleen de bewuste stale-read `NOT_FOUND` uit de hertest en een bestaande Node `punycode` deprecation warning.
+- Live MCP authenticated hertest na deploy: pass voor planner fallback, live section create/readback en `verify-theme-files` op `sections/dream-12.liquid`.
