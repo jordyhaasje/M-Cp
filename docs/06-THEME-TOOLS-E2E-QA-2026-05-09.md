@@ -68,46 +68,55 @@ Belangrijk: FAQ, feature-54 en Slider 7 werden niet geblokkeerd door destructiev
 - Resultaat: pass, `168` tests groen.
 - Afgedekt: compact `plannerHandoff`, `visualBrief`/`referenceAnalysis` normalisatie, direct-create `production_visual` backstop, echte carousel-controls met Theme Editor lifecycle, `feature-54` feature/media-list anchors en `Slider 7` counter/peek/active-state anchors.
 
-## Open Re-test
-- Live MCP runtime opnieuw getest op theme `187324891450`.
-- `get-themes`: pass, live Impact theme bevestigd.
-- `plan-theme-edit` voor portable FAQ: pass voor planning, maar de live runtime blijft Impact wrapper reads voorstellen.
+## Live Re-test Status
+Vorige live hertest vóór deployment `110cbfd7-08ef-4d6a-9851-9b22939b38ba`:
+- `get-themes`: pass, live Impact theme `187324891450` bevestigd.
+- `plan-theme-edit` voor portable FAQ: pass voor planning, maar de oude live runtime bleef Impact wrapper reads voorstellen.
 - `get-theme-files`: pass voor exacte planner reads.
-- `create-theme-section` voor `sections/hazify-regression-faq.liquid`: blocked, geen write uitgevoerd (`liveFileUnchanged=true`, readback `NOT_FOUND`). De live runtime blokkeert nog steeds met `inspection_failed_impact_wrapper`.
-- `verify-theme-files`: execute pass met expliciete args op `sections/hazify-test-slider.liquid`, maar de MCP metadata toont deze tool nog als no-args; schema-exposure blijft live een client-UX bug totdat de gefixte runtime actief is.
+- `create-theme-section` voor `sections/hazify-regression-faq.liquid`: blocked, geen write uitgevoerd (`liveFileUnchanged=true`, readback `NOT_FOUND`). De oude live runtime blokkeerde nog met `inspection_failed_impact_wrapper`.
+- `verify-theme-files`: execute pass met expliciete args op `sections/hazify-test-slider.liquid`, maar oude MCP metadata toonde deze tool nog als no-args.
 - `patch-theme-file` non-mutating repair-test: pass voor exclusieve target-normalisatie; `nextArgsTemplate` bevatte alleen `themeId`, geen dubbele `themeRole`.
-- `plan-theme-edit` negatie-test met "No images, no slider": fail in live runtime; `sectionContract.requiredFeatures` bevatte nog `slides` en `images`.
+- `plan-theme-edit` negatie-test met "No images, no slider": fail in oude live runtime; `sectionContract.requiredFeatures` bevatte nog `slides` en `images`.
 
-Conclusie hertest: de lokale fixes zijn gevalideerd, maar de verbonden/live Hazify MCP runtime draait nog niet volledig met deze wijzigingen. Er zijn geen extra theme files geschreven tijdens deze hertest.
+Na deployment `110cbfd7-08ef-4d6a-9851-9b22939b38ba`:
+- Railway deployment: `SUCCESS`.
+- MCP HTTP anonymous smoke: pass via `npm run release:postdeploy`; `/mcp` zonder token geeft correct `401`.
+- Railway deploy logs filter `error OR warn`: leeg.
+- Store-gekoppelde authenticated Hazify MCP tooltest: niet uitgevoerd in deze shell, omdat er geen `HAZIFY_MCP_SMOKE_TOKEN`/`MCP_SMOKE_TOKEN` is geconfigureerd en de Codex-toolnamespace voor `hazify_mcp` hier niet beschikbaar is. Eerdere appconnector-hertest gaf `token_invalidated`. Er zijn daardoor na deze deployment geen extra live theme files geschreven.
+
+Nog opnieuw te bewijzen zodra de store-gekoppelde MCP-auth beschikbaar is:
+- portable FAQ create zonder Impact wrappers;
+- `feature-54` replica create met grote media + icon rows;
+- `Slider 7` replica create met counter, peek cards, active contrast en echte controls;
+- `plan-theme-edit` compact response met bruikbare `plannerHandoff`;
+- `visualBrief`/`referenceAnalysis` doorvoer van plan naar create/draft;
+- MCP metadata voor `verify-theme-files` met zichtbaar `expected[]` input schema.
 
 ## Release Validatie
 - `npm run release:preflight`: pass.
+- `node --test apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs apps/hazify-mcp-remote/tests/themeCodegenContract.test.mjs apps/hazify-mcp-remote/tests/themePlanning.test.mjs`: pass, `168` tests groen.
 - `npm --prefix apps/hazify-mcp-remote test`: pass, `All hazify tests passed`.
 - `npm run check:docs`: pass.
 - `npm run build`: pass.
 - `npm run check:repo`: pass.
 - `npm run test:e2e`: pass.
+- `npm audit --omit=dev`: pass na lock-update `fast-uri` `3.1.0` -> `3.1.2`.
 - Shopify Dev MCP `learn_shopify_api(api="liquid")`: pass; officiële Liquid/theme-context geladen.
-- Shopify Dev MCP `validate_theme`: pass op een representatieve portable FAQ section met native `<details>/<summary>`, block settings, `{{ block.shopify_attributes }}` en scoped CSS. Artifact: `artifact-f0e68c02-feab-47b0-840b-74687e200300`, revision 1.
-- Context7 MCP: blocked door connector-auth (`token_invalidated`). Geen repo-blocker, maar wel een tooling-issue voor externe docverificatie.
+- Shopify Dev MCP `validate_theme`: pass op representatieve `feature-54`-achtige feature/media section. Artifact: `artifact-c0bb86f8-041d-48cf-8b57-d589f4fb3bcd`, revision 1.
+- Shopify Dev MCP `validate_theme`: pass op representatieve `Slider 7`-achtige carousel section. Artifact: `artifact-6b7d541f-a7ff-416f-ab3b-1dfa96e65e75`, revision 1.
 - Railway MCP status: pass; Railway CLI is geïnstalleerd en geauthenticeerd. Gekoppelde service: `Hazify-MCP-Remote`.
 
 ## Doelstatus
-Lokaal en in de gedeployde code is het hoofddoel technisch haalbaar gemaakt voor de geteste regressies: de MCP-server kan portable Online Store 2.0 sections valideren zonder theme-specifieke Impact hardcoding, prompt-negaties correct interpreteren, image-renderpaden via Liquid variables herkennen, compacte responses geven en theme targets veiliger doorgeven.
+Lokaal en in de gedeployde code is het hoofddoel technisch dichterbij en technisch haalbaar voor de geteste regressies: de MCP-server kan portable Online Store 2.0 sections valideren zonder theme-specifieke Impact hardcoding, prompt-negaties correct interpreteren, image-renderpaden via Liquid variables herkennen, compacte responses geven, theme targets veiliger doorgeven, stateless planner-context bewaren en exacte feature/slider-replica anchors afdwingen.
 
-Production smoke is groen na deploy, maar de store-gekoppelde Codex/Hazify appconnector gaf daarna `token_invalidated`. Daardoor is de post-deploy live store hertest nog niet volledig bewezen met echte store data. Zodra de connector opnieuw is geauthenticeerd, moet opnieuw worden gecontroleerd:
-- portable FAQ create zonder Impact wrappers;
-- `feature-54` replica create zonder verplichte Impact wrappers;
-- `Slider 7` replica create zonder verplichte Impact wrappers;
-- `plan-theme-edit` met "No images, no slider" zonder foutieve `slides`/`images` requirements;
-- MCP metadata voor `verify-theme-files` met zichtbaar `expected[]` input schema.
+Belangrijk: production smoke en Railway deploy zijn groen, maar de store-gekoppelde authenticated Hazify MCP-hertest is nog niet volledig bewezen na deze deployment zolang de connector/token ontbreekt. De code- en Shopify Dev-validatie bewijzen de lokale en generieke theme-compatibiliteit; echte store-data hertest moet alsnog worden uitgevoerd zodra authenticated MCP-tooling beschikbaar is.
 
 ## Deploy Status
-- Commit: `931a8a4 fix: harden portable theme section workflows`.
+- Commit: `6e57481 fix: preserve section replica context`.
 - Push: `origin/main` bijgewerkt.
 - Railway service: `Hazify-MCP-Remote`.
-- Deployment: `55dce8e6-fc89-47a2-965b-0dce630d6b9a`.
+- Deployment: `110cbfd7-08ef-4d6a-9851-9b22939b38ba`.
 - Deployment status: `SUCCESS`.
 - Post-deploy smoke: pass via `npm run release:postdeploy`.
 - Railway deploy logs filter `error OR warn`: leeg.
-- Live MCP appconnector hertest na deploy: blocked door connector-auth `token_invalidated`; er zijn daardoor geen extra live theme files geschreven na de redeploy.
+- Live MCP authenticated hertest na deploy: blocked door ontbrekende smoke token/toolnamespace; er zijn daardoor geen extra live theme files geschreven na de redeploy.
