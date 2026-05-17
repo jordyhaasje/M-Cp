@@ -314,24 +314,13 @@ test("createThemeSection - forwards static section blueprint and theme context f
   );
 });
 
-test("createThemeSection - Dream prompt uses deterministic single-media-story fallback", serial, async () => {
+test("createThemeSection - summary-only Dream prompt requires complete Liquid instead of generating a fallback", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 
-  let capturedInput = null;
-  draftThemeArtifact.execute = async (input) => {
-    capturedInput = input;
-    return {
-      success: true,
-      status: "preview_ready",
-      writeApplied: true,
-      technicalSuccess: true,
-      schemaSuccess: true,
-      taskSuccess: true,
-      promptFidelity: 0.96,
-      expectedArchetype: "single_media_story",
-      detectedArchetype: "single_media_story",
-      warnings: [],
-    };
+  let draftCalled = false;
+  draftThemeArtifact.execute = async () => {
+    draftCalled = true;
+    return { success: true };
   };
 
   const result = await createThemeSectionTool.execute(
@@ -344,33 +333,10 @@ test("createThemeSection - Dream prompt uses deterministic single-media-story fa
     { shopifyClient, tokenHash: "dream-create-fallback" }
   );
 
-  assert.equal(
-    result.success,
-    true,
-    JSON.stringify({
-      errorCode: result.errorCode,
-      message: result.message,
-      errors: result.errors?.map((issue) => issue.issueCode || issue.code || issue.problem),
-      preflight: result.preflight,
-    })
-  );
-  assert.equal(capturedInput?.mode, "create");
-  assert.equal(capturedInput?.files?.[0]?.key, "sections/dream-section12.liquid");
-  const generated = capturedInput?.files?.[0]?.value || "";
-  assert.match(generated, /Bekijk video/);
-  assert.match(generated, /Live your/);
-  assert.match(generated, /dreams\./);
-  assert.match(generated, /Je leeft maar één keer/);
-  assert.match(generated, /Ons verhaal/);
-  assert.match(generated, /"type": "image_picker"/);
-  assert.match(generated, /"type": "video"/);
-  assert.match(generated, /"type": "video_url"/);
-  assert.match(generated, /aspect-ratio\s*:/);
-  assert.match(generated, /border-radius\s*:/);
-  assert.match(generated, /@media\b/);
-  assert.match(generated, /prefers-reduced-motion/);
-  assert.doesNotMatch(generated, /data-dream-prev|data-dream-next|scrollBy|Previous card|Next card/);
-  assert.doesNotMatch(generated, /"type": "card"|Kicker|carousel controls/i);
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "missing_section_liquid");
+  assert.equal(result.nextAction, "provide_complete_section_liquid");
+  assert.equal(draftCalled, false);
 });
 
 test("createThemeSection - safely repairs trailing missing endschema before write", serial, async () => {
@@ -511,6 +477,7 @@ test("createThemeSection - planner contract conflict points to archetype overrid
       themeRole: "main",
       key: "sections/dream-section12.liquid",
       summary: DREAM_PROMPT,
+      liquid: buildSingleMediaStorySection({ handle: "dream-section12" }),
       plannerHandoff: {
         brief: DREAM_PROMPT,
         archetype: "logo_marquee",

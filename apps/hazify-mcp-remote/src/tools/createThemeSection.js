@@ -15,7 +15,6 @@ import {
 } from "../lib/themeCodegenContract.js";
 import {
   buildSectionContract,
-  buildSingleMediaStorySection,
   classifyArchetype,
   detectGeneratedArchetype,
   validateContractAgainstPrompt,
@@ -766,22 +765,6 @@ const createThemeSectionTool = {
           }),
         ],
       });
-    }
-
-    if (typeof input.liquid !== "string" || input.liquid.trim().length === 0) {
-      const fallbackClassification = classifyArchetype({
-        prompt:
-          summary ||
-          input.plannerHandoff?.brief ||
-          input.plannerHandoff?.plannerQuery ||
-          input.key,
-      });
-      if (fallbackClassification.archetype === "single_media_story") {
-        input = {
-          ...input,
-          liquid: buildSingleMediaStorySection({ handle: input.key }),
-        };
-      }
     }
 
     if (typeof input.liquid !== "string" || input.liquid.trim().length === 0) {

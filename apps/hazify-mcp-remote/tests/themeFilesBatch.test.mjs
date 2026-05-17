@@ -3,6 +3,8 @@ import crypto from "crypto";
 import { getThemeFiles, upsertThemeFiles, verifyThemeFiles } from "../src/lib/themeFiles.js";
 import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
+process.env.NODE_ENV = "test";
+
 const originalFetch = global.fetch;
 const themeDraftDb = createThemeDraftDbHarness();
 
