@@ -17,6 +17,7 @@
 - Beslissing: **MERGE BOTH / KEEP LOCAL WITH CLEANUP**. Lokale commits behouden, extra fix toegevoegd zodat vrije summary-tekst nooit code vervangt, en daarna gepusht naar `origin/main`.
 - Gepushte MCP-fixcommit: `bdf7090` - create-theme-section hardening, testfixes en auditrapport.
 - Correctie na review: LangFlow export- en bridge-bestanden horen niet in deze MCP-repo. Die artifacts zijn verwijderd uit de repository; alleen MCP-code, MCP-tests en dit auditrapport blijven getrackt.
+- Repo-cleanupcommit: `0dbcb83` - `Remove LangFlow artifacts from MCP repo`.
 - Na push was `main` gelijk met `origin/main` (`0` ahead / `0` behind).
 
 ## B. MCP audit
