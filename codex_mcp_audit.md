@@ -14,7 +14,9 @@
   - `5cd16ac` - `Harden section schema and prompt validation`
 - Remote `origin/main` stond op `621a2f2 docs: record live new-section validation`.
 - Inhoudelijke conclusie: lokale commits zijn production-minded theme-tool hardening, maar een summary-only fallback in `create-theme-section` was te permissief.
-- Beslissing: **MERGE BOTH / KEEP LOCAL WITH CLEANUP**. Lokale commits behouden, extra fix toegevoegd zodat vrije summary-tekst nooit code vervangt, en daarna commit/push uitvoeren.
+- Beslissing: **MERGE BOTH / KEEP LOCAL WITH CLEANUP**. Lokale commits behouden, extra fix toegevoegd zodat vrije summary-tekst nooit code vervangt, en daarna gepusht naar `origin/main`.
+- Gepushte fixcommit: `bdf7090` - `Harden theme section creation and add LangFlow audit`.
+- Na push was `main` gelijk met `origin/main` (`0` ahead / `0` behind).
 
 ## B. MCP audit
 
@@ -117,10 +119,11 @@ Bekeken projecten/services:
 
 MCP Remote:
 
-- Laatste deployment: `65d81c69-3c88-4bae-bfb9-aec8f4e37835`, status `SUCCESS`, aangemaakt `2026-05-09T21:21:51.509Z`.
-- Buildlog: build geslaagd; npm deprecation warnings voor `inflight` en `glob`, geen vulnerabilities.
-- Runtime gefilterd op `error OR warn OR theme OR mcp`: geen output.
-- Runtime algemeen: veel normale `mcp_http_initialize`; ook recente `Token is invalid or inactive` door oude/ongeldige clienttoken-test.
+- Deployment voor fixes: `65d81c69-3c88-4bae-bfb9-aec8f4e37835`, status `SUCCESS`, aangemaakt `2026-05-09T21:21:51.509Z`.
+- Nieuwe deployment na push: `de54c18b-bf2b-47e7-95d0-fb318eb30bd5`, status `SUCCESS`, aangemaakt `2026-05-17T11:46:23.328Z`.
+- Buildlog na deploy: build geslaagd; npm warnings voor `production Use --omit=dev`, deprecated `inflight` en deprecated `glob`; geen vulnerabilities.
+- Runtime gefilterd op `error OR warn OR theme OR mcp` na deploy: alleen normale startupregel `Hazify MCP HTTP server listening on 0.0.0.0:8080 (session mode: stateless)`.
+- Runtime algemeen voor deploy: normale `mcp_http_initialize`; ook recente `Token is invalid or inactive` door oude/ongeldige clienttoken-test.
 
 License Service:
 
@@ -130,8 +133,8 @@ License Service:
 
 Deploymentbeslissing:
 
-- MCP Remote fixes zijn deployment-relevant. Na commit/push hoort `Hazify-MCP-Remote` opnieuw gedeployed te worden.
-- License Service krijgt geen codewijziging en hoeft niet gedeployed te worden.
+- MCP Remote fixes waren deployment-relevant en `Hazify-MCP-Remote` is opnieuw gedeployed.
+- License Service kreeg geen codewijziging en is niet gedeployed.
 
 ## G. Resterende risico's
 
