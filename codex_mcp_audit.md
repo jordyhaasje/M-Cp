@@ -15,7 +15,8 @@
 - Remote `origin/main` stond op `621a2f2 docs: record live new-section validation`.
 - Inhoudelijke conclusie: lokale commits zijn production-minded theme-tool hardening, maar een summary-only fallback in `create-theme-section` was te permissief.
 - Beslissing: **MERGE BOTH / KEEP LOCAL WITH CLEANUP**. Lokale commits behouden, extra fix toegevoegd zodat vrije summary-tekst nooit code vervangt, en daarna gepusht naar `origin/main`.
-- Gepushte fixcommit: `bdf7090` - `Harden theme section creation and add LangFlow audit`.
+- Gepushte MCP-fixcommit: `bdf7090` - create-theme-section hardening, testfixes en auditrapport.
+- Correctie na review: LangFlow export- en bridge-bestanden horen niet in deze MCP-repo. Die artifacts zijn verwijderd uit de repository; alleen MCP-code, MCP-tests en dit auditrapport blijven getrackt.
 - Na push was `main` gelijk met `origin/main` (`0` ahead / `0` behind).
 
 ## B. MCP audit
@@ -38,9 +39,9 @@ Theme/code-tools:
 | `get-theme-files` / `read-theme-files` | Werkend | `themeFilesBatch.test.mjs` | Standalone test zet nu zelf `NODE_ENV=test` | FIXED |
 | `patch-theme-file` | Werkend | tool hardening/cross-theme tests | Geen | KEEP |
 | `draft-theme-artifact` | Werkend | 129 draft/apply tests, schema/codegen checks | Geen extra fix in deze audit | KEEP |
-| `apply-theme-draft` | Werkend maar hoog-impact | apply tests | Niet in Agent allowlist | KEEP, agent disabled |
+| `apply-theme-draft` | Werkend maar hoog-impact | apply tests | Geen runtimewijziging; blijft expliciet target/draft-gated | KEEP |
 | `verify-theme-files` | Werkend | batch verify tests | Geen | KEEP |
-| `delete-theme-file` | Destructief, confirmation-gated; geen verify-after-delete/advisory-lock hardening gevonden | codepad inspectie | Niet in Agent allowlist | KEEP, agent disabled |
+| `delete-theme-file` | Destructief, confirmation-gated; geen verify-after-delete/advisory-lock hardening gevonden | codepad inspectie | Geen runtimewijziging; blijft expliciet target-gated | KEEP |
 
 Aanvullende verificatie:
 
@@ -60,57 +61,12 @@ Aangepaste/aangemaakte bestanden:
   - Contract-conflict test geeft nu expliciet Liquid mee.
 - `apps/hazify-mcp-remote/tests/themeFilesBatch.test.mjs`
   - Standalone test zet `NODE_ENV=test`.
-- `scripts/langflow/hazify-local-mcp-bridge.sh`
-  - Start lokale M-Cp HTTP server met Railway-env en exposeert hem als stdio bridge.
-- `scripts/langflow/hazify-mcp-stdio-bridge.mjs`
-  - Kleine secret-stille stdio -> HTTP JSON-RPC bridge voor Hazify MCP.
-- `langflow/exports/hazify_shopify_agent_ollama_gmail_mcp.langflow.json`
-  - Secret-vrije LangFlow export.
-- `langflow/README.md`
-  - Lokale flow/bridge documentatie.
 - `codex_mcp_audit.md`
   - Dit auditrapport.
 
-Tool-registratie in runtime is niet ingeperkt; de LangFlow Agent gebruikt tool metadata/statussen om hoog-impact tools uit te zetten.
+Tool-registratie in runtime is tijdens deze audit niet ingeperkt of verwijderd.
 
-## D. Gmail MCP
-
-- Lokale server getest met `npx @gongrzhe/server-gmail-autoauth-mcp`.
-- `tools/list` bevestigd:
-  - `send_email`, `draft_email`, `read_email`, `search_emails`, `modify_email`, `delete_email`, `list_email_labels`, `batch_modify_emails`, `batch_delete_emails`, `create_label`, `update_label`, `delete_label`, `get_or_create_label`, `create_filter`, `list_filters`, `get_filter`, `delete_filter`, `create_filter_from_template`, `download_attachment`.
-- Lokaal aanwezig: `~/.gmail-mcp/gcp-oauth.keys.json` en `~/.gmail-mcp/credentials.json`.
-- In de Agent allowlist staan alleen veiligere Gmail-tools aan:
-  - `draft_email`, `read_email`, `search_emails`, `modify_email`, `list_email_labels`, `create_label`, `update_label`, `get_or_create_label`.
-- Send/delete/bulk-delete/filter-mutaties zijn in de flow disabled.
-
-## E. LangFlow flow
-
-- Nieuwe flownaam: `Hazify Shopify Agent - Ollama Gmail MCP`
-- Lokale flow-id: `8fd1e0940e5c4442a8fa984a93f8f8b3`
-- Componenten:
-  - Chat Input
-  - Agent
-  - MCP Tools `hazify_mcp_local`
-  - MCP Tools `gmail`
-  - Chat Output
-- Ollama-model: `kimi-k2.6:cloud` met tool-calling metadata.
-- LangFlow versie: `1.9.2`.
-- Ollama beschikbaar: `gemini-3-flash-preview:latest`, `kimi-k2.6:cloud`.
-- LangFlow MCP config bijgewerkt in lokale user cache met servers `hazify_mcp_local` en `gmail`; secrets zijn niet in de repo opgeslagen.
-- Hazify MCP live uitvoering vereist nog een geldig `HAZIFY_MCP_CLIENT_TOKEN`. Het lokaal aangetroffen oude token was ongeldig/inactief.
-- MacUse is geprobeerd voor LangFlow UI; snapshot werkte, maar typen/navigeren vereiste macOS consent en time-outte. De flow is daarom via lokale LangFlow database/export aangemaakt en daarna via database/API-inspectie geverifieerd.
-
-System prompt hoofdregels:
-
-- Shopify tools gebruiken voor product/order/theme taken.
-- Gmail tools gebruiken voor zoeken/lezen/labels/drafts.
-- Theme-acties eerst toolbeschikbaarheid inspecteren.
-- Nooit stilzwijgend live/main kiezen.
-- Nieuwe sections alleen via `plan-theme-edit` -> `create-theme-section` met volledige Liquid.
-- Existing edits via `search-theme-files` -> `get-theme-file` -> `patch-theme-file` of `draft-theme-artifact mode=edit`.
-- Hoog-impact delete/apply/refund/delete-product tools niet gebruiken.
-
-## F. Railway
+## D. Railway
 
 Bekeken projecten/services:
 
@@ -136,9 +92,7 @@ Deploymentbeslissing:
 - MCP Remote fixes waren deployment-relevant en `Hazify-MCP-Remote` is opnieuw gedeployed.
 - License Service kreeg geen codewijziging en is niet gedeployed.
 
-## G. Resterende risico's
+## E. Resterende risico's
 
-- Een geldig Hazify MCP clienttoken moet opnieuw worden gezet als `HAZIFY_MCP_CLIENT_TOKEN` voordat de LangFlow Agent de Hazify MCP live kan gebruiken.
-- `delete-theme-file`, `apply-theme-draft`, `refund-order` en product-delete tools zijn bewust niet aan de Agent blootgesteld.
+- Hoog-impact tools zoals `delete-theme-file`, `apply-theme-draft`, `refund-order` en product-delete blijven confirmation- of target-gated.
 - Pattern-search heeft geen REST fallback; exacte reads/writes hebben wel testdekking.
-- MacUse UI-automatisering van LangFlow kon niet volledig door macOS consent-timeout; de flow is lokaal aangemaakt en database/export-verifieerd.
