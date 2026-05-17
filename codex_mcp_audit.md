@@ -9,7 +9,10 @@
 - Remote: `git@github.com:jordyhaasje/M-Cp.git`
 - Startstatus her-audit: `main` was clean en gelijk met `origin/main`.
 - Beslissing: **KEEP LOCAL + FIX FORWARD**. De eerdere LangFlow-artifacts blijven uit deze MCP-repo; alleen MCP-code, tests, docs en dit auditbestand zijn aangepast.
-- Push/deploymentstatus wordt in het eindrapport vastgelegd nadat de aanvullende schema-discovery fix is gepusht en Railway opnieuw is gecontroleerd.
+- Gepushte commits op `origin/main`:
+  - `91dcb60` - `Harden theme tools for agent use`
+  - `3097df8` - `Expose hardened theme tool schemas`
+- Railway MCP deployment na schema-discovery fix: `b8a61def-5183-406a-9832-5dd7c49435c2`, status **SUCCESS**.
 
 ## B. MCP audit
 
@@ -100,12 +103,22 @@ Belangrijkste wijzigingen:
 - Release-preflight:
   - `npm run release:preflight`
   - Resultaat: **passed**.
+- Shopify Dev MCP bewijs na fix:
+  - `validate_graphql_codeblocks` voor `ThemeFilesUpsert` en `ThemeFilesDelete`: **VALID**.
+  - `validate_theme` op `sections/dream-12-live-carousel.liquid`: **VALID**.
+- Live deployed MCP schema smoke:
+  - `npx -y mcp-remote https://hazify-mcp-remote-production.up.railway.app/mcp --transport http-only`
+  - Resultaat: **35 tools**, geen ontbrekende theme-tools, geen private `_` args, `apply-theme-draft` en `delete-theme-file` exposen hun precondition/confirmation args.
 
 ## G. Gmail MCP en LangFlow
 
 - Gmail MCP is geen onderdeel van deze repository en wordt niet als artifact in deze repo opgeslagen.
-- LangFlow flow/config hoort los van deze MCP-repo. De flow moet na deployment de live Hazify MCP opnieuw introspecteren zodat alle 35 tools inclusief de gefixte theme/code-tools beschikbaar zijn.
-- Flow-correctie wordt buiten deze repo uitgevoerd en in het eindrapport vastgelegd.
+- LangFlow flow/config hoort los van deze MCP-repo. Er is geen flow-export in deze repository opgeslagen.
+- Flow `Hazify Shopify Agent - Ollama Gmail MCP` is buiten git bijgewerkt in de lokale LangFlow database:
+  - 6 nodes, 5 edges: Chat Input -> Agent, Ollama -> Agent model, Hazify MCP -> Agent tools, Gmail MCP -> Agent tools, Agent -> Chat Output.
+  - Hazify MCP: 35/35 tools enabled; `apply-theme-draft` en `delete-theme-file` hebben gevulde args.
+  - Gmail MCP: 14/19 tools enabled; `send_email`, `delete_email`, `batch_delete_emails`, `delete_label`, `delete_filter` disabled.
+  - Ollama: `kimi-k2.6:cloud`, `http://localhost:11434`, tool model enabled, context `128000`, temperature `0.1`.
 
 ## H. Resterende risico's
 
