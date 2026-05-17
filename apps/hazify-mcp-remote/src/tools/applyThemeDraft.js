@@ -8,31 +8,35 @@ import { getShopDomainFromClient, getThemeFiles, upsertThemeFiles } from "../lib
 import { requireShopifyClient } from "./_context.js";
 
 const ThemeRoleSchema = z.enum(["main"]);
-const ExpectedTargetFileSchema = z
-  .object({
-    key: z.string().min(1).describe("Theme file key that will be overwritten or created."),
-    checksumMd5: z
-      .string()
-      .min(1)
-      .optional()
-      .describe("Checksum from a fresh target read. Required when the file should currently exist."),
-    status: z
-      .enum(["missing", "match"])
-      .optional()
-      .describe("Use status='missing' only when a fresh target read confirmed the file does not exist."),
-  })
-  .superRefine((input, ctx) => {
-    if (input.status !== "missing" && !input.checksumMd5) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["checksumMd5"],
-        message: "checksumMd5 is verplicht tenzij status='missing' expliciet is bevestigd.",
-      });
-    }
-  });
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
+const ExpectedTargetFilePublicSchema = z.object({
+  key: z.string().min(1).describe("Theme file key that will be overwritten or created."),
+  checksumMd5: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Checksum from a fresh target read. Required when the file should currently exist."),
+  status: z
+    .enum(["missing", "match"])
+    .optional()
+    .describe("Use status='missing' only when a fresh target read confirmed the file does not exist."),
+});
+const ExpectedTargetFileInputSchema = ExpectedTargetFilePublicSchema.superRefine((input, ctx) => {
+  if (input.status !== "missing" && !input.checksumMd5) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["checksumMd5"],
+      message: "checksumMd5 is verplicht tenzij status='missing' expliciet is bevestigd.",
+    });
+  }
+});
+const expectedTargetFilesPublicSchema = z
+  .array(ExpectedTargetFilePublicSchema)
+  .min(1)
+  .max(10);
+const expectedTargetFilesInputSchema = z
+  .array(ExpectedTargetFileInputSchema)
+  .min(1)
+  .max(10);
 const normalizeApplyThemeDraftInput = (rawInput) => {
   if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
     return rawInput;
@@ -50,6 +54,37 @@ const normalizeApplyThemeDraftInput = (rawInput) => {
     reason: rawInput.reason,
   };
 };
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const ApplyThemeDraftPublicObjectSchema = z.object({
+  draftId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "UUID draft ID returned by draft-theme-artifact. Gebruik hier geen bestandsnaam, slug of zelfverzonnen placeholder."
+    ),
+  draft_id: z.string().min(1).optional().describe("Compat alias van draftId voor generieke wrappers."),
+  themeId: z.coerce.number().int().positive().optional().describe("Optional explicit target theme ID."),
+  theme_id: z.coerce.number().int().positive().optional().describe("Compat alias van themeId voor generieke wrappers."),
+  themeRole: ThemeRoleSchema.optional().describe("Target theme role when themeId is omitted. Alleen 'main' is role-only toegestaan; gebruik themeId voor unpublished/demo/development themes."),
+  theme_role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers. Alleen 'main' is role-only toegestaan."),
+  role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers. Alleen 'main' is role-only toegestaan."),
+  expectedTargetFiles: expectedTargetFilesPublicSchema
+    .optional()
+    .describe(
+      "Fresh target-state preconditions for every file in the draft. Use checksumMd5 for existing files or status='missing' for new files."
+    ),
+  expected_target_files: expectedTargetFilesPublicSchema
+    .optional()
+    .describe("Compat alias van expectedTargetFiles voor generieke wrappers."),
+  expected: expectedTargetFilesPublicSchema
+    .optional()
+    .describe("Compat alias van expectedTargetFiles voor generieke wrappers."),
+  confirmation: z.literal("APPLY_THEME_DRAFT").describe("Verplicht type: 'APPLY_THEME_DRAFT' ter bevestiging."),
+  reason: z.string().min(5).describe("Auditable reden voor het toepassen van dit draft."),
+});
 
 const ApplyThemeDraftInputSchema = z.preprocess(
   normalizeApplyThemeDraftInput,
@@ -61,18 +96,11 @@ const ApplyThemeDraftInputSchema = z.preprocess(
         .describe(
           "UUID draft ID returned by draft-theme-artifact. Gebruik hier geen bestandsnaam, slug of zelfverzonnen placeholder."
         ),
-      themeId: z.coerce.number().int().positive().optional().describe("Optional explicit target theme ID."),
-      themeRole: ThemeRoleSchema.optional().describe("Target theme role when themeId is omitted. Alleen 'main' is role-only toegestaan; gebruik themeId voor unpublished/demo/development themes."),
-      expectedTargetFiles: z
-        .array(ExpectedTargetFileSchema)
-        .min(1)
-        .max(10)
-        .optional()
-        .describe(
-          "Fresh target-state preconditions for every file in the draft. Use checksumMd5 for existing files or status='missing' for new files."
-        ),
-      confirmation: z.literal("APPLY_THEME_DRAFT").describe("Verplicht type: 'APPLY_THEME_DRAFT' ter bevestiging."),
-      reason: z.string().min(5).describe("Auditable reden voor het toepassen van dit draft."),
+      themeId: z.coerce.number().int().positive().optional(),
+      themeRole: ThemeRoleSchema.optional(),
+      expectedTargetFiles: expectedTargetFilesInputSchema.optional(),
+      confirmation: z.literal("APPLY_THEME_DRAFT"),
+      reason: z.string().min(5),
     })
     .superRefine((input, ctx) => {
       if (input.themeId && input.themeRole) {
@@ -274,8 +302,14 @@ const applyThemeDraft = {
     "Promote a previously saved theme draft to an explicit target theme. Do not use this to create a new section or for the first write of files. First create/write via create-theme-section or draft-theme-artifact, then apply only with the returned draftId.",
   docsDescription:
     "Apply a previously drafted theme artifact to an explicit target theme. Dit is de promote/apply stap nadat `draft-theme-artifact` of `create-theme-section` eerst een echte draft/write heeft voorbereid en geverifieerd. Gebruik deze tool dus niet om een nieuwe section voor het eerst te schrijven. `themeId` of `themeRole='main'` is verplicht; gebruik themeId voor development/unpublished/demo themes en kies nooit stilzwijgend een live target. Het draft moet bij dezelfde Shopify shop horen en verify-after-write moet matchen.",
+  inputSchema: ApplyThemeDraftPublicObjectSchema,
   schema: ApplyThemeDraftInputSchema,
-  execute: async (input, context = {}) => {
+  execute: async (rawInput, context = {}) => {
+    const normalizedParse = ApplyThemeDraftInputSchema.safeParse(rawInput);
+    if (!normalizedParse.success) {
+      throw new Error(normalizedParse.error.issues.map((issue) => issue.message).join(" | "));
+    }
+    const input = normalizedParse.data;
     if (!input.themeId && !input.themeRole) {
       return {
         success: false,

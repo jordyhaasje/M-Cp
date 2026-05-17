@@ -9,7 +9,7 @@
 - Remote: `git@github.com:jordyhaasje/M-Cp.git`
 - Startstatus her-audit: `main` was clean en gelijk met `origin/main`.
 - Beslissing: **KEEP LOCAL + FIX FORWARD**. De eerdere LangFlow-artifacts blijven uit deze MCP-repo; alleen MCP-code, tests, docs en dit auditbestand zijn aangepast.
-- Push/deploymentstatus wordt in het eindrapport vastgelegd nadat deze changeset is gepusht en Railway is gecontroleerd.
+- Push/deploymentstatus wordt in het eindrapport vastgelegd nadat de aanvullende schema-discovery fix is gepusht en Railway opnieuw is gecontroleerd.
 
 ## B. MCP audit
 
@@ -38,9 +38,9 @@ Algemene toolstatus:
 | `get-theme-files` / `read-theme-files` | Werkend | Geen nieuw probleem gevonden | batch/read tests + tenant isolation | KEEP |
 | `patch-theme-file` | Functioneel, maar LangFlow-incompatibel schema | Publiek schema exposeerde legacy `_tool_input_summary`; normalization kon legacy underscore laten lekken | tool hardening tests + MCP HTTP schema-test | FIXED |
 | `draft-theme-artifact` | Functioneel, maar LangFlow-incompatibel schema | Publiek schema exposeerde legacy `_tool_input_summary` | 131 draft/apply tests + MCP HTTP schema-test | FIXED |
-| `apply-theme-draft` | Niet agent-ready genoeg voor hoge-impact apply | Geen harde gate op `preview_applied`; geen target checksum-preconditions; geen apply audit | nieuwe apply tests, Shopify GraphQL validation | FIXED |
+| `apply-theme-draft` | Niet agent-ready genoeg voor hoge-impact apply | Geen harde gate op `preview_applied`; geen target checksum-preconditions; geen apply audit; na hardening kwam het MCP `tools/list` schema leeg door top-level Zod wrappers | nieuwe apply tests, Shopify GraphQL validation, MCP HTTP tools/list schema-test | FIXED |
 | `verify-theme-files` | Werkend | Geen nieuw probleem gevonden | batch verify tests | KEEP |
-| `delete-theme-file` | Niet agent-ready genoeg voor destructieve delete | Geen checksum precondition, confirmKey, advisory lock, audit of verify-after-delete | nieuwe delete tests, Shopify GraphQL validation | FIXED |
+| `delete-theme-file` | Niet agent-ready genoeg voor destructieve delete | Geen checksum precondition, confirmKey, advisory lock, audit of verify-after-delete; na hardening kwam het MCP `tools/list` schema leeg door top-level Zod wrappers | nieuwe delete tests, Shopify GraphQL validation, MCP HTTP tools/list schema-test | FIXED |
 
 Conclusie theme/code-tools: geen theme/code-tool is verwijderd of disabled. De eerder twijfelachtige tools zijn gefixt en kunnen na deployment opnieuw in LangFlow worden ingeschakeld, met de bestaande write-scope en confirmation guards.
 
@@ -72,6 +72,7 @@ Belangrijkste wijzigingen:
 - Publieke MCP input schemas exposeeren geen properties meer die met `_` beginnen. Legacy `_tool_input_summary` blijft intern geaccepteerd via compatibility preprocessing, maar LangFlow krijgt alleen het publieke `tool_input_summary`.
 - `delete-theme-file` vereist nu een exacte target, `confirmKey`, checksum-precondition en verify-after-delete; delete gebruikt GraphQL `themeFilesDelete` met REST fallback, advisory lock en audit log.
 - `apply-theme-draft` vereist nu `preview_applied` drafts en verse `expectedTargetFiles` preconditions voordat een target theme wordt overschreven; succesvolle apply wordt geaudit.
+- `apply-theme-draft` en `delete-theme-file` gebruiken nu een vlak publiek MCP input schema plus interne normalization. Daardoor blijven velden als `expectedTargetFiles`, `confirmKey`, `expectedChecksumMd5` en compat aliases (`draft_id`, `confirm_key`, `expected_checksum_md5`) zichtbaar in `tools/list`, terwijl de strengere runtime-validatie behouden blijft.
 - `update-fulfillment-tracking` maakt geen fulfillment meer stilzwijgend aan; die fallback vereist expliciete bevestiging en reden.
 - `manage-product-options` behandelt option-value deletion als destructieve route met confirmation en audit-after-success.
 
@@ -87,9 +88,15 @@ Belangrijkste wijzigingen:
 - Gerichte regressiesuite:
   - `node --test apps/hazify-mcp-remote/tests/themeFilesBatch.test.mjs apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs apps/hazify-mcp-remote/tests/toolHardening.test.mjs apps/hazify-mcp-remote/tests/mcpHttpAuth.test.mjs apps/hazify-mcp-remote/tests/remediation.test.mjs apps/hazify-mcp-remote/tests/toolRegistry.test.mjs apps/hazify-mcp-remote/tests/tenantIsolationAllTools.test.mjs`
   - Resultaat: **137 passed, 0 failed**.
+- Aanvullende schema-discovery regressiesuite:
+  - `node --test apps/hazify-mcp-remote/tests/mcpHttpAuth.test.mjs apps/hazify-mcp-remote/tests/toolHardening.test.mjs apps/hazify-mcp-remote/tests/themeFilesBatch.test.mjs apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+  - Resultaat: **134 passed, 0 failed**.
 - Workspace MCP-suite:
   - `npm test --workspace @hazify/mcp-remote`
   - Resultaat: **passed**.
+- Repo/docs/security checks:
+  - `npm run check:docs`, `npm run check:repo`, `npm audit --omit=dev`, `git diff --check`
+  - Resultaat: **passed**, `0 vulnerabilities`.
 - Release-preflight:
   - `npm run release:preflight`
   - Resultaat: **passed**.

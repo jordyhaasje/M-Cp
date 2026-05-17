@@ -6,21 +6,6 @@ import { deleteThemeFile, getThemeFile } from "../lib/themeFiles.js";
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 const ThemeRoleSchema = z.enum(["main"]);
 
-const resolveShopDomain = (context, shopifyClient) => {
-  if (typeof context?.shopifyDomain === "string" && context.shopifyDomain.trim()) {
-    return context.shopifyDomain.trim();
-  }
-  const rawUrl = typeof shopifyClient?.url === "string" ? shopifyClient.url : "";
-  if (!rawUrl) {
-    return null;
-  }
-  try {
-    return new URL(rawUrl).hostname || null;
-  } catch {
-    return null;
-  }
-};
-
 const normalizeDeleteThemeFileInput = (rawInput) => {
   if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
     return rawInput;
@@ -41,25 +26,75 @@ const normalizeDeleteThemeFileInput = (rawInput) => {
   };
 };
 
+const resolveShopDomain = (context, shopifyClient) => {
+  if (typeof context?.shopifyDomain === "string" && context.shopifyDomain.trim()) {
+    return context.shopifyDomain.trim();
+  }
+  const rawUrl = typeof shopifyClient?.url === "string" ? shopifyClient.url : "";
+  if (!rawUrl) {
+    return null;
+  }
+  try {
+    return new URL(rawUrl).hostname || null;
+  } catch {
+    return null;
+  }
+};
+
+const DeleteThemeFilePublicObjectSchema = z.object({
+  themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
+  theme_id: z.coerce.number().int().positive().optional().describe("Compat alias van themeId voor generieke wrappers."),
+  themeRole: ThemeRoleSchema.optional().describe("Theme role. Alleen 'main' is role-only toegestaan; gebruik themeId voor development/unpublished/demo themes."),
+  theme_role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers. Alleen 'main' is role-only toegestaan."),
+  role: ThemeRoleSchema.optional().describe("Compat alias van themeRole voor generieke wrappers. Alleen 'main' is role-only toegestaan."),
+  key: z.string().min(1).optional().describe("Theme file key to delete. Note: layout/theme.liquid cannot be deleted."),
+  filename: z.string().min(1).optional().describe("Compat alias van key voor generieke wrappers."),
+  file: z.string().min(1).optional().describe("Compat alias van key voor generieke wrappers."),
+  confirmKey: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Moet exact gelijk zijn aan key. Dit voorkomt accidental deletes door tool-call samenvattingen."),
+  confirm_key: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Compat alias van confirmKey voor generieke wrappers."),
+  expectedChecksumMd5: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Checksum uit een recente get-theme-file/get-theme-files read. Vereist voor conflict-safe delete."),
+  expected_checksum_md5: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Compat alias van expectedChecksumMd5 voor generieke wrappers."),
+  checksumMd5: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Compat alias van expectedChecksumMd5 voor generieke wrappers."),
+  checksum: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Compat alias van expectedChecksumMd5 voor generieke wrappers."),
+  confirmation: z.literal("DELETE_THEME_FILE").describe("Verplicht type: 'DELETE_THEME_FILE' ter bevestiging"),
+  reason: z.string().min(5).describe("Auditable reden"),
+});
+
 const DeleteThemeFileInputSchema = z.preprocess(
   normalizeDeleteThemeFileInput,
   z
     .object({
-      themeId: z.coerce.number().int().positive().optional().describe("Optional explicit Shopify theme ID"),
-      themeRole: ThemeRoleSchema.optional().describe("Theme role. Alleen 'main' is role-only toegestaan; gebruik themeId voor development/unpublished/demo themes."),
-      key: z.string().min(1).describe("Theme file key to delete. Note: layout/theme.liquid cannot be deleted."),
-      confirmKey: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("Moet exact gelijk zijn aan key. Dit voorkomt accidental deletes door tool-call samenvattingen."),
-      expectedChecksumMd5: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("Checksum uit een recente get-theme-file/get-theme-files read. Vereist voor conflict-safe delete."),
-      confirmation: z.literal("DELETE_THEME_FILE").describe("Verplicht type: 'DELETE_THEME_FILE' ter bevestiging"),
-      reason: z.string().min(5).describe("Auditable reden"),
+      themeId: z.coerce.number().int().positive().optional(),
+      themeRole: ThemeRoleSchema.optional(),
+      key: z.string().min(1),
+      confirmKey: z.string().min(1).optional(),
+      expectedChecksumMd5: z.string().min(1).optional(),
+      confirmation: z.literal("DELETE_THEME_FILE"),
+      reason: z.string().min(5),
     })
     .superRefine((input, ctx) => {
       if (input.themeId && input.themeRole) {
@@ -69,22 +104,20 @@ const DeleteThemeFileInputSchema = z.preprocess(
           message: "Gebruik themeId of themeRole, niet allebei tegelijk.",
         });
       }
-      if (input.confirmKey && input.confirmKey !== input.key) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["confirmKey"],
-          message: "confirmKey moet exact gelijk zijn aan key.",
-        });
-      }
     })
 );
-
 
 const deleteThemeFileTool = {
   name: "delete-theme-file",
   description: "Delete a file from a Shopify theme. Gebruik themeRole='main' of een exact themeId; vraag de gebruiker welk thema.",
+  inputSchema: DeleteThemeFilePublicObjectSchema,
   schema: DeleteThemeFileInputSchema,
-  execute: async (input, context = {}) => {
+  execute: async (rawInput, context = {}) => {
+    const normalizedParse = DeleteThemeFileInputSchema.safeParse(rawInput);
+    if (!normalizedParse.success) {
+      throw new Error(normalizedParse.error.issues.map((issue) => issue.message).join(" | "));
+    }
+    const input = normalizedParse.data;
     const shopifyClient = requireShopifyClient(context);
     if (!input.themeId && !input.themeRole) {
       throw new Error("Geef themeRole='main' of een exact themeId op. Vraag de gebruiker welk thema bedoeld wordt.");

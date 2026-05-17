@@ -705,6 +705,52 @@ try {
     "get-theme-file should expose theme_id as a compat alias in emitted JSON schema"
   );
 
+  const applyThemeDraftDefinition = tools.find((tool) => tool?.name === "apply-theme-draft");
+  assert.ok(applyThemeDraftDefinition, "tools/list should expose apply-theme-draft");
+  assert.equal(
+    Boolean(applyThemeDraftDefinition.inputSchema?.properties?.expectedTargetFiles),
+    true,
+    "apply-theme-draft should expose expectedTargetFiles preconditions in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(applyThemeDraftDefinition.inputSchema?.properties?.draftId),
+    true,
+    "apply-theme-draft should expose draftId in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(applyThemeDraftDefinition.inputSchema?.properties?.draft_id),
+    true,
+    "apply-theme-draft should expose draft_id as a compat alias in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(applyThemeDraftDefinition.inputSchema?.properties?.expected_target_files),
+    true,
+    "apply-theme-draft should expose expected_target_files as a compat alias in emitted JSON schema"
+  );
+
+  const deleteThemeFileDefinition = tools.find((tool) => tool?.name === "delete-theme-file");
+  assert.ok(deleteThemeFileDefinition, "tools/list should expose delete-theme-file");
+  assert.equal(
+    Boolean(deleteThemeFileDefinition.inputSchema?.properties?.confirmKey),
+    true,
+    "delete-theme-file should expose confirmKey in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(deleteThemeFileDefinition.inputSchema?.properties?.expectedChecksumMd5),
+    true,
+    "delete-theme-file should expose expectedChecksumMd5 in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(deleteThemeFileDefinition.inputSchema?.properties?.confirm_key),
+    true,
+    "delete-theme-file should expose confirm_key as a compat alias in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(deleteThemeFileDefinition.inputSchema?.properties?.expected_checksum_md5),
+    true,
+    "delete-theme-file should expose expected_checksum_md5 as a compat alias in emitted JSON schema"
+  );
+
   console.log("mcpHttpAuth.test.mjs passed");
 } finally {
   if (mcpServer && mcpServer.listening) {
