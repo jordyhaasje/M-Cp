@@ -90,6 +90,34 @@ Use <style> or markup-level CSS variables for section.id scoping`;
 
 const ThemeRoleSchema = z.enum(["main"]);
 const PlannerHandoffSchema = z.object({}).passthrough();
+const PlannerHandoffJsonStringSchema = z
+  .string()
+  .max(30000)
+  .transform((value, ctx) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return {};
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch {
+      // Report through Zod below so callers get a normal validation error.
+    }
+
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "plannerHandoff must be an object or a JSON-stringified object.",
+    });
+    return {};
+  });
+const PlannerHandoffInputSchema = z.union([
+  PlannerHandoffSchema,
+  PlannerHandoffJsonStringSchema,
+]);
 const ResponseVerbositySchema = z.enum(["compact", "debug"]);
 const VisualBriefSchema = z
   .union([z.string().max(4000), z.record(z.unknown())])
@@ -293,10 +321,10 @@ const DraftThemeArtifactPublicObjectSchema = z
       ),
     isStandalone: z.boolean().optional().describe("Mark as standalone workflow"),
     is_standalone: z.boolean().optional().describe("Compat alias van isStandalone voor generieke wrappers."),
-    plannerHandoff: PlannerHandoffSchema.optional().describe(
-      "Optionele planner-handoff uit plan-theme-edit met volledige brief, reference signals en required reads. Gebruik dit om de write-flow semantisch aan het plannerresultaat te binden."
+    plannerHandoff: PlannerHandoffInputSchema.optional().describe(
+      "Optionele planner-handoff uit plan-theme-edit met volledige brief, reference signals en required reads. Mag een object of JSON-stringified object zijn."
     ),
-    planner_handoff: PlannerHandoffSchema.optional().describe(
+    planner_handoff: PlannerHandoffInputSchema.optional().describe(
       "Compat alias van plannerHandoff voor generieke wrappers."
     ),
     verbosity: ResponseVerbositySchema.optional().describe(
@@ -335,7 +363,7 @@ const NormalizedThemeDraftArtifactShape = z
     themeRole: ThemeRoleSchema.optional(),
     mode: z.enum(["create", "edit"]).optional(),
     isStandalone: z.boolean().optional(),
-    plannerHandoff: PlannerHandoffSchema.optional(),
+    plannerHandoff: PlannerHandoffInputSchema.optional(),
     verbosity: ResponseVerbositySchema.optional(),
     includeContracts: z.boolean().optional(),
   })

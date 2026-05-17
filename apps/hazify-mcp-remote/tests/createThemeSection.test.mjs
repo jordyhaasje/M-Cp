@@ -38,6 +38,22 @@ const themeNode = {
   updatedAt: "2026-03-11T10:00:00Z",
 };
 
+test("createThemeSection - accepts JSON-stringified plannerHandoff from LangFlow-style clients", () => {
+  const parsed = createThemeSectionTool.schema.parse({
+    themeId: 123,
+    key: "sections/langflow-handoff.liquid",
+    liquid: "<section></section>{% schema %}{\"name\":\"LangFlow handoff\",\"presets\":[{\"name\":\"LangFlow handoff\"}]}{% endschema %}",
+    plannerHandoff: JSON.stringify({
+      intent: "new_section",
+      targetFile: "sections/langflow-handoff.liquid",
+      themeTarget: { themeId: 123, themeRole: null },
+    }),
+  });
+
+  assert.equal(parsed.plannerHandoff.intent, "new_section");
+  assert.equal(parsed.plannerHandoff.targetFile, "sections/langflow-handoff.liquid");
+});
+
 function makeTextAsset(content, contentType = "TEXT") {
   return {
     checksumMd5: "checksum",

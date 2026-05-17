@@ -23,6 +23,24 @@ test.after(async () => {
 test.afterEach(() => {
   clearThemeEditMemory();
 });
+
+test("draftThemeArtifact - accepts JSON-stringified plannerHandoff from LangFlow-style clients", () => {
+  const parsed = draftThemeArtifact.schema.parse({
+    themeId: 123,
+    mode: "edit",
+    key: "sections/langflow-handoff.liquid",
+    value: goodSectionLiquid,
+    plannerHandoff: JSON.stringify({
+      intent: "existing_edit",
+      targetFile: "sections/langflow-handoff.liquid",
+      themeTarget: { themeId: 123, themeRole: null },
+    }),
+  });
+
+  assert.equal(parsed.plannerHandoff.intent, "existing_edit");
+  assert.equal(parsed.plannerHandoff.targetFile, "sections/langflow-handoff.liquid");
+});
+
 const goodSectionLiquid = `
 <style>
   #shopify-section-{{ section.id }} .card {
