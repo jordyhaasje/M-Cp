@@ -86,13 +86,13 @@ const SummaryAliasFieldDescriptions = {
   _tool_input_summary:
     "Compat summary voor beperkte clients. Alleen veilige inferentie voor intent, theme target, template en exact één targetFile.",
   tool_input_summary:
-    "Legacy alias van _tool_input_summary voor backwards compatibility.",
+    "Compat summary voor beperkte clients. Alleen veilige inferentie voor intent, theme target, template en exact één targetFile.",
   summary:
-    "Legacy alias van _tool_input_summary voor backwards compatibility.",
+    "Legacy alias van tool_input_summary voor backwards compatibility.",
   prompt:
-    "Legacy alias van _tool_input_summary voor backwards compatibility.",
+    "Legacy alias van tool_input_summary voor backwards compatibility.",
   request:
-    "Legacy alias van _tool_input_summary voor backwards compatibility.",
+    "Legacy alias van tool_input_summary voor backwards compatibility.",
 };
 
 const PLAN_QUERY_PUBLIC_MAX_LENGTH = 4000;
@@ -253,11 +253,6 @@ const PlanThemeEditPublicObjectSchema = z
     design_brief: VisualBriefSchema.describe(
       "Compat alias van designBrief."
     ),
-    _tool_input_summary: z
-      .string()
-      .max(4000)
-      .optional()
-      .describe(SummaryAliasFieldDescriptions._tool_input_summary),
     tool_input_summary: z
       .string()
       .max(4000)

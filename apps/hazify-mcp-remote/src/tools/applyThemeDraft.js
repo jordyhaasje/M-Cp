@@ -1,24 +1,89 @@
 import { z } from "zod";
-import { getThemeDraftRecord, updateThemeDraftRecord } from "../lib/db.js";
-import { getShopDomainFromClient, upsertThemeFiles } from "../lib/themeFiles.js";
+import {
+  createMutationAuditLog,
+  getThemeDraftRecord,
+  updateThemeDraftRecord,
+} from "../lib/db.js";
+import { getShopDomainFromClient, getThemeFiles, upsertThemeFiles } from "../lib/themeFiles.js";
 import { requireShopifyClient } from "./_context.js";
 
 const ThemeRoleSchema = z.enum(["main"]);
+const ExpectedTargetFileSchema = z
+  .object({
+    key: z.string().min(1).describe("Theme file key that will be overwritten or created."),
+    checksumMd5: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Checksum from a fresh target read. Required when the file should currently exist."),
+    status: z
+      .enum(["missing", "match"])
+      .optional()
+      .describe("Use status='missing' only when a fresh target read confirmed the file does not exist."),
+  })
+  .superRefine((input, ctx) => {
+    if (input.status !== "missing" && !input.checksumMd5) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["checksumMd5"],
+        message: "checksumMd5 is verplicht tenzij status='missing' expliciet is bevestigd.",
+      });
+    }
+  });
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const ApplyThemeDraftInputSchema = z.object({
-  draftId: z
-    .string()
-    .min(1)
-    .describe(
-      "UUID draft ID returned by draft-theme-artifact. Gebruik hier geen bestandsnaam, slug of zelfverzonnen placeholder."
-    ),
-  themeId: z.coerce.number().int().positive().optional().describe("Optional explicit target theme ID."),
-  themeRole: ThemeRoleSchema.optional().describe("Target theme role when themeId is omitted. Alleen 'main' is role-only toegestaan; gebruik themeId voor unpublished/demo/development themes."),
-  confirmation: z.literal("APPLY_THEME_DRAFT").describe("Verplicht type: 'APPLY_THEME_DRAFT' ter bevestiging."),
-  reason: z.string().min(5).describe("Auditable reden voor het toepassen van dit draft."),
-});
+const normalizeApplyThemeDraftInput = (rawInput) => {
+  if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
+    return rawInput;
+  }
+
+  return {
+    draftId: rawInput.draftId ?? rawInput.draft_id,
+    themeId: rawInput.themeId ?? rawInput.theme_id,
+    themeRole: rawInput.themeRole ?? rawInput.theme_role ?? rawInput.role,
+    expectedTargetFiles:
+      rawInput.expectedTargetFiles ??
+      rawInput.expected_target_files ??
+      rawInput.expected,
+    confirmation: rawInput.confirmation,
+    reason: rawInput.reason,
+  };
+};
+
+const ApplyThemeDraftInputSchema = z.preprocess(
+  normalizeApplyThemeDraftInput,
+  z
+    .object({
+      draftId: z
+        .string()
+        .min(1)
+        .describe(
+          "UUID draft ID returned by draft-theme-artifact. Gebruik hier geen bestandsnaam, slug of zelfverzonnen placeholder."
+        ),
+      themeId: z.coerce.number().int().positive().optional().describe("Optional explicit target theme ID."),
+      themeRole: ThemeRoleSchema.optional().describe("Target theme role when themeId is omitted. Alleen 'main' is role-only toegestaan; gebruik themeId voor unpublished/demo/development themes."),
+      expectedTargetFiles: z
+        .array(ExpectedTargetFileSchema)
+        .min(1)
+        .max(10)
+        .optional()
+        .describe(
+          "Fresh target-state preconditions for every file in the draft. Use checksumMd5 for existing files or status='missing' for new files."
+        ),
+      confirmation: z.literal("APPLY_THEME_DRAFT").describe("Verplicht type: 'APPLY_THEME_DRAFT' ter bevestiging."),
+      reason: z.string().min(5).describe("Auditable reden voor het toepassen van dit draft."),
+    })
+    .superRefine((input, ctx) => {
+      if (input.themeId && input.themeRole) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["themeId"],
+          message: "Gebruik themeId of themeRole, niet allebei tegelijk.",
+        });
+      }
+    })
+);
 
 function normalizeStoredFiles(value) {
   if (Array.isArray(value)) {
@@ -33,6 +98,129 @@ function normalizeStoredFiles(value) {
     }
   }
   return [];
+}
+
+function normalizeChecksumMd5(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+  if (/^[a-f0-9]{32}$/i.test(raw)) {
+    return Buffer.from(raw, "hex").toString("base64");
+  }
+  return raw;
+}
+
+function buildMissingTargetPreconditionResponse({ input, files }) {
+  return {
+    success: false,
+    status: "needs_precondition",
+    draftId: input.draftId,
+    message:
+      "Lees het apply-target eerst en geef expectedTargetFiles mee zodat apply-theme-draft niet blind bestaande theme files overschrijft.",
+    errorCode: "apply_target_precondition_required",
+    retryable: true,
+    nextAction: "read_target_files_then_retry_apply",
+    nextTool: "get-theme-files",
+    nextArgsTemplate: {
+      ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
+      ...(input.themeRole ? { themeRole: input.themeRole } : {}),
+      keys: files.map((file) => file.key),
+      includeContent: false,
+    },
+    applyRetryArgsTemplate: {
+      draftId: input.draftId,
+      ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
+      ...(input.themeRole ? { themeRole: input.themeRole } : {}),
+      expectedTargetFiles: files.map((file) => ({
+        key: file.key,
+        checksumMd5: "<checksumMd5 from get-theme-files, or use status='missing'>",
+      })),
+      confirmation: "APPLY_THEME_DRAFT",
+      reason: input.reason,
+    },
+  };
+}
+
+async function verifyApplyTargetPreconditions(shopifyClient, apiVersion, input, files) {
+  const expectedByKey = new Map(
+    (input.expectedTargetFiles || []).map((entry) => [entry.key, entry])
+  );
+  const missingExpected = files
+    .map((file) => file.key)
+    .filter((key) => !expectedByKey.has(key));
+  if (missingExpected.length > 0) {
+    return {
+      ok: false,
+      errorCode: "apply_target_precondition_required",
+      failures: missingExpected.map((key) => ({
+        key,
+        status: "missing_expected_precondition",
+        message: "expectedTargetFiles mist deze draft file.",
+      })),
+      actual: [],
+    };
+  }
+
+  const actualResult = await getThemeFiles(shopifyClient, apiVersion, {
+    themeId: input.themeId,
+    themeRole: input.themeRole,
+    keys: files.map((file) => file.key),
+    includeContent: false,
+  });
+  const actualByKey = new Map((actualResult.files || []).map((file) => [file.key, file]));
+  const failures = [];
+
+  for (const file of files) {
+    const expected = expectedByKey.get(file.key);
+    const actual = actualByKey.get(file.key) || null;
+    if (expected.status === "missing") {
+      if (actual && !actual.missing) {
+        failures.push({
+          key: file.key,
+          status: "expected_missing_but_found",
+          expected: { status: "missing" },
+          actual: {
+            size: actual.size ?? null,
+            checksumMd5: actual.checksumMd5 || actual.checksum || null,
+            updatedAt: actual.updatedAt || null,
+          },
+        });
+      }
+      continue;
+    }
+
+    const expectedChecksum = normalizeChecksumMd5(expected.checksumMd5);
+    const actualChecksum = normalizeChecksumMd5(actual?.checksumMd5 || actual?.checksum);
+    if (!actual || actual.missing) {
+      failures.push({
+        key: file.key,
+        status: "expected_existing_but_missing",
+        expected: { checksumMd5: expectedChecksum },
+        actual: null,
+      });
+      continue;
+    }
+    if (String(actualChecksum || "") !== String(expectedChecksum || "")) {
+      failures.push({
+        key: file.key,
+        status: "checksum_mismatch",
+        expected: { checksumMd5: expectedChecksum },
+        actual: {
+          size: actual.size ?? null,
+          checksumMd5: actualChecksum,
+          updatedAt: actual.updatedAt || null,
+        },
+      });
+    }
+  }
+
+  return {
+    ok: failures.length === 0,
+    errorCode: failures.length > 0 ? "apply_target_precondition_failed" : null,
+    failures,
+    actual: actualResult.files || [],
+  };
 }
 
 function getUpsertFailures(upsertResult) {
@@ -179,6 +367,29 @@ const applyThemeDraft = {
       };
     }
 
+    if (draftRecord.status !== "preview_applied") {
+      return {
+        success: false,
+        status: "invalid_draft_status",
+        draftId: input.draftId,
+        message:
+          `Theme draft '${input.draftId}' heeft status '${draftRecord.status}' en is niet veilig toepasbaar. Alleen preview_applied drafts mogen worden gepromoot.`,
+        errorCode: "invalid_apply_theme_draft_status",
+        retryable: true,
+        nextAction: "create_or_write_preview_first",
+        nextTool: "draft-theme-artifact",
+        errors: [
+          {
+            path: ["draftId"],
+            problem:
+              "Het draft is niet succesvol naar een preview/target geschreven en geverifieerd.",
+            fixSuggestion:
+              "Voer eerst draft-theme-artifact of create-theme-section opnieuw uit totdat status preview_ready/preview_applied is.",
+          },
+        ],
+      };
+    }
+
     const shopifyClient = requireShopifyClient(context);
     const currentShopDomain = getShopDomainFromClient(shopifyClient);
     const draftShopDomain = String(draftRecord.shop_domain || "").trim().toLowerCase();
@@ -217,6 +428,39 @@ const applyThemeDraft = {
     }
 
     const apiVersion = process.env.SHOPIFY_API_VERSION || "2026-01";
+    if (!Array.isArray(input.expectedTargetFiles) || input.expectedTargetFiles.length === 0) {
+      return buildMissingTargetPreconditionResponse({ input, files });
+    }
+
+    const targetPrecondition = await verifyApplyTargetPreconditions(
+      shopifyClient,
+      apiVersion,
+      input,
+      files
+    );
+    if (!targetPrecondition.ok) {
+      return {
+        success: false,
+        status: "target_precondition_failed",
+        draftId: input.draftId,
+        message:
+          "Het apply-target komt niet overeen met de opgegeven expectedTargetFiles. Lees het target opnieuw en bevestig de nieuwe checksum/status voordat je toepast.",
+        errorCode: targetPrecondition.errorCode,
+        retryable: true,
+        nextAction: "refresh_target_read_before_apply",
+        nextTool: "get-theme-files",
+        failures: targetPrecondition.failures,
+        actual: targetPrecondition.actual.map((file) => ({
+          key: file.key,
+          found: Boolean(file.found),
+          missing: Boolean(file.missing),
+          size: file.size ?? null,
+          checksumMd5: file.checksumMd5 || file.checksum || null,
+          updatedAt: file.updatedAt || null,
+        })),
+      };
+    }
+
     const upsertResult = await upsertThemeFiles(shopifyClient, apiVersion, {
       themeId: input.themeId,
       themeRole: input.themeRole,
@@ -285,6 +529,28 @@ const applyThemeDraft = {
     });
 
     const shopDomain = getShopDomainFromClient(shopifyClient);
+    const auditLog = await createMutationAuditLog({
+      toolName: "apply-theme-draft",
+      tenantId: context?.tenantId || null,
+      shopDomain,
+      requestId: context?.requestId || null,
+      reason: input.reason,
+      targetIds: [
+        ...(upsertResult.theme?.id ? [`theme:${upsertResult.theme.id}`] : []),
+        ...files.map((file) => file.key),
+      ],
+      payload: {
+        confirmation: input.confirmation,
+        draftId: input.draftId,
+        themeId: upsertResult.theme?.id || input.themeId || null,
+        themeRole: upsertResult.theme?.role || input.themeRole || null,
+        expectedTargetFiles: input.expectedTargetFiles,
+        verify: {
+          summary: upsertResult.verifySummary || null,
+          results: upsertResult.results || [],
+        },
+      },
+    });
     return {
       success: true,
       status: "applied",
@@ -302,6 +568,17 @@ const applyThemeDraft = {
       },
       message: "Theme draft is succesvol toegepast op het gekozen target.",
       editorUrl: upsertResult.theme?.id ? `https://${shopDomain}/admin/themes/${upsertResult.theme.id}/editor` : null,
+      audit: {
+        auditLogId: auditLog?.id || null,
+        reason: input.reason,
+        requestId: context?.requestId || null,
+        tenantId: context?.tenantId || null,
+        shopDomain,
+        targetIds: [
+          ...(upsertResult.theme?.id ? [`theme:${upsertResult.theme.id}`] : []),
+          ...files.map((file) => file.key),
+        ],
+      },
       draft: updatedDraft
         ? {
             id: updatedDraft.id,

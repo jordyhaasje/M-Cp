@@ -800,6 +800,64 @@ const deleteThemeFileRest = async (
   return deleteThemeFileRestByTheme(shopifyClient, apiVersion, { theme, key });
 };
 
+const deleteThemeFileGraphqlByTheme = async (
+  shopifyClient,
+  apiVersion = DEFAULT_API_VERSION,
+  { theme, key }
+) => {
+  const data = await shopifyGraphqlRequest(shopifyClient, apiVersion, {
+    query: THEME_FILES_DELETE_MUTATION,
+    variables: {
+      themeId: theme.adminGraphqlApiId || themeNumericIdToGraphqlId(theme.id),
+      files: [key],
+    },
+  });
+
+  const payload = data?.themeFilesDelete;
+  const userErrors = Array.isArray(payload?.userErrors) ? payload.userErrors : [];
+  if (userErrors.length > 0) {
+    throw buildThemeUserError(`Shopify theme file '${key}' kon niet worden verwijderd`, userErrors);
+  }
+
+  return { theme, deletedKey: key };
+};
+
+const verifyThemeFileDeleted = async (
+  shopifyClient,
+  apiVersion = DEFAULT_API_VERSION,
+  { theme, key }
+) => {
+  const [asset] = await withThemeGraphqlFallback(
+    () => getThemeFilesGraphql(shopifyClient, apiVersion, { theme, keys: [key], includeContent: false }),
+    () => getThemeFilesRest(shopifyClient, apiVersion, { theme, keys: [key], includeContent: false })
+  );
+
+  if (!asset || asset.missing) {
+    return {
+      key,
+      status: "missing",
+      actual: null,
+    };
+  }
+
+  throw buildErrorWithStatus(
+    `Theme file '${key}' lijkt na delete nog aanwezig in theme ${theme.id}.`,
+    409,
+    {
+      reason: "delete_verify_failed",
+      verify: {
+        key,
+        status: "still_present",
+        actual: {
+          size: asset.size ?? null,
+          checksumMd5: asset.checksumMd5 || asset.checksum || null,
+          updatedAt: asset.updatedAt || null,
+        },
+      },
+    }
+  );
+};
+
 const assertThemeFileChecksum = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
@@ -1548,28 +1606,36 @@ export const upsertThemeFile = async (
 export const deleteThemeFile = async (
   shopifyClient,
   apiVersion = DEFAULT_API_VERSION,
-  { themeId, themeRole, key }
-) =>
-  withThemeGraphqlFallback(
-    async () => {
-      validateCoreFileDelete(key);
+  { themeId, themeRole, key, expectedChecksumMd5 }
+) => {
+  validateCoreFileDelete(key);
 
-      const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
-      const data = await shopifyGraphqlRequest(shopifyClient, apiVersion, {
-        query: THEME_FILES_DELETE_MUTATION,
-        variables: {
-          themeId: theme.adminGraphqlApiId || themeNumericIdToGraphqlId(theme.id),
-          files: [key],
-        },
+  const theme = await resolveTheme(shopifyClient, apiVersion, { themeId, themeRole });
+  const releaseLock = await tryAcquireThemeFileLock(theme.id, key);
+  if (!releaseLock) {
+    throw new Error(`File ${key} is currently locked by another operation. Try again in a few seconds.`);
+  }
+
+  try {
+    if (expectedChecksumMd5) {
+      await assertThemeFileChecksum(shopifyClient, apiVersion, {
+        themeId: theme.id,
+        key,
+        checksum: expectedChecksumMd5,
       });
+    }
 
-      const payload = data?.themeFilesDelete;
-      const userErrors = Array.isArray(payload?.userErrors) ? payload.userErrors : [];
-      if (userErrors.length > 0) {
-        throw buildThemeUserError(`Shopify theme file '${key}' kon niet worden verwijderd`, userErrors);
-      }
+    const deleteResult = await withThemeGraphqlFallback(
+      () => deleteThemeFileGraphqlByTheme(shopifyClient, apiVersion, { theme, key }),
+      () => deleteThemeFileRestByTheme(shopifyClient, apiVersion, { theme, key })
+    );
+    const verify = await verifyThemeFileDeleted(shopifyClient, apiVersion, { theme, key });
 
-      return { theme, deletedKey: key };
-    },
-    () => deleteThemeFileRest(shopifyClient, apiVersion, { themeId, themeRole, key })
-  );
+    return {
+      ...deleteResult,
+      verify,
+    };
+  } finally {
+    await releaseLock();
+  }
+};

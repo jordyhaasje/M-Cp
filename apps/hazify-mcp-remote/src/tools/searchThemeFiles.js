@@ -45,11 +45,10 @@ const SearchThemeFilesPublicObjectSchema = z
     limit: z.number().int().min(1).max(10).optional().describe("Compat alias van resultLimit voor generieke wrappers."),
     snippetLength: z.number().int().min(40).max(240).optional().describe("Maximum snippet length."),
     snippet_length: z.number().int().min(40).max(240).optional().describe("Compat alias van snippetLength voor generieke wrappers."),
-    _tool_input_summary: z.string().max(4000).optional().describe("Compat summary voor beperkte clients."),
-    tool_input_summary: z.string().max(4000).optional().describe("Legacy alias van _tool_input_summary."),
-    summary: z.string().max(4000).optional().describe("Legacy alias van _tool_input_summary."),
-    prompt: z.string().max(4000).optional().describe("Legacy alias van _tool_input_summary."),
-    request: z.string().max(4000).optional().describe("Legacy alias van _tool_input_summary."),
+    tool_input_summary: z.string().max(4000).optional().describe("Compat summary voor beperkte clients."),
+    summary: z.string().max(4000).optional().describe("Legacy alias van tool_input_summary."),
+    prompt: z.string().max(4000).optional().describe("Legacy alias van tool_input_summary."),
+    request: z.string().max(4000).optional().describe("Legacy alias van tool_input_summary."),
   })
   .strict();
 
@@ -120,7 +119,7 @@ const SearchThemeFilesInputSchema = z.preprocess(
 const searchThemeFilesTool = {
   name: "search-theme-files",
   description:
-    "Search scoped theme files and return compact snippets instead of full file dumps. Gebruik in elke editflow hetzelfde expliciete target als in plan-theme-edit en je write-call. Als dezelfde flow al eerder een theme target bevestigde, mag die sticky worden hergebruikt; anders blokkeert deze tool met een repair response. Gebruik dit eerst om een exacte, unieke patch-anchor of bestaand renderpad te vinden voordat je leest of schrijft. Voor native product-blocks of template placement gebruik je bij voorkeur eerst plan-theme-edit, en zoek je daarna alleen in de voorgestelde scope of exact keys. Bij compatibele clients mag een korte _tool_input_summary ook; die wordt dan als query gebruikt en de scope wordt waar mogelijk automatisch vernauwd. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund. Minimaal geldig voorbeeld: { query: 'buy_buttons', scope: ['sections', 'snippets'] }, { query: 'block.type', keys: ['sections/main-product.liquid', 'snippets/product-info.liquid'] } of { query: 'main-product', filePatterns: ['sections/*.liquid'] }.",
+    "Search scoped theme files and return compact snippets instead of full file dumps. Gebruik in elke editflow hetzelfde expliciete target als in plan-theme-edit en je write-call. Als dezelfde flow al eerder een theme target bevestigde, mag die sticky worden hergebruikt; anders blokkeert deze tool met een repair response. Gebruik dit eerst om een exacte, unieke patch-anchor of bestaand renderpad te vinden voordat je leest of schrijft. Voor native product-blocks of template placement gebruik je bij voorkeur eerst plan-theme-edit, en zoek je daarna alleen in de voorgestelde scope of exact keys. Bij compatibele clients mag een korte tool_input_summary ook; die wordt dan als query gebruikt en de scope wordt waar mogelijk automatisch vernauwd. Legacy aliases zoals summary, prompt en request blijven alleen voor backwards compatibility ondersteund. Minimaal geldig voorbeeld: { query: 'buy_buttons', scope: ['sections', 'snippets'] }, { query: 'block.type', keys: ['sections/main-product.liquid', 'snippets/product-info.liquid'] } of { query: 'main-product', filePatterns: ['sections/*.liquid'] }.",
   inputSchema: SearchThemeFilesPublicObjectSchema,
   schema: SearchThemeFilesInputSchema,
   execute: async (rawInput, context = {}) => {

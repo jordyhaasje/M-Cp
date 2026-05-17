@@ -20,13 +20,13 @@ const SummaryAliasFieldDescriptions = {
   _tool_input_summary:
     "Compat summary voor beperkte clients. Alleen veilige inferentie voor theme target en exact één targetbestand; anders volgt een gestructureerde repair response.",
   tool_input_summary:
-    "Legacy alias van _tool_input_summary voor backwards compatibility.",
+    "Compat summary voor beperkte clients. Alleen veilige inferentie voor theme target en exact één targetbestand; anders volgt een gestructureerde repair response.",
   summary:
-    "Legacy alias van _tool_input_summary voor backwards compatibility.",
+    "Legacy alias van tool_input_summary voor backwards compatibility.",
   prompt:
-    "Legacy alias van _tool_input_summary voor backwards compatibility.",
+    "Legacy alias van tool_input_summary voor backwards compatibility.",
   request:
-    "Legacy alias van _tool_input_summary voor backwards compatibility.",
+    "Legacy alias van tool_input_summary voor backwards compatibility.",
 };
 
 const ThemePatchSchema = z.object({
@@ -67,11 +67,6 @@ const PatchThemeFilePublicObjectSchema = z
       .string()
       .optional()
       .describe("Optionele MD5 checksum voor conflict-safe writes."),
-    _tool_input_summary: z
-      .string()
-      .max(SUMMARY_MAX_LENGTH)
-      .optional()
-      .describe(SummaryAliasFieldDescriptions._tool_input_summary),
     tool_input_summary: z
       .string()
       .max(SUMMARY_MAX_LENGTH)
@@ -115,7 +110,6 @@ const normalizePatchThemeFileInput = (rawInput) => {
     patch: rawInput.patch,
     patches: rawInput.patches,
     baseChecksumMd5: rawInput.baseChecksumMd5,
-    _tool_input_summary: rawInput._tool_input_summary,
     tool_input_summary: rawInput.tool_input_summary,
     summary: rawInput.summary,
     prompt: rawInput.prompt,

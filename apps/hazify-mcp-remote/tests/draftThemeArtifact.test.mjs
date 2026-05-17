@@ -11309,6 +11309,7 @@ test("applyThemeDraft - applies an existing draft to an explicit target theme", 
       applyThemeDraft.schema.parse({
         draftId: draftResult.draftId,
         themeId: 222,
+        expectedTargetFiles: [{ key: "sections/good-file.liquid", status: "missing" }],
         confirmation: "APPLY_THEME_DRAFT",
         reason: "Promote approved preview to main theme",
       }),
@@ -11384,6 +11385,65 @@ test("applyThemeDraft - requires an explicit target theme", async () => {
   assert.equal(result.success, false);
   assert.equal(result.errorCode, "missing_apply_theme_target");
   assert.equal(result.nextTool, "apply-theme-draft");
+});
+
+test("applyThemeDraft - requires fresh target preconditions before apply", async () => {
+  const draftRecord = await createThemeDraftRecord({
+    shopDomain: "unit-test.myshopify.com",
+    status: "preview_applied",
+    previewThemeId: 111,
+    files: [{ key: "sections/good-file.liquid", value: goodSectionLiquid }],
+  });
+
+  const result = await applyThemeDraft.execute(
+    applyThemeDraft.schema.parse({
+      draftId: draftRecord.id,
+      themeId: 222,
+      confirmation: "APPLY_THEME_DRAFT",
+      reason: "Validate precondition requirement",
+    }),
+    {
+      shopifyClient: {
+        url: "https://unit-test.myshopify.com/admin/api/2026-01/graphql.json",
+        requestConfig: {
+          headers: new Headers({ "x-shopify-access-token": "fake-token" }),
+        },
+        session: { shop: "unit-test.myshopify.com" },
+        request: async () => {
+          throw new Error("should not call Shopify without target preconditions");
+        },
+      },
+    }
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "needs_precondition");
+  assert.equal(result.errorCode, "apply_target_precondition_required");
+  assert.equal(result.nextTool, "get-theme-files");
+});
+
+test("applyThemeDraft - rejects drafts that were not preview-applied", async () => {
+  const draftRecord = await createThemeDraftRecord({
+    shopDomain: "unit-test.myshopify.com",
+    status: "lint_failed",
+    previewThemeId: 111,
+    files: [{ key: "sections/good-file.liquid", value: goodSectionLiquid }],
+  });
+
+  const result = await applyThemeDraft.execute(
+    applyThemeDraft.schema.parse({
+      draftId: draftRecord.id,
+      themeId: 222,
+      expectedTargetFiles: [{ key: "sections/good-file.liquid", status: "missing" }],
+      confirmation: "APPLY_THEME_DRAFT",
+      reason: "Validate draft status gate",
+    }),
+    {}
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "invalid_draft_status");
+  assert.equal(result.errorCode, "invalid_apply_theme_draft_status");
 });
 
 test("applyThemeDraft - fails apply when verify-after-write does not match", async () => {
@@ -11505,6 +11565,7 @@ test("applyThemeDraft - fails apply when verify-after-write does not match", asy
       applyThemeDraft.schema.parse({
         draftId: draftResult.draftId,
         themeId: 222,
+        expectedTargetFiles: [{ key: "sections/good-file.liquid", status: "missing" }],
         confirmation: "APPLY_THEME_DRAFT",
         reason: "Validate apply verify mismatch",
       }),
@@ -11582,6 +11643,21 @@ test("applyThemeDraft - returns a structured failure when Shopify apply does not
       if (numericThemeId !== 222) {
         const nextValue = payload.variables?.files?.[0]?.body?.value || goodSectionLiquid;
         storedValues.set(numericThemeId, nextValue);
+        const resPayload = {
+          data: {
+            themeFilesUpsert: {
+              upsertedThemeFiles: [{ filename: "sections/good-file.liquid" }],
+              job: { id: "gid://shopify/Job/3-preview" },
+              userErrors: []
+            }
+          }
+        };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => resPayload,
+          text: async () => JSON.stringify(resPayload)
+        };
       }
       const resPayload = {
         data: {
@@ -11660,6 +11736,7 @@ test("applyThemeDraft - returns a structured failure when Shopify apply does not
       applyThemeDraft.schema.parse({
         draftId: draftResult.draftId,
         themeId: 222,
+        expectedTargetFiles: [{ key: "sections/good-file.liquid", status: "missing" }],
         confirmation: "APPLY_THEME_DRAFT",
         reason: "Validate failed apply path",
       }),

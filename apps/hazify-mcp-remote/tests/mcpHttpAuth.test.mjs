@@ -569,6 +569,16 @@ try {
     assert.equal(toolNames.includes(expectedTool), true, `tools/list should expose ${expectedTool}`);
   }
 
+  for (const tool of tools) {
+    const propertyNames = Object.keys(tool?.inputSchema?.properties || {});
+    const leadingUnderscoreProperties = propertyNames.filter((name) => name.startsWith("_"));
+    assert.deepEqual(
+      leadingUnderscoreProperties,
+      [],
+      `${tool?.name || "unknown tool"} should not expose leading-underscore input schema fields`
+    );
+  }
+
   const planThemeEditDefinition = tools.find((tool) => tool?.name === "plan-theme-edit");
   assert.ok(planThemeEditDefinition, "tools/list should expose plan-theme-edit");
   assert.notEqual(
@@ -584,8 +594,13 @@ try {
   );
   assert.equal(
     Boolean(planThemeEditDefinition.inputSchema?.properties?._tool_input_summary),
+    false,
+    "plan-theme-edit should not expose leading-underscore fields in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(planThemeEditDefinition.inputSchema?.properties?.tool_input_summary),
     true,
-    "plan-theme-edit should expose _tool_input_summary in emitted JSON schema"
+    "plan-theme-edit should expose tool_input_summary in emitted JSON schema"
   );
   assert.equal(
     Boolean(planThemeEditDefinition.inputSchema?.properties?.targetFiles),
@@ -618,8 +633,13 @@ try {
   );
   assert.equal(
     Boolean(draftThemeArtifactDefinition.inputSchema?.properties?._tool_input_summary),
+    false,
+    "draft-theme-artifact should not expose leading-underscore fields in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(draftThemeArtifactDefinition.inputSchema?.properties?.tool_input_summary),
     true,
-    "draft-theme-artifact should expose _tool_input_summary in emitted JSON schema"
+    "draft-theme-artifact should expose tool_input_summary in emitted JSON schema"
   );
 
   const createThemeSectionDefinition = tools.find((tool) => tool?.name === "create-theme-section");
@@ -644,8 +664,13 @@ try {
   assert.ok(patchThemeFileDefinition, "tools/list should expose patch-theme-file");
   assert.equal(
     Boolean(patchThemeFileDefinition.inputSchema?.properties?._tool_input_summary),
+    false,
+    "patch-theme-file should not expose leading-underscore fields in emitted JSON schema"
+  );
+  assert.equal(
+    Boolean(patchThemeFileDefinition.inputSchema?.properties?.tool_input_summary),
     true,
-    "patch-theme-file should expose _tool_input_summary in emitted JSON schema"
+    "patch-theme-file should expose tool_input_summary in emitted JSON schema"
   );
   assert.equal(
     Array.isArray(patchThemeFileDefinition.inputSchema?.required) &&

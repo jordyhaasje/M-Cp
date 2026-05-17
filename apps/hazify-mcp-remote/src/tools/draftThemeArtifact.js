@@ -54,7 +54,7 @@ Belangrijk: themeRole='main' of een exact themeId is verplicht. Vraag de gebruik
 
 Theme-aware section regels:
 - Gebruik voor bestaande single-file edits bij voorkeur patch-theme-file. Gebruik draft-theme-artifact vooral voor multi-file edits, nieuwe sections en volledige rewrites.
-- Compatibele shorthand: voor één file mag een client ook top-level key + value/content/liquid of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Binnen files[] worden value/content/liquid nu ook veilig naar dezelfde canonieke value-write genormaliseerd. Als een compatibele client alleen _tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt, request en tool_input_summary blijven alleen voor backwards compatibility ondersteund.
+- Compatibele shorthand: voor één file mag een client ook top-level key + value/content/liquid of key + searchString/replaceString aanleveren; dit wordt intern naar files[] genormaliseerd. Binnen files[] worden value/content/liquid nu ook veilig naar dezelfde canonieke value-write genormaliseerd. Als een compatibele client alleen tool_input_summary meestuurt, infereren we daaruit hooguit theme target en exact file path. Vrije summary-tekst vervangt NOOIT gestructureerde write-velden zoals files[], value, content, liquid, patch of patches. Legacy aliases zoals summary, prompt en request blijven alleen voor backwards compatibility ondersteund.
 - Voor mode="create" mogen stateless clients plannerHandoff, visualBrief, referenceAnalysis of designBrief meesturen. Die context wordt aan de generatiebrief toegevoegd zodat screenshot-, URL- en replica-signalen niet wegvallen tussen planner, LLM-codegen en write-validatie.
 - Gebruik in mode="edit" voor full rewrites altijd de volledige nieuwe bestandsinhoud in files[].value op basis van de actuele file-read. Context-placeholders, samenvattingen, compacte reconstructies of geheugen-rewrites zoals REWRITE_ALREADY_APPLIED_IN_CONTEXT zijn ongeldig; gebruik anders een letterlijke patch/patches.
 - Na patch_scope_too_large volg je de repair response van patch-theme-file. Bij currentReadContextValid=true mag draft-theme-artifact mode="edit" dezelfde patch met baseChecksumMd5 uitvoeren; bij ontbrekende of stale read-context lees je eerst opnieuw met includeContent=true. Voor brede visual rewrites blijft een volledige preserve-on-edit value-write de voorkeursroute.
@@ -242,20 +242,17 @@ const DraftThemeArtifactPublicObjectSchema = z
       .string()
       .optional()
       .describe("Compat shorthand voor single-file optimistic locking."),
-    _tool_input_summary: SummaryFieldSchema.describe(
+    tool_input_summary: SummaryFieldSchema.describe(
       "Compat summary voor beperkte clients. Alleen veilige inferentie voor theme target en exact één file path."
     ),
-    tool_input_summary: SummaryFieldSchema.describe(
-      "Legacy alias van _tool_input_summary voor backwards compatibility."
-    ),
     summary: SummaryFieldSchema.describe(
-      "Legacy alias van _tool_input_summary voor backwards compatibility."
+      "Legacy alias van tool_input_summary voor backwards compatibility."
     ),
     prompt: SummaryFieldSchema.describe(
-      "Legacy alias van _tool_input_summary voor backwards compatibility."
+      "Legacy alias van tool_input_summary voor backwards compatibility."
     ),
     request: SummaryFieldSchema.describe(
-      "Legacy alias van _tool_input_summary voor backwards compatibility."
+      "Legacy alias van tool_input_summary voor backwards compatibility."
     ),
     visualBrief: VisualBriefSchema.describe(
       "Optionele visuele analyse van een screenshot/referentie. Wordt gebruikt als codegen-brief voor create/replica validatie."

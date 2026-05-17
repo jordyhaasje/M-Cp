@@ -53,7 +53,7 @@ Verwachte plannertruth:
 - `generationMode = "precision_first"`
 - `completionPolicy.deliveryExpectation = "final_reference_match_in_first_write"`
 - `requiredReads` bevat alleen files die in het doeltheme bestaan. Als de template-analyse naar een missende section wijst, kiest de planner een fallback representative read, bijvoorbeeld `sections/animated-header.liquid` of een gescoorde content section met padding/media/richtext/button-signalen.
-- De planner bewaart naast de compacte `query` nu ook een langere analysetekst in de handoff, zodat desktop/mobile-, screenshot- en exact-match-signalen niet wegvallen als ze alleen in `description`, `_tool_input_summary` of later in een langere prompt staan.
+- De planner bewaart naast de compacte `query` nu ook een langere analysetekst in de handoff, zodat desktop/mobile-, screenshot- en exact-match-signalen niet wegvallen als ze alleen in `description`, `tool_input_summary` of later in een langere prompt staan.
 - Geen baseline-first vraag of extra toestemming voor pixel-perfect styling
 - Screenshot-only referenties zonder losse bron-assets mogen `previewMediaPolicy = "best_effort_demo_media"` gebruiken. Dan blijft de layout/styling precisie-first, maar mag de eerste write renderbare demo-media of een gestileerde media shell bevatten in plaats van een hard fail op placeholder-only media.
 - Als de prompt wel expliciete bron-assets noemt, hoort de planner streng te blijven met `previewMediaPolicy = "strict_renderable_media"` en `requiresRenderablePreviewMedia = true`

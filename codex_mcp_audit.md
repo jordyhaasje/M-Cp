@@ -3,97 +3,105 @@
 ## A. Git / repo status
 
 - Repository: `/Users/jordy/Desktop/MCP Shopify`
-- Huidige branch tijdens audit: `main`
+- Branch tijdens her-audit: `main`
 - Upstream: `origin/main`
-- Default branch origin: `main`
+- Origin default branch: `main`
 - Remote: `git@github.com:jordyhaasje/M-Cp.git`
-- Startstatus: lokaal was clean maar `main` liep 3 commits voor op `origin/main` en 0 commits achter.
-- Lokale commits die nog niet op remote stonden:
-  - `886e680` - `Fix prompt fidelity for generated theme sections`
-  - `853d89d` - `Fix stale block contracts for media story sections`
-  - `5cd16ac` - `Harden section schema and prompt validation`
-- Remote `origin/main` stond op `621a2f2 docs: record live new-section validation`.
-- Inhoudelijke conclusie: lokale commits zijn production-minded theme-tool hardening, maar een summary-only fallback in `create-theme-section` was te permissief.
-- Beslissing: **MERGE BOTH / KEEP LOCAL WITH CLEANUP**. Lokale commits behouden, extra fix toegevoegd zodat vrije summary-tekst nooit code vervangt, en daarna gepusht naar `origin/main`.
-- Gepushte MCP-fixcommit: `bdf7090` - create-theme-section hardening, testfixes en auditrapport.
-- Correctie na review: LangFlow export- en bridge-bestanden horen niet in deze MCP-repo. Die artifacts zijn verwijderd uit de repository; alleen MCP-code, MCP-tests en dit auditrapport blijven getrackt.
-- Repo-cleanupcommit: `0dbcb83` - `Remove LangFlow artifacts from MCP repo`.
-- Na push was `main` gelijk met `origin/main` (`0` ahead / `0` behind).
+- Startstatus her-audit: `main` was clean en gelijk met `origin/main`.
+- Beslissing: **KEEP LOCAL + FIX FORWARD**. De eerdere LangFlow-artifacts blijven uit deze MCP-repo; alleen MCP-code, tests, docs en dit auditbestand zijn aangepast.
+- Push/deploymentstatus wordt in het eindrapport vastgelegd nadat deze changeset is gepusht en Railway is gecontroleerd.
 
 ## B. MCP audit
 
-Gevonden registry: `apps/hazify-mcp-remote/src/tools/registry.js`.
+Bron van waarheid: `apps/hazify-mcp-remote/src/tools/registry.js`.
 
 Alle gevonden MCP tools:
 
 `get-license-status`, `get-themes`, `plan-theme-edit`, `create-theme-section`, `search-theme-files`, `get-theme-file`, `get-theme-files`, `patch-theme-file`, `draft-theme-artifact`, `apply-theme-draft`, `verify-theme-files`, `delete-theme-file`, `get-products`, `get-product-by-id`, `get-customers`, `get-orders`, `get-order-by-id`, `update-order`, `update-fulfillment-tracking`, `set-order-tracking`, `get-supported-tracking-companies`, `get-customer-orders`, `update-customer`, `create-product`, `update-product`, `manage-product-variants`, `manage-product-options`, `delete-product`, `delete-product-variants`, `refund-order`, `clone-product-from-url`, `update-order-tracking`, `add-tracking-to-order`, `read-theme-file`, `read-theme-files`.
 
-Theme/code-tools:
+Algemene toolstatus:
 
-| Tool | Oorspronkelijke status | Testmethode | Fix | Eindstatus |
+- Product-, customer-, order-, refund- en trackingtools blijven geregistreerd en testbaar via registry/tenant/scope tests.
+- Destructieve product/refund/order-opties blijven write-scope- en confirmation-gated.
+- `update-fulfillment-tracking` is aangescherpt: het aanmaken van een fulfillment als fallback vereist nu expliciete confirmation en reason.
+- `manage-product-options` is aangescherpt: `valuesToDelete` vereist nu expliciete confirmation en reason, en mutation audit wordt pas na succesvolle Shopify-response geschreven.
+
+## C. Theme/code-tools
+
+| Tool | Oorspronkelijke status | Vastgesteld probleem | Testmethode | Eindstatus |
 | --- | --- | --- | --- | --- |
-| `get-themes` | Werkend | Registry/tests + service coverage | Geen | KEEP |
-| `plan-theme-edit` | Werkend | `themePlanning`, cross-theme acceptance | Geen | KEEP |
-| `create-theme-section` | Verdacht door summary-only fallback | `createThemeSection.test.mjs`, direct targeted suite, full test runner | Fallback verwijderd; summary-only geeft nu `missing_section_liquid` | FIXED |
-| `search-theme-files` | Werkend met caveat: pattern-search heeft geen REST fallback | Test suite + codepad inspectie | Geen | KEEP |
-| `get-theme-file` / `read-theme-file` | Werkend | batch/read tests + registry alias | Geen | KEEP |
-| `get-theme-files` / `read-theme-files` | Werkend | `themeFilesBatch.test.mjs` | Standalone test zet nu zelf `NODE_ENV=test` | FIXED |
-| `patch-theme-file` | Werkend | tool hardening/cross-theme tests | Geen | KEEP |
-| `draft-theme-artifact` | Werkend | 129 draft/apply tests, schema/codegen checks | Geen extra fix in deze audit | KEEP |
-| `apply-theme-draft` | Werkend maar hoog-impact | apply tests | Geen runtimewijziging; blijft expliciet target/draft-gated | KEEP |
-| `verify-theme-files` | Werkend | batch verify tests | Geen | KEEP |
-| `delete-theme-file` | Destructief, confirmation-gated; geen verify-after-delete/advisory-lock hardening gevonden | codepad inspectie | Geen runtimewijziging; blijft expliciet target-gated | KEEP |
+| `get-themes` | Werkend | Geen nieuw probleem gevonden | registry/tests | KEEP |
+| `plan-theme-edit` | Functioneel, maar LangFlow-incompatibel schema | Publiek input schema exposeerde legacy `_tool_input_summary`; LangFlow sloeg toolmetadata over | MCP HTTP tools/list schema-test; no-leading-underscore schema assertion | FIXED |
+| `create-theme-section` | Functioneel, maar LangFlow-incompatibel schema | Publiek schema exposeerde legacy `_tool_input_summary` | create/theme contract tests + MCP HTTP schema-test | FIXED |
+| `search-theme-files` | Functioneel, maar LangFlow-incompatibel schema | Publiek schema exposeerde legacy `_tool_input_summary` | MCP HTTP schema-test; tool hardening tests | FIXED |
+| `get-theme-file` / `read-theme-file` | Werkend | Geen nieuw probleem gevonden | batch/read tests + tenant isolation | KEEP |
+| `get-theme-files` / `read-theme-files` | Werkend | Geen nieuw probleem gevonden | batch/read tests + tenant isolation | KEEP |
+| `patch-theme-file` | Functioneel, maar LangFlow-incompatibel schema | Publiek schema exposeerde legacy `_tool_input_summary`; normalization kon legacy underscore laten lekken | tool hardening tests + MCP HTTP schema-test | FIXED |
+| `draft-theme-artifact` | Functioneel, maar LangFlow-incompatibel schema | Publiek schema exposeerde legacy `_tool_input_summary` | 131 draft/apply tests + MCP HTTP schema-test | FIXED |
+| `apply-theme-draft` | Niet agent-ready genoeg voor hoge-impact apply | Geen harde gate op `preview_applied`; geen target checksum-preconditions; geen apply audit | nieuwe apply tests, Shopify GraphQL validation | FIXED |
+| `verify-theme-files` | Werkend | Geen nieuw probleem gevonden | batch verify tests | KEEP |
+| `delete-theme-file` | Niet agent-ready genoeg voor destructieve delete | Geen checksum precondition, confirmKey, advisory lock, audit of verify-after-delete | nieuwe delete tests, Shopify GraphQL validation | FIXED |
 
-Aanvullende verificatie:
+Conclusie theme/code-tools: geen theme/code-tool is verwijderd of disabled. De eerder twijfelachtige tools zijn gefixt en kunnen na deployment opnieuw in LangFlow worden ingeschakeld, met de bestaande write-scope en confirmation guards.
 
-- `node --test` gerichte theme-suite: 206/206 passed.
-- `npm --prefix apps/hazify-mcp-remote test`: 51/51 testbestanden passed.
-- Shopify Dev MCP `validate_theme` op fixture `dream-12-live-carousel.liquid`: passed.
-- Lokale Shopify Liquid skill kon docs zoeken; lokale `validate.mjs` miste eigen skill-dependency `@shopify/theme-check-common`, daarom is Shopify Dev MCP validatie als bron gebruikt.
+## D. Code- en configwijzigingen
 
-## C. Code- en configwijzigingen
+Aangepaste bestanden:
 
-Aangepaste/aangemaakte bestanden:
-
+- `apps/hazify-mcp-remote/src/tools/planThemeEdit.js`
 - `apps/hazify-mcp-remote/src/tools/createThemeSection.js`
-  - Onveilige deterministic summary-only fallback verwijderd.
-- `apps/hazify-mcp-remote/tests/createThemeSection.test.mjs`
-  - Test aangepast: summary-only Dream prompt moet complete Liquid vragen in plaats van code te genereren.
-  - Contract-conflict test geeft nu expliciet Liquid mee.
+- `apps/hazify-mcp-remote/src/tools/searchThemeFiles.js`
+- `apps/hazify-mcp-remote/src/tools/patchThemeFile.js`
+- `apps/hazify-mcp-remote/src/tools/draftThemeArtifact.js`
+- `apps/hazify-mcp-remote/src/tools/applyThemeDraft.js`
+- `apps/hazify-mcp-remote/src/tools/deleteThemeFile.js`
+- `apps/hazify-mcp-remote/src/tools/manageProductOptions.js`
+- `apps/hazify-mcp-remote/src/tools/updateFulfillmentTracking.js`
+- `apps/hazify-mcp-remote/src/tools/registry.js`
+- `apps/hazify-mcp-remote/src/lib/themeFiles.js`
+- `apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs`
+- `apps/hazify-mcp-remote/tests/mcpHttpAuth.test.mjs`
 - `apps/hazify-mcp-remote/tests/themeFilesBatch.test.mjs`
-  - Standalone test zet `NODE_ENV=test`.
+- `AGENTS.md`
+- `docs/02-SYSTEM-FLOW.md`
+- `docs/03-THEME-SECTION-GENERATION.md`
 - `codex_mcp_audit.md`
-  - Dit auditrapport.
 
-Tool-registratie in runtime is tijdens deze audit niet ingeperkt of verwijderd.
+Belangrijkste wijzigingen:
 
-## D. Railway
+- Publieke MCP input schemas exposeeren geen properties meer die met `_` beginnen. Legacy `_tool_input_summary` blijft intern geaccepteerd via compatibility preprocessing, maar LangFlow krijgt alleen het publieke `tool_input_summary`.
+- `delete-theme-file` vereist nu een exacte target, `confirmKey`, checksum-precondition en verify-after-delete; delete gebruikt GraphQL `themeFilesDelete` met REST fallback, advisory lock en audit log.
+- `apply-theme-draft` vereist nu `preview_applied` drafts en verse `expectedTargetFiles` preconditions voordat een target theme wordt overschreven; succesvolle apply wordt geaudit.
+- `update-fulfillment-tracking` maakt geen fulfillment meer stilzwijgend aan; die fallback vereist expliciete bevestiging en reden.
+- `manage-product-options` behandelt option-value deletion als destructieve route met confirmation en audit-after-success.
 
-Bekeken projecten/services:
+## E. Shopify Dev MCP / Shopify AI toolkit bewijs
 
-- `Hazify-MCP-Remote` / service `Hazify-MCP-Remote`
-- `Hazify-License-Service` / service `Hazify-License-Service`
+- Shopify Dev MCP `learn_shopify_api(api="liquid")` gebruikt voor theme/Liquid criteria.
+- Shopify Dev MCP `validate_theme` op `sections/dream-12-live-carousel.liquid`: **VALID**.
+- Shopify Dev MCP `validate_graphql_codeblocks` voor `ThemeFilesDelete` en `ThemeFilesUpsert`: **VALID**.
+- Lokale tests dekken Shopify theme constraints zoals schema JSON, range/select defaults, richtext defaults, block attributes, blank-safe media, scoped CSS, edit/create mode, template/config writes en verify-after-write.
 
-MCP Remote:
+## F. Testbewijs
 
-- Deployment voor fixes: `65d81c69-3c88-4bae-bfb9-aec8f4e37835`, status `SUCCESS`, aangemaakt `2026-05-09T21:21:51.509Z`.
-- Nieuwe deployment na push: `de54c18b-bf2b-47e7-95d0-fb318eb30bd5`, status `SUCCESS`, aangemaakt `2026-05-17T11:46:23.328Z`.
-- Buildlog na deploy: build geslaagd; npm warnings voor `production Use --omit=dev`, deprecated `inflight` en deprecated `glob`; geen vulnerabilities.
-- Runtime gefilterd op `error OR warn OR theme OR mcp` na deploy: alleen normale startupregel `Hazify MCP HTTP server listening on 0.0.0.0:8080 (session mode: stateless)`.
-- Runtime algemeen voor deploy: normale `mcp_http_initialize`; ook recente `Token is invalid or inactive` door oude/ongeldige clienttoken-test.
+- Gerichte regressiesuite:
+  - `node --test apps/hazify-mcp-remote/tests/themeFilesBatch.test.mjs apps/hazify-mcp-remote/tests/draftThemeArtifact.test.mjs apps/hazify-mcp-remote/tests/toolHardening.test.mjs apps/hazify-mcp-remote/tests/mcpHttpAuth.test.mjs apps/hazify-mcp-remote/tests/remediation.test.mjs apps/hazify-mcp-remote/tests/toolRegistry.test.mjs apps/hazify-mcp-remote/tests/tenantIsolationAllTools.test.mjs`
+  - Resultaat: **137 passed, 0 failed**.
+- Workspace MCP-suite:
+  - `npm test --workspace @hazify/mcp-remote`
+  - Resultaat: **passed**.
+- Release-preflight:
+  - `npm run release:preflight`
+  - Resultaat: **passed**.
 
-License Service:
+## G. Gmail MCP en LangFlow
 
-- Laatste deployment: `ae21b643-e6a7-46cb-8d04-1bff2da45076`, status `SUCCESS`, aangemaakt `2026-05-08T16:52:59.689Z`.
-- Buildlog: build geslaagd; dezelfde npm deprecation warnings, geen vulnerabilities.
-- Runtime: herhaalde `oauth_token_failed` met `inactive_refresh_token` en recente `mcp_token_introspect_inactive` voor ongeldig token. Geen deployment-crash gevonden.
+- Gmail MCP is geen onderdeel van deze repository en wordt niet als artifact in deze repo opgeslagen.
+- LangFlow flow/config hoort los van deze MCP-repo. De flow moet na deployment de live Hazify MCP opnieuw introspecteren zodat alle 35 tools inclusief de gefixte theme/code-tools beschikbaar zijn.
+- Flow-correctie wordt buiten deze repo uitgevoerd en in het eindrapport vastgelegd.
 
-Deploymentbeslissing:
+## H. Resterende risico's
 
-- MCP Remote fixes waren deployment-relevant en `Hazify-MCP-Remote` is opnieuw gedeployed.
-- License Service kreeg geen codewijziging en is niet gedeployed.
-
-## E. Resterende risico's
-
-- Hoog-impact tools zoals `delete-theme-file`, `apply-theme-draft`, `refund-order` en product-delete blijven confirmation- of target-gated.
-- Pattern-search heeft geen REST fallback; exacte reads/writes hebben wel testdekking.
+- Live Shopify writes blijven afhankelijk van geldige Shopify scopes, inclusief theme write access/exemption.
+- `apply-theme-draft`, `delete-theme-file`, refunds en product-delete zijn bewust hoog-impact en blijven alleen bruikbaar met expliciete target/precondition/confirmation guards.
+- De flow moet na Railway deployment opnieuw toolmetadata ophalen; zonder herstart/refresh kan LangFlow oude MCP metadata cachen.

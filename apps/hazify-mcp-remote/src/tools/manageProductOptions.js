@@ -50,7 +50,25 @@ const ManageProductOptionsInputSchema = z.discriminatedUnion("action", [
         confirmation: z.literal("DELETE_PRODUCT_OPTIONS"),
         reason: z.string().min(5).describe("Audit reason for deleting product options"),
     }),
-]);
+]).superRefine((input, ctx) => {
+    if (input.action !== "update" || !input.valuesToDelete?.length) {
+        return;
+    }
+    if (input.confirmation !== "DELETE_OPTION_VALUES") {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["confirmation"],
+            message: "confirmation must be DELETE_OPTION_VALUES when valuesToDelete is used",
+        });
+    }
+    if (typeof input.reason !== "string" || input.reason.trim().length < 5) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["reason"],
+            message: "reason is required when valuesToDelete is used",
+        });
+    }
+});
 // Will be initialized in index.ts
 const PRODUCT_OPTIONS_FRAGMENT = gql `
   fragment ProductOptionsFields on Product {
@@ -190,6 +208,17 @@ const manageProductOptions = {
                     requireDestructiveConfirmation("DELETE_OPTION_VALUES");
                     variables.optionValuesToDelete = input.valuesToDelete;
                 }
+                const data = (await shopifyClient.request(query, variables));
+                const userErrorResponse = buildShopifyUserErrorResponse(
+                    data.productOptionUpdate.userErrors,
+                    {
+                        actionMessage: "Failed to update option",
+                        operation: "productOptionUpdate",
+                    }
+                );
+                if (userErrorResponse) {
+                    return userErrorResponse;
+                }
                 const auditLog = input.valuesToDelete?.length
                     ? await createMutationAuditLog({
                         toolName: "manage-product-options",
@@ -206,17 +235,6 @@ const manageProductOptions = {
                         },
                     })
                     : null;
-                const data = (await shopifyClient.request(query, variables));
-                const userErrorResponse = buildShopifyUserErrorResponse(
-                    data.productOptionUpdate.userErrors,
-                    {
-                        actionMessage: "Failed to update option",
-                        operation: "productOptionUpdate",
-                    }
-                );
-                if (userErrorResponse) {
-                    return userErrorResponse;
-                }
                 return {
                     ...formatProductResponse(data.productOptionUpdate.product),
                     ...(auditLog ? { audit: { auditLogId: auditLog.id || null } } : {}),
@@ -248,19 +266,6 @@ const manageProductOptions = {
           }
           ${PRODUCT_OPTIONS_FRAGMENT}
         `;
-                const auditLog = await createMutationAuditLog({
-                    toolName: "manage-product-options",
-                    tenantId: context.tenantId || null,
-                    shopDomain: context.shopifyDomain || null,
-                    requestId: context.requestId || null,
-                    reason: input.reason,
-                    targetIds: [productId, ...input.optionIds],
-                    payload: {
-                        action,
-                        productId,
-                        optionIds: input.optionIds,
-                    },
-                });
                 const data = (await shopifyClient.request(query, {
                     productId,
                     options: input.optionIds,
@@ -275,6 +280,19 @@ const manageProductOptions = {
                 if (userErrorResponse) {
                     return userErrorResponse;
                 }
+                const auditLog = await createMutationAuditLog({
+                    toolName: "manage-product-options",
+                    tenantId: context.tenantId || null,
+                    shopDomain: context.shopifyDomain || null,
+                    requestId: context.requestId || null,
+                    reason: input.reason,
+                    targetIds: [productId, ...input.optionIds],
+                    payload: {
+                        action,
+                        productId,
+                        optionIds: input.optionIds,
+                    },
+                });
                 return {
                     ...formatProductResponse(data.productOptionsDelete.product),
                     audit: {

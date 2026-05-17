@@ -1,6 +1,6 @@
 import assert from "assert";
 import crypto from "crypto";
-import { getThemeFiles, upsertThemeFiles, verifyThemeFiles } from "../src/lib/themeFiles.js";
+import { deleteThemeFile, getThemeFiles, upsertThemeFiles, verifyThemeFiles } from "../src/lib/themeFiles.js";
 import { createThemeDraftDbHarness } from "./helpers/themeDraftDbHarness.mjs";
 
 process.env.NODE_ENV = "test";
@@ -192,6 +192,33 @@ global.fetch = async (url, options = {}) => {
     );
   }
 
+  if (query.includes("mutation ThemeFilesDelete")) {
+    const inputFiles = Array.isArray(variables.files) ? variables.files : [];
+    const deletedThemeFiles = [];
+
+    for (const key of inputFiles) {
+      if (key === "sections/delete-verify-fail.liquid") {
+        deletedThemeFiles.push({ filename: key });
+        continue;
+      }
+      if (fileStore.delete(key)) {
+        deletedThemeFiles.push({ filename: key });
+      }
+    }
+
+    return new Response(
+      JSON.stringify({
+        data: {
+          themeFilesDelete: {
+            deletedThemeFiles,
+            userErrors: [],
+          },
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }
+
   throw new Error(`Unexpected GraphQL query: ${query.slice(0, 120)}`);
 };
 
@@ -300,6 +327,27 @@ try {
 
   const persistedNewFile = fileStore.get("sections/new.liquid");
   assert.equal(persistedNewFile.value, "<div>Brand new</div>");
+
+  setTextFile("sections/delete-me.liquid", "<div>Delete me</div>");
+  const deleteResult = await deleteThemeFile(shopifyClient, "2026-01", {
+    themeId: 123,
+    key: "sections/delete-me.liquid",
+    expectedChecksumMd5: toChecksumMd5("<div>Delete me</div>"),
+  });
+  assert.equal(deleteResult.deletedKey, "sections/delete-me.liquid");
+  assert.equal(deleteResult.verify?.status, "missing", "deleteThemeFile should verify the file is gone");
+  assert.equal(fileStore.has("sections/delete-me.liquid"), false);
+
+  setTextFile("sections/delete-verify-fail.liquid", "<div>Still here</div>");
+  await assert.rejects(
+    () =>
+      deleteThemeFile(shopifyClient, "2026-01", {
+        themeId: 123,
+        key: "sections/delete-verify-fail.liquid",
+        expectedChecksumMd5: toChecksumMd5("<div>Still here</div>"),
+      }),
+    /lijkt na delete nog aanwezig/
+  );
 
   const restFileStore = new Map();
   const setRestTextFile = (key, value) => {

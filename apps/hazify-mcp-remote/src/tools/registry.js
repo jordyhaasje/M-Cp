@@ -430,9 +430,12 @@ const getThemesOutputSchema = z
 
 const deleteThemeFileOutputSchema = z
   .object({
+    success: z.literal(true).optional(),
     action: z.literal("deleted"),
     theme: themeSummarySchema,
     deletedKey: z.string(),
+    verify: passthroughObject().optional(),
+    audit: passthroughObject().optional(),
   })
   .passthrough();
 
@@ -573,6 +576,7 @@ const buildCanonicalToolDefinitions = ({ getLicenseStatusExecute }) => [
   }),
   defineToolManifest(manageProductOptions, {
     writeScopeRequired: true,
+    destructive: true,
     idempotent: false,
     outputSchema: manageProductOptionsOutputSchema,
   }),
