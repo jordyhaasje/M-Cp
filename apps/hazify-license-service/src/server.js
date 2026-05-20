@@ -293,6 +293,7 @@ function json(res, statusCode, payload) {
   res.writeHead(statusCode, {
     "Content-Type": "application/json",
     "Content-Length": Buffer.byteLength(body),
+    "Cache-Control": "no-store",
   });
   res.end(body);
 }
@@ -328,7 +329,16 @@ function clientIp(req) {
 
 function applyRateLimit(req, res) {
   const ip = clientIp(req);
-  const bucket = `${ip}:${Math.floor(Date.now() / 60000)}`;
+  const currentMinute = Math.floor(Date.now() / 60000);
+  if (RATE_BUCKETS.size > 10000 || currentMinute % 5 === 0) {
+    for (const key of RATE_BUCKETS.keys()) {
+      const minute = Number(String(key).split(":").pop());
+      if (!Number.isFinite(minute) || minute < currentMinute - 2) {
+        RATE_BUCKETS.delete(key);
+      }
+    }
+  }
+  const bucket = `${ip}:${currentMinute}`;
   const count = (RATE_BUCKETS.get(bucket) || 0) + 1;
   RATE_BUCKETS.set(bucket, count);
   if (count > config.rateLimitPerMinute) {
@@ -1203,6 +1213,9 @@ function initializeHandlers() {
     hashToken,
     requireMcpApiKey,
     requireAdmin,
+    requireAccountSession,
+    resolveTenantForAccount,
+    listTenantsForAccount,
     billingReadiness,
     maskSecret,
     exchangeShopifyClientCredentials,
@@ -1387,6 +1400,27 @@ function createHttpServer() {
     }
     if (method === "GET" && url.pathname === "/health") {
       return json(res, 200, { ok: true, service: "hazify-license-service", timestamp: nowIso() });
+    }
+    if (method === "GET" && url.pathname === "/ready") {
+      try {
+        const readiness = storage && typeof storage.readyCheck === "function"
+          ? await storage.readyCheck()
+          : { database: false, singleWriter: false };
+        const ok = Boolean(readiness.database && readiness.singleWriter);
+        return json(res, ok ? 200 : 503, {
+          ok,
+          service: "hazify-license-service",
+          timestamp: nowIso(),
+          checks: readiness,
+        });
+      } catch (error) {
+        return json(res, 503, {
+          ok: false,
+          service: "hazify-license-service",
+          timestamp: nowIso(),
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
     if (method === "GET" && url.pathname === "/v1/billing/readiness") {
       return licenseBillingHandlers.handleBillingReadiness(req, res);

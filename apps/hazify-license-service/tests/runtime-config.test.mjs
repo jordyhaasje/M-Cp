@@ -73,7 +73,7 @@ const productionConfigWithoutBackupExport = reloadRuntimeConfig({
   DATABASE_SSL: "false",
   DB_POOL_MAX: "10",
   DB_STATEMENT_TIMEOUT_MS: "5000",
-  DATA_ENCRYPTION_KEY: "unit-test-key",
+  DATA_ENCRYPTION_KEY: "data-production-secret-123456789012",
   HAZIFY_FREE_MODE: "false",
   ADMIN_API_KEY: STRONG_ADMIN_KEY,
   MCP_API_KEY: STRONG_MCP_KEY,
@@ -98,6 +98,26 @@ assert.equal(
 assert.equal(productionConfigWithoutBackupExport.backupExportDirectory, "");
 assert.equal(productionConfigWithoutBackupExport.backupExportPolicy, "");
 
+const productionFreeBillingConfig = reloadRuntimeConfig({
+  NODE_ENV: "production",
+  PORT: "8787",
+  DATABASE_URL: "postgres://unit-test",
+  DATABASE_SSL: "false",
+  DB_POOL_MAX: "10",
+  DB_STATEMENT_TIMEOUT_MS: "5000",
+  DATA_ENCRYPTION_KEY: "data-production-secret-123456789012",
+  HAZIFY_BILLING_MODE: "free",
+  ADMIN_API_KEY: STRONG_ADMIN_KEY,
+  MCP_API_KEY: STRONG_MCP_KEY,
+  PUBLIC_BASE_URL: "https://license.example.test",
+  MCP_PUBLIC_URL: "https://mcp.example.test/mcp",
+  DB_SINGLE_WRITER_ENFORCED: "true",
+});
+assert.equal(productionFreeBillingConfig.effectiveProduction, true);
+assert.equal(productionFreeBillingConfig.billingMode, "free");
+assert.equal(productionFreeBillingConfig.freeMode, true);
+assert.equal(productionFreeBillingConfig.stripeBillingEnabled, false);
+
 assert.throws(
   () =>
     reloadRuntimeConfig({
@@ -107,7 +127,28 @@ assert.throws(
       DATABASE_SSL: "false",
       DB_POOL_MAX: "10",
       DB_STATEMENT_TIMEOUT_MS: "5000",
-      DATA_ENCRYPTION_KEY: "unit-test-key",
+      DATA_ENCRYPTION_KEY: "generate-a-long-random-encryption-key",
+      HAZIFY_BILLING_MODE: "free",
+      ADMIN_API_KEY: STRONG_ADMIN_KEY,
+      MCP_API_KEY: STRONG_MCP_KEY,
+      PUBLIC_BASE_URL: "https://license.example.test",
+      MCP_PUBLIC_URL: "https://mcp.example.test/mcp",
+      DB_SINGLE_WRITER_ENFORCED: "true",
+    }),
+  /DATA_ENCRYPTION_KEY moet in productie een sterke secret/,
+  "production startup should reject placeholder data encryption keys"
+);
+
+assert.throws(
+  () =>
+    reloadRuntimeConfig({
+      NODE_ENV: "production",
+      PORT: "8787",
+      DATABASE_URL: "postgres://unit-test",
+      DATABASE_SSL: "false",
+      DB_POOL_MAX: "10",
+      DB_STATEMENT_TIMEOUT_MS: "5000",
+      DATA_ENCRYPTION_KEY: "data-production-secret-123456789012",
       HAZIFY_FREE_MODE: "false",
       ADMIN_API_KEY: "change-this-admin-key",
       MCP_API_KEY: STRONG_MCP_KEY,
@@ -128,7 +169,7 @@ assert.throws(
       DATABASE_SSL: "false",
       DB_POOL_MAX: "10",
       DB_STATEMENT_TIMEOUT_MS: "5000",
-      DATA_ENCRYPTION_KEY: "unit-test-key",
+      DATA_ENCRYPTION_KEY: "data-production-secret-123456789012",
       HAZIFY_FREE_MODE: "false",
       ADMIN_API_KEY: STRONG_ADMIN_KEY,
       MCP_API_KEY: STRONG_ADMIN_KEY,
@@ -149,7 +190,7 @@ assert.throws(
       DATABASE_SSL: "false",
       DB_POOL_MAX: "10",
       DB_STATEMENT_TIMEOUT_MS: "5000",
-      DATA_ENCRYPTION_KEY: "unit-test-key",
+      DATA_ENCRYPTION_KEY: "data-production-secret-123456789012",
       HAZIFY_FREE_MODE: "false",
       HAZIFY_AUTO_ACTIVATE_SIGNUP_LICENSES: "true",
       ADMIN_API_KEY: STRONG_ADMIN_KEY,

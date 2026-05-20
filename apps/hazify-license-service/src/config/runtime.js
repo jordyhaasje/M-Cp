@@ -33,12 +33,37 @@ function isUnsafeProductionSecret(value) {
     lower.includes("changeme") ||
     lower.includes("replace-me") ||
     lower.includes("example") ||
+    lower.includes("generate-a-long-random") ||
     lower.includes("test-key")
   );
 }
 
+function resolveBillingMode(env = process.env) {
+  const explicitMode = String(env.HAZIFY_BILLING_MODE || "")
+    .trim()
+    .toLowerCase();
+  if (explicitMode === "free" || explicitMode === "stripe") {
+    return explicitMode;
+  }
+
+  const stripeBillingEnabled = String(env.STRIPE_BILLING_ENABLED || "")
+    .trim()
+    .toLowerCase();
+  if (stripeBillingEnabled === "true") {
+    return "stripe";
+  }
+  if (stripeBillingEnabled === "false") {
+    return "free";
+  }
+
+  return String(env.HAZIFY_FREE_MODE || "true").trim().toLowerCase() === "false"
+    ? "stripe"
+    : "free";
+}
+
 function resolveRuntimeConfig(env = process.env) {
   const isProduction = isEffectiveProductionEnv(env);
+  const billingMode = resolveBillingMode(env);
   return {
     port: Number(env.PORT || 8787),
     adminApiKey: env.ADMIN_API_KEY || "",
@@ -50,7 +75,9 @@ function resolveRuntimeConfig(env = process.env) {
     rateLimitPerMinute: Number(env.RATE_LIMIT_PER_MINUTE || 120),
     maxBodyBytes: Number(env.MAX_BODY_BYTES || 1_048_576),
     timestampSkewSeconds: Number(env.TIMESTAMP_SKEW_SECONDS || 900),
-    freeMode: String(env.HAZIFY_FREE_MODE || "true").trim().toLowerCase() !== "false",
+    billingMode,
+    stripeBillingEnabled: billingMode === "stripe",
+    freeMode: billingMode === "free",
     stripeSecretKey: env.STRIPE_SECRET_KEY || "",
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET || "",
     stripeMode: String(env.STRIPE_MODE || "").trim().toLowerCase() === "test" ? "test" : "live",
@@ -112,8 +139,18 @@ function assertValidRuntimeConfig(nextConfig, env = process.env) {
     if (!String(nextConfig.dataEncryptionKey || "").trim()) {
       throw new Error("DATA_ENCRYPTION_KEY is verplicht in productie.");
     }
-    if (nextConfig.freeMode) {
-      throw new Error("HAZIFY_FREE_MODE=false is verplicht in productie.");
+    if (
+      nextConfig.freeMode &&
+      String(env.HAZIFY_BILLING_MODE || "").trim().toLowerCase() !== "free" &&
+      String(env.HAZIFY_FREE_MODE || "").trim().toLowerCase() !== "true" &&
+      String(env.STRIPE_BILLING_ENABLED || "").trim().toLowerCase() !== "false"
+    ) {
+      throw new Error(
+        "Gratis productiegebruik moet expliciet zijn via HAZIFY_BILLING_MODE=free of HAZIFY_FREE_MODE=true."
+      );
+    }
+    if (isUnsafeProductionSecret(nextConfig.dataEncryptionKey)) {
+      throw new Error("DATA_ENCRYPTION_KEY moet in productie een sterke secret van minimaal 32 tekens zijn.");
     }
     if (!String(nextConfig.mcpApiKey || "").trim()) {
       throw new Error("MCP_API_KEY is verplicht in productie.");
@@ -168,5 +205,6 @@ export {
   VALID_LICENSE_STATUSES,
   config,
   isEffectiveProductionEnv,
+  resolveBillingMode,
   reloadRuntimeConfig,
 };

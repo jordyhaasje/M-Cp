@@ -4,6 +4,7 @@ import { requireShopifyClient } from "./_context.js";
 import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
 import { z } from "zod";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
+import { recordMutationAudit } from "../lib/mutationAudit.js";
 
 const RefundLineItemSchema = z.object({
   lineItemId: z.string().min(1),
@@ -158,6 +159,21 @@ const refundOrder = {
         };
       }
 
+      const { auditLog, auditWarning } = await recordMutationAudit({
+        context,
+        shopifyClient,
+        toolName: "refund-order",
+        reason: input.audit.reason,
+        targetIds: [resolvedOrderId, payload.refund?.id].filter(Boolean),
+        payload: {
+          confirmation: input.confirmation,
+          audit: input.audit,
+          idempotencyKey,
+          refundId: payload.refund?.id || null,
+          orderId: payload.order?.id || resolvedOrderId,
+        },
+      });
+
       return {
         refund: {
           id: payload.refund?.id,
@@ -177,7 +193,14 @@ const refundOrder = {
           source: resolvedOrder.source,
           matchedByQuery: resolvedOrder.matchedByQuery || null,
         },
-        audit: input.audit,
+        audit: {
+          ...input.audit,
+          auditLogId: auditLog?.id || null,
+          ...(auditWarning ? { warning: auditWarning } : {}),
+          requestId: context?.requestId || null,
+          tenantId: context?.tenantId || null,
+          shopDomain: context?.shopifyDomain || null,
+        },
         idempotencyKey,
       };
     } catch (error) {

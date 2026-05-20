@@ -32,9 +32,8 @@
     "@hazify/mcp-common": "file:./packages/mcp-common",
     "@hazify/shopify-core": "file:./packages/shopify-core",
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "@shopify/theme-check-node": "^3.24.0",
+    "@shopify/theme-check-node": "^3.26.0",
     "dotenv": "^16.0.3",
-    "graphql": "^16.6.0",
     "minimist": "^1.2.8",
     "zod": "^3.21.4"
   },

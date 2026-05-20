@@ -1,6 +1,11 @@
 import { gql } from "../lib/shopifyGraphqlClient.js";
 import { requireShopifyClient } from "./_context.js";
 import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
+import {
+    buildMutationAuditResponse,
+    recordMutationAudit,
+    resolveMutationShopDomain,
+} from "../lib/mutationAudit.js";
 import { z } from "zod";
 // Input schema for updateProduct
 const UpdateProductInputSchema = z.object({
@@ -36,6 +41,7 @@ const UpdateProductInputSchema = z.object({
     }))
         .optional()
         .describe("New media to add to the product"),
+    reason: z.string().min(3).optional().describe("Optionele auditreden voor deze productupdate."),
 }).strict();
 // Will be initialized in index.ts
 const updateProduct = {
@@ -45,7 +51,7 @@ const updateProduct = {
     execute: async (input, context = {}) => {
       const shopifyClient = requireShopifyClient(context);
         try {
-            const { id, media, ...productFields } = input;
+            const { id, media, reason, ...productFields } = input;
             const query = gql `
         mutation productUpdate($product: ProductUpdateInput!, $media: [CreateMediaInput!]) {
           productUpdate(product: $product, media: $media) {
@@ -110,6 +116,28 @@ const updateProduct = {
                 return userErrorResponse;
             }
             const product = data.productUpdate.product;
+            const shopDomain = resolveMutationShopDomain(context, shopifyClient);
+            const { auditLog, auditWarning } = await recordMutationAudit({
+                context,
+                shopifyClient,
+                toolName: "update-product",
+                reason: reason || "product update",
+                targetIds: [id],
+                payload: {
+                    productId: id,
+                    returnedProductId: product.id,
+                    changedFields: Object.keys(productFields),
+                    mediaCount: Array.isArray(media) ? media.length : 0,
+                },
+            });
+            const audit = buildMutationAuditResponse({
+                auditLog,
+                auditWarning,
+                context,
+                shopDomain,
+                reason: reason || "product update",
+                targetIds: [id],
+            });
             return {
                 product: {
                     id: product.id,
@@ -130,6 +158,7 @@ const updateProduct = {
                         options: e.node.selectedOptions,
                     })) || [],
                 },
+                ...(audit ? { audit } : {}),
             };
         }
         catch (error) {

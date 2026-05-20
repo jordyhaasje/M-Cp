@@ -56,7 +56,8 @@ function isStripeModePaymentLink(value, mode) {
 function billingDisabledPayload() {
   return {
     error: "billing_disabled",
-    message: "Billing is disabled because HAZIFY_FREE_MODE=true",
+    message: "Billing is disabled because HAZIFY_BILLING_MODE=free",
+    billingMode: "free",
     freeMode: true,
   };
 }
@@ -77,11 +78,12 @@ function billingReadiness(config) {
   const linksMatchMode = monthlyLinkMatchesMode && yearlyLinkMatchesMode;
 
   return {
-    mode: config.freeMode ? "free" : "paid",
+    mode: config.stripeBillingEnabled ? "stripe" : "free",
+    billingMode: config.billingMode || (config.stripeBillingEnabled ? "stripe" : "free"),
     freeMode: config.freeMode,
     stripe: {
       mode,
-      billingEnabled: !config.freeMode,
+      billingEnabled: !!config.stripeBillingEnabled,
       secretKeyConfigured: !!config.stripeSecretKey,
       secretMatchesMode,
       webhookSecretConfigured: !!config.stripeWebhookSecret,
@@ -100,9 +102,9 @@ function billingReadiness(config) {
       mcpApiKeyConfigured: !!config.mcpApiKey,
       adminApiKeyConfigured: !!config.adminApiKey,
     },
-    readyForPaymentLinks: !config.freeMode && onboardingCoreReady && hasAnyPaymentLink && linksMatchMode,
+    readyForPaymentLinks: !!config.stripeBillingEnabled && onboardingCoreReady && hasAnyPaymentLink && linksMatchMode,
     readyForManagedCheckout:
-      !config.freeMode &&
+      !!config.stripeBillingEnabled &&
       !!config.stripeSecretKey &&
       !!config.stripeWebhookSecret &&
       secretMatchesMode &&

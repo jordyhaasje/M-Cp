@@ -23,7 +23,7 @@ Deze audit is de compacte bron van waarheid voor de Hazify Remote MCP. Code blij
 - Tracking bijwerken via fulfillment tracking-tools en direct verifiëren via order readback.
 - Refunds aanmaken met expliciete bevestiging en scope.
 - Themes ontdekken, exact zoeken/lezen/verifiëren en guarded theme file writes uitvoeren.
-- Nieuwe sections genereren via `plan-theme-edit` en `create-theme-section`.
+- Nieuwe sections genereren via `plan-theme-edit` en `create-theme-section`; complete section-bundles met snippets/blocks/assets/locales lopen via `draft-theme-artifact mode="create"` of dezelfde create-wrapper met `files[]`.
 - Bestaande sections/snippets/templates/config wijzigen via `search-theme-files`, `get-theme-file`, `patch-theme-file` en `draft-theme-artifact mode="edit"`.
 - Eerder opgeslagen theme drafts expliciet promoveren via `apply-theme-draft`, met confirmation, reason, shop-binding en verify-after-write.
 - Compat-aliassen ondersteunen voor clients die toolnamen gokken, zonder entitlements of security gates te omzeilen.
@@ -34,7 +34,8 @@ Deze audit is de compacte bron van waarheid voor de Hazify Remote MCP. Code blij
 - Theme drafts zijn shop-bound bij apply: een draft ID van shop A kan niet op shop B worden toegepast.
 - Verify mismatch, missing of verify-errors blokkeren `preview_ready` en `applied`.
 - Non-main theme roles vereisen `themeId`; alleen `themeRole="main"` mag role-only omdat Shopify maar een live main theme heeft.
-- Fulfillment scopes bevatten zowel read als write fulfillment-order scopes voor trackinggedrag.
+- Fulfillment scopes bevatten merchant-managed, assigned en third-party fulfillment-order scopes voor trackinggedrag op bredere Shopify fulfillment setups.
+- Muterende store tools draaien nu per tenant/shop onder een Postgres advisory mutation lock en schrijven auditlogs voor product-, order-, refund-, tracking- en theme-mutaties wanneer runtime tenant/request context beschikbaar is.
 - OAuth resource/audience en nieuwe dashboard/admin/onboarding MCP tokens worden aan de publieke `/mcp` resource gebonden.
 - Shopify shop domains worden strikt als `*.myshopify.com` host gevalideerd; querystring- of lookalike-host spoofing wordt afgewezen voordat credentials worden opgeslagen of gebruikt.
 - License Service production startup weigert placeholder secrets, hergebruikte admin/MCP secrets en test-only signup auto-activation.
@@ -45,6 +46,7 @@ Deze audit is de compacte bron van waarheid voor de Hazify Remote MCP. Code blij
 - De gebruiker kiest altijd het doelthema. Zonder expliciete keuze moet de client om `themeId` of `themeRole="main"` vragen.
 - Theme file writes vereisen Shopify theme file write access/exemption naast `write_themes`; ontbreekt die, dan is dat een onboarding/app-permission issue en geen retrybare Liquid-fout.
 - Nieuwe sections: eerst plannen met `plan-theme-edit`; schrijven met `create-theme-section` of `draft-theme-artifact mode="create"`.
+- Complete section-bundles: exact één primaire `sections/*.liquid`, plus alleen direct gebruikte `snippets/*.liquid`, `blocks/*.liquid`, text-assets (`assets/*.css|js|json|svg`) en/of `locales/*.json`. Orphan hulpbestanden en Liquid in CSS/JS assets blokkeren vóór write.
 - Bestaande single-file edit: `search-theme-files` -> `get-theme-file` -> `patch-theme-file` of `draft-theme-artifact mode="edit"`.
 - Native product-blocks, theme blocks en template placement starten met `plan-theme-edit`; schrijf daarna alleen de exact voorgestelde bestanden.
 - `create-theme-section` is niet bedoeld om bestaande section-bestanden te wijzigen. Refinements op bestaande files horen via edit-mode of patch flow.
@@ -56,15 +58,13 @@ Deze audit is de compacte bron van waarheid voor de Hazify Remote MCP. Code blij
 
 ## Claimgrens
 - De MCP kan ChatGPT, Claude en andere MCP-clients tools geven om store- en theme-taken gericht uit te voeren wanneer de client remote MCP met bearer token of API key ondersteunt.
-- De MCP garandeert geen pixel-perfect theme output in één poging. De pipeline verhoogt betrouwbaarheid met planning, compact reads, linting, schema-validatie, verify-after-write en repair responses.
+- De MCP garandeert geen pixel-perfect theme output in één poging. De pipeline verhoogt betrouwbaarheid met planning, compact reads, linting, schema-validatie, theme-context matching, verify-after-write en repair responses.
 - Financiële en destructieve acties blijven confirmation-gated.
 - Live plaatsing van sections in templates gebeurt alleen op expliciete gebruikersvraag en op hetzelfde gekozen theme.
 
 ## Actuele Open Punten
 - Een echte read-only MCP smoke-token is nog nodig om live te bewijzen dat write-tools met alleen `mcp:tools:read` worden geweigerd. De code en tests borgen dit al; de productie-smoke vereist aparte credential-aanmaak en `HAZIFY_REQUIRE_AUTHENTICATED_MCP_SMOKE=true`.
 - Product/media/publication coverage is nog CRUD-lite: inventory levels, collecties, productmedia lifecycle en publication status verdienen aparte tools voordat dit als volledig Shopify catalogusbeheer telt.
-- Persistente auditlogging is aanwezig voor product-delete, variant-delete en destructieve product-option changes; uitbreiding naar alle store mutaties blijft een P1/P2 roadmap-item.
-- `@shopify/theme-check-node` kan upstream nog een `punycode` waarschuwing tonen wanneer de lint-route wordt geladen. Dat is geen startup- of toolcontractblocker; monitoren blijft genoeg zolang er geen tool failure ontstaat.
 
 ## Code Map
 - MCP entry en auth gates: `apps/hazify-mcp-remote/src/index.js`

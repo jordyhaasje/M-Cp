@@ -4,7 +4,7 @@ import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
 import { z } from "zod";
 import { isSupportedTrackingCompany, assertSupportedTrackingCompany } from "../lib/trackingCompanies.js";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
-import { createMutationAuditLog } from "../lib/db.js";
+import { recordMutationAudit } from "../lib/mutationAudit.js";
 const UpdateFulfillmentTrackingInputSchema = z.object({
     orderId: z.string().min(1).describe("Shopify order GID, e.g. gid://shopify/Order/123"),
     trackingNumber: z.string().min(1).describe("Shipment tracking number"),
@@ -280,13 +280,11 @@ const updateFulfillmentTracking = {
                 fulfillment = response.fulfillmentCreate.fulfillment;
                 action = "created_fulfillment_with_tracking";
             }
-            const auditLog = action === "created_fulfillment_with_tracking"
-                ? await createMutationAuditLog({
+            const { auditLog, auditWarning } = await recordMutationAudit({
+                    context,
+                    shopifyClient,
                     toolName: "update-fulfillment-tracking",
-                    tenantId: context?.tenantId || null,
-                    shopDomain: resolveShopDomain(context, shopifyClient),
-                    requestId: context?.requestId || null,
-                    reason: input.reason,
+                    reason: input.reason || "tracking update",
                     targetIds: [
                         orderContext.id,
                         fulfillment?.id,
@@ -295,10 +293,10 @@ const updateFulfillmentTracking = {
                         action,
                         confirmation: input.confirmation,
                         trackingCompany: resolvedCompany || null,
+                        trackingNumber: input.trackingNumber,
                         notifyCustomer: input.notifyCustomer,
                     },
-                })
-                : null;
+                });
             return {
                 order: {
                     id: orderContext.id,
@@ -316,21 +314,18 @@ const updateFulfillmentTracking = {
                 carrierInput: input.trackingCompany || null,
                 carrierResolved: resolvedCompany || null,
                 carrierIsShopifySupported: resolvedCompany ? isSupportedTrackingCompany(resolvedCompany) : null,
-                ...(auditLog
-                    ? {
-                        audit: {
-                            auditLogId: auditLog.id || null,
-                            reason: input.reason,
-                            requestId: context?.requestId || null,
-                            tenantId: context?.tenantId || null,
-                            shopDomain: resolveShopDomain(context, shopifyClient),
-                            targetIds: [
-                                orderContext.id,
-                                fulfillment?.id,
-                            ].filter(Boolean),
-                        },
-                    }
-                    : {})
+                audit: {
+                    auditLogId: auditLog?.id || null,
+                    ...(auditWarning ? { warning: auditWarning } : {}),
+                    reason: input.reason || "tracking update",
+                    requestId: context?.requestId || null,
+                    tenantId: context?.tenantId || null,
+                    shopDomain: resolveShopDomain(context, shopifyClient),
+                    targetIds: [
+                        orderContext.id,
+                        fulfillment?.id,
+                    ].filter(Boolean),
+                },
             };
         }
         catch (error) {

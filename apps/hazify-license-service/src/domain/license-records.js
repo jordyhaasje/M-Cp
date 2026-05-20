@@ -111,7 +111,7 @@ function isLicenseUsableForOnboarding(record) {
     return false;
   }
   const status = VALID_LICENSE_STATUSES.has(record.status) ? record.status : "invalid";
-  return status !== "invalid";
+  return status === "active" || status === "past_due";
 }
 
 function canonicalLicense(record) {

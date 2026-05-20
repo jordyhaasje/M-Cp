@@ -9,16 +9,20 @@ function toUrl(baseUrl, pathname) {
   return new URL(pathname, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).toString();
 }
 
-async function expectStatus({ fetchImpl = fetch, method = "GET", url, expectedStatus, headers, body }) {
+async function expectStatus({ fetchImpl = fetch, method = "GET", url, expectedStatus, expectedStatuses, headers, body }) {
   const response = await fetchImpl(url, { method, headers, body });
   const status = response.status;
-  if (status !== expectedStatus) {
+  const allowedStatuses = Array.isArray(expectedStatuses)
+    ? expectedStatuses
+    : [expectedStatus];
+  if (!allowedStatuses.includes(status)) {
     const text = await response.text().catch(() => "");
     throw new Error(
-      `${method} ${url} returned ${status}, expected ${expectedStatus}. Body: ${text.slice(0, 300)}`
+      `${method} ${url} returned ${status}, expected ${allowedStatuses.join(" or ")}. Body: ${text.slice(0, 300)}`
     );
   }
   console.log(`${method} ${url} -> ${status}`);
+  return response;
 }
 
 function hasAnyConfiguredValue(values) {
@@ -55,6 +59,8 @@ async function callMcpJsonRpc({
   params = {},
   label = method,
   origin = null,
+  sessionId = null,
+  expectedStatuses = [200],
 }) {
   const headers = {
     "content-type": "application/json",
@@ -63,6 +69,9 @@ async function callMcpJsonRpc({
   };
   if (origin) {
     headers.origin = origin;
+  }
+  if (sessionId) {
+    headers["mcp-session-id"] = sessionId;
   }
 
   const response = await fetchImpl(toUrl(mcpBaseUrl, "/mcp"), {
@@ -77,13 +86,14 @@ async function callMcpJsonRpc({
   });
 
   const body = await readJsonResponse(response, label);
-  if (response.status !== 200) {
-    throw new Error(`${label} returned ${response.status}, expected 200. Body: ${JSON.stringify(body)}`);
+  if (!expectedStatuses.includes(response.status)) {
+    throw new Error(`${label} returned ${response.status}, expected ${expectedStatuses.join(" or ")}. Body: ${JSON.stringify(body)}`);
   }
-  return body;
+  return { body, response };
 }
 
-function assertJsonRpcResult(body, label) {
+function assertJsonRpcResult(callResult, label) {
+  const body = callResult?.body || callResult;
   if (!body || typeof body !== "object" || !body.result) {
     throw new Error(`${label} did not return a JSON-RPC result. Body: ${JSON.stringify(body)}`);
   }
@@ -93,7 +103,8 @@ function assertJsonRpcResult(body, label) {
   return body.result;
 }
 
-function assertJsonRpcError(body, label, pattern) {
+function assertJsonRpcError(callResult, label, pattern) {
+  const body = callResult?.body || callResult;
   const message = String(body?.error?.message || body?.result?.content?.[0]?.text || "");
   if (!pattern.test(message)) {
     throw new Error(`${label} did not return expected error ${pattern}. Body: ${JSON.stringify(body)}`);
@@ -135,8 +146,7 @@ async function runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl }) {
     return;
   }
 
-  const initializeResult = assertJsonRpcResult(
-    await callMcpJsonRpc({
+  const initializeCall = await callMcpJsonRpc({
       fetchImpl,
       mcpBaseUrl,
       token: authToken,
@@ -149,12 +159,18 @@ async function runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl }) {
       },
       origin: smokeOrigin,
       label: "authenticated initialize",
-    }),
+    });
+  const initializeResult = assertJsonRpcResult(
+    initializeCall,
     "authenticated initialize"
   );
   if (!initializeResult.protocolVersion) {
     throw new Error("authenticated initialize did not return a protocolVersion.");
   }
+  const mcpSessionId =
+    initializeCall.response?.headers?.get?.("mcp-session-id") ||
+    initializeCall.response?.headers?.get?.("Mcp-Session-Id") ||
+    null;
   console.log("POST /mcp authenticated initialize -> 200");
 
   const toolsResult = assertJsonRpcResult(
@@ -166,6 +182,7 @@ async function runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl }) {
       method: "tools/list",
       label: "authenticated tools/list",
       origin: smokeOrigin,
+      sessionId: mcpSessionId,
     }),
     "authenticated tools/list"
   );
@@ -196,6 +213,7 @@ async function runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl }) {
       },
       label: "authenticated get-license-status",
       origin: smokeOrigin,
+      sessionId: mcpSessionId,
     }),
     "authenticated get-license-status"
   );
@@ -216,7 +234,7 @@ async function runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl }) {
     return;
   }
 
-  const writeGateBody = await callMcpJsonRpc({
+  const writeGateCall = await callMcpJsonRpc({
     fetchImpl,
     mcpBaseUrl,
     token: readOnlyGateToken,
@@ -232,8 +250,10 @@ async function runAuthenticatedMcpSmoke({ fetchImpl, env, mcpBaseUrl }) {
       },
       label: "authenticated write-scope gate",
       origin: smokeOrigin,
+      sessionId: mcpSessionId,
+      expectedStatuses: [200, 403],
     });
-  assertJsonRpcError(writeGateBody, "authenticated write-scope gate", /requires write scope|insufficient_scope/i);
+  assertJsonRpcError(writeGateCall, "authenticated write-scope gate", /requires write scope|insufficient_scope/i);
   console.log("POST /mcp authenticated write-scope gate -> denied before mutation");
 }
 
@@ -257,6 +277,12 @@ export async function runSmokeChecks({
   await expectStatus({
     fetchImpl,
     url: toUrl(licenseBaseUrl, "/health"),
+    expectedStatus: 200,
+  });
+
+  await expectStatus({
+    fetchImpl,
+    url: toUrl(licenseBaseUrl, "/ready"),
     expectedStatus: 200,
   });
 

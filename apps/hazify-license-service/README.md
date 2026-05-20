@@ -39,7 +39,7 @@ OAuth-notitie:
 - `GET|POST /oauth/authorize` canonicaliseert nu semantisch gelijke MCP scopes tijdens de form roundtrip, zodat clients zoals Codex niet stuklopen op andere volgorde van `scope`-tokens of een extra `offline_access` echo in query versus form body.
 - Alleen `mcp:tools`, `mcp:tools:read` en `mcp:tools:write` zijn geldige MCP scopes. Onbekende `mcp:*` scopes worden geweigerd.
 - OAuth tokens worden aan de MCP resource URL gebonden; clients moeten dezelfde publieke `/mcp` resource blijven gebruiken.
-- Productie-start van de License Service wacht bij rolling deploys nu kort op de Postgres single-writer lock in plaats van meteen te crashen terwijl de vorige writer nog netjes afbouwt.
+- Productie-start van de License Service wacht bij rolling deploys nu kort op de Postgres single-writer lock in plaats van meteen te crashen terwijl de vorige writer nog netjes afbouwt. `/ready` controleert database- en single-writer readiness voor deploy/smoke checks.
 
 ## Shopify auth modes
 - `shopAccessToken`: primaire route voor merchant-created Shopify custom apps. Gebruik de Admin API access token uit Shopify Admin.
@@ -47,7 +47,7 @@ OAuth-notitie:
 
 De MCP remote gebruikt de gekoppelde Admin API access token daarna uitsluitend server-side richting Shopify Admin GraphQL en stuurt die als `X-Shopify-Access-Token` header. Deze token wordt niet teruggegeven in introspection of toolresultaten.
 
-Vereiste Shopify scopes volgen `REQUIRED_SHOPIFY_ADMIN_SCOPES`, inclusief `read_themes`, `write_themes`, `read_fulfillments`, `read_merchant_managed_fulfillment_orders` en `write_merchant_managed_fulfillment_orders`.
+Vereiste Shopify scopes volgen `REQUIRED_SHOPIFY_ADMIN_SCOPES`, inclusief `read_themes`, `write_themes`, `read_fulfillments`, `read_merchant_managed_fulfillment_orders`, `write_merchant_managed_fulfillment_orders`, assigned en third-party fulfillment-order scopes.
 Theme file edits via Shopify Admin GraphQL vereisen daarnaast Shopify-toegang/exemption voor theme file writes. Als Shopify dit blokkeert, geeft de MCP Remote `theme_write_exemption_required` terug in plaats van een blinde retry.
 
 Introspection (`/v1/mcp/token/introspect`) geeft alleen minimale metadata terug en geen Shopify secrets.
@@ -56,12 +56,12 @@ Interne service-to-service token exchange (`/v1/mcp/token/exchange`) levert de S
 ## Productievereisten
 - `DATABASE_URL` verplicht
 - `DATA_ENCRYPTION_KEY` verplicht
-- `HAZIFY_FREE_MODE=false` verplicht
+- `HAZIFY_BILLING_MODE=free` voor de gratis beginfase of `HAZIFY_BILLING_MODE=stripe` wanneer Stripe actief moet zijn
 - `MCP_API_KEY` verplicht
 - `ADMIN_API_KEY` verplicht
 - `PUBLIC_BASE_URL` verplicht
 - `MCP_PUBLIC_URL` verplicht
-- Stripe-variabelen zijn nodig wanneer billing actief moet zijn
+- Stripe-variabelen zijn alleen nodig wanneer `HAZIFY_BILLING_MODE=stripe` actief is
 
 ## Interne structuur
 - `src/server.js` - HTTP entrypoint, shared helpers en route-registratie

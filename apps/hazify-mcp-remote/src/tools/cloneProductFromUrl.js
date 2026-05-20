@@ -2,6 +2,13 @@ import { gql } from "../lib/shopifyGraphqlClient.js";
 import { requireShopifyClient } from "./_context.js";
 import { z } from "zod";
 import { fetchWithSafeRedirects } from "../lib/urlSecurity.js";
+import {
+  buildMutationAuditResponse,
+  recordMutationAudit,
+  resolveMutationShopDomain,
+} from "../lib/mutationAudit.js";
+
+const MAX_SOURCE_PRODUCT_JSON_BYTES = 1024 * 1024;
 
 const CloneProductFromUrlInputSchema = z.object({
   sourceUrl: z.string().url().describe("Public Shopify product URL"),
@@ -69,7 +76,28 @@ async function fetchSourceProduct(sourceUrl) {
     throw new Error(`Failed to fetch source product JSON (${res.status}) from ${jsonUrl}`);
   }
 
-  return await res.json();
+  const contentLength = Number(res.headers?.get?.("content-length") || 0);
+  if (contentLength > MAX_SOURCE_PRODUCT_JSON_BYTES) {
+    throw new Error(
+      `Source product JSON is too large (${contentLength} bytes). Max ${MAX_SOURCE_PRODUCT_JSON_BYTES} bytes.`
+    );
+  }
+
+  const text = await res.text();
+  const byteLength = Buffer.byteLength(text, "utf8");
+  if (byteLength > MAX_SOURCE_PRODUCT_JSON_BYTES) {
+    throw new Error(
+      `Source product JSON is too large (${byteLength} bytes). Max ${MAX_SOURCE_PRODUCT_JSON_BYTES} bytes.`
+    );
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(
+      `Source product JSON is invalid: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 function extractSourceImageEntries(source) {
@@ -349,6 +377,33 @@ const cloneProductFromUrl = {
         unverified: variantMediaMappings.filter((row) => row.status === "unverified").length,
         noSourceImage: variantMediaMappings.filter((row) => row.status === "no_source_image").length,
       };
+      const shopDomain = resolveMutationShopDomain(context, shopifyClient);
+      const { auditLog, auditWarning } = await recordMutationAudit({
+        context,
+        shopifyClient,
+        toolName: "clone-product-from-url",
+        reason: "product clone from public URL",
+        targetIds: [productId, ...createdVariants.map((variant) => variant.id)],
+        payload: {
+          sourceUrl: input.sourceUrl,
+          productId,
+          status: input.status,
+          imported: {
+            options: optionDefs.length,
+            variants: variants.length,
+            media: media.length,
+          },
+          variantMediaMappingSummary: mappingSummary,
+        },
+      });
+      const audit = buildMutationAuditResponse({
+        auditLog,
+        auditWarning,
+        context,
+        shopDomain,
+        reason: "product clone from public URL",
+        targetIds: [productId, ...createdVariants.map((variant) => variant.id)],
+      });
 
       return {
         product: {
@@ -366,6 +421,7 @@ const cloneProductFromUrl = {
           warning: mediaVerificationWarning,
           mappings: variantMediaMappings,
         },
+        ...(audit ? { audit } : {}),
       };
     } catch (error) {
       console.error("Error cloning product from URL:", error);

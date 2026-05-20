@@ -780,7 +780,7 @@ try {
     true
   );
   assert.equal(compactVideoCardsPlan.writePolicy?.preferredTool, "create-theme-section");
-  assert.deepEqual(compactVideoCardsPlan.writePolicy?.allowedTools, ["create-theme-section"]);
+  assert.deepEqual(compactVideoCardsPlan.writePolicy?.allowedTools, ["create-theme-section", "draft-theme-artifact"]);
   assert.ok(
     compactVideoCardsPlan.goldenPath?.some((step) => step.tool === "get-theme-files") &&
       compactVideoCardsPlan.goldenPath?.some((step) => step.tool === "create-theme-section"),
@@ -794,6 +794,30 @@ try {
     compactVideoCardsPlan.safetyWarnings.filter((warning) => warning.code === "LIVE_THEME").length,
     1,
     "compact planner output should include one live-theme warning"
+  );
+
+  const compositeSectionPlan = await planThemeEditTool.execute(
+    {
+      themeId: 123,
+      intent: "new_section",
+      template: "homepage",
+      query:
+        "Maak een herbruikbare loyalty section met een shared snippet voor cards en een apart CSS asset voor dezelfde styling.",
+    },
+    { shopifyClient, tokenHash: "composite-section-plan" }
+  );
+  assert.equal(compositeSectionPlan.success, true);
+  assert.equal(compositeSectionPlan.recommendedFlow, "create-composite-section");
+  assert.equal(compositeSectionPlan.writePolicy?.preferredTool, "draft-theme-artifact");
+  assert.deepEqual(compositeSectionPlan.writePolicy?.allowedTools, ["draft-theme-artifact", "create-theme-section"]);
+  assert.equal(compositeSectionPlan.writePolicy?.writeMode, "files");
+  assert.ok(
+    compositeSectionPlan.writeArgsTemplate?.files?.some((file) => String(file.key).startsWith("snippets/")),
+    "composite section plan should suggest a snippet helper file"
+  );
+  assert.ok(
+    compositeSectionPlan.writeArgsTemplate?.files?.some((file) => String(file.key).startsWith("assets/")),
+    "composite section plan should suggest a text asset file"
   );
 
   const debugVideoCardsPlan = await planThemeEditTool.execute(

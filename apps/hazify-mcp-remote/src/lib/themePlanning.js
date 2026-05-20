@@ -103,6 +103,7 @@ const CHANGE_SCOPE_BY_FLOW = {
   "patch-existing": "micro_patch",
   "rewrite-existing": "bounded_rewrite",
   "multi-file-edit": "multi_file_structural_edit",
+  "create-composite-section": "net_new_generation",
   "template-placement": "multi_file_structural_edit",
   "create-section": "net_new_generation",
 };
@@ -120,6 +121,59 @@ const normalizeText = (value) =>
   String(value || "")
     .trim()
     .toLowerCase();
+
+const getSuggestedSectionHandle = (query) => {
+  const normalized = normalizeText(query)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return normalized || "new-section";
+};
+
+const detectCompositeSectionNeeds = ({ query = "", sectionBlueprint = null } = {}) => {
+  const text = [
+    query,
+    sectionBlueprint?.category,
+    sectionBlueprint?.archetype,
+    sectionBlueprint?.generationRecipe?.name,
+    sectionBlueprint?.layoutContract?.interactionKind,
+    sectionBlueprint?.promptContract?.requiresVideoSourceSetting ? "video" : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const needsSnippet =
+    /\b(snippet|partial|component|helper|reusable|herbruikbaar|shared|gedeeld|card renderer|render helper)\b/i.test(text);
+  const needsAsset =
+    /\b(asset|stylesheet|css file|javascript file|js file|swiper|splide|keen-slider|vendor js|external css|shared css)\b/i.test(text);
+  const needsBlock =
+    /\b(theme block|blocks\/|@theme|content_for ['"]blocks|custom block|app block)\b/i.test(text);
+  const needsLocale =
+    /\b(locale|translation|vertaling|i18n|meertalig|multi[- ]?language|translate)\b/i.test(text);
+  const isComposite = needsSnippet || needsAsset || needsBlock || needsLocale;
+  const handle = getSuggestedSectionHandle(query);
+  const suggestions = [`sections/${handle}.liquid`];
+  if (needsSnippet) {
+    suggestions.push(`snippets/${handle}-item.liquid`);
+  }
+  if (needsAsset) {
+    suggestions.push(`assets/${handle}.css`);
+  }
+  if (needsBlock) {
+    suggestions.push(`blocks/${handle}-item.liquid`);
+  }
+  if (needsLocale) {
+    suggestions.push("locales/en.default.json");
+  }
+  return {
+    isComposite,
+    needsSnippet,
+    needsAsset,
+    needsBlock,
+    needsLocale,
+    suggestions: uniqueStrings(suggestions),
+  };
+};
 
 const normalizeTemplateSurface = (value, intent = "existing_edit") => {
   const normalized = normalizeText(value);
@@ -871,14 +925,31 @@ const buildPlanFromAnalysis = ({
     const layoutContract = sectionBlueprint?.layoutContract || null;
     const themeWrapperStrategy = sectionBlueprint?.themeWrapperStrategy || null;
     const promptContract = sectionBlueprint?.promptContract || null;
-    recommendedFlow = "create-section";
-    shouldUse = "create-theme-section";
-    likelyNeedsMultiFileEdit = false;
+    const compositeNeeds = detectCompositeSectionNeeds({
+      query,
+      sectionBlueprint,
+    });
+    recommendedFlow = compositeNeeds.isComposite
+      ? "create-composite-section"
+      : "create-section";
+    shouldUse = compositeNeeds.isComposite
+      ? "draft-theme-artifact"
+      : "create-theme-section";
+    likelyNeedsMultiFileEdit = compositeNeeds.isComposite;
     reason = precisionFirst
       ? "Deze nieuwe section vraagt om een zo exact mogelijke design/screenshot-replica. Lees eerst alle planner-reads, doe daarna één precieze create-write en gebruik pas daarna zo nodig een volledige rewrite-edit."
-      : "Nieuwe sections horen eerst als los sections/<handle>.liquid bestand gemaakt te worden; template placement is een aparte stap. Spiegel vooraf ook de spacing- en setting-conventies van een vergelijkbare bestaande section in het doeltheme.";
+      : compositeNeeds.isComposite
+        ? "Deze nieuwe section heeft expliciete hulpbestanden nodig. Maak de primaire section plus alleen direct gerefereerde snippets/blocks/assets/locales in één guarded draft-theme-artifact mode='create' call; template placement blijft een aparte stap."
+        : "Nieuwe sections horen eerst als los sections/<handle>.liquid bestand gemaakt te worden; template placement is een aparte stap. Spiegel vooraf ook de spacing- en setting-conventies van een vergelijkbare bestaande section in het doeltheme.";
     nextWriteKeys = [];
-    newFileSuggestions = ["sections/<new-section>.liquid"];
+    newFileSuggestions = compositeNeeds.isComposite
+      ? compositeNeeds.suggestions
+      : ["sections/<new-section>.liquid"];
+    if (compositeNeeds.isComposite) {
+      warnings.push(
+        "Complete section create: als je snippets/assets/blocks/locales meestuurt, moeten ze direct door de primaire section worden gerenderd of geladen. Orphan hulpbestanden worden geblokkeerd."
+      );
+    }
     if (templateFile?.key) {
       warnings.push(
         "Plaats de nieuwe section pas in het template nadat de user dat expliciet vraagt."
@@ -1111,7 +1182,10 @@ const buildPlanFromAnalysis = ({
     nextWriteKeys,
     newFileSuggestions,
   });
-  const preferredWriteMode = inferPlanPreferredWriteMode(changeScope);
+  const preferredWriteMode =
+    recommendedFlow === "create-composite-section"
+      ? "files"
+      : inferPlanPreferredWriteMode(changeScope);
 
   return {
     recommendedFlow,

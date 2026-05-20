@@ -43,7 +43,7 @@ export const description = `Advanced write tool for Shopify theme files. Use thi
 export const docsDescription = `Draft and validate Shopify theme files through the guarded pipeline.
 
 Modes:
-- mode="create": Volledige inspectie voor nieuwe sections (geldig schema, presets, renderbare markup en Shopify-veilige range settings). Templates/config geblokkeerd.
+- mode="create": Volledige inspectie voor nieuwe sections en complete section-bundles. Exact één primaire sections/*.liquid is verplicht; direct gebruikte snippets/*.liquid, blocks/*.liquid, text-assets onder assets/*.css/js/json/svg en locales/*.json zijn toegestaan. Templates/config blijven geblokkeerd.
 - mode="edit": Inspectie voor wijzigingen aan bestaande bestanden. Templates/config TOEGESTAAN met JSON/JSONC-validatie. Section/block rewrites krijgen preserve-on-edit checks op bestaande schema-settings, block types/settings, presets, block.shopify_attributes, image_tag-paden, scoped CSS en theme/Impact wrappers.
 
 Zet mode altijd expliciet op top-level. Alleen voor backwards compatibility infereren patch/patches automatisch mode="edit"; value-only writes zonder mode worden eerst tegen het doeltheme geprobed zodat bestaande bestanden niet stilzwijgend als create-flow worden behandeld.
@@ -6383,6 +6383,223 @@ function inspectSnippetFile(
   });
 }
 
+function inspectAssetFile(file) {
+  const key = String(file.key || "");
+  const value = String(file.value || "");
+  const issues = [];
+  const warnings = [];
+  const suggestedFixes = [];
+
+  if (!/^assets\/[A-Za-z0-9._-]+\.(?:css|js|json|svg)$/.test(key)) {
+    issues.push(
+      createInspectionIssue({
+        path: [key],
+        problem:
+          "Create-mode assets moeten text-assets zijn: assets/*.css, assets/*.js, assets/*.json of assets/*.svg.",
+        fixSuggestion:
+          "Gebruik binary/media assets niet via theme file create. Gebruik merchant media settings of upload assets buiten deze guarded create-flow.",
+        issueCode: "inspection_failed_asset_key",
+      })
+    );
+  }
+
+  if (/\.(?:css|js)$/.test(key) && /{{|{%/.test(value)) {
+    issues.push(
+      createInspectionIssue({
+        path: [key],
+        problem:
+          "Shopify assets renderen geen Liquid. CSS/JS assets mogen daarom geen {{ }} of {% %} bevatten.",
+        fixSuggestion:
+          "Verplaats Liquid-afhankelijke CSS/JS naar section markup of maak het asset volledig statisch.",
+        issueCode: "inspection_failed_asset_liquid",
+      })
+    );
+  }
+
+  if (key.endsWith(".json")) {
+    try {
+      const parsed = JSON.parse(value);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        issues.push(
+          createInspectionIssue({
+            path: [key],
+            problem: `Asset '${key}' moet een JSON object bevatten.`,
+            fixSuggestion: "Gebruik een JSON object als root.",
+            issueCode: "inspection_failed_json",
+          })
+        );
+      }
+    } catch (error) {
+      issues.push(
+        createInspectionIssue({
+          path: [key],
+          problem: `Asset '${key}' bevat ongeldige JSON: ${error.message}`,
+          fixSuggestion: "Controleer de JSON syntax.",
+          issueCode: "inspection_failed_json",
+        })
+      );
+    }
+  }
+
+  if (/\.min\.(?:css|js)$/.test(key)) {
+    warnings.push(
+      `Asset '${key}' lijkt geminified. Gebruik bij voorkeur leesbare CSS/JS zodat theme-audits en repairs betrouwbaar blijven.`
+    );
+  }
+
+  return buildInspectionResult({
+    issues,
+    warnings,
+    suggestedFixes,
+  });
+}
+
+function inspectLocaleFile(file) {
+  const key = String(file.key || "");
+  const value = String(file.value || "");
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return buildInspectionResult({
+        issues: [
+          createInspectionIssue({
+            path: [key],
+            problem: `Locale bestand '${key}' moet een JSON object bevatten.`,
+            fixSuggestion: "Gebruik een locale JSON object met translation keys.",
+            issueCode: "inspection_failed_json",
+          }),
+        ],
+        suggestedFixes: ["Gebruik een locale JSON object met translation keys."],
+      });
+    }
+  } catch (error) {
+    return buildInspectionResult({
+      issues: [
+        createInspectionIssue({
+          path: [key],
+          problem: `Locale bestand '${key}' bevat ongeldige JSON: ${error.message}`,
+          fixSuggestion: "Controleer de locale JSON syntax.",
+          issueCode: "inspection_failed_json",
+        }),
+      ],
+      suggestedFixes: ["Controleer de locale JSON syntax."],
+    });
+  }
+
+  return buildInspectionResult({});
+}
+
+function inspectCreateModeFileSet(files = []) {
+  const issues = [];
+  const warnings = [];
+  const suggestedFixes = [];
+  const keys = files.map((file) => String(file.key || "").trim()).filter(Boolean);
+  const sectionKeys = keys.filter((key) => /^sections\/[A-Za-z0-9._-]+\.liquid$/.test(key));
+  const hasTemplateOrConfigWrite = keys.some((key) => /^(templates|config)\//.test(key));
+  const isStandaloneThemeBlockCreate =
+    keys.length > 0 &&
+    keys.every((key) => /^blocks\/[A-Za-z0-9._-]+\.liquid$/.test(key));
+  const hasSectionBundleHelperFile = keys.some((key) =>
+    /^(snippets|assets|locales)\//.test(key)
+  );
+  const combinedLiquid = files
+    .filter((file) => String(file.key || "").endsWith(".liquid"))
+    .map((file) => String(file.value || ""))
+    .join("\n");
+
+  if (files.length > 10) {
+    issues.push(
+      createInspectionIssue({
+        path: ["files"],
+        problem: "Een theme write mag maximaal 10 bestanden bevatten.",
+        fixSuggestion: "Splits de write of beperk hulpbestanden tot wat de section direct nodig heeft.",
+        issueCode: "inspection_failed_scope",
+      })
+    );
+  }
+
+  if (
+    !hasTemplateOrConfigWrite &&
+    !isStandaloneThemeBlockCreate &&
+    (sectionKeys.length > 0 || hasSectionBundleHelperFile || keys.length > 1) &&
+    sectionKeys.length !== 1
+  ) {
+    issues.push(
+      createInspectionIssue({
+        path: ["files"],
+        problem:
+          "mode='create' voor section generation verwacht exact één primaire sections/*.liquid file.",
+        fixSuggestion:
+          "Maak per request één primaire section en voeg alleen direct gerelateerde snippets/blocks/assets/locales toe.",
+        issueCode: "inspection_failed_create_file_set",
+      })
+    );
+  }
+
+  for (const file of files) {
+    const key = String(file.key || "").trim();
+    if (/^(templates|config)\//.test(key)) {
+      continue;
+    }
+    if (!/^(sections\/[A-Za-z0-9._-]+\.liquid|snippets\/[A-Za-z0-9._-]+\.liquid|blocks\/[A-Za-z0-9._-]+\.liquid|assets\/[A-Za-z0-9._-]+\.(?:css|js|json|svg)|locales\/[A-Za-z0-9._-]+\.json)$/.test(key)) {
+      issues.push(
+        createInspectionIssue({
+          path: [key],
+          problem:
+            `Bestand '${key}' is niet toegestaan in create mode.`,
+          fixSuggestion:
+            "Gebruik create mode alleen voor sections plus direct gerelateerde snippets, blocks, text-assets of locales. Templates/config horen in mode='edit'.",
+          issueCode: "inspection_failed_create_file_key",
+        })
+      );
+    }
+    if (key.startsWith("snippets/")) {
+      const snippetName = key.replace(/^snippets\//, "").replace(/\.liquid$/, "");
+      const snippetPattern = new RegExp(`{%-?\\s*(?:render|include)\\s+['"]${snippetName}['"]`, "i");
+      if (!snippetPattern.test(combinedLiquid)) {
+        issues.push(
+          createInspectionIssue({
+            path: [key],
+            problem:
+              `Snippet '${key}' wordt niet gerenderd door de meegeleverde Liquid files.`,
+            fixSuggestion:
+              `Render de snippet expliciet met {% render '${snippetName}' %} of verwijder het orphan snippet-bestand.`,
+            issueCode: "inspection_failed_unreferenced_snippet",
+          })
+        );
+      }
+    }
+    if (key.startsWith("assets/")) {
+      const assetName = key.replace(/^assets\//, "");
+      const escapedAssetName = assetName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const assetPattern = new RegExp(`['"]${escapedAssetName}['"]\\s*\\|\\s*asset_url`, "i");
+      if (!assetPattern.test(combinedLiquid)) {
+        issues.push(
+          createInspectionIssue({
+            path: [key],
+            problem:
+              `Asset '${key}' wordt niet geladen via asset_url door de meegeleverde Liquid files.`,
+            fixSuggestion:
+              `Laad het asset met {{ '${assetName}' | asset_url | stylesheet_tag }} of script_tag, of houd de CSS/JS in de section zelf.`,
+            issueCode: "inspection_failed_unreferenced_asset",
+          })
+        );
+      }
+    }
+    if (key.startsWith("locales/") && !/\|\s*t\b/.test(combinedLiquid)) {
+      warnings.push(
+        `Locale '${key}' is meegeleverd zonder vertaalfilter in de Liquid. Verwijder deze file als alle copy merchant-editable is.`
+      );
+    }
+  }
+
+  return buildInspectionResult({
+    issues,
+    warnings,
+    suggestedFixes,
+  });
+}
+
 function normalizeLintErrors(offenses, tmpDir) {
   return offenses.map((offense) => ({
     file: offense.uri ? offense.uri.replace(`file://${tmpDir}/`, "") : "root",
@@ -8793,6 +9010,12 @@ export const draftThemeArtifact = {
       typeof effectivePlannerHandoff.codegenContract === "object"
         ? effectivePlannerHandoff.codegenContract
         : null;
+    if (mode === "create") {
+      mergeInspectionIntoAccumulator(
+        localInspection,
+        inspectCreateModeFileSet(files)
+      );
+    }
 
     for (const file of files) {
       const isTemplateConfig = /^(templates|config)\//.test(file.key);
@@ -8983,6 +9206,10 @@ export const draftThemeArtifact = {
             (Array.isArray(effectivePlannerArchitecture?.snippetRendererKeys) &&
               effectivePlannerArchitecture.snippetRendererKeys.includes(file.key)),
         });
+      } else if (file.key.startsWith("assets/")) {
+        inspection = inspectAssetFile(file);
+      } else if (file.key.startsWith("locales/")) {
+        inspection = inspectLocaleFile(file);
       }
 
       if (

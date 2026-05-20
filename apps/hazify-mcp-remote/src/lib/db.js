@@ -260,6 +260,12 @@ export async function tryAcquireThemeFileLock(themeId, fileKey) {
   return tryAcquireAdvisoryLock(dbPool, lockKeyString);
 }
 
+export async function tryAcquireMutationLock(lockKey) {
+  await ensureThemeDraftSchema();
+  const dbPool = getDbPool();
+  return tryAcquireAdvisoryLock(dbPool, `mutation:${String(lockKey || "__default__")}`);
+}
+
 export async function createMutationAuditLog({
   toolName,
   tenantId = null,

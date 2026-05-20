@@ -1,6 +1,11 @@
 import { gql } from "../lib/shopifyGraphqlClient.js";
 import { requireShopifyClient } from "./_context.js";
 import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
+import {
+    buildMutationAuditResponse,
+    recordMutationAudit,
+    resolveMutationShopDomain,
+} from "../lib/mutationAudit.js";
 import { z } from "zod";
 // Input schema for manageProductVariants
 const VariantOptionSchema = z.object({
@@ -24,6 +29,7 @@ const ManageProductVariantsInputSchema = z.object({
         .enum(["DEFAULT", "REMOVE_STANDALONE_VARIANT", "PRESERVE_STANDALONE_VARIANT"])
         .default("DEFAULT")
         .describe("Strategy for handling the standalone 'Default Title' variant when creating. DEFAULT removes it automatically."),
+    reason: z.string().min(3).optional().describe("Optionele auditreden voor variantbeheer."),
 });
 // Will be initialized in index.ts
 const manageProductVariants = {
@@ -33,7 +39,7 @@ const manageProductVariants = {
     execute: async (input, context = {}) => {
       const shopifyClient = requireShopifyClient(context);
         try {
-            const { productId, variants } = input;
+            const { productId, variants, reason } = input;
             // Split into creates and updates
             const toCreate = variants.filter((v) => !v.id);
             const toUpdate = variants.filter((v) => v.id);
@@ -197,7 +203,41 @@ const manageProductVariants = {
                         options: v.selectedOptions,
                     }));
             }
-            return results;
+            const targetIds = [
+                productId,
+                ...results.created.map((variant) => variant.id),
+                ...results.updated.map((variant) => variant.id),
+            ];
+            const shopDomain = resolveMutationShopDomain(context, shopifyClient);
+            const { auditLog, auditWarning } = await recordMutationAudit({
+                context,
+                shopifyClient,
+                toolName: "manage-product-variants",
+                reason: reason || "product variants manage",
+                targetIds,
+                payload: {
+                    productId,
+                    strategy: input.strategy,
+                    requested: {
+                        create: toCreate.length,
+                        update: toUpdate.length,
+                    },
+                    createdVariantIds: results.created.map((variant) => variant.id),
+                    updatedVariantIds: results.updated.map((variant) => variant.id),
+                },
+            });
+            const audit = buildMutationAuditResponse({
+                auditLog,
+                auditWarning,
+                context,
+                shopDomain,
+                reason: reason || "product variants manage",
+                targetIds,
+            });
+            return {
+                ...results,
+                ...(audit ? { audit } : {}),
+            };
         }
         catch (error) {
             console.error("Error managing product variants:", error);

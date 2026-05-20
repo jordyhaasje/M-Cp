@@ -1,6 +1,11 @@
 import { gql } from "../lib/shopifyGraphqlClient.js";
 import { requireShopifyClient } from "./_context.js";
 import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
+import {
+    buildMutationAuditResponse,
+    recordMutationAudit,
+    resolveMutationShopDomain,
+} from "../lib/mutationAudit.js";
 import { z } from "zod";
 // Input schema for creating a product
 const CreateProductInputSchema = z.object({
@@ -49,6 +54,11 @@ const CreateProductInputSchema = z.object({
     }))
         .optional()
         .describe("Product media to create inline"),
+    reason: z
+        .string()
+        .min(3)
+        .optional()
+        .describe("Optionele auditreden voor deze productcreatie."),
 });
 // Will be initialized in index.ts
 const createProduct = {
@@ -98,7 +108,7 @@ const createProduct = {
           }
         }
       `;
-            const { media, ...productInput } = input;
+            const { media, reason, ...productInput } = input;
             const variables = {
                 product: productInput,
             };
@@ -114,6 +124,30 @@ const createProduct = {
                 return userErrorResponse;
             }
             const product = data.productCreate.product;
+            const shopDomain = resolveMutationShopDomain(context, shopifyClient);
+            const { auditLog, auditWarning } = await recordMutationAudit({
+                context,
+                shopifyClient,
+                toolName: "create-product",
+                reason: reason || "product create",
+                targetIds: [product.id],
+                payload: {
+                    productId: product.id,
+                    title: product.title,
+                    handle: product.handle,
+                    status: product.status,
+                    changedFields: Object.keys(productInput),
+                    mediaCount: Array.isArray(media) ? media.length : 0,
+                },
+            });
+            const audit = buildMutationAuditResponse({
+                auditLog,
+                auditWarning,
+                context,
+                shopDomain,
+                reason: reason || "product create",
+                targetIds: [product.id],
+            });
             return {
                 product: {
                     id: product.id,
@@ -128,6 +162,7 @@ const createProduct = {
                     options: product.options,
                     metafields: product.metafields?.edges.map((e) => e.node) || [],
                 },
+                ...(audit ? { audit } : {}),
             };
         }
         catch (error) {

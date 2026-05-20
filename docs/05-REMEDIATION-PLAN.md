@@ -6,9 +6,10 @@ Dit document is de actuele releasekaart voor de Hazify monorepo. Het is geen cha
 ## Status
 - De repo draait met een Postgres-only License Service en een HTTP-only Remote MCP.
 - Railway runtime-start gebruikt direct Node via `railway.json` en `scripts/start-service.mjs`.
-- MCP Remote gebruikt PostgreSQL voor `theme_drafts`, verify/apply state en advisory locks.
-- License Service production startup vereist sterke admin/MCP secrets, `HAZIFY_FREE_MODE=false`, resource-bound MCP tokens en test-only signup auto-activation uit.
+- MCP Remote gebruikt PostgreSQL voor `theme_drafts`, verify/apply state, theme locks en mutation advisory locks.
+- License Service production startup vereist sterke admin/MCP secrets, sterke data-encryptie, expliciete billing mode, resource-bound MCP tokens en test-only signup auto-activation uit. De beginfase mag `HAZIFY_BILLING_MODE=free` gebruiken; Stripe kan later met `HAZIFY_BILLING_MODE=stripe` worden geactiveerd.
 - Theme generation is gericht op hogere first-pass success rate en lager tokenverbruik via compact planner output, preflight bundling, compact failure responses en server-side context waar veilig.
+- Theme generation ondersteunt nu complete section-bundles: één primaire `sections/*.liquid` plus direct gerefereerde snippets, blocks, text-assets of locales. Orphan helpers en Liquid in CSS/JS assets blokkeren vóór write.
 - Theme section codegen preflight gebruikt nu tolerante JSON-schema blockrol-detectie: feature-rijke `slide` blocks met video/avatar/review/quote/secondary CTA settings blijven slide blocks, per-slide video-prompts worden niet meer door section-level video als compleet behandeld, en compact diagnostics bevatten gedetecteerde blocks plus prompt-coverage.
 - Section generation is nu contract-first: compacte `plan-theme-edit` responses bevatten `sectionContract`, `codegenPrompt` en `completionGate`; create-mode writes blokkeren op ontbrekende of partial prompt coverage; generieke settingtype-matches zijn aangescherpt; FAQ/tab/comparison blockrollen krijgen specifieke schema-diagnostics.
 - New-section theme-context is fallback-aware: een missende representatieve planner-read wordt vóór handoff vervangen door een bestaande section en write-tools accepteren `substituteRepresentativeRead` voor net-new standalone creates, terwijl missende helper/native/edit reads hard blockers blijven.
@@ -47,9 +48,8 @@ Dit document is de actuele releasekaart voor de Hazify monorepo. Het is geen cha
 
 ## Open Punten
 - Maak een aparte read-only MCP smoke-token aan en verifieer live dat write-tools met alleen `mcp:tools:read` worden geweigerd.
-- Breid persistente `mutation_audit_logs` verder uit naar refunds, theme deletes en overige store mutaties.
 - Voeg echte Postgres advisory-lock tests toe aan CI/release wanneer een gedeelde testdatabase beschikbaar is.
-- Blijf de upstream `punycode` waarschuwing vanuit `@shopify/theme-check-node` monitoren wanneer theme linting actief is.
+- Product/media/publication coverage is nog CRUD-lite: inventory levels, collecties, productmedia lifecycle en publication status verdienen aparte tools voordat dit als volledig catalogusbeheer telt.
 
 ## Handoff Voor Agents
 - Gebruik de toolregistry als bron van waarheid voor toolnamen.

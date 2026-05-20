@@ -62,6 +62,27 @@ try {
   assert.equal(defaultCloneInput.status, "DRAFT", "clone-product-from-url should default to DRAFT");
 
   global.fetch = async () =>
+    new Response("{}", {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(1024 * 1024 + 1),
+      },
+    });
+  await assert.rejects(
+    () =>
+      cloneProductFromUrl.execute(defaultCloneInput, {
+        shopifyClient: {
+          request: async () => {
+            throw new Error("Shopify should not be called for oversized source JSON");
+          },
+        },
+      }),
+    /too large/i,
+    "clone-product-from-url should reject oversized source JSON before Shopify mutations"
+  );
+
+  global.fetch = async () =>
     new Response(JSON.stringify(sourceProductPayload), {
       status: 200,
       headers: { "content-type": "application/json" },

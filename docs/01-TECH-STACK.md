@@ -21,11 +21,12 @@ Railway gebruikt root `railway.json` met `node scripts/start-service.mjs`. `HAZI
 - `DATABASE_URL` en `DATA_ENCRYPTION_KEY` zijn verplicht.
 - `DB_SINGLE_WRITER_ENFORCED=true` (actief als enkele writer wegens lock/persistence model).
 - Rolling deploys gebruiken nu een begrensde startup-retry voor de single-writer advisory lock, zodat een nieuwe instance kort kan wachten tot de vorige writer is afgebouwd zonder de lockgarantie los te laten.
-- `HAZIFY_FREE_MODE=false`.
+- Billing staat standaard in expliciete free mode voor de beginfase: `HAZIFY_BILLING_MODE=free` of legacy `HAZIFY_FREE_MODE=true`. Stripe blijft klaarzetbaar met `HAZIFY_BILLING_MODE=stripe` plus de Stripe secrets/price IDs/payment links. Production free mode moet expliciet zijn; stilzwijgende production free-mode wordt geblokkeerd.
 - `ADMIN_API_KEY` en `MCP_API_KEY` (alias `HAZIFY_MCP_API_KEY`) moeten verschillende sterke secrets van minimaal 32 tekens zijn; placeholderwaarden blokkeren production startup.
 - `PUBLIC_BASE_URL` en `MCP_PUBLIC_URL`.
 - `HAZIFY_AUTO_ACTIVATE_SIGNUP_LICENSES=true` is alleen voor tests/local flows en blokkeert production startup.
 - Admin backup-export is in productie feature-gated: de service mag gewoon starten zonder backup-export-config, maar export werkt pas wanneer `BACKUP_EXPORT_KEY`, `BACKUP_EXPORT_DIRECTORY` en `BACKUP_EXPORT_POLICY=encrypted` expliciet zijn gezet.
+- `/health` controleert procesgezondheid; `/ready` controleert daarnaast databasebereikbaarheid en single-writer readiness voor deploy/smoke checks.
 
 ### Remote MCP (Productievereisten)
 - `DATABASE_URL` is verplicht voor guarded theme draft/apply, `theme_drafts` persistence en PostgreSQL advisory locks.
@@ -35,16 +36,18 @@ Railway gebruikt root `railway.json` met `node scripts/start-service.mjs`. `HAZI
 - `HAZIFY_MCP_ALLOWED_HOSTS` is optioneel voor extra domeinen of custom domains. Waarden zijn comma-separated hostnames of URLs; poorten worden genegeerd. `localhost`, `127.0.0.1`, `[::1]`, `HAZIFY_MCP_PUBLIC_URL` en Railway public domain envs worden automatisch toegevoegd.
 - `HAZIFY_MCP_ALLOWED_ORIGINS` is optioneel voor browser/native-client Origin allowlisting. Gebruik dit niet als Host-header allowlist; dat is `HAZIFY_MCP_ALLOWED_HOSTS`.
 - `MCP_SESSION_MODE` is standaard **`stateless`**. Stateful deployment is alleen aanbevolen met sticky sessions (`MCP_STATEFUL_DEPLOYMENT_SAFE=true`).
-- `HAZIFY_MCP_CONTEXT_TTL_MS` (standaard 120.000 ms) cachet alleen de gehydrateerde requestcontext en lazy Shopify client na succesvolle introspectie; token-introspectie zelf blijft per request gebeuren.
+- `HAZIFY_MCP_CONTEXT_TTL_MS` (standaard 120.000 ms) cachet alleen de gehydrateerde requestcontext na succesvolle introspectie; token-introspectie zelf blijft per request gebeuren.
+- `HAZIFY_MCP_SHOPIFY_CLIENT_CACHE=false` is de veilige default. Zet dit alleen op `true` als tokenrotatie/stale credentials operationeel afgedekt zijn.
 
 ### Shopify Admin API en custom apps
 - De runtime gebruikt Shopify Admin GraphQL via `X-Shopify-Access-Token`.
 - De Remote MCP gebruikt hiervoor een kleine native-fetch client in `apps/hazify-mcp-remote/src/lib/shopifyGraphqlClient.js`; `graphql-request` is geen runtime dependency meer.
 - Voor merchant-created custom apps in de Shopify Admin is de Admin API access token het primaire onboardingpad.
 - `shopClientId` + `shopClientSecret` blijft ondersteund voor trusted app-achtige setups, maar is niet de standaardinstructie voor merchant-created custom apps.
-- Verplichte Admin API scopes volgen `REQUIRED_SHOPIFY_ADMIN_SCOPES` in `packages/shopify-core/src/index.js` en de Railway mirrors. De actuele lijst bevat onder meer `read_themes`, `write_themes`, `read_fulfillments`, `read_merchant_managed_fulfillment_orders` en `write_merchant_managed_fulfillment_orders`.
+- Verplichte Admin API scopes volgen `REQUIRED_SHOPIFY_ADMIN_SCOPES` in `packages/shopify-core/src/index.js` en de Railway mirrors. De actuele lijst bevat onder meer `read_themes`, `write_themes`, `read_fulfillments`, `read_merchant_managed_fulfillment_orders`, `write_merchant_managed_fulfillment_orders`, assigned fulfillment-order scopes en third-party fulfillment-order scopes.
 - Theme file writes via Shopify Admin GraphQL vereisen naast `write_themes` ook Shopify-toegang/exemption voor theme file writes. De remote vertaalt die blokkade naar `theme_write_exemption_required`.
 - De fulfillment tracking tools lezen `fulfillmentOrders`; Shopify vereist daarvoor expliciete fulfillment-order read scopes. Alleen write-scope is niet genoeg.
+- Store-mutaties draaien per tenant/shop door een in-process lock plus PostgreSQL advisory mutation lock. Product-, order-, refund-, tracking- en theme-mutaties schrijven mutation audit logs wanneer de runtime tenant/request context beschikbaar is.
 
 ### Remote MCP observability
 - De remote MCP logt request-level JSON events naar stdout; Railway is daarmee de primaire bron voor runtime-diagnose.

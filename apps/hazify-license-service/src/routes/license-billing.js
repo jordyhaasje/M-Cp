@@ -26,6 +26,9 @@ export function createLicenseBillingHandlers({
   hashToken,
   requireMcpApiKey,
   requireAdmin,
+  requireAccountSession,
+  resolveTenantForAccount,
+  listTenantsForAccount,
   billingReadiness,
   maskSecret,
   exchangeShopifyClientCredentials,
@@ -143,6 +146,75 @@ export function createLicenseBillingHandlers({
     return { allowed: false, reason: "invalid license status" };
   }
 
+  function resolveAccountStripeCustomerId(account, preferredTenantId = "") {
+    const candidateLicenseKeys = new Set();
+    if (account?.licenseKey) {
+      candidateLicenseKeys.add(account.licenseKey);
+    }
+
+    const preferredTenant =
+      typeof resolveTenantForAccount === "function"
+        ? resolveTenantForAccount(account, preferredTenantId)
+        : null;
+    if (preferredTenant?.licenseKey) {
+      candidateLicenseKeys.add(preferredTenant.licenseKey);
+    }
+
+    const tenants =
+      typeof listTenantsForAccount === "function" ? listTenantsForAccount(account) : [];
+    for (const tenant of tenants) {
+      if (tenant?.licenseKey) {
+        candidateLicenseKeys.add(tenant.licenseKey);
+      }
+    }
+
+    for (const licenseKey of candidateLicenseKeys) {
+      const license = db.licenses[licenseKey];
+      const customerId =
+        license?.stripeCustomerId ||
+        license?.subscription?.customerId ||
+        null;
+      if (customerId) {
+        return {
+          customerId,
+          license,
+          licenseKey,
+          tenant: preferredTenant || tenants.find((tenant) => tenant?.licenseKey === licenseKey) || null,
+        };
+      }
+    }
+
+    return { customerId: null, license: null, licenseKey: null, tenant: preferredTenant || null };
+  }
+
+  function resolveSafePortalReturnUrl(req, requestedReturnUrl) {
+    const fallback = config.portalReturnUrl || `${requestBaseUrl(req)}/dashboard`;
+    const allowedOrigins = new Set();
+    for (const candidate of [config.publicBaseUrl, config.portalReturnUrl, requestBaseUrl(req)]) {
+      if (typeof candidate !== "string" || !candidate.trim()) {
+        continue;
+      }
+      try {
+        allowedOrigins.add(new URL(candidate).origin);
+      } catch {
+        // Ignore malformed optional config; fallback validation below will catch it if needed.
+      }
+    }
+
+    if (typeof requestedReturnUrl !== "string" || !requestedReturnUrl.trim()) {
+      return fallback;
+    }
+
+    const raw = requestedReturnUrl.trim();
+    const parsed = raw.startsWith("/")
+      ? new URL(raw, config.publicBaseUrl || requestBaseUrl(req))
+      : new URL(raw);
+    if (!allowedOrigins.has(parsed.origin)) {
+      throw new Error("returnUrl origin is not allowed for billing portal sessions");
+    }
+    return parsed.toString();
+  }
+
   async function handleValidateOrHeartbeat(req, res, mode) {
     if (!applyRateLimit(req, res)) {
       return;
@@ -235,7 +307,7 @@ export function createLicenseBillingHandlers({
     if (!applyRateLimit(req, res)) {
       return;
     }
-    if (config.freeMode) {
+    if (!config.stripeBillingEnabled) {
       return json(res, 409, {
         ...billingDisabledPayload(),
         endpoint: "/v1/billing/create-checkout-session",
@@ -364,29 +436,42 @@ export function createLicenseBillingHandlers({
     if (!applyRateLimit(req, res)) {
       return;
     }
-    if (config.freeMode) {
+    if (!config.stripeBillingEnabled) {
       return json(res, 409, {
         ...billingDisabledPayload(),
         endpoint: "/v1/billing/create-portal-session",
       });
     }
+    const resolvedSession = await requireAccountSession(req, res);
+    if (!resolvedSession) {
+      return;
+    }
     try {
       const { json: payload } = await readBody(req);
-      if (!payload.customerId) {
-        throw new Error("customerId is required");
+      const resolvedCustomer = resolveAccountStripeCustomerId(
+        resolvedSession.account,
+        payload?.tenantId || ""
+      );
+      if (!resolvedCustomer.customerId) {
+        return json(res, 409, {
+          error: "stripe_customer_missing",
+          message: "Er is nog geen Stripe customer gekoppeld aan dit account.",
+        });
       }
-      const returnUrl = payload.returnUrl || config.portalReturnUrl;
+      const returnUrl = resolveSafePortalReturnUrl(req, payload?.returnUrl);
       if (!returnUrl) {
         throw new Error("returnUrl is required");
       }
 
       const session = await stripeRequest("POST", "/v1/billing_portal/sessions", {
-        customer: payload.customerId,
+        customer: resolvedCustomer.customerId,
         return_url: returnUrl,
       });
 
       return json(res, 200, {
         portalUrl: session.url,
+        licenseKey: resolvedCustomer.licenseKey,
+        tenantId: resolvedCustomer.tenant?.tenantId || null,
       });
     } catch (error) {
       return json(res, 400, {
@@ -397,7 +482,7 @@ export function createLicenseBillingHandlers({
   }
 
   async function handleStripeWebhook(req, res) {
-    if (config.freeMode) {
+    if (!config.stripeBillingEnabled) {
       return json(res, 200, { received: true, ignored: true, reason: "free_mode" });
     }
     try {

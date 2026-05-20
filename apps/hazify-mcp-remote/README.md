@@ -6,7 +6,7 @@ Remote Shopify MCP service op `/mcp` voor store-operaties via Shopify APIs. Runt
 ## Scope
 - Producten, varianten, opties, klanten, orders, fulfillment-tracking en refunds.
 - Theme file discovery/read/search/patch/draft/apply/verify/delete.
-- Nieuwe sections via `plan-theme-edit` en `create-theme-section`.
+- Nieuwe sections via `plan-theme-edit` en `create-theme-section`; complete section-bundles met direct gebruikte snippets/blocks/assets/locales via `draft-theme-artifact mode="create"` of `create-theme-section files[]`.
 - Bestaande theme edits via `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact` of `patch-theme-file`.
 - Geen automatische live template placement zonder expliciete gebruikersvraag.
 - Geen browser automation binnen de MCP runtime.
@@ -31,11 +31,13 @@ npm run --workspace @hazify/mcp-remote start:remote
 - Tool-entitlements gelden voor aliasnaam en canonieke toolnaam.
 - `MCP_SESSION_MODE=stateless` is de standaard; stateful mode vereist expliciete productiebevestiging.
 - `DATABASE_URL` is verplicht voor `theme_drafts`, verify/apply state en PostgreSQL advisory locks.
+- Muterende store-tools draaien per tenant/shop onder een Postgres advisory mutation lock en schrijven mutation audit logs wanneer runtime tenant/request context beschikbaar is.
 - Shopify credentials worden server-side via token-exchange opgehaald en nooit aan de MCP client teruggegeven.
 
 ## Theme Edit Flow
 - De gebruiker kiest altijd het doeltheme. `themeRole` zonder `themeId` is alleen veilig voor `main`; voor development/unpublished/demo themes is een exact `themeId` nodig.
 - Nieuwe section: `plan-theme-edit` -> exacte compacte reads -> `create-theme-section`.
+- Complete section-bundle: `plan-theme-edit` -> exacte compacte reads -> `draft-theme-artifact mode="create"` met exact één primaire `sections/*.liquid` plus alleen direct gerefereerde helperfiles.
 - Bestaande single-file edit: `search-theme-files` -> `get-theme-file` -> `draft-theme-artifact` of `patch-theme-file`.
 - Native product-blocks, theme blocks en template placement starten met `plan-theme-edit`.
 - `apply-theme-draft` is alleen voor het promoten van een bestaand draft en vereist `confirmation="APPLY_THEME_DRAFT"` plus `reason`.

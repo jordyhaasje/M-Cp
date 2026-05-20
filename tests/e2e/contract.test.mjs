@@ -92,8 +92,12 @@ global.fetch = async (input, init = {}) => {
       "write_orders",
       "read_fulfillments",
       "read_inventory",
+      "read_assigned_fulfillment_orders",
+      "write_assigned_fulfillment_orders",
       "read_merchant_managed_fulfillment_orders",
       "write_merchant_managed_fulfillment_orders",
+      "read_third_party_fulfillment_orders",
+      "write_third_party_fulfillment_orders",
     ];
 
     const scopes =

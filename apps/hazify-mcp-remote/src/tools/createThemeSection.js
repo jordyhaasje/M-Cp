@@ -77,6 +77,9 @@ const VisualBriefSchema = z
   .optional();
 const SECTION_KEY_PATTERN = /^sections\/[A-Za-z0-9._-]+\.liquid$/;
 const SECTION_HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
+const CREATE_THEME_SECTION_ALLOWED_FILE_PATTERN =
+  /^(sections\/[A-Za-z0-9._-]+\.liquid|snippets\/[A-Za-z0-9._-]+\.liquid|blocks\/[A-Za-z0-9._-]+\.liquid|assets\/[A-Za-z0-9._-]+\.(?:css|js|json|svg)|locales\/[A-Za-z0-9._-]+\.json)$/;
+const TEXT_ASSET_PATTERN = /^assets\/[A-Za-z0-9._-]+\.(?:css|js|json|svg)$/;
 const FOLLOW_UP_REFINEMENT_PATTERNS = [
   /\b(pixel[- ]?perfect|pixelperfect)\b/i,
   /\b(polish|polished|refine|refined|finesse|tighten)\b/i,
@@ -84,6 +87,26 @@ const FOLLOW_UP_REFINEMENT_PATTERNS = [
   /\b(improve|upgrade|restyle|redesign|exact(?:er|ly)?|closer)\b/i,
   /\b(mobile|desktop|spacing|typography|icons?|badge|sachet|mockup)\b/i,
 ];
+
+const normalizeCreateThemeSectionFileInput = (file) => {
+  if (!file || typeof file !== "object" || Array.isArray(file)) {
+    return {};
+  }
+  return {
+    key:
+      file.key ??
+      file.targetFile ??
+      file.target_file ??
+      file.filename ??
+      file.path,
+    value:
+      file.value !== undefined
+        ? file.value
+        : file.content !== undefined
+          ? file.content
+          : file.liquid,
+  };
+};
 
 const normalizeCreateThemeSectionInput = (rawInput) => {
   if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
@@ -105,6 +128,11 @@ const normalizeCreateThemeSectionInput = (rawInput) => {
             String(rawInput.sectionHandle ?? rawInput.section_handle).trim()
         ? String(rawInput.sectionHandle ?? rawInput.section_handle).trim()
         : null;
+  const normalizedFiles = Array.isArray(rawInput.files)
+    ? rawInput.files
+        .map(normalizeCreateThemeSectionFileInput)
+        .filter((file) => file.key || typeof file.value === "string")
+    : undefined;
 
   let normalized = {
     themeId: rawInput.themeId ?? rawInput.theme_id,
@@ -121,6 +149,10 @@ const normalizeCreateThemeSectionInput = (rawInput) => {
         : rawInput.content !== undefined
           ? rawInput.content
           : rawInput.liquid,
+    files:
+      Array.isArray(normalizedFiles) && normalizedFiles.length > 0
+        ? normalizedFiles
+        : undefined,
     isStandalone: rawInput.isStandalone ?? rawInput.is_standalone,
     plannerHandoff: rawInput.plannerHandoff ?? rawInput.planner_handoff,
     verbosity: rawInput.verbosity,
@@ -137,8 +169,42 @@ const normalizeCreateThemeSectionInput = (rawInput) => {
     }
   }
 
+  if (Array.isArray(normalized.files) && normalized.files.length > 0) {
+    const primarySectionFile = normalized.files.find((file) =>
+      SECTION_KEY_PATTERN.test(String(file.key || "").trim())
+    );
+    if (primarySectionFile) {
+      if (!normalized.key) {
+        normalized.key = String(primarySectionFile.key || "").trim();
+      }
+      if (normalized.liquid === undefined && typeof primarySectionFile.value === "string") {
+        normalized.liquid = primarySectionFile.value;
+      }
+    }
+  }
+
   return normalized;
 };
+
+const CreateThemeSectionFilePublicSchema = z
+  .object({
+    key: z.string().min(1).optional(),
+    targetFile: z.string().min(1).optional(),
+    target_file: z.string().min(1).optional(),
+    filename: z.string().min(1).optional(),
+    path: z.string().min(1).optional(),
+    value: z.string().optional(),
+    content: z.string().optional(),
+    liquid: z.string().optional(),
+  })
+  .strict();
+
+const CreateThemeSectionFileNormalizedSchema = z
+  .object({
+    key: z.string().min(1).optional(),
+    value: z.string().optional(),
+  })
+  .strict();
 
 const CreateThemeSectionPublicObjectSchema = z
   .object({
@@ -203,6 +269,13 @@ const CreateThemeSectionPublicObjectSchema = z
       .string()
       .optional()
       .describe("Compat alias van value."),
+    files: z
+      .array(CreateThemeSectionFilePublicSchema)
+      .max(10)
+      .optional()
+      .describe(
+        "Advanced create payload voor complete sections met hulpfiles. Exact één sections/<handle>.liquid is verplicht; optioneel zijn snippets/*.liquid, blocks/*.liquid, assets/*.css/js/json/svg en locales/*.json toegestaan. Templates/config blijven geblokkeerd."
+      ),
     value_summary: SummaryFieldSchema.describe(
       "Compat placeholderveld voor wrappers die abusievelijk een samenvatting meesturen. Dit vervangt nooit echte Liquid-inhoud."
     ),
@@ -281,6 +354,7 @@ const CreateThemeSectionNormalizedShape = z
     themeRole: ThemeRoleSchema.optional(),
     key: z.string().optional(),
     liquid: z.string().optional(),
+    files: z.array(CreateThemeSectionFileNormalizedSchema).max(10).optional(),
     isStandalone: z.boolean().optional(),
     plannerHandoff: PlannerHandoffInputSchema.optional(),
     verbosity: ResponseVerbositySchema.optional(),
@@ -293,6 +367,46 @@ const CreateThemeSectionNormalizedShape = z
         code: z.ZodIssueCode.custom,
         path: ["themeId"],
         message: "Gebruik themeId of themeRole, niet allebei tegelijk.",
+      });
+    }
+    const files = Array.isArray(input.files) ? input.files : [];
+    if (files.length > 0) {
+      const sectionFiles = files.filter((file) =>
+        SECTION_KEY_PATTERN.test(String(file.key || "").trim())
+      );
+      if (sectionFiles.length !== 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["files"],
+          message:
+            "files[] moet exact één nieuw sections/<handle>.liquid bestand bevatten.",
+        });
+      }
+      files.forEach((file, index) => {
+        const key = String(file.key || "").trim();
+        if (!key) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["files", index, "key"],
+            message: "Elke files[] entry heeft een exacte key nodig.",
+          });
+          return;
+        }
+        if (!CREATE_THEME_SECTION_ALLOWED_FILE_PATTERN.test(key)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["files", index, "key"],
+            message:
+              "Create-section files mogen alleen sections, snippets, blocks, text-assets of locales bevatten.",
+          });
+        }
+        if (typeof file.value !== "string" || file.value.trim().length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["files", index, "value"],
+            message: "Elke files[] entry moet volledige bestandsinhoud bevatten.",
+          });
+        }
       });
     }
   });
@@ -315,6 +429,10 @@ const summarizeNormalizedCreateArgs = (input = {}) => ({
   ...(input.verbosity ? { verbosity: input.verbosity } : {}),
   ...(input.includeContracts === true ? { includeContracts: true } : {}),
   hasLiquid: typeof input.liquid === "string" && input.liquid.length > 0,
+  fileCount: Array.isArray(input.files) ? input.files.length : 0,
+  fileKeys: Array.isArray(input.files)
+    ? input.files.map((file) => file?.key).filter(Boolean)
+    : [],
   hasPlannerHandoff:
     input.plannerHandoff &&
     typeof input.plannerHandoff === "object" &&
@@ -323,6 +441,196 @@ const summarizeNormalizedCreateArgs = (input = {}) => ({
 
 const uniqueStrings = (values) =>
   Array.from(new Set((values || []).filter(Boolean)));
+
+const normalizeFileKey = (value) => String(value || "").trim();
+
+const getCreateFileBasename = (key) =>
+  String(key || "")
+    .split("/")
+    .pop()
+    ?.replace(/\.liquid$/, "")
+    .replace(/\.(?:css|js|json|svg)$/, "") || "";
+
+const buildCreateThemeSectionWriteFiles = (input = {}) => {
+  const byKey = new Map();
+  for (const file of Array.isArray(input.files) ? input.files : []) {
+    const key = normalizeFileKey(file?.key);
+    if (!key || typeof file?.value !== "string") {
+      continue;
+    }
+    byKey.set(key, {
+      key,
+      value: file.value,
+    });
+  }
+  if (input.key && typeof input.liquid === "string") {
+    byKey.set(normalizeFileKey(input.key), {
+      key: normalizeFileKey(input.key),
+      value: input.liquid,
+    });
+  }
+  return Array.from(byKey.values());
+};
+
+const collectCreateThemeSectionFileSetIssues = (files = [], primaryKey = "") => {
+  const issues = [];
+  const warnings = [];
+  const suggestedFixes = [];
+  const keys = files.map((file) => normalizeFileKey(file?.key)).filter(Boolean);
+  const sectionFiles = files.filter((file) => SECTION_KEY_PATTERN.test(normalizeFileKey(file.key)));
+  const combinedLiquid = files
+    .filter((file) => /\.liquid$/.test(normalizeFileKey(file.key)))
+    .map((file) => String(file.value || ""))
+    .join("\n");
+
+  if (files.length > 10) {
+    issues.push(
+      buildCreateSectionError({
+        path: ["files"],
+        problem: "Een theme-create request mag maximaal 10 bestanden bevatten.",
+        fixSuggestion:
+          "Beperk de create tot de primaire section en alleen strikt noodzakelijke snippets/assets/locales.",
+        issueCode: "too_many_create_files",
+      })
+    );
+  }
+
+  if (sectionFiles.length !== 1) {
+    issues.push(
+      buildCreateSectionError({
+        path: ["files"],
+        problem:
+          "Een create-section request moet exact één primaire sections/<handle>.liquid file bevatten.",
+        fixSuggestion:
+          "Zet de section in één sections/<handle>.liquid file en voeg alleen afhankelijke snippets/assets/locales toe.",
+        issueCode: "invalid_primary_section_file_count",
+      })
+    );
+  }
+
+  keys.forEach((key, index) => {
+    if (!CREATE_THEME_SECTION_ALLOWED_FILE_PATTERN.test(key)) {
+      issues.push(
+        buildCreateSectionError({
+          path: ["files", index, "key"],
+          problem:
+            `Bestand '${key}' is niet toegestaan in create-section mode.`,
+          fixSuggestion:
+            "Gebruik voor nieuwe complete sections alleen sections/*.liquid plus noodzakelijke snippets/*.liquid, blocks/*.liquid, assets/*.css/js/json/svg of locales/*.json. Templates/config horen in een aparte mode='edit' placement-stap.",
+          issueCode: "invalid_create_file_key",
+        })
+      );
+    }
+  });
+
+  const duplicateKeys = keys.filter((key, index) => keys.indexOf(key) !== index);
+  if (duplicateKeys.length > 0) {
+    issues.push(
+      buildCreateSectionError({
+        path: ["files"],
+        problem: `Dubbele files[] keys zijn niet toegestaan: ${uniqueStrings(duplicateKeys).join(", ")}.`,
+        fixSuggestion: "Combineer elke file tot één files[] entry.",
+        issueCode: "duplicate_create_file_key",
+      })
+    );
+  }
+
+  for (const file of files) {
+    const key = normalizeFileKey(file.key);
+    const value = String(file.value || "");
+    if (key !== primaryKey && key.startsWith("sections/")) {
+      issues.push(
+        buildCreateSectionError({
+          path: ["files", key],
+          problem:
+            "create-theme-section ondersteunt één primaire section per request.",
+          fixSuggestion:
+            "Maak extra sections in aparte create-theme-section calls of gebruik een snippet/helper als gedeelde dependency.",
+          issueCode: "multiple_section_create_files",
+        })
+      );
+    }
+    if ((key.startsWith("templates/") || key.startsWith("config/")) && value) {
+      issues.push(
+        buildCreateSectionError({
+          path: ["files", key],
+          problem:
+            "Templates/config zijn geblokkeerd in create-section mode.",
+          fixSuggestion:
+            "Maak eerst de section en doe template placement of settings/config in een aparte draft-theme-artifact mode='edit' call.",
+          issueCode: "template_config_blocked_in_create",
+        })
+      );
+    }
+    if (TEXT_ASSET_PATTERN.test(key) && /\.(?:css|js)$/.test(key) && /{{|{%/.test(value)) {
+      issues.push(
+        buildCreateSectionError({
+          path: ["files", key],
+          problem:
+            `Asset '${key}' bevat Liquid, maar Shopify assets renderen geen Liquid.`,
+          fixSuggestion:
+            "Gebruik statische CSS/JS assets of plaats Liquid-afhankelijke CSS/JS in de section markup via <style>/<script>.",
+          issueCode: "asset_contains_liquid",
+        })
+      );
+    }
+  }
+
+  for (const file of files) {
+    const key = normalizeFileKey(file.key);
+    const basename = getCreateFileBasename(key);
+    if (key.startsWith("snippets/")) {
+      const snippetPattern = new RegExp(`{%-?\\s*(?:render|include)\\s+['"]${basename}['"]`, "i");
+      if (!snippetPattern.test(combinedLiquid)) {
+        issues.push(
+          buildCreateSectionError({
+            path: ["files", key],
+            problem:
+              `Snippet '${key}' wordt niet gerenderd door de meegeleverde section of helperfiles.`,
+            fixSuggestion:
+              `Render de snippet expliciet met {% render '${basename}' %} of verwijder het losse snippet-bestand uit deze create.`,
+            issueCode: "unreferenced_snippet_file",
+          })
+        );
+      }
+    }
+    if (key.startsWith("assets/")) {
+      const assetName = key.replace(/^assets\//, "");
+      const assetPattern = new RegExp(`['"]${assetName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}['"]\\s*\\|\\s*asset_url`, "i");
+      if (!assetPattern.test(combinedLiquid)) {
+        issues.push(
+          buildCreateSectionError({
+            path: ["files", key],
+            problem:
+              `Asset '${key}' wordt niet geladen door de meegeleverde Liquid files.`,
+            fixSuggestion:
+              `Laad het asset via {{ '${assetName}' | asset_url | stylesheet_tag }} of script_tag, of houd CSS/JS component-scoped in de section.`,
+            issueCode: "unreferenced_asset_file",
+          })
+        );
+      }
+    }
+    if (key.startsWith("blocks/") && !/{%-?\s*content_for\s+['"]blocks['"]|@theme/i.test(combinedLiquid)) {
+      warnings.push(
+        `Theme block '${key}' is meegeleverd. Controleer dat de section deze block-flow exposeert via content_for 'blocks' of een passend @theme schema-contract.`
+      );
+      suggestedFixes.push(
+        "Gebruik blocks/*.liquid alleen wanneer de section echt theme blocks exposeert; native blocks in bestaande sections horen via edit mode."
+      );
+    }
+    if (key.startsWith("locales/") && !/\|\s*t\b/.test(combinedLiquid)) {
+      warnings.push(
+        `Locale file '${key}' is meegeleverd, maar de Liquid gebruikt geen vertaalfilter. Verwijder de locale file als alle copy merchant-editable is.`
+      );
+    }
+  }
+
+  return {
+    issues,
+    warnings,
+    suggestedFixes,
+  };
+};
 
 const isSectionReadKey = (key) =>
   /^sections\/[A-Za-z0-9._-]+\.liquid$/.test(String(key || ""));
@@ -533,9 +841,21 @@ const buildCreateSectionRepairResponse = ({
 const buildCreateSectionArgsTemplate = (input = {}) => ({
   ...(input.themeId !== undefined ? { themeId: input.themeId } : {}),
   ...(input.themeRole ? { themeRole: input.themeRole } : {}),
-  key: input.key || "sections/<new-section>.liquid",
-  liquid:
-    "<complete Shopify Liquid section with the final requested styling and valid {% schema %}; do not send a rough baseline>",
+  ...(Array.isArray(input.files) && input.files.length > 1
+    ? {
+        files: input.files.map((file) => ({
+          key: file?.key || "sections/<new-section>.liquid",
+          value:
+            file?.key && String(file.key).startsWith("sections/")
+              ? "<complete Shopify Liquid section with the final requested styling and valid {% schema %}; do not send a rough baseline>"
+              : "<complete helper file content required by the section>",
+        })),
+      }
+    : {
+        key: input.key || "sections/<new-section>.liquid",
+        liquid:
+          "<complete Shopify Liquid section with the final requested styling and valid {% schema %}; do not send a rough baseline>",
+      }),
   ...(input.isStandalone ? { isStandalone: true } : {}),
 });
 
@@ -688,9 +1008,9 @@ const createThemeSectionTool = {
   name: "create-theme-section",
   title: "Create Theme Section",
   description:
-    "Primary write tool for a brand-new Shopify section file in sections/<handle>.liquid. Use this as the first write for a new section. Never use this tool to modify a section file that already exists, even if that file was just created earlier in the same conversation. Do not use apply-theme-draft first. Required: explicit themeId or themeRole='main', one section file path or handle, and the complete Liquid file with a valid {% schema %}. Use themeId for development/unpublished/demo themes. After plan-theme-edit, pass the compact plannerHandoff when available and keep screenshot/URL facts in visualBrief/referenceAnalysis/designBrief so exact replica signals survive stateless clients. The tool prefers exact nextReadKeys and auto-hydrates them when safely derivable; for net-new standalone sections, a missing representative planner read can be replaced by an existing section/snippet/layout read with includeContent=true and is returned as substituteRepresentativeRead instead of blocking on stale context. Non-representative required context remains protected. Preflight bundles deterministic codegen, recipe, editor-contract and local create issues before write; default failure responses stay compact and omit full planner/codegen/theme payloads unless verbosity='debug' or includeContracts=true. For screenshot/design-replica requests: lever de finale styling in de eerste create-write, niet eerst een veilige baseline gevolgd door een vraag of het pixel-perfect moet worden gemaakt. Screenshot-only replica's zonder losse bron-assets mogen nu wel renderbare demo-media of gestileerde media shells gebruiken zolang de layout, styling en merchant settings exact blijven gericht op de referentie. Exact-match comparison/shell replica's moeten daarnaast hun decoratieve anchors, ster-rating en vergelijking-iconografie direct goed meenemen; feature-54-achtige feature/media sections moeten grote media plus icon rows behouden, en Slider 7-achtige sliders moeten counter, peek cards, active state en echte controls bevatten. Als een gewone chatclient per ongeluk nog eens create-theme-section op exact dezelfde net aangemaakte section-key aanroept voor een refinement, kan de runtime die follow-up nu veilig omzetten naar een existing_edit rewrite in plaats van opnieuw op create vast te lopen.",
+    "Primary write tool for a brand-new Shopify section in sections/<handle>.liquid. Use this as the first write for a new section. Never use this tool to modify a section file that already exists, even if that file was just created earlier in the same conversation. Do not use apply-theme-draft first. Required: explicit themeId or themeRole='main', either one section file path/handle with complete Liquid, or files[] with exactly one primary sections/<handle>.liquid plus only directly referenced snippets/blocks/text-assets/locales. Use draft-theme-artifact mode='create' directly for advanced multi-file section bundles when plan-theme-edit recommends create-composite-section. Use themeId for development/unpublished/demo themes. After plan-theme-edit, pass the compact plannerHandoff when available and keep screenshot/URL facts in visualBrief/referenceAnalysis/designBrief so exact replica signals survive stateless clients. The tool prefers exact nextReadKeys and auto-hydrates them when safely derivable; for net-new standalone sections, a missing representative planner read can be replaced by an existing section/snippet/layout read with includeContent=true and is returned as substituteRepresentativeRead instead of blocking on stale context. Non-representative required context remains protected. Preflight bundles deterministic codegen, recipe, editor-contract, helper-file and local create issues before write; default failure responses stay compact and omit full planner/codegen/theme payloads unless verbosity='debug' or includeContracts=true. For screenshot/design-replica requests: lever de finale styling in de eerste create-write, niet eerst een veilige baseline gevolgd door een vraag of het pixel-perfect moet worden gemaakt. Screenshot-only replica's zonder losse bron-assets mogen nu wel renderbare demo-media of gestileerde media shells gebruiken zolang de layout, styling en merchant settings exact blijven gericht op de referentie. Exact-match comparison/shell replica's moeten daarnaast hun decoratieve anchors, ster-rating en vergelijking-iconografie direct goed meenemen; feature-54-achtige feature/media sections moeten grote media plus icon rows behouden, en Slider 7-achtige sliders moeten counter, peek cards, active state en echte controls bevatten. Als een gewone chatclient per ongeluk nog eens create-theme-section op exact dezelfde net aangemaakte section-key aanroept voor een refinement, kan de runtime die follow-up nu veilig omzetten naar een existing_edit rewrite in plaats van opnieuw op create vast te lopen.",
   docsDescription:
-    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Gebruik deze tool nooit om een bestaand section-bestand te wijzigen, ook niet als dat bestand net in dezelfde sessie is aangemaakt. Zodra de target-key al bestaat moet de flow omschakelen naar `plan-theme-edit intent='existing_edit'` en daarna naar `draft-theme-artifact mode=\"edit\"` of `patch-theme-file`. Voor gewone stateless chatclients zet de runtime een herhaalde create op exact dezelfde net aangemaakte section-key nu ook veilig om naar een existing_edit rewrite wanneer duidelijk is dat het om een refinement-follow-up gaat. Vereist: expliciet `themeId` of `themeRole='main'`, exact één section-bestand (`key` of `handle`) en de volledige Liquid-inhoud. Gebruik themeId voor development/unpublished/demo themes. Geef na `plan-theme-edit` de compacte `plannerHandoff` door wanneer die beschikbaar is, en geef screenshot-, URL- of referentie-analyse mee via `visualBrief`, `referenceAnalysis` of `designBrief` zodat stateless clients geen replica-context verliezen. Lees na `plan-theme-edit` bij voorkeur eerst de exacte `nextReadKeys` in; wanneer die planner-reads veilig exact afleidbaar zijn probeert deze tool ze nu eerst automatisch met `includeContent=true` te hydrateren. Als zo'n planner-read alleen representatieve theme-context voor een net-new standalone section was en ontbreekt in het doeltheme, accepteert de tool een bestaande section/snippet/layout-read op hetzelfde theme als `substituteRepresentativeRead` in plaats van te blijven blokkeren op de stale key. Wanneer er helemaal geen fallback bestaat, gaat de net-new standalone create door met generieke Shopify OS 2.0-validatie en een waarschuwing; exacte contextreads voor bestaande edits/native flows blijven hard beschermd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme zonder willekeurige section-creatie te blokkeren op een niet-bestaand voorbeeldbestand. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid` en `tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. De preflight bundelt deterministische codegen-, recipe-, editor-contract- en lokale create-fouten vóór de write; failure responses blijven standaard compact en laten zware planner/codegen/theme payloads weg tenzij `verbosity='debug'` of `includeContracts=true` wordt gebruikt. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Voor zulke replica-prompts verwacht deze tool directe finale styling in de eerste create-write; vraag dus niet eerst om extra toestemming om het daarna pixel-perfect te maken. Als de referentie alleen screenshot-gedreven is en er geen losse bron-assets zijn, mag de eerste write nu wel renderbare demo-media of een gestileerde media shell gebruiken zolang de compositie, styling en merchant-editable settings trouw aan de referentie blijven. Bij exact-match comparison/shell replica's moeten ook onderscheidende decoratieve anchors zoals floating productmedia, badges/seals, echte ster-ratings, vergelijking-iconografie en de juiste outer-shell strategie in de eerste write aanwezig zijn; te generieke tabel-baselines, blokjes als sterren of dubbele background-shells worden nu expliciet teruggestuurd door de validator. Feature-54-achtige replica's moeten als feature/media-list worden behandeld met grote productmedia en icon-feature-rows. Slider 7-achtige replica's moeten counter, peek-neighbour cards, active-slide contrast, zes preset-slides en echte slidercontrols bevatten. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
+    "Maak een nieuwe Shopify section in `sections/<handle>.liquid`. Dit is de primaire eerste write-tool voor nieuwe sections en een duidelijke wrapper rond de guarded create-flow. Gebruik deze dus vóór `apply-theme-draft`; die tool is alleen bedoeld voor een bestaand opgeslagen draftId. Gebruik deze tool nooit om een bestaand section-bestand te wijzigen, ook niet als dat bestand net in dezelfde sessie is aangemaakt. Zodra de target-key al bestaat moet de flow omschakelen naar `plan-theme-edit intent='existing_edit'` en daarna naar `draft-theme-artifact mode=\"edit\"` of `patch-theme-file`. Voor gewone stateless chatclients zet de runtime een herhaalde create op exact dezelfde net aangemaakte section-key nu ook veilig om naar een existing_edit rewrite wanneer duidelijk is dat het om een refinement-follow-up gaat. Vereist: expliciet `themeId` of `themeRole='main'`, óf één sectionbestand (`key`/`handle` + volledige Liquid), óf `files[]` met exact één primaire `sections/<handle>.liquid` plus alleen direct gebruikte snippets, blocks, text-assets of locales. Gebruik `draft-theme-artifact mode=\"create\"` direct wanneer `plan-theme-edit` `create-composite-section` aanbeveelt. Gebruik themeId voor development/unpublished/demo themes. Geef na `plan-theme-edit` de compacte `plannerHandoff` door wanneer die beschikbaar is, en geef screenshot-, URL- of referentie-analyse mee via `visualBrief`, `referenceAnalysis` of `designBrief` zodat stateless clients geen replica-context verliezen. Lees na `plan-theme-edit` bij voorkeur eerst de exacte `nextReadKeys` in; wanneer die planner-reads veilig exact afleidbaar zijn probeert deze tool ze nu eerst automatisch met `includeContent=true` te hydrateren. Als zo'n planner-read alleen representatieve theme-context voor een net-new standalone section was en ontbreekt in het doeltheme, accepteert de tool een bestaande section/snippet/layout-read op hetzelfde theme als `substituteRepresentativeRead` in plaats van te blijven blokkeren op de stale key. Wanneer er helemaal geen fallback bestaat, gaat de net-new standalone create door met generieke Shopify OS 2.0-validatie en een waarschuwing; exacte contextreads voor bestaande edits/native flows blijven hard beschermd. Zo blijft de generatie afgestemd op bestaande wrappers, helpers, schaalconventies en inherited classes van het doeltheme zonder willekeurige section-creatie te blokkeren op een niet-bestaand voorbeeldbestand. De tool normaliseert veilige compat-velden zoals `targetFile`, `content`, `liquid`, `files[]` en `tool_input_summary`, maar vrije summary-tekst mag nooit de daadwerkelijke code vervangen. Intern leidt de tool eerst compacte theme-context én section-category metadata af via `plan-theme-edit`-achtige logica of recente planner-memory, zodat create-validatie niet blind op hero-schaal aannames of parser-onveilige JS/Liquid patronen schrijft. De preflight bundelt deterministische codegen-, recipe-, editor-contract-, hulpbestand- en lokale create-fouten vóór de write; failure responses blijven standaard compact en laten zware planner/codegen/theme payloads weg tenzij `verbosity='debug'` of `includeContracts=true` wordt gebruikt. Exacte screenshot/design-replica prompts blijven daardoor in precision-first mode wanneer dezelfde flow net al gepland was. Voor zulke replica-prompts verwacht deze tool directe finale styling in de eerste create-write; vraag dus niet eerst om extra toestemming om het daarna pixel-perfect te maken. Als de referentie alleen screenshot-gedreven is en er geen losse bron-assets zijn, mag de eerste write nu wel renderbare demo-media of een gestileerde media shell gebruiken zolang de compositie, styling en merchant-editable settings trouw aan de referentie blijven. Bij exact-match comparison/shell replica's moeten ook onderscheidende decoratieve anchors zoals floating productmedia, badges/seals, echte ster-ratings, vergelijking-iconografie en de juiste outer-shell strategie in de eerste write aanwezig zijn; te generieke tabel-baselines, blokjes als sterren of dubbele background-shells worden nu expliciet teruggestuurd door de validator. Feature-54-achtige replica's moeten als feature/media-list worden behandeld met grote productmedia en icon-feature-rows. Slider 7-achtige replica's moeten counter, peek-neighbour cards, active-slide contrast, zes preset-slides en echte slidercontrols bevatten. Daarna gebruikt deze tool `draft-theme-artifact mode=\"create\"`, inclusief lokale schema-inspectie, theme-check lint, theme-scale sanity checks, interactieve/media guardrails en preview-write validatie.",
   inputSchema: CreateThemeSectionPublicObjectSchema,
   schema: CreateThemeSectionInputSchema,
   execute: async (rawInput, context = {}) => {
@@ -836,6 +1156,39 @@ const createThemeSectionTool = {
       );
     }
 
+    const createWriteFiles = buildCreateThemeSectionWriteFiles(input);
+    const fileSetInspection = collectCreateThemeSectionFileSetIssues(
+      createWriteFiles,
+      input.key
+    );
+    if (fileSetInspection.warnings.length > 0) {
+      liquidNormalizationWarnings.push(...fileSetInspection.warnings);
+    }
+    if (fileSetInspection.issues.length > 0) {
+      return buildCreateSectionRepairResponse({
+        status: "inspection_failed",
+        message:
+          "Deze complete section-create bevat ongeldige of niet-gekoppelde hulpbestanden.",
+        errorCode: "invalid_create_file_set",
+        nextAction: "fix_create_files",
+        retryMode: "same_request_after_fix",
+        normalizedArgs: summarizeNormalizedCreateArgs({
+          ...input,
+          files: createWriteFiles,
+        }),
+        nextArgsTemplate: buildCreateSectionArgsTemplate({
+          ...input,
+          files: createWriteFiles,
+        }),
+        warnings: liquidNormalizationWarnings,
+        errors: fileSetInspection.issues,
+        repairPrompt: buildSectionRepairPrompt(fileSetInspection.issues),
+      });
+    }
+    if (fileSetInspection.suggestedFixes.length > 0) {
+      liquidNormalizationWarnings.push(...fileSetInspection.suggestedFixes);
+    }
+
     const shopifyClient = requireShopifyClient(context);
     const memoryState = getThemeEditMemory(context);
     const providedPlannerHandoff =
@@ -928,11 +1281,14 @@ const createThemeSectionTool = {
       const existingResult = await getThemeFiles(shopifyClient, API_VERSION, {
         themeId: input.themeId,
         themeRole: input.themeRole,
-        keys: [input.key],
+        keys: createWriteFiles.map((file) => file.key),
         includeContent: false,
       });
-      const existingFile = existingResult.files?.find((file) => file.key === input.key);
-      if (existingFile && !existingFile.missing && existingFile.found !== false) {
+      const existingFiles = (existingResult.files || []).filter(
+        (file) => file && !file.missing && file.found !== false
+      );
+      const existingFile = existingFiles.find((file) => file.key === input.key);
+      if (existingFiles.length > 0) {
         const alternateKeySuggestions = buildAlternateSectionKeySuggestions(input.key);
         const {
           explicitThemeTarget,
@@ -964,7 +1320,7 @@ const createThemeSectionTool = {
           recentlyReadSameSection ||
           plannerHandoff?.intent === "existing_edit";
 
-        if (recentlyCreatedSameSection && followUpRefinementRequested) {
+        if (createWriteFiles.length === 1 && recentlyCreatedSameSection && followUpRefinementRequested) {
           const autoSwitchWarning =
             "create-theme-section heeft deze follow-up veilig omgezet naar een existing_edit rewrite, omdat dezelfde section net in deze flow is aangemaakt en daarna opnieuw op exact dezelfde key werd verfijnd.";
           const autoSwitchedResult = await draftThemeArtifact.execute(
@@ -1029,7 +1385,7 @@ const createThemeSectionTool = {
         return buildCreateSectionRepairResponse({
           status: "inspection_failed",
           message:
-            `Nieuwe section-create geblokkeerd: '${input.key}' bestaat al in het doeltheme. Gebruik een edit/patch-flow in plaats van create.`,
+            `Nieuwe section-create geblokkeerd: ${existingFiles.map((file) => `'${file.key}'`).join(", ")} bestaat al in het doeltheme. Gebruik een edit/patch-flow in plaats van create.`,
           errorCode: "existing_section_key_conflict",
           normalizedArgs,
           nextAction: "choose_edit_or_alternate_key",
@@ -1088,17 +1444,17 @@ const createThemeSectionTool = {
             },
           ],
           errors: [
-            buildCreateSectionError({
+            ...existingFiles.map((file) => buildCreateSectionError({
               path: ["key"],
               problem:
-                `Bestand '${input.key}' bestaat al. create-theme-section mag geen bestaande section overschrijven.`,
+                `Bestand '${file.key}' bestaat al. create-theme-section mag geen bestaande theme files overschrijven.`,
               fixSuggestion:
                 alternateKeySuggestions.length > 0
                   ? `Gebruik plan-theme-edit met intent='existing_edit' om het bestaande bestand te wijzigen, of kies een nieuw bestand zoals '${alternateKeySuggestions[0]}' als je toch een aparte nieuwe section wilt.`
                   : "Gebruik plan-theme-edit met intent='existing_edit' en schrijf daarna via patch-theme-file of draft-theme-artifact mode='edit'.",
               suggestedReplacement:
                 alternateKeySuggestions.length > 0 ? alternateKeySuggestions[0] : undefined,
-            }),
+            })),
           ],
         });
       }
@@ -1510,12 +1866,7 @@ const createThemeSectionTool = {
         isStandalone: input.isStandalone,
         verbosity: input.verbosity || "compact",
         includeContracts: input.includeContracts === true,
-        files: [
-          {
-            key: input.key,
-            value: input.liquid,
-          },
-        ],
+        files: createWriteFiles,
       },
       {
         ...context,
@@ -1608,7 +1959,7 @@ const createThemeSectionTool = {
           themeRole: input.themeRole,
           intent: "new_section",
           mode: "create",
-          files: [{ key: input.key }],
+          files: createWriteFiles.map((file) => ({ key: file.key })),
           createdSectionFile: input.key,
         });
       }
@@ -1646,7 +1997,7 @@ const createThemeSectionTool = {
           themeRole: input.themeRole,
           intent: "new_section",
           mode: "create",
-          files: [{ key: input.key }],
+          files: createWriteFiles.map((file) => ({ key: file.key })),
           createdSectionFile: input.key,
         });
       }

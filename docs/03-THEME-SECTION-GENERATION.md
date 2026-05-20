@@ -98,6 +98,18 @@ Voorbeeldprompt:
 Maak een comparison table section voor product voordelen met 3 kolommen en CTA.
 ```
 
+### Complete section bundles
+Gebruik dit wanneer een nieuwe section aantoonbaar meer nodig heeft dan één `sections/*.liquid` bestand, bijvoorbeeld een herbruikbare renderer-snippet, een theme block, een gedeelde statische CSS/JS asset of locale keys.
+
+Canonical route:
+1. `plan-theme-edit` met `intent="new_section"`.
+2. Als `recommendedFlow="create-composite-section"` of `writePolicy.preferredTool="draft-theme-artifact"` terugkomt, schrijf dan via `draft-theme-artifact mode="create"` met `files[]`.
+3. `files[]` moet exact één primaire `sections/<handle>.liquid` bevatten. Toegestane hulpbestanden zijn alleen direct gerelateerde `snippets/*.liquid`, `blocks/*.liquid`, text-assets onder `assets/*.css|js|json|svg` en `locales/*.json`.
+4. Elk hulpbestand moet door de primaire section of meegeleverde Liquid files worden gerenderd of geladen. Orphan snippets/assets worden geblokkeerd.
+5. Templates/config blijven geblokkeerd in create mode. Placement op een homepage/producttemplate blijft een aparte `mode="edit"` stap nadat de section valide is.
+
+`create-theme-section` accepteert dezelfde bundle-vorm als veilige wrapper, maar bij expliciete multi-file generatie is `draft-theme-artifact mode="create"` de canonical advanced write. CSS/JS assets mogen geen Liquid bevatten; Liquid-afhankelijke styling blijft in `<style>` of `<script>` binnen de section markup.
+
 ### Compacte planner-output, Codegen Contract en preflight-profielen
 `plan-theme-edit` retourneert standaard een compacte, machine-actionable route: `target`, `goldenPath`, `writePolicy`, `doNotUse`, `requiredReads`, `constraints`, `sectionContract`, `codegenPrompt`, `completionGate`, `plannerHandoff`, `readContext`, `architecture`, `nextTool` en `writeTool`. Volledige debugvelden zoals `sectionBlueprint` en extra context zijn opt-in via `includeContracts: true` of `verbosity: "debug"`.
 

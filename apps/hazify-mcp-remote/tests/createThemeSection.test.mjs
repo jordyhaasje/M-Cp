@@ -330,6 +330,90 @@ test("createThemeSection - forwards static section blueprint and theme context f
   );
 });
 
+test("createThemeSection - forwards complete section bundles with referenced snippets and assets", serial, async () => {
+  global.fetch = createGraphqlFetch(plannerFiles);
+
+  let capturedInput = null;
+  draftThemeArtifact.execute = async (input) => {
+    capturedInput = input;
+    return {
+      success: true,
+      status: "preview_ready",
+      warnings: [],
+    };
+  };
+
+  const parsed = createThemeSectionTool.schema.parse({
+    themeId: 123,
+    files: [
+      {
+        key: "sections/hazify-composite.liquid",
+        value: `
+{{ 'hazify-composite.css' | asset_url | stylesheet_tag }}
+<style>
+  #shopify-section-{{ section.id }} .hazify-composite {
+    display: grid;
+    gap: 24px;
+  }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .hazify-composite {
+      gap: 16px;
+    }
+  }
+</style>
+<section class="hazify-composite page-width">
+  <h2>{{ section.settings.heading }}</h2>
+  {% render 'hazify-composite-card', title: section.settings.heading %}
+</section>
+{% schema %}
+{
+  "name": "Hazify composite",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Complete section" }
+  ],
+  "presets": [{ "name": "Hazify composite" }]
+}
+{% endschema %}
+`,
+      },
+      {
+        key: "snippets/hazify-composite-card.liquid",
+        value: `
+{% doc %}
+  Renders the card used by the Hazify composite section.
+{% enddoc %}
+<article class="hazify-composite__card">
+  <p>{{ title }}</p>
+</article>
+`,
+      },
+      {
+        key: "assets/hazify-composite.css",
+        value: ".hazify-composite{display:grid;gap:24px}.hazify-composite__card{border:1px solid currentColor;padding:16px}",
+      },
+    ],
+  });
+
+  assert.equal(parsed.key, "sections/hazify-composite.liquid");
+  assert.equal(parsed.files.length, 3);
+
+  const result = await createThemeSectionTool.execute(parsed, {
+    shopifyClient,
+    tokenHash: "create-theme-composite",
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(capturedInput.mode, "create");
+  assert.deepEqual(
+    capturedInput.files.map((file) => file.key),
+    [
+      "sections/hazify-composite.liquid",
+      "snippets/hazify-composite-card.liquid",
+      "assets/hazify-composite.css",
+    ]
+  );
+});
+
 test("createThemeSection - summary-only Dream prompt requires complete Liquid instead of generating a fallback", serial, async () => {
   global.fetch = createGraphqlFetch(plannerFiles);
 

@@ -30,6 +30,7 @@ const baseUrl = `http://127.0.0.1:${port}`;
 
 const originalFetch = global.fetch;
 let capturedStripeCheckoutBody = null;
+let capturedStripePortalBody = null;
 
 global.fetch = async (input, init = {}) => {
   const url = new URL(typeof input === "string" ? input : input.url);
@@ -47,8 +48,12 @@ global.fetch = async (input, init = {}) => {
       "write_orders",
       "read_fulfillments",
       "read_inventory",
+      "read_assigned_fulfillment_orders",
+      "write_assigned_fulfillment_orders",
       "read_merchant_managed_fulfillment_orders",
       "write_merchant_managed_fulfillment_orders",
+      "read_third_party_fulfillment_orders",
+      "write_third_party_fulfillment_orders",
       "read_themes",
       "write_themes",
     ];
@@ -75,6 +80,26 @@ global.fetch = async (input, init = {}) => {
       JSON.stringify({
         id: "cs_test_account_binding",
         url: "https://checkout.stripe.test/session/account-binding",
+      }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }
+    );
+  }
+
+  if (url.href === "https://api.stripe.com/v1/billing_portal/sessions") {
+    const rawBody =
+      typeof init.body === "string"
+        ? init.body
+        : init.body && typeof init.body.toString === "function"
+        ? init.body.toString()
+        : "";
+    capturedStripePortalBody = new URLSearchParams(rawBody);
+    return new Response(
+      JSON.stringify({
+        id: "bps_test_account_binding",
+        url: "https://billing.stripe.test/session/account-binding",
       }),
       {
         status: 200,
@@ -117,6 +142,7 @@ try {
     body: JSON.stringify({
       licenseKey: paidLicenseKey,
       status: "active",
+      stripeCustomerId: "cus_paid_signup",
     }),
   });
   assert.equal(createLicenseResponse.status, 201, "admin should create an active license");
@@ -132,6 +158,11 @@ try {
     }),
   });
   assert.equal(signupResponse.status, 201, "signup with a paid license key should succeed");
+  assert.equal(
+    signupResponse.headers.get("cache-control"),
+    "no-store",
+    "JSON responses carrying account/session context should be no-store"
+  );
   const signupBody = await signupResponse.json();
   assert.equal(
     signupBody?.account?.licenseKey,
@@ -157,6 +188,36 @@ try {
     connectBody?.mcp?.targetResource,
     "https://mcp.example.test/mcp",
     "onboarding-created MCP tokens should be bound to the public MCP resource"
+  );
+
+  const unauthPortalResponse = await fetch(`${baseUrl}/v1/billing/create-portal-session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      customerId: "cus_paid_signup",
+      returnUrl: "https://evil.example/portal",
+    }),
+  });
+  assert.equal(unauthPortalResponse.status, 401, "portal sessions require account auth");
+
+  const portalResponse = await fetch(`${baseUrl}/v1/billing/create-portal-session`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Cookie: extractCookie(signupResponse),
+    },
+    body: JSON.stringify({
+      customerId: "cus_attacker_supplied_is_ignored",
+      returnUrl: `${baseUrl}/dashboard`,
+    }),
+  });
+  assert.equal(portalResponse.status, 200, "authenticated portal session should be created");
+  const portalBody = await portalResponse.json();
+  assert.equal(portalBody?.portalUrl, "https://billing.stripe.test/session/account-binding");
+  assert.equal(
+    capturedStripePortalBody?.get("customer"),
+    "cus_paid_signup",
+    "portal customer must be derived from the account license, not caller payload"
   );
 
   const email = `license-adopt-${Date.now()}@example.test`;

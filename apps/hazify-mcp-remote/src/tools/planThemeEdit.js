@@ -790,6 +790,7 @@ const buildPlanWriteArgsTemplate = (input = {}, result = {}) => {
     const preferFullRewrite =
       result?.recommendedFlow === "rewrite-existing" ||
       result?.sectionBlueprint?.writeStrategy?.preferFullRewriteAfterCreate === true;
+    const isCompositeCreate = result?.recommendedFlow === "create-composite-section";
     const isEditModeFlow =
       result?.recommendedFlow === "rewrite-existing" ||
       result?.recommendedFlow === "template-placement" ||
@@ -818,17 +819,26 @@ const buildPlanWriteArgsTemplate = (input = {}, result = {}) => {
     return {
       ...explicitThemeTarget,
       mode: isEditModeFlow ? "edit" : "create",
-      files: [
-        {
-          key:
-            result?.nextWriteKeys?.[0] ||
-            result?.newFileSuggestions?.[0] ||
-            "<theme-file>",
-          value: preferFullRewrite
-            ? "<full rewritten file content>"
-            : "<complete file content or use patch/patches for edits>",
-        },
-      ],
+      files: isCompositeCreate
+        ? (result?.newFileSuggestions || ["sections/<new-section>.liquid"]).map((key) => ({
+            key,
+            value: String(key).startsWith("sections/")
+              ? "<complete primary Shopify Liquid section with final styling, valid {% schema %}, and explicit references to every helper file>"
+              : String(key).startsWith("assets/")
+                ? "<static text asset content; no Liquid inside CSS/JS assets>"
+                : "<complete helper file content directly rendered or loaded by the primary section>",
+          }))
+        : [
+            {
+              key:
+                result?.nextWriteKeys?.[0] ||
+                result?.newFileSuggestions?.[0] ||
+                "<theme-file>",
+              value: preferFullRewrite
+                ? "<full rewritten file content>"
+                : "<complete file content or use patch/patches for edits>",
+            },
+          ],
     };
   }
 
@@ -1042,7 +1052,6 @@ const buildPlanDoNotUse = ({ changeScope, writeTool, intent } = {}) => {
     return uniqueStrings([
       "patch-theme-file",
       "apply-theme-draft",
-      ...(writeTool === "create-theme-section" ? ["draft-theme-artifact"] : []),
     ]);
   }
   if (changeScope === "bounded_rewrite" || changeScope === "multi_file_structural_edit") {
@@ -1067,7 +1076,9 @@ const buildPlanWritePolicy = ({ input = {}, result = {}, writeTool = null } = {}
   });
   const allowedTools =
     changeScope === "net_new_generation"
-      ? ["create-theme-section"]
+      ? writeTool === "draft-theme-artifact"
+        ? ["draft-theme-artifact", "create-theme-section"]
+        : ["create-theme-section", "draft-theme-artifact"]
       : changeScope === "micro_patch"
         ? ["patch-theme-file", "draft-theme-artifact"]
         : ["draft-theme-artifact"];

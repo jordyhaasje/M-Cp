@@ -9,7 +9,9 @@ import {
 } from "../src/services/billing.js";
 
 const baseConfig = {
+  billingMode: "stripe",
   freeMode: false,
+  stripeBillingEnabled: true,
   stripeMode: "test",
   stripeSecretKey: "sk_test_123",
   stripeWebhookSecret: "whsec_123",
@@ -48,12 +50,14 @@ assert.equal(isStripeModePaymentLink("https://buy.stripe.com/test_abc", "live"),
 
 assert.deepEqual(billingDisabledPayload(), {
   error: "billing_disabled",
-  message: "Billing is disabled because HAZIFY_FREE_MODE=true",
+  message: "Billing is disabled because HAZIFY_BILLING_MODE=free",
+  billingMode: "free",
   freeMode: true,
 });
 
 const paidReadiness = billingReadiness(baseConfig);
-assert.equal(paidReadiness.mode, "paid");
+assert.equal(paidReadiness.mode, "stripe");
+assert.equal(paidReadiness.billingMode, "stripe");
 assert.equal(paidReadiness.freeMode, false);
 assert.equal(paidReadiness.readyForManagedCheckout, true);
 assert.equal(paidReadiness.readyForPaymentLinks, true);
@@ -61,8 +65,14 @@ assert.equal(paidReadiness.readyForOnboarding, true);
 assert.equal(paidReadiness.stripe.secretMatchesMode, true);
 assert.equal(paidReadiness.stripe.linksMatchMode, true);
 
-const freeReadiness = billingReadiness({ ...baseConfig, freeMode: true });
+const freeReadiness = billingReadiness({
+  ...baseConfig,
+  billingMode: "free",
+  freeMode: true,
+  stripeBillingEnabled: false,
+});
 assert.equal(freeReadiness.mode, "free");
+assert.equal(freeReadiness.billingMode, "free");
 assert.equal(freeReadiness.freeMode, true);
 assert.equal(freeReadiness.readyForManagedCheckout, false);
 assert.equal(freeReadiness.readyForPaymentLinks, false);

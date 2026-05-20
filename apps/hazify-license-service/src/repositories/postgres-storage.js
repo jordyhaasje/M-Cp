@@ -202,6 +202,22 @@ export class PostgresStorage {
     await this.pool.end();
   }
 
+  async readyCheck() {
+    if (this.closed) {
+      return {
+        database: false,
+        singleWriter: false,
+        closed: true,
+      };
+    }
+    const result = await this.pool.query("SELECT 1 AS ok");
+    return {
+      database: Number(result.rows?.[0]?.ok) === 1,
+      singleWriter: !this.singleWriterEnforced || Boolean(this.writerLockClient),
+      singleWriterEnforced: this.singleWriterEnforced,
+    };
+  }
+
   async ensureSchema() {
     if (this.testSchemaCompatibility) {
       const testSchemaStatements = [

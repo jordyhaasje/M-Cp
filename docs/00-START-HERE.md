@@ -10,8 +10,7 @@ Dit is het startpunt voor de Hazify monorepo. Deze workspace bevat de productiec
 4. `docs/03-THEME-SECTION-GENERATION.md` (Canonical section/block generatieflows en voorbeelden)
 5. `docs/04-MCP-REMOTE-AUDIT.md` (Actuele audit, code-map, capabilities, open punten en acceptatiecriteria)
 6. `docs/05-REMEDIATION-PLAN.md` (Actuele releasekaart, docs cleanup besluit en handoff)
-7. `docs/06-THEME-TOOLS-E2E-QA-2026-05-09.md` (Live theme-tools QA-log, bugtracker, fixplan en hertest-status)
-8. `AGENTS.md` (Root - interne maintainerregels voor AI-agents, mutaties en workflows)
+7. `AGENTS.md` (Root - interne maintainerregels voor AI-agents, mutaties en workflows)
 
 **Gouden regel:** Als documentatie en code elkaar tegenspreken, is de code *altijd* leidend. Update de documentatie in dezelfde wijziging.
 
@@ -28,7 +27,6 @@ De monorepo is opgebouwd via npm workspaces. Runtimecode leeft in de app-`src/` 
 - `docs/03-THEME-SECTION-GENERATION.md`: praktijkgids voor screenshot/text-only section generation, native block flows, placement en structurele generation-regels
 - `docs/04-MCP-REMOTE-AUDIT.md`: canonieke audit voor MCP-gedrag, capabilities, beveiligingswaarheid, code-map en open punten
 - `docs/05-REMEDIATION-PLAN.md`: actuele releasekaart voor production readiness, docs-governance en handoff
-- `docs/06-THEME-TOOLS-E2E-QA-2026-05-09.md`: actuele QA-tracker voor de live theme-tool test en regressiefixes rond OS 2.0 section generation
 
 ## 4. Standaard Workflow & Runbook
 Gebruik onderstaande fases als canonieke releasevolgorde. `npm run smoke:prod` hoort nadrukkelijk pas ná een Railway deploy.

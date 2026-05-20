@@ -21,6 +21,7 @@ import {
 import dotenv from "dotenv";
 import minimist from "minimist";
 import { createShopifyGraphqlClient } from "./lib/shopifyGraphqlClient.js";
+import { tryAcquireMutationLock } from "./lib/db.js";
 import { createHazifyToolRegistry, registerHazifyTools } from "./tools/registry.js";
 // Parse command line arguments
 const argv = minimist(process.argv.slice(2));
@@ -64,6 +65,9 @@ const HAZIFY_MCP_ALLOWED_HOSTS = normalizeAllowedHostnames([
 ]);
 const MCP_SESSION_MODE = String(argv.sessionMode || process.env.MCP_SESSION_MODE || "stateless").trim().toLowerCase();
 const MCP_STATEFUL_DEPLOYMENT_SAFE = String(argv.statefulDeploymentSafe || process.env.MCP_STATEFUL_DEPLOYMENT_SAFE || "")
+    .trim()
+    .toLowerCase() === "true";
+const SHOPIFY_CLIENT_CACHE_ENABLED = String(process.env.HAZIFY_MCP_SHOPIFY_CLIENT_CACHE || "")
     .trim()
     .toLowerCase() === "true";
 const SERVER_VERSION = "1.1.0";
@@ -330,7 +334,7 @@ const ensureRemoteShopifyClient = async (context) => {
     }
     const tenantId = String(context?.tenantId || "unknown");
     const tokenId = typeof context?.tokenId === "string" ? context.tokenId : null;
-    if (tokenHash && HAZIFY_MCP_CONTEXT_TTL_MS > 0) {
+    if (SHOPIFY_CLIENT_CACHE_ENABLED && tokenHash && HAZIFY_MCP_CONTEXT_TTL_MS > 0) {
         const cachedContext = remoteContextCache.get(tokenHash);
         if (cachedContext && cachedContext.expiresAtMs > Date.now()) {
             const cached = cachedContext.context;
@@ -346,8 +350,8 @@ const ensureRemoteShopifyClient = async (context) => {
         }
     }
     const cacheKey = `${tenantId}:${domain}`;
-    let cachedShopifyClient = remoteShopifyClientCache.get(cacheKey);
-    if (cachedShopifyClient && cachedShopifyClient.expiresAtMs > Date.now()) {
+    let cachedShopifyClient = SHOPIFY_CLIENT_CACHE_ENABLED ? remoteShopifyClientCache.get(cacheKey) : null;
+    if (SHOPIFY_CLIENT_CACHE_ENABLED && cachedShopifyClient && cachedShopifyClient.expiresAtMs > Date.now()) {
         const hydratedContext = freezeExecutionContext({
             ...context,
             shopifyClient: cachedShopifyClient.client,
@@ -369,7 +373,7 @@ const ensureRemoteShopifyClient = async (context) => {
         throw new Error("Token exchange domain mismatch");
     }
     const credentialFingerprint = sha256Hex(exchange.accessToken);
-    cachedShopifyClient = remoteShopifyClientCache.get(cacheKey);
+    cachedShopifyClient = SHOPIFY_CLIENT_CACHE_ENABLED ? remoteShopifyClientCache.get(cacheKey) : null;
     if (!cachedShopifyClient ||
         cachedShopifyClient.credentialFingerprint !== credentialFingerprint ||
         cachedShopifyClient.expiresAtMs <= Date.now()) {
@@ -383,13 +387,17 @@ const ensureRemoteShopifyClient = async (context) => {
             credentialFingerprint,
             expiresAtMs: exchange.expiresAtMs,
         };
-        remoteShopifyClientCache.set(cacheKey, cachedShopifyClient);
+        if (SHOPIFY_CLIENT_CACHE_ENABLED) {
+            remoteShopifyClientCache.set(cacheKey, cachedShopifyClient);
+        }
     }
     const hydratedContext = freezeExecutionContext({
         ...context,
         shopifyClient: cachedShopifyClient.client,
     });
-    cacheRemoteContext(tokenHash, hydratedContext);
+    if (SHOPIFY_CLIENT_CACHE_ENABLED) {
+        cacheRemoteContext(tokenHash, hydratedContext);
+    }
     return hydratedContext;
 };
 const tenantToolExecutionLocks = new Map();
@@ -549,7 +557,19 @@ async function runLicensedTool(tool, args) {
     if (!mutating) {
         return executeTool();
     }
-    return runSerializedByKey(context.tenantId || context.tokenHash, executeTool);
+    return runSerializedByKey(context.tenantId || context.tokenHash, async () => {
+        const mutationLockKey = `${context.tenantId || context.tokenHash || "unknown"}:${context.shopifyDomain || "unknown"}`;
+        const releaseMutationLock = await tryAcquireMutationLock(mutationLockKey);
+        if (!releaseMutationLock) {
+            throw new Error("Another mutating Shopify operation is already running for this tenant/shop. Retry after the current operation finishes.");
+        }
+        try {
+            return await executeTool();
+        }
+        finally {
+            await releaseMutationLock();
+        }
+    });
 }
 hazifyToolRegistry = createHazifyToolRegistry({
     getLicenseStatusExecute: createGetLicenseStatusExecute(),

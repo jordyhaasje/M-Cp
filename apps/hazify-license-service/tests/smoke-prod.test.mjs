@@ -3,9 +3,14 @@ import { runSmokeChecks } from "../../../scripts/smoke-prod.mjs";
 
 const requests = [];
 
-function response(status, body = "") {
+function response(status, body = "", headers = {}) {
   return {
     status,
+    headers: {
+      get(name) {
+        return headers[String(name || "").toLowerCase()] || null;
+      },
+    },
     async text() {
       return body;
     },
@@ -34,6 +39,10 @@ await runSmokeChecks({
   },
 });
 
+assert(
+  requests.some((entry) => entry.url.endsWith("/ready")),
+  "smoke checks should include the license ready endpoint"
+);
 assert(
   requests.some((entry) => entry.url.endsWith("/v1/admin/readiness")),
   "smoke checks should include admin readiness when ADMIN_API_KEY is present"
@@ -76,7 +85,11 @@ await runSmokeChecks({
         return response(401, '{"error":"unauthorized"}');
       }
       if (payload.method === "initialize") {
-        return response(200, JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: { protocolVersion: "2025-11-05" } }));
+        return response(
+          200,
+          JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: { protocolVersion: "2025-11-05" } }),
+          { "mcp-session-id": "smoke-session-1" }
+        );
       }
       if (payload.method === "tools/list") {
         return response(
@@ -111,7 +124,7 @@ await runSmokeChecks({
       }
       if (payload.method === "tools/call" && payload.params?.name === "set-order-tracking") {
         return response(
-          200,
+          403,
           JSON.stringify({
             jsonrpc: "2.0",
             id: payload.id,

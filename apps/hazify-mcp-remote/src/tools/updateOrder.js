@@ -3,6 +3,7 @@ import { requireShopifyClient } from "./_context.js";
 import { buildShopifyUserErrorResponse } from "../lib/shopifyToolErrors.js";
 import { z } from "zod";
 import { resolveOrderIdentifier } from "../lib/orderIdentifier.js";
+import { recordMutationAudit } from "../lib/mutationAudit.js";
 
 const TrackingInputSchema = z
   .object({
@@ -379,6 +380,19 @@ const updateOrder = {
         };
       }
 
+      const { auditLog, auditWarning } = await recordMutationAudit({
+        context,
+        shopifyClient,
+        toolName: "update-order",
+        reason: input.reason,
+        targetIds: [resolvedOrderId],
+        payload: {
+          confirmation: input.confirmation,
+          changedFields: Object.keys(orderFields),
+          orderId: orderUpdateResponse.orderUpdate.order?.id || resolvedOrderId,
+        },
+      });
+
       return {
         order: formatOrderResponse(orderUpdateResponse.orderUpdate.order),
         resolvedOrder: {
@@ -386,6 +400,15 @@ const updateOrder = {
           resolvedId: resolvedOrderId,
           source: resolvedOrder.source,
           matchedByQuery: resolvedOrder.matchedByQuery || null,
+        },
+        audit: {
+          auditLogId: auditLog?.id || null,
+          ...(auditWarning ? { warning: auditWarning } : {}),
+          reason: input.reason,
+          requestId: context?.requestId || null,
+          tenantId: context?.tenantId || null,
+          shopDomain: context?.shopifyDomain || null,
+          targetIds: [resolvedOrderId],
         },
       };
     } catch (error) {
